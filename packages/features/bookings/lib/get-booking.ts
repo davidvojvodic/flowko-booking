@@ -132,6 +132,13 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
     select: {
       id: true,
       userId: true,
+      // Flowko: a booking keeps its seats when its event type stops being seated or is deleted
+      seatsReferences: {
+        select: {
+          id: true,
+        },
+        take: 1,
+      },
       user: {
         select: {
           organizationId: true,
@@ -211,7 +218,8 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
   // If we have the booking and not bookingSeat, we need to make sure the booking belongs to the userLoggedIn
   // Otherwise, we return null here.
   let hasOwnershipOnBooking = false;
-  if (theBooking?.eventType?.seatsPerTimeSlot && bookingSeatReferenceUid === null) {
+  const isSeatedBooking = !!theBooking?.eventType?.seatsPerTimeSlot || !!theBooking?.seatsReferences.length;
+  if (isSeatedBooking && bookingSeatReferenceUid === null) {
     const isOwnerOfBooking = theBooking.userId === userId;
 
     const isHostOfEventType = theBooking?.eventType?.hosts.some((host) => host.userId === userId);
