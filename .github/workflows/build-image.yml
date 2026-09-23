@@ -40,6 +40,8 @@ env:
 jobs:
   build:
     name: "Build and push (linux/amd64)"
+    # workflow_dispatch can target any branch that has this file; only flowko may push flowko-latest
+    if: github.ref == 'refs/heads/flowko'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -53,12 +55,22 @@ jobs:
           grep -o '^[^#]*' .env.example > .env
           docker compose up -d database
 
+      - name: Show database logs and container status
+        run: |
+          echo "--- Container Status ---"
+          docker compose ps database
+
+          echo "--- Container Logs ---"
+          docker compose logs database
+
       # BuildKit joins the database container's network, so DATABASE_URL below is reachable during the build
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: |
             network=container:database
+          buildkitd-flags: |
+            --allow-insecure-entitlement security.insecure --allow-insecure-entitlement network.host
 
       - name: Log in to the GitHub Container registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -66,6 +78,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A blank or missing value would override the Dockerfile default and be compiled in as ""
+      # (NEXT_PUBLIC_DISABLE_SIGNUP="" opens signup), so fail before building instead.
+      - name: Check build args
+        run: |
+          for name in NEXT_PUBLIC_WEBAPP_URL NEXT_PUBLIC_WEBSITE_TERMS_URL NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL \
+            NEXT_PUBLIC_APP_NAME NEXT_PUBLIC_COMPANY_NAME NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS \
+            NEXT_PUBLIC_SENDGRID_SENDER_NAME NEXT_PUBLIC_DISABLE_SIGNUP CALCOM_TELEMETRY_DISABLED MAX_OLD_SPACE_SIZE; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty; set it in the env block of this workflow"
+              exit 1
+            fi
+          done
+          if [ "$NEXT_PUBLIC_DISABLE_SIGNUP" != "true" ] && [ "$NEXT_PUBLIC_DISABLE_SIGNUP" != "false" ]; then
+            echo "::error::NEXT_PUBLIC_DISABLE_SIGNUP must be true or false"
+            exit 1
+          fi
 
       # NEXTAUTH_SECRET and CALENDSO_ENCRYPTION_KEY are not passed: like upstream, the build uses the
       # Dockerfile defaults and the real values are set only at runtime. DATABASE_DIRECT_URL is derived
@@ -80,6 +109,11 @@ jobs:
           tags: |
             ghcr.io/davidvojvodic/flowko-booking:${{ github.sha }}
             ghcr.io/davidvojvodic/flowko-booking:flowko-latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/davidvojvodic/flowko-booking
+            org.opencontainers.image.revision=${{ github.sha }}
+          # mode=min (the default) exports only the final stage's layers, so the builder stages are
+          # never cached and rebuild on every run; this cache saves little beyond the runner base steps.
           cache-from: type=gha
           cache-to: type=gha,ignore-error=true
           build-args: |
