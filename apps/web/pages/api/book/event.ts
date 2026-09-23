@@ -5,6 +5,7 @@ import {
   getBookerSubmittedEmails,
   toPublicBookingResponse,
 } from "@calcom/features/bookings/lib/publicBookingResponse";
+import { stripPublicBookingControls } from "@calcom/features/bookings/lib/stripPublicBookingControls";
 import { BotDetectionService } from "@calcom/features/bot-detection";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
@@ -46,7 +47,7 @@ async function handler(req: NextApiRequest & { userId?: number; traceContext: Tr
   const session = await getServerSession({ req });
   /* To mimic API behavior and comply with types */
   req.body = {
-    ...req.body,
+    ...stripPublicBookingControls(req.body),
     creationSource: CreationSource.WEBAPP,
   };
 
