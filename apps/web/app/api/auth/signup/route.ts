@@ -13,18 +13,10 @@ import logger from "@calcom/lib/logger";
 import { piiHasher } from "@calcom/lib/server/PiiHasher";
 import { checkCfTurnstileToken } from "@calcom/lib/server/checkCfTurnstileToken";
 import { prisma } from "@calcom/prisma";
-import { signupSchema } from "@calcom/prisma/zod-utils";
 
-async function ensureSignupIsEnabled(body: Record<string, string>) {
-  const { token } = signupSchema
-    .pick({
-      token: true,
-    })
-    .parse(body);
-
-  // Still allow signups if there is a team invite
-  if (token) return;
-
+// Applies to every request, invite tokens included: teams are removed in this fork, so no token
+// can stand for a team invite.
+async function ensureSignupIsEnabled() {
   const featuresRepository = new FeaturesRepository(prisma);
   const signupDisabled = await featuresRepository.checkIfFeatureIsEnabledGlobally("disable-signup");
 
@@ -53,7 +45,7 @@ async function handler(req: NextRequest) {
       remoteIp,
     });
 
-    await ensureSignupIsEnabled(body);
+    await ensureSignupIsEnabled();
 
     /**
      * Im not sure its worth merging these two handlers. They are different enough to be separate.
