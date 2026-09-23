@@ -49,7 +49,7 @@ import type { UserRepository } from "@calcom/features/users/repositories/UserRep
 import { withSelectedCalendars } from "@calcom/features/users/repositories/UserRepository";
 import { filterBlockedHosts } from "@calcom/features/watchlist/operations/filter-blocked-hosts.controller";
 import { shouldIgnoreContactOwner } from "@calcom/lib/bookings/routing/utils";
-import { RESERVED_SUBDOMAINS } from "@calcom/lib/constants";
+import { IS_DYNAMIC_GROUP_BOOKING_ENABLED, RESERVED_SUBDOMAINS } from "@calcom/lib/constants";
 import { getUTCOffsetByTimezone } from "@calcom/lib/dayjs";
 import { descendingLimitKeys, intervalLimitKeyToUnit } from "@calcom/lib/intervalLimits/intervalLimit";
 import type { IntervalLimit } from "@calcom/lib/intervalLimits/intervalLimitSchema";
@@ -198,7 +198,9 @@ export class AvailableSlotsService {
 
     const usersWithOldSelectedCalendars = usersForDynamicEventType.map((user) => withSelectedCalendars(user));
 
-    const isDynamicAllowed = !usersWithOldSelectedCalendars.some((user) => !user.allowDynamicBooking);
+    const isDynamicAllowed =
+      IS_DYNAMIC_GROUP_BOOKING_ENABLED &&
+      !usersWithOldSelectedCalendars.some((user) => !user.allowDynamicBooking);
     if (!isDynamicAllowed) {
       throw new TRPCError({
         message: "Some of the users in this group do not allow dynamic booking",

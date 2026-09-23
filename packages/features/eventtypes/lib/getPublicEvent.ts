@@ -7,6 +7,7 @@ import dayjs from "@calcom/dayjs";
 import { getBookingFieldsWithSystemFields } from "@calcom/features/bookings/lib/getBookingFields";
 import { getDefaultEvent, getUsernameList } from "@calcom/features/eventtypes/lib/defaultEvents";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
+import { IS_DYNAMIC_GROUP_BOOKING_ENABLED } from "@calcom/lib/constants";
 import { getOrgOrTeamAvatar, getPlaceholderAvatar } from "@calcom/lib/defaultAvatarImage";
 import { getUserAvatarUrl } from "@calcom/lib/getAvatarUrl";
 import { isRecurringEvent, parseRecurringEvent } from "@calcom/lib/isRecurringEvent";
@@ -295,6 +296,7 @@ export const getPublicEvent = async (
   const orgQuery = org ? getSlugOrRequestedSlug(org) : null;
   // In case of dynamic group event, we fetch user's data and use the default event.
   if (usernameList.length > 1) {
+    if (!IS_DYNAMIC_GROUP_BOOKING_ENABLED) return null;
     const usersInOrgContext = await new UserRepository(prisma).findUsersByUsername({
       usernameList,
       orgSlug: org,

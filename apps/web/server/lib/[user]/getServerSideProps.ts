@@ -3,7 +3,11 @@ import { getUsernameList } from "@calcom/features/eventtypes/lib/defaultEvents";
 import { getEventTypesPublic } from "@calcom/features/eventtypes/lib/getEventTypesPublic";
 import { getBrandingForUser } from "@calcom/features/profile/lib/getBranding";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
-import { DEFAULT_DARK_BRAND_COLOR, DEFAULT_LIGHT_BRAND_COLOR } from "@calcom/lib/constants";
+import {
+  DEFAULT_DARK_BRAND_COLOR,
+  DEFAULT_LIGHT_BRAND_COLOR,
+  IS_DYNAMIC_GROUP_BOOKING_ENABLED,
+} from "@calcom/lib/constants";
 import { getUserAvatarUrl } from "@calcom/lib/getAvatarUrl";
 import logger from "@calcom/lib/logger";
 import { markdownToSafeHTML } from "@calcom/lib/markdownToSafeHTML";
@@ -103,6 +107,11 @@ export const getServerSideProps: GetServerSideProps<UserPageProps> = async (cont
   log.debug(safeStringify({ usersInOrgContext, isValidOrgDomain, currentOrgDomain, isDynamicGroup }));
 
   if (isDynamicGroup) {
+    if (!IS_DYNAMIC_GROUP_BOOKING_ENABLED) {
+      return {
+        notFound: true,
+      } as const;
+    }
     const destinationUrl = encodeURI(`/${usernameList.join("+")}/dynamic`);
 
     // EXAMPLE - context.params: { orgSlug: 'acme', user: 'member0+owner1' }
