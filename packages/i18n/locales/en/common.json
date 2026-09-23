@@ -2452,6 +2452,7 @@
   "continue_to_install_google_calendar": "Continue to install Google Calendar",
   "install_google_meet": "Install Google Meet",
   "install_google_calendar": "Install Google Calendar",
+  "google_calendar_connect_notice": "Flowko will read when you are busy in the calendars you choose and create, update and delete the events for bookings made through Flowko. It does not read the contents of your other events. See section 3.3 of the <0>privacy policy</0>.",
   "sender_name": "Sender name",
   "already_invited": "Attendee already invited",
   "no_recordings_found": "No recordings found",

@@ -1,6 +1,7 @@
 import type { FunctionComponent, SVGProps } from "react";
 
 import { InstallAppButton } from "@calcom/app-store/InstallAppButton";
+import { GoogleCalendarConnectNoticeProvider } from "@calcom/app-store/_components/GoogleCalendarConnectNotice";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
@@ -16,7 +17,7 @@ interface AdditionalCalendarSelectorProps {
   isPending?: boolean;
 }
 
-const AdditionalCalendarSelector = ({ isPending }: AdditionalCalendarSelectorProps): JSX.Element | null => {
+const AdditionalCalendarDropdown = ({ isPending }: AdditionalCalendarSelectorProps): JSX.Element | null => {
   const { t } = useLocale();
   const [data] = trpc.viewer.apps.integrations.useSuspenseQuery({ variant: "calendar", onlyInstalled: true });
 
@@ -69,5 +70,12 @@ const AdditionalCalendarSelector = ({ isPending }: AdditionalCalendarSelectorPro
     </Dropdown>
   );
 };
+
+// The menu's install buttons unmount when it closes, so the Google Calendar notice is hosted outside it.
+const AdditionalCalendarSelector = (props: AdditionalCalendarSelectorProps): JSX.Element => (
+  <GoogleCalendarConnectNoticeProvider>
+    <AdditionalCalendarDropdown {...props} />
+  </GoogleCalendarConnectNoticeProvider>
+);
 
 export default AdditionalCalendarSelector;

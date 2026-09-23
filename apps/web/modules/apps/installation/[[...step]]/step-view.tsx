@@ -6,6 +6,10 @@ import { useForm } from "react-hook-form";
 import { Toaster } from "sonner";
 import type { z } from "zod";
 
+import {
+  GOOGLE_CALENDAR_APP_TYPE,
+  useGoogleCalendarConnectNotice,
+} from "@calcom/app-store/_components/GoogleCalendarConnectNotice";
 import checkForMultiplePaymentApps from "@calcom/app-store/_utils/payments/checkForMultiplePaymentApps";
 import useAddAppMutation from "@calcom/app-store/_utils/useAddAppMutation";
 import type { LocationObject } from "@calcom/app-store/locations";
@@ -208,7 +212,7 @@ const OnboardingPage = ({
     },
   });
 
-  const handleSelectAccount = async (teamId?: number) => {
+  const installForAccount = (teamId?: number) => {
     mutation.mutate({
       type: appMetadata.type,
       variant: appMetadata.variant,
@@ -225,6 +229,17 @@ const OnboardingPage = ({
           }),
       }),
     });
+  };
+
+  const googleCalendarNotice = useGoogleCalendarConnectNotice();
+
+  const handleSelectAccount = async (teamId?: number) => {
+    // Google Calendar shows its data-use notice before the redirect to Google's consent screen.
+    if (appMetadata.type === GOOGLE_CALENDAR_APP_TYPE) {
+      googleCalendarNotice.requestConsent(() => installForAccount(teamId));
+    } else {
+      installForAccount(teamId);
+    }
   };
 
   const handleSetUpLater = () => {
@@ -325,6 +340,7 @@ const OnboardingPage = ({
           </div>
         </div>
       </div>
+      {googleCalendarNotice.dialog}
       <Toaster position="bottom-right" />
     </div>
   );
