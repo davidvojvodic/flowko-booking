@@ -45,3 +45,32 @@ export async function findDisabledApps(
       .map(([type]) => type),
   };
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Flowko: the booking pages render an app's tag (analytics scripts, a pixel) and use its settings from the
+ * event type's metadata.apps. The metadata sent to them leaves out every app the admin switched off,
+ * whatever the event type still holds, and giphy's legacy thank-you page with a disabled giphy.
+ */
+export async function withoutDisabledApps<TMetadata>(
+  prisma: PrismaLike,
+  metadata: TMetadata
+): Promise<TMetadata> {
+  if (!isRecord(metadata)) return metadata;
+  const apps = isRecord(metadata.apps) ? metadata.apps : {};
+  const appKeys = Object.keys(apps);
+  if (metadata.giphyThankYouPage && !appKeys.includes("giphy")) appKeys.push("giphy");
+
+  const disabled = await findDisabledApps(prisma, { appKeys });
+  if (!disabled.appKeys.length) return metadata;
+
+  const filteredMetadata: Record<string, unknown> = {
+    ...metadata,
+    apps: Object.fromEntries(Object.entries(apps).filter(([appKey]) => !disabled.appKeys.includes(appKey))),
+  };
+  if (disabled.appKeys.includes("giphy")) delete filteredMetadata.giphyThankYouPage;
+  return filteredMetadata as TMetadata;
+}

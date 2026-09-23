@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { PrismaClient } from "@calcom/prisma";
 
-import { findDisabledApps } from "./findDisabledApps";
+import { findDisabledApps, withoutDisabledApps } from "./findDisabledApps";
 
 type AppWhere = {
   enabled: true;
@@ -87,5 +87,49 @@ describe("findDisabledApps", () => {
       appKeys: [],
       locationTypes: [],
     });
+  });
+});
+
+describe("withoutDisabledApps", () => {
+  it("leaves the apps the admin switched off out of the metadata", async () => {
+    const { prisma } = withEnabledApps("google-calendar");
+    const metadata = {
+      bookerLayouts: { enabledLayouts: ["month_view"], defaultLayout: "month_view" },
+      apps: {
+        googlecalendar: { enabled: true },
+        ga4: { enabled: true, trackingId: "G-TEST" },
+        stripe: { enabled: false, price: 1000, currency: "eur" },
+      },
+    };
+
+    await expect(withoutDisabledApps(prisma, metadata)).resolves.toEqual({
+      bookerLayouts: metadata.bookerLayouts,
+      apps: { googlecalendar: { enabled: true } },
+    });
+  });
+
+  it("leaves giphy's legacy thank-you page out while giphy is switched off", async () => {
+    const { prisma, findMany } = withEnabledApps("google-calendar");
+
+    await expect(
+      withoutDisabledApps(prisma, { giphyThankYouPage: "https://media.giphy.com/media/x/giphy.gif" })
+    ).resolves.toEqual({ apps: {} });
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { enabled: true, OR: [{ dirName: { in: ["giphy"] } }, { slug: { in: [] } }] },
+      })
+    );
+  });
+
+  it("returns the metadata as it is when no app in it is switched off", async () => {
+    const { prisma, findMany } = withEnabledApps("google-calendar");
+    const metadata = { apps: { googlecalendar: { enabled: true } } };
+
+    await expect(withoutDisabledApps(prisma, metadata)).resolves.toBe(metadata);
+    await expect(withoutDisabledApps(prisma, null)).resolves.toBeNull();
+    await expect(withoutDisabledApps(prisma, {})).resolves.toEqual({});
+
+    expect(findMany).toHaveBeenCalledTimes(1);
   });
 });

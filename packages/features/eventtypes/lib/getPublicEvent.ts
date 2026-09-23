@@ -1,4 +1,5 @@
 import process from "node:process";
+import { withoutDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import type { LocationObject } from "@calcom/app-store/locations";
 import { privacyFilteredLocations } from "@calcom/app-store/locations";
 import { getAppFromSlug } from "@calcom/app-store/utils";
@@ -470,7 +471,11 @@ export const getPublicEvent = async (
 
   if (!event) return null;
 
-  const eventMetaData = eventTypeMetaDataSchemaWithTypedApps.parse(event.metadata || {});
+  // Flowko: the booker renders the tags of metadata.apps, so an app the admin switched off is left out
+  const eventMetaData = await withoutDisabledApps(
+    prisma,
+    eventTypeMetaDataSchemaWithTypedApps.parse(event.metadata || {})
+  );
   const teamMetadata = teamMetadataSchema.parse(event.team?.metadata || {});
   const usersAsHosts = event.hosts.map((host) => host.user);
 
