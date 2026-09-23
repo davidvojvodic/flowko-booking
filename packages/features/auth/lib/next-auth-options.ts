@@ -801,6 +801,14 @@ export const getOptions = ({
       log.debug("callbacks:signin", safeStringify(params));
 
       if (account?.provider === "email") {
+        // Magic links only sign in existing users. next-auth runs this callback before it sends the
+        // link and again before its callback handler would create a User for an unknown address.
+        const userRepo = new UserRepository(prisma);
+        const existingUser = user.email ? await userRepo.findByEmail({ email: user.email }) : null;
+        if (!existingUser) {
+          log.warn("callbacks:signIn - magic link for unknown email, denying access");
+          return false;
+        }
         return true;
       }
       // In this case we've already verified the credentials in the authorize
