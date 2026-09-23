@@ -9,6 +9,47 @@ function _fireEvent(fullName: string, detail: CustomEventDetail) {
   window.dispatchEvent(event);
 }
 
+/**
+ * Booking fields that no SDK event may carry. Events reach the embedding page, a same-origin
+ * window.opener and the analytics apps installed on the booking page.
+ * - oneTimePassword: the token that lets the organizer accept or reject a booking from an email link
+ * - references: calendar and video references (external calendar IDs, event IDs, credential IDs)
+ * - videoCallUrl: the video call link
+ */
+const PRIVATE_BOOKING_KEYS = ["oneTimePassword", "references", "videoCallUrl"];
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function withoutPrivateBookingKeys(value: Record<string, unknown>) {
+  const copy: Record<string, unknown> = {};
+  for (const [key, keyValue] of Object.entries(value)) {
+    if (!PRIVATE_BOOKING_KEYS.includes(key)) {
+      copy[key] = keyValue;
+    }
+  }
+  if (isPlainObject(copy.metadata) && "videoCallUrl" in copy.metadata) {
+    const { videoCallUrl: _videoCallUrl, ...metadata } = copy.metadata;
+    copy.metadata = metadata;
+  }
+  return copy;
+}
+
+/**
+ * Removes PRIVATE_BOOKING_KEYS from an event's data and from the booking it carries.
+ */
+export function sanitizeEventData<T>(data: T): T {
+  if (!isPlainObject(data)) {
+    return data;
+  }
+  const sanitized = withoutPrivateBookingKeys(data);
+  if (isPlainObject(sanitized.booking)) {
+    sanitized.booking = withoutPrivateBookingKeys(sanitized.booking);
+  }
+  return sanitized as T;
+}
+
 type BaseBookingEventPayload = {
   title: string | undefined;
   startTime: string | undefined;
@@ -21,7 +62,6 @@ type BaseBookingEventPayload = {
    * This is only used for recurring bookings
    */
   allBookings?: { startTime: string; endTime: string }[];
-  videoCallUrl?: string;
 };
 
 export type EventDataMap = {
@@ -336,7 +376,7 @@ export class SdkActionManager {
       type: name,
       namespace: this.namespace,
       fullType: fullName,
-      data,
+      data: sanitizeEventData(data),
     };
 
     _fireEvent(fullName, detail);

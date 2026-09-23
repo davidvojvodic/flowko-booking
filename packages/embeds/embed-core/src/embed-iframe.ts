@@ -10,6 +10,7 @@ import {
   setReloadInitiated,
   incrementView,
 } from "./embed-iframe/lib/embedStore";
+import { getParentTargetOrigin, toWebOrigin } from "./embed-iframe/lib/parentOrigin";
 import {
   runAsap,
   isBookerReady,
@@ -509,13 +510,26 @@ export type InterfaceWithParent = {
 
 export const interfaceWithParent: InterfaceWithParent = methods;
 
+// Origin of the embedding page, learned from the first message it sends. See parentOrigin.ts
+let parentOrigin: string | null = null;
+
 const messageParent = (data: CustomEvent["detail"]) => {
+  const targetOrigin = getParentTargetOrigin({
+    eventType: data.type,
+    originLearnedFromParent: parentOrigin,
+    ancestorOrigin: window.location.ancestorOrigins?.[0],
+    referrer: document.referrer,
+  });
+  if (!targetOrigin) {
+    log(`Not sending ${data.type} to parent as its origin isn't known yet`);
+    return;
+  }
   parent.postMessage(
     {
       originator: "CAL",
       ...data,
     },
-    "*"
+    targetOrigin
   );
 };
 
@@ -563,6 +577,9 @@ function main() {
     }
     const method: keyof typeof interfaceWithParent = data.method;
     if (data.originator === "CAL" && typeof method === "string") {
+      if (!parentOrigin && e.source === parent) {
+        parentOrigin = toWebOrigin(e.origin);
+      }
       interfaceWithParent[method]?.(data.arg as never);
     }
   });

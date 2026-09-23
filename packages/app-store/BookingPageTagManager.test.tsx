@@ -204,4 +204,22 @@ describe("handleEvent", () => {
       },
     });
   });
+
+  it("should post events to the opener only for the page's own origin", () => {
+    const postMessage = vi.fn();
+    setOnWindow("opener", { postMessage });
+
+    handleEvent({
+      detail: {
+        type: "bookingSuccessfulV2",
+        data: { uid: "booking-uid" },
+      },
+    });
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "CAL:bookingSuccessfulV2", data: { uid: "booking-uid" } },
+      window.location.origin
+    );
+  });
 });
