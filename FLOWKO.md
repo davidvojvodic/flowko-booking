@@ -15,6 +15,9 @@ Lines marked *planned* are not on `flowko` yet; each is updated when its change 
 - **U3 Auth hardening** (*planned*): no self-registration while signup is disabled, including through the magic-link email sign-in.
 - **U4 Google privacy** (*planned*): Google profile scope removed, access revoked at Google on disconnect, known booker-PII log lines removed.
 - **U5 Branding** (*planned*): Flowko name and assets in place of Cal.diy's.
+- **U7b Platform hygiene** (*planned*): `scripts/seed-app-store.ts`, which `scripts/start.sh` runs on every boot, enables only `google-calendar` (from `GOOGLE_API_CREDENTIALS`). Every other app, Google Meet and the analytics and automation apps included, is created disabled, and the seed never changes the enabled flag of an existing row, so an admin's choice survives restarts. `yarn db-seed`/E2E (`scripts/seed.ts`) keeps upstream's behaviour. The `syncAppMeta` cron can now only disable apps, so a restart no longer switches off an app an admin enabled with missing keys. Booker details, calendar ids, webhook URLs and secrets, and credential keys are kept out of warn/error logs, and emails to the placeholder address of a phone-only booker are no longer sent. Reconnecting the same Google account replaces the earlier credential, a token discarded for missing scopes is revoked, and deleting an account revokes its Google grants first.
+  - The seed never flips an existing row. On a database seeded before U7b, turn off Google Meet and the analytics and automation apps once under Settings → Admin → Apps.
+  - After the first boot, `SELECT slug FROM "App" WHERE enabled;` should return only `google-calendar`.
 
 ## One-time GitHub setup
 
