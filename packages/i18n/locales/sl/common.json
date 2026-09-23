@@ -3195,6 +3195,7 @@
   "go_back_and_assign": "Nazaj in dodeli",
   "leave_without_assigning": "Odidi brez dodelitve",
   "signing_up_terms": "Z nadaljevanjem se strinjate s <0>pogoji</0> in <1>politiko zasebnosti</1> {{appName}}.",
+  "booking_form_privacy_notice": "Vaše podatke v imenu ponudnika, pri katerem rezervirate, obdeluje {{appName}}. <1>Obvestilo o zasebnosti</1>",
   "proceeding_agreement": "Z nadaljevanjem se strinjate z našimi",
   "terms": "Pogoji",
   "always_show_x_days": "Vedno {{x}} dni na voljo",

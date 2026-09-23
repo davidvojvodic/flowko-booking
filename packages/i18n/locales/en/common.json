@@ -3303,6 +3303,7 @@
   "go_back_and_assign": "Go back and assign",
   "leave_without_assigning": "Leave without assigning",
   "signing_up_terms": "By proceeding, you agree to {{appName}}'s <0>Terms</0> and <1>Privacy Policy</1>.",
+  "booking_form_privacy_notice": "Your details are processed by {{appName}} on behalf of the business you are booking with. <1>Privacy notice</1>",
   "proceeding_agreement": "By proceeding, you agree to our",
   "terms": "Terms",
   "always_show_x_days": "Always {{x}} days available",
