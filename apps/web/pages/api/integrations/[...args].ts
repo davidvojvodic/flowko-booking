@@ -66,6 +66,10 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
     const handlerKey = deriveAppDictKeyFromType(appName, handlerMap);
     const handlers = await handlerMap[handlerKey as keyof typeof handlerMap];
     if (!handlers) throw new HttpError({ statusCode: 404, message: `No handlers found for ${handlerKey}` });
+    // Flowko: an app the admin switched off (App.enabled = false) can't be installed or used through its
+    // routes, such as Google Meet's add or Zapier's and Make's webhook subscriptions
+    const app = await prisma.app.findUnique({ where: { dirName: handlerKey }, select: { enabled: true } });
+    if (!app?.enabled) throw new HttpError({ statusCode: 403, message: "App is disabled" });
     const handler = handlers[apiEndpoint as keyof typeof handlers] as AppHandler;
     if (typeof handler === "undefined")
       throw new HttpError({ statusCode: 404, message: `API handler not found` });
