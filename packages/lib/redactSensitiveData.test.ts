@@ -222,4 +222,25 @@ describe("redactSensitiveData", () => {
       }
     `);
   });
+
+  it("should redact OAuth2 token response fields", () => {
+    const input = {
+      access_token: "access-token",
+      refresh_token: "refresh-token",
+      id_token: "id-token",
+      expires_in: 3599,
+      scope: "https://www.googleapis.com/auth/calendar.events",
+      token_type: "Bearer",
+    };
+    expect(redactSensitiveData(input)).toMatchInlineSnapshot(`
+      {
+        "access_token": "[REDACTED]",
+        "expires_in": 3599,
+        "id_token": "[REDACTED]",
+        "refresh_token": "[REDACTED]",
+        "scope": "https://www.googleapis.com/auth/calendar.events",
+        "token_type": "Bearer",
+      }
+    `);
+  });
 });

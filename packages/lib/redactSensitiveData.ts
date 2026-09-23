@@ -2,6 +2,7 @@ import logger from "./logger";
 
 // Fields that might contain sensitive data
 const SENSITIVE_FIELDS = [
+  "access_token",
   "accessToken",
   "api_key",
   "apiKey",
@@ -13,9 +14,11 @@ const SENSITIVE_FIELDS = [
   "credential",
   "encrypted_credentials",
   "hash",
+  "id_token",
   "key",
   "password",
   "private_key",
+  "refresh_token",
   "refreshToken",
   "secret",
   "serviceAccountKey",

@@ -14,6 +14,7 @@ import type { z } from "zod";
 
 import { CREDENTIAL_SYNC_ENDPOINT } from "@calcom/lib/constants";
 import logger from "@calcom/lib/logger";
+import { redactSensitiveData } from "@calcom/lib/redactSensitiveData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 
 import type { AxiosLikeResponseToFetchResponse } from "./AxiosLikeResponseToFetchResponse";
@@ -552,7 +553,11 @@ export class OAuthManager {
     if (!parsedToken.success) {
       myLog.error(
         "Token parsing error:",
-        safeStringify({ issues: parsedToken.error.issues, oauth2response: json, tokenStatus })
+        safeStringify({
+          issues: parsedToken.error.issues,
+          oauth2response: redactSensitiveData(json),
+          tokenStatus,
+        })
       );
       throw new Error("Invalid token response");
     }

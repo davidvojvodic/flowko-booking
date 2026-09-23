@@ -370,6 +370,63 @@ describe("Date Optimization Benchmarks", () => {
   });
 });
 
+// Shaped like a gaxios error: the request, with the event body and the bearer token,
+// sits on config and response.config
+const buildGaxiosError = ({
+  message,
+  code,
+  requestBody,
+}: {
+  message: string;
+  code: number;
+  requestBody?: unknown;
+}) => {
+  const config = { data: requestBody, headers: { Authorization: "Bearer test-access-token" } };
+  return Object.assign(new Error(message), {
+    code,
+    config,
+    response: {
+      status: code,
+      data: { error: { code, message } },
+      config,
+      request: { responseURL: "https://www.googleapis.com/calendar/v3/calendars/primary/events" },
+    },
+  });
+};
+
+const calEventWithBookerDetails = {
+  type: "test-event-type",
+  uid: "existing-event-id",
+  title: "Meeting",
+  startTime: "2024-06-15T10:00:00Z",
+  endTime: "2024-06-15T11:00:00Z",
+  organizer: {
+    id: 1,
+    name: "Test Organizer",
+    email: "organizer@example.com",
+    timeZone: "UTC",
+    language: { translate: (...args: any[]) => args[0], locale: "en" },
+  },
+  attendees: [
+    {
+      name: "Test Booker",
+      email: "booker@example.com",
+      timeZone: "UTC",
+      language: { translate: (...args: any[]) => args[0], locale: "en" },
+    },
+  ],
+  calendarDescription: "Booker phone: +38640123456",
+  destinationCalendar: [],
+};
+
+// Covers the service's own log calls and callers that serialise the rethrown error, like CalendarManager
+const expectNoBookerDetailsOrToken = (logged: unknown) => {
+  const serialised = JSON.stringify(logged);
+  expect(serialised).not.toContain("booker@example.com");
+  expect(serialised).not.toContain("+38640123456");
+  expect(serialised).not.toContain("test-access-token");
+};
+
 describe("createEvent", () => {
   test("should create event with correct input/output format and handle all expected properties", async () => {
     const calendarService = BuildCalendarService(mockCredential);
@@ -868,6 +925,28 @@ describe("createEvent", () => {
 
     log.info("createEvent with hangoutLink patch test passed");
   });
+
+  test("should not log or rethrow attendee details or the access token when the insert fails", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    const eventsInsertMock = vi.fn().mockImplementation(async ({ requestBody }) => {
+      throw buildGaxiosError({ message: "Bad Request", code: 400, requestBody });
+    });
+    calendarMock.calendar_v3.Calendar().events.insert = eventsInsertMock;
+    const logErrorSpy = vi.spyOn((calendarService as any).log, "error");
+
+    const error = await calendarService
+      .createEvent(calEventWithBookerDetails, mockCredential.id)
+      .catch((e) => e);
+
+    expect(eventsInsertMock).toHaveBeenCalledTimes(1);
+    expect(error.code).toBe(400);
+    expect(error.config).toBeUndefined();
+    expect(error.response.config).toBeUndefined();
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    expectNoBookerDetailsOrToken([logErrorSpy.mock.calls, { error }]);
+  });
 });
 
 describe("updateEvent", () => {
@@ -1064,6 +1143,54 @@ describe("updateEvent", () => {
     expect(eventsPatchMock).not.toHaveBeenCalled();
 
     log.info("updateEvent without hangoutLink should not patch test passed");
+  });
+
+  test("should not log or rethrow attendee details or the access token when the update fails", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    const eventsUpdateMock = vi.fn().mockImplementation(async ({ requestBody }) => {
+      throw buildGaxiosError({ message: "Bad Request", code: 400, requestBody });
+    });
+    calendarMock.calendar_v3.Calendar().events.update = eventsUpdateMock;
+    const logErrorSpy = vi.spyOn((calendarService as any).log, "error");
+
+    const error = await calendarService
+      .updateEvent("existing-event-id", calEventWithBookerDetails, "primary")
+      .catch((e) => e);
+
+    expect(eventsUpdateMock).toHaveBeenCalledTimes(1);
+    expect(error.message).toBe("Bad Request");
+    expect(error.code).toBe(400);
+    expect(error.config).toBeUndefined();
+    expect(error.response.config).toBeUndefined();
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    expectNoBookerDetailsOrToken([logErrorSpy.mock.calls, { e: error }]);
+  });
+});
+
+describe("deleteEvent", () => {
+  test("should not log or rethrow the access token when the delete fails", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    const deleteError = buildGaxiosError({ message: "Backend Error", code: 500 });
+    const eventsDeleteMock = vi.fn().mockRejectedValue(deleteError);
+    calendarMock.calendar_v3.Calendar().events.delete = eventsDeleteMock;
+    const logErrorSpy = vi.spyOn((calendarService as any).log, "error");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const error = await calendarService
+      .deleteEvent("existing-event-id", calEventWithBookerDetails as any, "primary")
+      .catch((e) => e);
+    const consoleErrorCalls = [...consoleErrorSpy.mock.calls];
+    consoleErrorSpy.mockRestore();
+
+    expect(eventsDeleteMock).toHaveBeenCalledTimes(1);
+    expect(error.code).toBe(500);
+    expect(error.config).toBeUndefined();
+    expect(consoleErrorCalls.length).toBeGreaterThan(0);
+    expectNoBookerDetailsOrToken([logErrorSpy.mock.calls, consoleErrorCalls, { error }]);
   });
 });
 

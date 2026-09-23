@@ -1,3 +1,4 @@
+import { OAuth2Client } from "googleapis-common";
 import z from "zod";
 
 import { getCalendar } from "@calcom/app-store/_utils/getCalendar";
@@ -23,6 +24,7 @@ import { credentialForCalendarServiceSelect } from "@calcom/prisma/selects/crede
 import type { EventTypeMetadata } from "@calcom/prisma/zod-utils";
 import { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import { userMetadata as userMetadataSchema } from "@calcom/prisma/zod-utils";
+import type { IntegrationCalendar } from "@calcom/types/Calendar";
 
 type App = {
   slug: string;
@@ -38,6 +40,75 @@ const getRemovedIntegrationNameFromAppSlug = (slug: string) =>
 
 const locationsSchema = z.array(z.object({ type: z.string() }));
 type TlocationsSchema = z.infer<typeof locationsSchema>;
+
+const googleCalendarTokenSchema = z.object({
+  access_token: z.string().nullish(),
+  refresh_token: z.string().nullish(),
+});
+
+const GOOGLE_TOKEN_REVOKE_TIMEOUT_MS = 5000;
+
+// Best effort: disconnecting must never be blocked by Google being slow or the grant already being revoked
+const revokeGoogleCalendarToken = async (credentialId: number, key: Prisma.JsonValue) => {
+  const parsedKey = googleCalendarTokenSchema.safeParse(key);
+  // The stored access token has usually expired; the long-lived refresh token is what must stop working
+  const token = parsedKey.success ? parsedKey.data.refresh_token || parsedKey.data.access_token : undefined;
+  if (!token) return;
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      new OAuth2Client().revokeToken(token),
+      new Promise<"timeout">((resolve) => {
+        timeoutId = setTimeout(() => resolve("timeout"), GOOGLE_TOKEN_REVOKE_TIMEOUT_MS);
+      }),
+    ]);
+    if (result === "timeout") {
+      console.warn(`Timed out revoking Google Calendar token for credentialId: ${credentialId}`);
+    }
+  } catch (error) {
+    // Never log the error itself: revokeToken sends the token in the request URL, which errors can echo back
+    const { response, code } = (error ?? {}) as { response?: { status?: number }; code?: unknown };
+    console.warn(`Error revoking Google Calendar token for credentialId: ${credentialId}`, {
+      status: response?.status,
+      code,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+// Revoking ends Google's grant for the whole Google account, not just this credential's token,
+// so any other connection to that account would silently stop syncing
+const isGoogleGrantSharedWithAnotherCredential = async ({
+  credentialId,
+  userId,
+  primaryCalendarId,
+}: {
+  credentialId: number;
+  userId: number;
+  primaryCalendarId?: string;
+}) => {
+  // Reconnecting adds a credential and keeps the old one, so the user's other one may share the grant
+  const otherCredentialOfUser = await prisma.credential.findFirst({
+    where: { userId, type: "google_calendar", id: { not: credentialId } },
+    select: { id: true },
+  });
+  if (otherCredentialOfUser) return true;
+  if (!primaryCalendarId) return false;
+
+  // Another user connected the same Google account
+  const where = {
+    integration: "google_calendar",
+    externalId: primaryCalendarId,
+    credentialId: { not: credentialId },
+  };
+  const [selectedCalendar, destinationCalendar] = await Promise.all([
+    prisma.selectedCalendar.findFirst({ where, select: { id: true } }),
+    prisma.destinationCalendar.findFirst({ where, select: { id: true } }),
+  ]);
+  return !!selectedCalendar || !!destinationCalendar;
+};
 
 const handleDeleteCredential = async ({
   userId,
@@ -451,13 +522,15 @@ const handleDeleteCredential = async ({
     });
   }
 
+  let calendars: IntegrationCalendar[] | undefined;
+
   // Backwards compatibility. Selected calendars cascade on delete when deleting a credential
   // If it's a calendar remove it from the SelectedCalendars
   if (credential.app?.categories.includes(AppCategories.calendar)) {
     try {
       const calendar = await getCalendar(buildNonDelegationCredential(credential), "slots");
 
-      const calendars = await calendar?.listCalendars();
+      calendars = await calendar?.listCalendars();
 
       const calendarIds = calendars?.map((cal) => cal.externalId);
 
@@ -475,6 +548,20 @@ const handleDeleteCredential = async ({
         `Error deleting selected calendars for userId: ${userId} integration: ${credential.type}`,
         error
       );
+    }
+  }
+
+  if (credential.type === "google_calendar") {
+    const grantShared = await isGoogleGrantSharedWithAnotherCredential({
+      credentialId: credential.id,
+      userId,
+      // The primary calendar id is the Google account's email address
+      primaryCalendarId: calendars?.find((cal) => cal.primary)?.externalId,
+    });
+    if (grantShared) {
+      console.info(`Skipped revoking shared Google Calendar grant for credentialId: ${credential.id}`);
+    } else {
+      await revokeGoogleCalendarToken(credential.id, credential.key);
     }
   }
 

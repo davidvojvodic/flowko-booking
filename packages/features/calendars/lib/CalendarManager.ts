@@ -496,7 +496,7 @@ export const updateEvent = async (
             // await sendBrokenIntegrationEmail(calEvent, "calendar");
             log.error(
               "updateEvent failed",
-              safeStringify({ e, calEvent: getPiiFreeCalendarEvent(calEvent) })
+              safeStringify({ e: safeStringify(e), calEvent: getPiiFreeCalendarEvent(calEvent) })
             );
             if (e?.calError) {
               calError = e.calError;
