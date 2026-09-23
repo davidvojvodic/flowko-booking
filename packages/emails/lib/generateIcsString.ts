@@ -8,6 +8,7 @@ import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
+import { serverConfig } from "@calcom/lib/serverConfig";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
 export enum BookingAction {
@@ -84,7 +85,7 @@ const generateIcsString = ({
     organizer: {
       name: event.organizer.name,
       ...(event.hideOrganizerEmail && !isOrganizerExempt
-        ? { email: "no-reply@cal.com" }
+        ? { email: serverConfig.from }
         : { email: event.organizer.email }),
     },
     ...{ recurrenceRule },

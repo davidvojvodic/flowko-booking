@@ -10,6 +10,10 @@ import { test } from "@calcom/testing/lib/fixtures/fixtures";
 
 import generateIcsString from "./generateIcsString";
 
+vi.mock("@calcom/lib/serverConfig", () => ({
+  serverConfig: { from: "bookings@example.com" },
+}));
+
 const assertHasIcsString = (icsString: string | undefined) => {
   if (!icsString) throw new Error("icsString is undefined");
 
@@ -169,6 +173,22 @@ describe("generateIcsString", () => {
       assertHasIcsString(icsString);
 
       expect(icsString).toEqual(expect.stringContaining(`LOCATION:${event.location}`));
+    });
+  });
+  describe("organizer email", () => {
+    test("uses the configured sender address when the organizer email is hidden", () => {
+      const event = buildCalendarEvent({
+        iCalSequence: 0,
+        attendees: [buildPerson()],
+        organizer: buildPerson({ name: "Ana" }),
+        hideOrganizerEmail: true,
+      });
+
+      const icsString = assertHasIcsString(generateIcsString({ event, status: "CONFIRMED" }));
+
+      expect(icsString).toEqual(expect.stringContaining("ORGANIZER;CN=Ana:mailto:bookings@example.com"));
+      expect(icsString).not.toEqual(expect.stringContaining(`mailto:${event.organizer.email}`));
+      expect(icsString).not.toEqual(expect.stringContaining("no-reply@cal.com"));
     });
   });
   describe("error handling", () => {
