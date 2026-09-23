@@ -1,3 +1,4 @@
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getDefaultLocations } from "@calcom/app-store/_utils/getDefaultLocations";
 import { DailyLocationType } from "@calcom/app-store/constants";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
@@ -8,6 +9,7 @@ import type { eventTypeLocations } from "@calcom/prisma/zod-utils";
 import { TRPCError } from "@trpc/server";
 import type { z } from "zod";
 import type { TrpcSessionUser } from "../../../../types";
+import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import type { TCreateInputSchema } from "./create.schema";
 
@@ -43,6 +45,16 @@ type CreateOptions = {
   input: TCreateInputSchema;
 };
 
+// Flowko: a default location of an app the admin switched off (the user's default conferencing app, or Cal
+// Video) is left out rather than refusing the new event type
+async function getDefaultLocationsOfEnabledApps(prisma: PrismaClient, user: User) {
+  const defaultLocations = await getDefaultLocations(user);
+  const disabled = await findDisabledApps(prisma, {
+    locationTypes: defaultLocations.map((location) => location.type),
+  });
+  return defaultLocations.filter((location) => !disabled.locationTypes.includes(location.type));
+}
+
 export const createHandler = async ({ ctx, input }: CreateOptions) => {
   const {
     schedulingType,
@@ -71,8 +83,12 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
     });
   }
 
+  await ensureAppsEnabled(ctx.prisma, { metadata, locations: inputLocations });
+
   const locations: EventTypeLocation[] =
-    inputLocations && inputLocations.length !== 0 ? inputLocations : await getDefaultLocations(ctx.user);
+    inputLocations && inputLocations.length !== 0
+      ? inputLocations
+      : await getDefaultLocationsOfEnabledApps(ctx.prisma, ctx.user);
 
   const isCalVideoLocationActive = locations.some((location) => location.type === DailyLocationType);
 

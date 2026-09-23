@@ -4625,6 +4625,7 @@
   "seats_doesnt_support_recurring": "Mesta ne podpirajo ponavljajočih se dogodkov. Če želite ponavljanje, onemogočite mesta.",
   "recurring_event_seats_error": "Ponavljajoči se dogodek ne podpira mest. Onemogočite mesta ali odstranite ponavljanje dogodka.",
   "seats_and_recurring_not_available_error": "Mesta in ponavljajoči se dogodki niso na voljo.",
+  "app_not_available_error": "Ta aplikacija ni na voljo.",
   "hide_team_profile_link": "Skrij povezavo do profila ekipe",
   "hide_team_profile_link_description": "Skrij povezavo do profila ekipe na straneh za rezervacijo",
   "whitelist_user_workflows": "Dovoli uporabniške delovne tokove",

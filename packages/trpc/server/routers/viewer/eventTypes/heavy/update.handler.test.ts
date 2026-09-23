@@ -107,4 +107,85 @@ describe("update.handler", () => {
       ).rejects.toThrow("reached the database");
     });
   });
+
+  // An app the admin switched off (App.enabled = false) stays off for event types; only google-calendar is on
+  describe("with apps the admin switched off", () => {
+    const ctx = {
+      user: {
+        id: 1,
+        username: "owner",
+        profile: { id: 1 },
+        userLevelSelectedCalendars: [],
+        organizationId: null,
+        email: "owner@example.com",
+        locale: "en",
+      },
+      prisma: prismaMock,
+    } as unknown as Parameters<typeof updateHandler>[0]["ctx"];
+
+    const ga4On = { apps: { ga4: { enabled: true, trackingId: "G-TEST" } } };
+    const meetLocation = { type: "integrations:google:meet" };
+
+    function storedEventType(stored: { metadata?: unknown; locations?: unknown }) {
+      prismaMock.eventType.findUniqueOrThrow.mockResolvedValue({
+        metadata: null,
+        locations: [],
+        team: null,
+        hosts: [],
+        ...stored,
+      } as never);
+    }
+
+    it("refuses to turn on a disabled app", async () => {
+      storedEventType({});
+      prismaMock.app.findMany.mockResolvedValue([]);
+
+      await expect(updateHandler({ ctx, input: { id: 1, metadata: ga4On } })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: ErrorCode.AppNotAvailable,
+      });
+
+      expect(prismaMock.eventType.update).not.toHaveBeenCalled();
+    });
+
+    it("refuses to add a location of a disabled app", async () => {
+      storedEventType({ locations: [{ type: "inPerson", address: "Main street 1" }] });
+      prismaMock.app.findMany.mockResolvedValue([]);
+
+      await expect(
+        updateHandler({
+          ctx,
+          input: { id: 1, locations: [{ type: "inPerson", address: "Main street 1" }, meetLocation] },
+        })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST", message: ErrorCode.AppNotAvailable });
+
+      expect(prismaMock.app.findMany).toHaveBeenCalledWith({
+        where: { enabled: true, OR: [{ dirName: { in: [] } }, { slug: { in: ["google-meet"] } }] },
+        select: { slug: true, dirName: true },
+      });
+      expect(prismaMock.eventType.update).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner save an event type that already has a disabled app on", async () => {
+      storedEventType({ metadata: ga4On, locations: [meetLocation] });
+      prismaMock.hashedLink.findMany.mockRejectedValue(new Error("got past the app check"));
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, metadata: ga4On, locations: [meetLocation] } })
+      ).rejects.toThrow("got past the app check");
+
+      expect(prismaMock.app.findMany).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner turn a disabled app off", async () => {
+      storedEventType({ metadata: ga4On });
+      prismaMock.hashedLink.findMany.mockRejectedValue(new Error("got past the app check"));
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, metadata: { apps: { ga4: { enabled: false } } } } })
+      ).rejects.toThrow("got past the app check");
+
+      expect(prismaMock.app.findMany).not.toHaveBeenCalled();
+    });
+  });
 });

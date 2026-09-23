@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
+import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import type { TDuplicateInputSchema } from "./duplicate.schema";
 
@@ -93,6 +94,8 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       seatsPerTimeSlot: eventType.seatsPerTimeSlot,
       recurringEvent: eventType.recurringEvent,
     });
+    // The copy is a new event type, so an app the admin switched off is not turned on in it either
+    await ensureAppsEnabled(prisma, { metadata: eventType.metadata, locations: eventType.locations });
 
     const {
       customInputs,
@@ -229,8 +232,13 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       eventType: newEventType,
     };
   } catch (error) {
-    // Keep the seated or recurring refusal above a 400 instead of wrapping it in a 500
-    if (error instanceof TRPCError && error.message === ErrorCode.SeatsAndRecurringNotAvailable) throw error;
+    // Keep the seated or recurring and the disabled app refusals above a 400 instead of wrapping them in a 500
+    if (
+      error instanceof TRPCError &&
+      (error.message === ErrorCode.SeatsAndRecurringNotAvailable ||
+        error.message === ErrorCode.AppNotAvailable)
+    )
+      throw error;
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       
       if (Array.isArray(error.meta?.target) && error.meta?.target.includes("slug")) {

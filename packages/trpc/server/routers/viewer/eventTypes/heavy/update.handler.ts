@@ -19,6 +19,7 @@ import { TRPCError } from "@trpc/server";
 import type { GetServerSidePropsContext, NextApiResponse } from "next";
 import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
+import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import {
   ensureEmailOrPhoneNumberIsPresent,
@@ -103,6 +104,7 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     select: {
       title: true,
       locations: true,
+      metadata: true,
       description: true,
       seatsPerTimeSlot: true,
       recurringEvent: true,
@@ -182,6 +184,8 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
   if (input.teamId && eventType.team?.id && input.teamId !== eventType.team.id) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
+
+  await ensureAppsEnabled(ctx.prisma, { metadata: rest.metadata, locations }, eventType);
 
   const finalSeatsPerTimeSlot =
     seatsPerTimeSlot === undefined ? eventType.seatsPerTimeSlot : seatsPerTimeSlot;

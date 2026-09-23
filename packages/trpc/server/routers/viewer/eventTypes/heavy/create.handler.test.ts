@@ -8,12 +8,19 @@ import { Prisma } from "@calcom/prisma/client";
 import { createHandler } from "./create.handler";
 import type { TCreateInputSchema } from "./create.schema";
 
-const { mockCreate } = vi.hoisted(() => ({ mockCreate: vi.fn() }));
+const { mockCreate, mockGetDefaultLocations } = vi.hoisted(() => ({
+  mockCreate: vi.fn(),
+  mockGetDefaultLocations: vi.fn(),
+}));
 
 vi.mock("@calcom/features/eventtypes/repositories/eventTypeRepository", () => ({
   EventTypeRepository: vi.fn(function () {
     return { create: mockCreate };
   }),
+}));
+
+vi.mock("@calcom/app-store/_utils/getDefaultLocations", () => ({
+  getDefaultLocations: mockGetDefaultLocations,
 }));
 
 type CreateOptions = Parameters<typeof createHandler>[0];
@@ -86,5 +93,51 @@ describe("createHandler with seats and recurring events off", () => {
     });
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+// An app the admin switched off (App.enabled = false) stays off for event types; only google-calendar is on
+describe("createHandler with apps the admin switched off", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({ id: 10, slug: "haircut" });
+    prismaMock.app.findMany.mockResolvedValue([]);
+  });
+
+  it("refuses to turn on a disabled app", async () => {
+    await expect(
+      createHandler({
+        ctx,
+        input: { ...input, metadata: { apps: { ga4: { enabled: true, trackingId: "G-TEST" } } } },
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: ErrorCode.AppNotAvailable });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a location of a disabled app", async () => {
+    await expect(
+      createHandler({ ctx, input: { ...input, locations: [{ type: "integrations:google:meet" }] } })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: ErrorCode.AppNotAvailable });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates an event type with an enabled app's location", async () => {
+    prismaMock.app.findMany.mockResolvedValue([{ slug: "google-meet", dirName: "googlevideo" }] as never);
+
+    await createHandler({ ctx, input: { ...input, locations: [{ type: "integrations:google:meet" }] } });
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ locations: [{ type: "integrations:google:meet" }] })
+    );
+  });
+
+  it("leaves a disabled app out of the default locations", async () => {
+    mockGetDefaultLocations.mockResolvedValue([{ type: "integrations:daily" }]);
+
+    await createHandler({ ctx, input: { ...input, locations: undefined } });
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ locations: [] }));
   });
 });

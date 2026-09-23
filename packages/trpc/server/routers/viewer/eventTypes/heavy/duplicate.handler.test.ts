@@ -77,4 +77,26 @@ describe("duplicateHandler", () => {
     });
     expect(create).not.toHaveBeenCalled();
   });
+
+  // An app the admin switched off (App.enabled = false) stays off for event types, the copy included
+  it.each([
+    ["a disabled app turned on", { metadata: { apps: { ga4: { enabled: true, trackingId: "G-TEST" } } } }],
+    ["a disabled app's location", { locations: [{ type: "integrations:google:meet" }] }],
+  ])("should refuse to duplicate an event type with %s", async (_kind, apps) => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn();
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, ...apps });
+    prismaMock.app.findMany.mockResolvedValue([]);
+
+    await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: ErrorCode.AppNotAvailable,
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
 });
