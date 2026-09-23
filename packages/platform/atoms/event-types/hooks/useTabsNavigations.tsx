@@ -8,6 +8,7 @@ import type {
   EventTypeSetupProps,
   FormValues,
 } from "@calcom/features/eventtypes/lib/types";
+import { IS_SEATS_AND_RECURRING_ENABLED } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { VerticalTabItemProps } from "@calcom/ui/components/navigation";
 // eslint-disable-next-line @calcom/eslint/deprecated-imports-next-router
@@ -73,7 +74,7 @@ export const useTabsNavigations = ({
       availability,
     });
 
-    if (!requirePayment) {
+    if (!requirePayment && IS_SEATS_AND_RECURRING_ENABLED) {
       navigation.splice(3, 0, {
         name: t("recurring"),
         href: `/event-types/${eventTypeId}?tabName=recurring`,

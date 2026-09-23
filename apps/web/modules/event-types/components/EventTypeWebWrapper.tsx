@@ -5,7 +5,7 @@ import { useHandleRouteChange } from "@calcom/atoms/event-types/hooks/useHandleR
 import { useTabsNavigations } from "@calcom/atoms/event-types/hooks/useTabsNavigations";
 import type { ChildrenEventType } from "@calcom/features/eventtypes/components/ChildrenEventTypeSelect";
 import type { EventTypeSetupProps } from "@calcom/features/eventtypes/lib/types";
-import { WEBSITE_URL } from "@calcom/lib/constants";
+import { IS_SEATS_AND_RECURRING_ENABLED, WEBSITE_URL } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { useTypedQuery } from "@calcom/lib/hooks/useTypedQuery";
 import { HttpError } from "@calcom/lib/http-error";
@@ -217,7 +217,7 @@ const EventTypeWeb = ({
         orgId={orgBranding?.id ?? null}
       />
     ),
-    recurring: <EventRecurringTab eventType={eventType} />,
+    recurring: IS_SEATS_AND_RECURRING_ENABLED ? <EventRecurringTab eventType={eventType} /> : null,
     apps: (
       <EventAppsTab
         eventType={{ ...eventType, URL: permalink }}
