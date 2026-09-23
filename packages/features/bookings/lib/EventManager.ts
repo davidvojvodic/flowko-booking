@@ -1008,7 +1008,7 @@ export default class EventManager {
       log.warn(
         "No destination Calendar found, falling back to first connected calendar",
         safeStringify({
-          calendarCredentials: this.calendarCredentials,
+          calendarCredentials: this.calendarCredentials.map(getPiiFreeCredential),
         })
       );
       await fallbackToFirstCalendarInTheList();

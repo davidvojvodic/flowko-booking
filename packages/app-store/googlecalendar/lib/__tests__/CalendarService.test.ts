@@ -1065,6 +1065,53 @@ describe("updateEvent", () => {
 
     log.info("updateEvent without hangoutLink should not patch test passed");
   });
+
+  test("should not log attendee details when the update fails", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    // gaxios keeps the request body on error.config.data
+    const eventsUpdateMock = vi.fn().mockImplementation(async ({ requestBody }) => {
+      throw Object.assign(new Error("Bad Request"), { config: { data: requestBody } });
+    });
+    calendarMock.calendar_v3.Calendar().events.update = eventsUpdateMock;
+    const logErrorSpy = vi.spyOn((calendarService as any).log, "error");
+
+    const testCalEvent = {
+      type: "test-event-type",
+      uid: "existing-event-id",
+      title: "Meeting",
+      startTime: "2024-06-15T10:00:00Z",
+      endTime: "2024-06-15T11:00:00Z",
+      organizer: {
+        id: 1,
+        name: "Test Organizer",
+        email: "organizer@example.com",
+        timeZone: "UTC",
+        language: { translate: (...args: any[]) => args[0], locale: "en" },
+      },
+      attendees: [
+        {
+          name: "Test Booker",
+          email: "booker@example.com",
+          timeZone: "UTC",
+          language: { translate: (...args: any[]) => args[0], locale: "en" },
+        },
+      ],
+      calendarDescription: "Booker phone: +38640123456",
+      destinationCalendar: [],
+    };
+
+    await expect(calendarService.updateEvent("existing-event-id", testCalEvent, "primary")).rejects.toThrow(
+      "Bad Request"
+    );
+
+    expect(eventsUpdateMock).toHaveBeenCalledTimes(1);
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    const loggedArgs = JSON.stringify(logErrorSpy.mock.calls[0]);
+    expect(loggedArgs).not.toContain("booker@example.com");
+    expect(loggedArgs).not.toContain("+38640123456");
+  });
 });
 
 describe("listCalendars", () => {

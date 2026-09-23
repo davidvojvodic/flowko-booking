@@ -6,6 +6,7 @@ import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/re
 import { getLocation, getRichDescription } from "@calcom/lib/CalEventParser";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
 import logger from "@calcom/lib/logger";
+import { getPiiFreeCalendarEvent } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import type { Prisma } from "@calcom/prisma/client";
 import type {
@@ -454,7 +455,7 @@ class GoogleCalendarService implements Calendar {
     } catch (error) {
       this.log.error(
         "There was an error updating event in google calendar: ",
-        safeStringify({ error, event, uid })
+        safeStringify({ error: safeStringify(error), event: getPiiFreeCalendarEvent(event), uid })
       );
       throw error;
     }
@@ -476,7 +477,11 @@ class GoogleCalendarService implements Calendar {
     } catch (error) {
       this.log.error(
         "There was an error deleting event from google calendar: ",
-        safeStringify({ error, event, externalCalendarId })
+        safeStringify({
+          error: safeStringify(error),
+          event: getPiiFreeCalendarEvent(event),
+          externalCalendarId,
+        })
       );
       const err = error as GoogleCalError;
       /**
