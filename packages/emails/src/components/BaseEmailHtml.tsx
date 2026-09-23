@@ -1,4 +1,6 @@
 /* eslint-disable @next/next/no-head-element */
+import { IS_CALCOM } from "@calcom/lib/constants";
+
 import BaseTable from "./BaseTable";
 import EmailBodyLogo from "./EmailBodyLogo";
 import EmailHead from "./EmailHead";
@@ -197,7 +199,7 @@ export const BaseEmailHtml = (props: {
               </Row>
             </div>
           </div>
-          {!Boolean(props.hideLogo) && <EmailBodyLogo />}
+          {IS_CALCOM && !Boolean(props.hideLogo) && <EmailBodyLogo />}
           <RawHtml html="<!--[if mso | IE]></td></tr></table><![endif]-->" />
         </div>
       </body>

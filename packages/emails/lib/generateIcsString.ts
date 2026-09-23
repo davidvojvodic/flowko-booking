@@ -5,9 +5,11 @@ import { RRule } from "rrule";
 
 import { getRichDescription } from "@calcom/lib/CalEventParser";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
-import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
+import { ORGANIZER_EMAIL_EXEMPT_DOMAINS, WEBAPP_URL } from "@calcom/lib/constants";
+import { emailSchema } from "@calcom/lib/emailSchema";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
+import { serverConfig } from "@calcom/lib/serverConfig";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
 export enum BookingAction {
@@ -47,6 +49,13 @@ const toICalDateArray = (date: string): DateArray => {
   ] satisfies DateArray;
 };
 
+// ORGANIZER needs a valid address even when the organizer's email is hidden. Prefer the sender
+// address (EMAIL_FROM); ics rejects an address without a TLD, e.g. no-reply@localhost.
+const getHiddenOrganizerEmail = () =>
+  [serverConfig.from, `no-reply@${new URL(WEBAPP_URL).hostname}`].find(
+    (email) => emailSchema.safeParse(email).success
+  ) ?? "no-reply@cal.com";
+
 const generateIcsString = ({
   event,
   status,
@@ -84,7 +93,7 @@ const generateIcsString = ({
     organizer: {
       name: event.organizer.name,
       ...(event.hideOrganizerEmail && !isOrganizerExempt
-        ? { email: "no-reply@cal.com" }
+        ? { email: getHiddenOrganizerEmail() }
         : { email: event.organizer.email }),
     },
     ...{ recurrenceRule },

@@ -1,6 +1,6 @@
 import { describe, expect, vi } from "vitest";
 
-import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
+import { ORGANIZER_EMAIL_EXEMPT_DOMAINS, WEBAPP_URL } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
 import { buildCalendarEvent, buildPerson } from "@calcom/lib/test/builder";
@@ -9,6 +9,14 @@ import type { CalendarEvent } from "@calcom/types/Calendar";
 import { test } from "@calcom/testing/lib/fixtures/fixtures";
 
 import generateIcsString from "./generateIcsString";
+
+const { mockServerConfig } = vi.hoisted(() => ({
+  mockServerConfig: { from: "bookings@example.com" as string | undefined },
+}));
+
+vi.mock("@calcom/lib/serverConfig", () => ({
+  serverConfig: mockServerConfig,
+}));
 
 const assertHasIcsString = (icsString: string | undefined) => {
   if (!icsString) throw new Error("icsString is undefined");
@@ -170,6 +178,45 @@ describe("generateIcsString", () => {
 
       expect(icsString).toEqual(expect.stringContaining(`LOCATION:${event.location}`));
     });
+  });
+  describe("organizer email", () => {
+    test("uses the configured sender address when the organizer email is hidden", () => {
+      const event = buildCalendarEvent({
+        iCalSequence: 0,
+        attendees: [buildPerson()],
+        organizer: buildPerson({ name: "Ana" }),
+        hideOrganizerEmail: true,
+      });
+
+      const icsString = assertHasIcsString(generateIcsString({ event, status: "CONFIRMED" }));
+
+      expect(icsString).toEqual(expect.stringContaining("ORGANIZER;CN=Ana:mailto:bookings@example.com"));
+      expect(icsString).not.toEqual(expect.stringContaining(`mailto:${event.organizer.email}`));
+      expect(icsString).not.toEqual(expect.stringContaining("no-reply@cal.com"));
+    });
+    test.each([undefined, "Flowko <bookings@example.com>"])(
+      "falls back to a no-reply address on the app domain when EMAIL_FROM is %s",
+      (from) => {
+        mockServerConfig.from = from;
+        try {
+          const event = buildCalendarEvent({
+            iCalSequence: 0,
+            attendees: [buildPerson()],
+            organizer: buildPerson({ name: "Ana" }),
+            hideOrganizerEmail: true,
+          });
+
+          const icsString = assertHasIcsString(generateIcsString({ event, status: "CONFIRMED" }));
+
+          expect(icsString).toEqual(
+            expect.stringContaining(`ORGANIZER;CN=Ana:mailto:no-reply@${new URL(WEBAPP_URL).hostname}`)
+          );
+          expect(icsString).not.toEqual(expect.stringContaining("@cal.com"));
+        } finally {
+          mockServerConfig.from = "bookings@example.com";
+        }
+      }
+    );
   });
   describe("error handling", () => {
     test("throws ErrorWithCode.BadRequest when ics library returns ValidationError", async () => {
