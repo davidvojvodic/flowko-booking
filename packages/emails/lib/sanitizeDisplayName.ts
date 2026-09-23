@@ -3,7 +3,8 @@
 const SINGLE_MAILBOX = /^([\s\S]*)<([^<>]*)>\s*$/;
 
 const sanitizeDisplayName = (name: string) => {
-  const charsToReplace = /[;,"<>():\p{Cc}]/gu;
+  // \x00-\x1F and \x7F-\x9F are the Unicode control characters (\p{Cc}, which needs the ES6 u flag).
+  const charsToReplace = /[;,"<>():\x00-\x1F\x7F-\x9F]/g;
 
   return name.replace(charsToReplace, " ").replace(/\s+/g, " ").trim();
 };
