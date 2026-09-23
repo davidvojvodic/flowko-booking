@@ -9,7 +9,7 @@ import { getServerErrorFromUnknown } from "@calcom/lib/server/getServerErrorFrom
 import { setTestEmail } from "@calcom/lib/testEmails";
 import { prisma } from "@calcom/prisma";
 
-import { toMailAddresses } from "../lib/sanitizeDisplayName";
+import { type MailAddress, toMailAddresses } from "../lib/sanitizeDisplayName";
 import { formatRecipientDate } from "../lib/utils/date-formatting";
 
 /**
@@ -77,19 +77,32 @@ export default class BaseEmail {
     const from = "from" in payload ? (payload.from as string) : "";
     const to = "to" in payload ? (payload.to as string) : "";
 
-    // A faux email is built from the booker's phone number, so it is never sent or logged. Flowko:
-    // attendee templates address `Name <address>`, so the parsed addresses are checked, not the field
     const toAddresses = toMailAddresses(to);
-    const realToAddresses = toAddresses.filter(({ address }) => !isSmsCalEmail(address));
-    if (toAddresses.length && !realToAddresses.length) {
+    const parsedOptionalAddressFields = Object.fromEntries(
+      (["replyTo", "cc", "bcc"] as const)
+        .filter((field) => typeof payload[field] === "string")
+        .map((field) => [field, toMailAddresses(payload[field] as string)] as const)
+    );
+
+    // A faux email is built from the booker's phone number, so it is never sent or logged. Flowko:
+    // attendee templates address `Name <address>`, so the parsed addresses are checked, not the fields.
+    // Faux emails are dropped from to, cc, bcc and replyTo. When every recipient was one, nothing is sent.
+    const isRealAddress = ({ address }: MailAddress) => !isSmsCalEmail(address);
+    const recipients = [
+      ...toAddresses,
+      ...(parsedOptionalAddressFields.cc ?? []),
+      ...(parsedOptionalAddressFields.bcc ?? []),
+    ];
+    if (recipients.length && !recipients.some(isRealAddress)) {
       console.log(`Skipped Sending Email to faux email for ${this.name}`);
       return new Promise((r) => r("Skipped Sending Email to faux email"));
     }
 
+    const realToAddresses = toAddresses.filter(isRealAddress);
     const optionalAddressFields = Object.fromEntries(
-      (["replyTo", "cc", "bcc"] as const)
-        .filter((field) => typeof payload[field] === "string")
-        .map((field) => [field, toMailAddresses(payload[field] as string)] as const)
+      Object.entries(parsedOptionalAddressFields).map(
+        ([field, addresses]) => [field, addresses.filter(isRealAddress)] as const
+      )
     );
 
     const parseSubject = z.string().safeParse(payload?.subject);
