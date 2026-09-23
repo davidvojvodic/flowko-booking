@@ -114,16 +114,28 @@ const updateMeeting = async (
   const updatedMeeting = canCallUpdateMeeting
     ? await firstVideoAdapter?.updateMeeting(bookingRef, calEvent).catch(async (e) => {
         await sendBrokenIntegrationEmail(calEvent, "video");
-        log.error("updateMeeting failed", e, calEvent);
+        // Flowko: the event holds the booker's details
+        log.error(
+          "updateMeeting failed",
+          safeStringify(e),
+          safeStringify({ calEvent: getPiiFreeCalendarEvent(calEvent) })
+        );
         success = false;
         return undefined;
       })
     : undefined;
 
   if (!updatedMeeting) {
+    // Flowko: the event holds the booker's details, the reference the meeting password and the
+    // credential the video app's key
     log.error(
       "updateMeeting failed",
-      safeStringify({ bookingRef, canCallUpdateMeeting, calEvent, credential })
+      safeStringify({
+        bookingRef: bookingRef ? { id: bookingRef.id, type: bookingRef.type } : null,
+        canCallUpdateMeeting,
+        calEvent: getPiiFreeCalendarEvent(calEvent),
+        credential: getPiiFreeCredential(credential),
+      })
     );
     return {
       appName: credential.appName || credential.appId || "",

@@ -9,7 +9,6 @@ import { buildDateRanges } from "@calcom/features/schedules/lib/date-ranges";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { parseBookingLimit } from "@calcom/lib/intervalLimits/isBookingLimits";
 import { parseDurationLimit } from "@calcom/lib/intervalLimits/isDurationLimits";
-import { getPiiFreeUser } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { withReporting } from "@calcom/lib/sentryWrapper";
 import prisma from "@calcom/prisma";
@@ -113,20 +112,22 @@ const _ensureAvailableUsers = async (
     },
   });
 
+  // Flowko: the original booking carries the booker's details (attendees, responses, title) and the
+  // host's calendar ids (destinationCalendar, references), so only its ids are logged
   const piiFreeInputDataForLogging = safeStringify({
     startDateTimeUtc,
     endDateTimeUtc,
-    ...{
-      ...input,
-      originalRescheduledBooking: input.originalRescheduledBooking
-        ? {
-            ...input.originalRescheduledBooking,
-            user: input.originalRescheduledBooking?.user
-              ? getPiiFreeUser(input.originalRescheduledBooking.user)
-              : null,
-          }
-        : undefined,
-    },
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+    timeZone: input.timeZone,
+    originalRescheduledBooking: input.originalRescheduledBooking
+      ? {
+          id: input.originalRescheduledBooking.id,
+          uid: input.originalRescheduledBooking.uid,
+          userId: input.originalRescheduledBooking.userId,
+          status: input.originalRescheduledBooking.status,
+        }
+      : undefined,
   });
 
   if (eventType.restrictionScheduleId) {

@@ -10,6 +10,7 @@ import { UserRepository } from "@calcom/features/users/repositories/UserReposito
 import { buildCalEventFromBooking } from "@calcom/lib/buildCalEventFromBooking";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
 import logger from "@calcom/lib/logger";
+import { getPiiFreeEventResult } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { getTranslation } from "@calcom/i18n/server";
 import { prisma } from "@calcom/prisma";
@@ -56,10 +57,17 @@ async function updateLocationInConnectedAppForBooking({
       errorCode: "BookingUpdateLocationFailed",
       message: "Updating location failed",
     };
-    logger.error(`Updating location failed`, safeStringify(error), safeStringify(results));
+    // Each result carries the whole CalendarEvent (booker details) and the host's calendar id
+    logger.error(
+      `Updating location failed`,
+      safeStringify({ error, bookingId: booking.id, results: results.map(getPiiFreeEventResult) })
+    );
     throw new SystemError("Updating location failed");
   }
-  logger.info(`Got results from updateLocationInConnectedApp`, safeStringify(updatedResult.results));
+  logger.info(
+    `Got results from updateLocationInConnectedApp`,
+    safeStringify(updatedResult.results.map(getPiiFreeEventResult))
+  );
   return updatedResult;
 }
 

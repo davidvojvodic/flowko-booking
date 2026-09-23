@@ -86,9 +86,18 @@ export function getPiiFreeCredential(credential: Partial<Credential> & { delegat
    */
   const booleanKeyStatus = getBooleanStatus(credential?.key);
 
+  // Flowko: an allow-list, not a spread: a calendar credential also carries encryptedKey and the
+  // host's user.email, which is often the Google primary calendar id
   return {
-    ...credential,
+    id: credential.id,
+    type: credential.type,
+    appId: credential.appId,
+    userId: credential.userId,
+    teamId: credential.teamId,
+    invalid: credential.invalid,
+    delegationCredentialId: credential.delegationCredentialId,
     key: booleanKeyStatus,
+    encryptedKey: getBooleanStatus(credential.encryptedKey),
     delegatedTo: !!credential.delegatedTo,
   };
 }
