@@ -19,6 +19,7 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({
       if (key === "calendar_days") return "calendar days";
       return key;
     },
+    i18n: { language: "en" },
   }),
 }));
 
@@ -80,7 +81,7 @@ describe("NoAvailabilityOverlay", () => {
       />
     );
     expect(screen.getByRole("dialog")).toHaveTextContent(
-      `Scheduling ended on ${endDate.format("MMMM D YYYY")}. Please check again soon.`
+      `Scheduling ended on ${endDate.format("MMMM D, YYYY")}. Please check again soon.`
     );
     const nextMonthButton = screen.queryAllByTestId("view_next_month");
     const closeButton = screen.getAllByTestId("close_dialog_button");

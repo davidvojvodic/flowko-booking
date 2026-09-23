@@ -1,8 +1,9 @@
 import dayjs from "@calcom/dayjs";
 import { formatPrice } from "@calcom/lib/currencyConversions";
-import { TimeFormat } from "@calcom/lib/timeFormat";
+import { getTimeFormatForLocale, type TimeFormat } from "@calcom/lib/timeFormat";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 import type { TFunction } from "i18next";
+import { formatRecipientDate } from "../../lib/utils/date-formatting";
 import {
   AppsStatus,
   BaseEmailHtml,
@@ -30,7 +31,7 @@ export const BaseScheduledEmail = (
 ) => {
   const { t, timeZone, locale, timeFormat: timeFormat_ } = props;
 
-  const timeFormat = timeFormat_ ?? TimeFormat.TWELVE_HOUR;
+  const timeFormat = timeFormat_ ?? getTimeFormatForLocale(locale);
 
   function getRecipientStart(format: string) {
     return dayjs(props.calEvent.startTime).tz(timeZone).format(format);
@@ -43,9 +44,11 @@ export const BaseScheduledEmail = (
   const subject = t(props.subject || "confirmed_event_type_subject", {
     eventType: props.calEvent.type,
     name: props.calEvent.team?.name || props.calEvent.organizer.name,
-    date: `${getRecipientStart("h:mma")} - ${getRecipientEnd("h:mma")}, ${t(
-      getRecipientStart("dddd").toLowerCase()
-    )}, ${t(getRecipientStart("MMMM").toLowerCase())} ${getRecipientStart("D, YYYY")}`,
+    date: `${getRecipientStart(timeFormat)} - ${getRecipientEnd(timeFormat)}, ${formatRecipientDate({
+      time: props.calEvent.startTime,
+      timeZone,
+      locale,
+    })}`,
     interpolation: { escapeValue: false },
   });
 

@@ -7,6 +7,7 @@ import { useEmbedStyles } from "@calcom/embed-core/embed-iframe";
 import { useBookerStoreContext } from "@calcom/features/bookings/Booker/BookerStoreProvider";
 import { getAvailableDatesInMonth } from "@calcom/features/calendars/lib/getAvailableDatesInMonth";
 import type { Slots } from "@calcom/features/calendars/lib/types";
+import { formatDateTime } from "@calcom/lib/dateTimeFormatter";
 import { daysInMonth, yyyymmdd } from "@calcom/lib/dayjs";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { weekdayNames } from "@calcom/lib/weekday";
@@ -75,7 +76,7 @@ const Day = ({
   showMonthTooltip?: boolean;
   isFirstDayOfNextMonth?: boolean;
 }) => {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const enabledDateButtonEmbedStyles = useEmbedStyles("enabledDateButton");
   const disabledDateButtonEmbedStyles = useEmbedStyles("disabledDateButton");
 
@@ -114,7 +115,10 @@ const Day = ({
   );
 
   const content = showMonthTooltip ? (
-    <Tooltip content={date.format("MMMM")}>{buttonContent}</Tooltip>
+    <Tooltip
+      content={formatDateTime(new Date(date.year(), date.month()), { locale: i18n.language, month: "long" })}>
+      {buttonContent}
+    </Tooltip>
   ) : (
     buttonContent
   );
@@ -133,7 +137,7 @@ const Day = ({
             lineHeight: "13px",
             padding: disabled ? "0 3px" : "3px 3px 3px 4px",
           }}>
-          {date.format("MMM")}
+          {formatDateTime(new Date(date.year(), date.month()), { locale: i18n.language, month: "short" })}
         </div>
       )}
       {content}

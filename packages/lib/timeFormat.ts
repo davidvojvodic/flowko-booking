@@ -29,6 +29,30 @@ export const getTimeFormatStringFromUserTimeFormat = (timeFormat: number | null 
 };
 
 /**
+ * Returns the time format conventionally used by the given locale,
+ * e.g. 12h for "en" and 24h for "sl". Falls back to 12h for an invalid locale.
+ */
+export const getTimeFormatForLocale = (locale: string): TimeFormat => {
+  try {
+    const { hourCycle } = new Intl.DateTimeFormat(locale, { hour: "numeric" }).resolvedOptions();
+    return hourCycle === "h23" || hourCycle === "h24" ? TimeFormat.TWENTY_FOUR_HOUR : TimeFormat.TWELVE_HOUR;
+  } catch {
+    return TimeFormat.TWELVE_HOUR;
+  }
+};
+
+/**
+ * Returns the time format for a recipient who has no time format of their own.
+ * User.timeFormat defaults to 12h, so only an explicit 24h is kept and otherwise
+ * the recipient's locale decides, e.g. 12h for "en" and 24h for "sl".
+ */
+export const getRecipientTimeFormat = (timeFormat: TimeFormat | undefined, locale: string): TimeFormat => {
+  return timeFormat === TimeFormat.TWENTY_FOUR_HOUR
+    ? TimeFormat.TWENTY_FOUR_HOUR
+    : getTimeFormatForLocale(locale);
+};
+
+/**
  * Retrieves the browsers time format preference, checking local storage first
  * for a user set preference. If no preference is found, it will use the browser
  * locale to determine the time format and store it in local storage.

@@ -12,6 +12,8 @@ import type { Slot } from "~/schedules/lib/types";
 import { useNonEmptyScheduleDays } from "@calcom/web/modules/schedules/hooks/useNonEmptyScheduleDays";
 import { useSlotsForAvailableDates } from "@calcom/web/modules/schedules/hooks/useSlotsForDate";
 import { PUBLIC_INVALIDATE_AVAILABLE_SLOTS_ON_BOOKING_FORM } from "@calcom/lib/constants";
+import { formatDateTime } from "@calcom/lib/dateTimeFormatter";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { localStorage } from "@calcom/lib/webstorage";
 import { BookerLayouts } from "@calcom/prisma/zod-utils";
 import classNames from "@calcom/ui/classNames";
@@ -81,6 +83,7 @@ export const AvailableTimeSlots = ({
   hideAvailableTimesHeader = false,
   ...props
 }: AvailableTimeSlotsProps) => {
+  const { i18n } = useLocale();
   const selectedDate = useBookerStoreContext((state) => state.selectedDate);
 
   const setSeatedEventData = useBookerStoreContext((state) => state.setSeatedEventData);
@@ -216,7 +219,7 @@ export const AvailableTimeSlots = ({
                 showTimeFormatToggle={!isColumnView && !isOOODay}
                 availableMonth={
                   dayjs(selectedDate).format("MM") !== dayjs(slots.date).format("MM")
-                    ? dayjs(slots.date).format("MMM")
+                    ? formatDateTime(dayjs(slots.date).toDate(), { locale: i18n.language, month: "short" })
                     : undefined
                 }
               />
