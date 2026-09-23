@@ -7,6 +7,10 @@ type PrismaLike = Pick<PrismaClient, "app">;
 // An event type's metadata.apps is keyed by the app's directory name, except stripepayment's "stripe"
 const getDirNameFromAppKey = (appKey: string) => (appKey === "stripe" ? "stripepayment" : appKey);
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * Flowko: an app switched off under Settings → Admin → Apps (App.enabled = false) stays off server-side.
  * Returns the app keys (keys of an event type's metadata.apps) and location types among the given ones
@@ -44,10 +48,6 @@ export async function findDisabledApps(
       .filter(([, appSlug]) => !enabledSlugs.has(appSlug))
       .map(([type]) => type),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

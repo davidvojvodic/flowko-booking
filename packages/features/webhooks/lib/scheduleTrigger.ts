@@ -65,14 +65,10 @@ export async function addSubscription({
     isTeam: boolean;
   } | null;
 }) {
-  await ensureSubscriptionOwnerIsAdmin({
-    userId: appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null,
-    teamId: appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null,
-  });
+  const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
+  const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
+  await ensureSubscriptionOwnerIsAdmin({ userId, teamId });
   try {
-    const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
-    const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
-
     const createSubscription = await prisma.webhook.create({
       data: {
         id: v4(),
