@@ -9,7 +9,7 @@ import { getServerErrorFromUnknown } from "@calcom/lib/server/getServerErrorFrom
 import { setTestEmail } from "@calcom/lib/testEmails";
 import { prisma } from "@calcom/prisma";
 
-import { sanitizeDisplayName } from "../lib/sanitizeDisplayName";
+import { toMailAddresses } from "../lib/sanitizeDisplayName";
 import { formatRecipientDate } from "../lib/utils/date-formatting";
 
 export default class BaseEmail {
@@ -63,16 +63,20 @@ export default class BaseEmail {
       return new Promise((r) => r(`Skipped Sending Email to faux email: ${to}`));
     }
 
-    const sanitizedFrom = sanitizeDisplayName(from);
-    const sanitizedTo = sanitizeDisplayName(to);
+    const optionalAddressFields = Object.fromEntries(
+      (["replyTo", "cc", "bcc"] as const)
+        .filter((field) => typeof payload[field] === "string")
+        .map((field) => [field, toMailAddresses(payload[field] as string)] as const)
+    );
 
     const parseSubject = z.string().safeParse(payload?.subject);
     const payloadWithUnEscapedSubject = {
       headers: this.getMailerOptions().headers,
       ...payload,
       ...{
-        from: sanitizedFrom,
-        to: sanitizedTo,
+        from: toMailAddresses(from)[0],
+        to: toMailAddresses(to),
+        ...optionalAddressFields,
       },
       ...(parseSubject.success && { subject: decodeHTML(parseSubject.data) }),
     };
@@ -93,7 +97,7 @@ export default class BaseEmail {
     ).catch((e) =>
       console.error(
         "sendEmail",
-        `from: ${"from" in payloadWithUnEscapedSubject ? payloadWithUnEscapedSubject.from : ""}`,
+        `from: ${from}`,
         `subject: ${"subject" in payloadWithUnEscapedSubject ? payloadWithUnEscapedSubject.subject : ""}`,
         e
       )
