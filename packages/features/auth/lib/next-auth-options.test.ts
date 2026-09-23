@@ -908,7 +908,8 @@ describe("Email (magic link) signIn callback", () => {
       email: { verificationRequest: true },
     } as any);
 
-    expect(result).toBe(false);
+    // A string makes next-auth redirect there without sending the link; it matches the answer for a sent link
+    expect(result).toBe("http://localhost:3000/api/auth/verify-request?provider=email&type=email");
   });
 
   it("denies an unknown email when the link is opened", async () => {
@@ -917,6 +918,39 @@ describe("Email (magic link) signIn callback", () => {
     const result = await signInCallback({
       user: { id: "stranger@example.com", email: "stranger@example.com", emailVerified: null },
       account: { ...emailAccount, providerAccountId: "stranger@example.com" },
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies a differently cased address, which next-auth would create as a new user", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com" });
+
+    const result = await signInCallback({
+      user: { id: "User@Example.com", email: "User@Example.com", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "User@Example.com" },
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies a locked user", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com", locked: true });
+
+    const result = await signInCallback({
+      user: { id: "1", email: "user@example.com", emailVerified: null },
+      account: emailAccount,
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies a user with 2FA enabled", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com", twoFactorEnabled: true });
+
+    const result = await signInCallback({
+      user: { id: "1", email: "user@example.com", emailVerified: null },
+      account: emailAccount,
     } as any);
 
     expect(result).toBe(false);
