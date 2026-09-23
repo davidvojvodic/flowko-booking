@@ -3924,7 +3924,7 @@
   "onboarding_skip_for_now": "Preskoči za zdaj",
   "onboarding_or_divider": "ali",
   "onboarding_welcome_message": "Pozdravljeni, {{userName}}",
-  "onboarding_welcome_question": "Za kaj nameravate uporabljati Cal.diy? Tako bomo izkušnjo prilagodili vam.",
+  "onboarding_welcome_question": "Za kaj nameravate uporabljati {{appName}}? Tako bomo izkušnjo prilagodili vam.",
   "onboarding_plan_personal_title": "Za osebno uporabo",
   "onboarding_plan_personal_badge": "Brezplačno",
   "onboarding_plan_personal_description": "Primerno za posameznike, ki šele začenjajo in potrebujejo samo osnovno.",

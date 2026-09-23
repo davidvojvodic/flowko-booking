@@ -4429,7 +4429,7 @@
   "onboarding_or_divider": "or",
   "onboarding_team_required": "Team is required",
   "onboarding_welcome_message": "Hey {{userName}}",
-  "onboarding_welcome_question": "To personalize your experience, what do you plan to use Cal.diy for?",
+  "onboarding_welcome_question": "To personalize your experience, what do you plan to use {{appName}} for?",
   "onboarding_plan_personal_title": "For personal use",
   "onboarding_plan_personal_badge": "Free",
   "onboarding_plan_personal_description": "Good for individuals who are just starting out and simply want the essentials.",
