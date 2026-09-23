@@ -37,6 +37,7 @@ const test409Codes = [
   ErrorCode.BookingSeatsFull,
   ErrorCode.NotEnoughAvailableSeats,
   ErrorCode.BookingConflict,
+  ErrorCode.BookingAlreadyExists,
   ErrorCode.PaymentCreationFailure,
 ];
 

@@ -290,6 +290,7 @@
   "booking_cancel_redirect_uri": "URL strani, kjer lahko vaši uporabniki odpovedo rezervacijo",
   "booking_reschedule_redirect_uri": "URL strani, kjer lahko vaši uporabniki prestavijo termin",
   "booking_conflict_error": "Ta termin ni več na voljo. Vrnite se na prejšnjo stran in izberite drug termin.",
+  "booking_already_exists_error": "Ob tem času že imate rezervacijo. Podrobnosti preverite v e-pošti.",
   "only_available_on_pro_plan": "Ta funkcija je na voljo samo v paketu Pro",
   "profile_updated_successfully": "Profil je uspešno posodobljen",
   "your_user_profile_updated_successfully": "Vaš uporabniški profil je bil uspešno posodobljen.",

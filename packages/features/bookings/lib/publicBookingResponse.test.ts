@@ -171,8 +171,8 @@ describe("toPublicBookingResponse", () => {
     expect(JSON.stringify(response)).not.toContain("encrypted");
   });
 
-  it("drops another person's answers when an existing booking matched only a guest's email", () => {
-    // Someone enters the email of a guest on Ana's booking for the same slot
+  it("drops another person's answers when the booking was made by someone else", () => {
+    // Ana's guest takes a seat on the booking Ana made: its answers, notes and title are Ana's
     const response = toPublicBookingResponse(
       serviceResult,
       submittedBy({ name: "Nekdo", email: "Guest@Example.com" })
@@ -187,6 +187,23 @@ describe("toPublicBookingResponse", () => {
       { name: "", email: "guest@example.com", timeZone: "Europe/Ljubljana" },
     ]);
     expect(JSON.stringify(response)).not.toContain("ana@example.com");
+  });
+
+  it("gives a later seat holder the event type's title instead of the first seat holder's", () => {
+    const seatedBooking = { ...serviceResult, eventType: { title: "Striženje" } };
+
+    const response = toPublicBookingResponse(
+      seatedBooking,
+      submittedBy({ name: "Marko Kos", email: "marko@example.com" })
+    );
+
+    expect(response.title).toBe("Striženje");
+    expect(response.responses).toBeUndefined();
+    expect(JSON.stringify(response)).not.toContain("Ana Novak");
+    // The booker's own booking keeps its own title
+    expect(toPublicBookingResponse(seatedBooking, submittedBy(bookerResponses)).title).toBe(
+      serviceResult.title
+    );
   });
 
   it("matches the booker's email case-insensitively", () => {

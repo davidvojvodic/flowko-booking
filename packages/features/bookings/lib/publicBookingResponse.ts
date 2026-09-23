@@ -26,6 +26,8 @@ export type BookingForBooker = {
   location?: string | null;
   status?: BookingStatus | null;
   eventTypeId?: number | null;
+  /** A seated booking comes back with its event type (findBookingQuery) */
+  eventType?: { title?: string | null } | null;
   responses?: unknown;
   user?: { name?: string | null; timeZone?: string | null } | null;
   attendees?: BookingAttendeeForBooker[] | null;
@@ -108,9 +110,12 @@ export function toPublicBookingResponse(
   const isSubmittedByBooker = (email: string | null | undefined) =>
     !!email && bookerSubmittedEmails.has(normaliseEmail(email));
 
-  // An existing booking is returned when one of its attendees has the email the booker entered,
-  // which can be a guest's. Its form answers, notes, title and location then belong to whoever
-  // made that booking, so they are only returned when that person is the booker.
+  // A booking the booker didn't make comes back when they take a seat: the seated booking carries the
+  // first seat holder's form answers, notes, title (it can contain their name) and location. Those
+  // are only returned to the person who made the booking; others get the event type's title.
+  // This is a filter on what the service returned, not an access control: the service decides which
+  // booking a caller gets (an existing booking for the same attendee and slot goes only to its
+  // organizer or a host, see RegularBookingService).
   const bookingEmail = isRecord(booking.responses) ? booking.responses.email : undefined;
   const isBookersOwnBooking =
     typeof bookingEmail !== "string" || !bookingEmail || isSubmittedByBooker(bookingEmail);
@@ -129,7 +134,7 @@ export function toPublicBookingResponse(
 
   return {
     uid: booking.uid ?? undefined,
-    title: isBookersOwnBooking ? (booking.title ?? undefined) : undefined,
+    title: isBookersOwnBooking ? (booking.title ?? undefined) : (booking.eventType?.title ?? undefined),
     description: isBookersOwnBooking ? booking.description : undefined,
     startTime: booking.startTime ?? undefined,
     endTime: booking.endTime ?? undefined,

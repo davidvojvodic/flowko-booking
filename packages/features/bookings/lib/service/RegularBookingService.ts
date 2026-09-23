@@ -690,6 +690,23 @@ async function handler(
     });
 
     if (existingBooking) {
+      // The lookup matches on an attendee's email or phone number and the start time, which anyone can
+      // submit. Returning the booking would hand its uid (enough to open, cancel or reschedule it), the
+      // attendee's form answers and the payment link to whoever knows them, so only the booking's
+      // organizer or a host of the event type gets it back. The booker has it in their confirmation email,
+      // and a pending payment's link is emailed to them (sendAwaitingPaymentEmail).
+      // /api/book/event passes -1 for a caller without a session
+      const isCallerOrganizerOrHost =
+        !!userId &&
+        userId > 0 &&
+        (existingBooking.userId === userId ||
+          eventType.owner?.id === userId ||
+          eventType.users.some((user) => user.id === userId) ||
+          eventType.hosts.some((host) => host.user.id === userId));
+      if (!isCallerOrganizerOrHost) {
+        throw new HttpError({ statusCode: 409, message: ErrorCode.BookingAlreadyExists });
+      }
+
       const hasPayments = existingBooking.payment.length > 0;
       const isPaidBooking = existingBooking.paid || !hasPayments;
 
