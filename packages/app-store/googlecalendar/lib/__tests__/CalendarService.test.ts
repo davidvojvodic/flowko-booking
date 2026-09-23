@@ -922,8 +922,41 @@ describe("createEvent", () => {
     expect(patchCall.eventId).toBe("mock-event-with-hangout");
     expect(patchCall.requestBody.location).toBe(mockHangoutLink);
     expect(patchCall.requestBody.description).toBeDefined();
+    expect(patchCall.sendUpdates).toBe("none");
 
     log.info("createEvent with hangoutLink patch test passed");
+  });
+
+  test("should not add a phone-only booker's placeholder address as a Google guest", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    const eventsInsertMock = vi.fn().mockResolvedValue({ data: { id: "mock-event-id" } });
+    calendarMock.calendar_v3.Calendar().events.insert = eventsInsertMock;
+
+    await calendarService.createEvent(
+      {
+        ...calEventWithBookerDetails,
+        attendees: [
+          {
+            name: "Phone Booker",
+            email: "38640123456@sms.cal.com",
+            phoneNumber: "+38640123456",
+            timeZone: "UTC",
+            language: { translate: (...args: any[]) => args[0], locale: "en" },
+          },
+          ...calEventWithBookerDetails.attendees,
+        ],
+      },
+      mockCredential.id
+    );
+
+    expect(eventsInsertMock).toHaveBeenCalledTimes(1);
+    const insertCall = eventsInsertMock.mock.calls[0][0];
+    const guestEmails = insertCall.requestBody.attendees.map((attendee: { email: string }) => attendee.email);
+    expect(guestEmails).toContain("booker@example.com");
+    expect(guestEmails).not.toContain("38640123456@sms.cal.com");
+    expect(insertCall.sendUpdates).toBe("none");
   });
 
   test("should not log or rethrow attendee details or the access token when the insert fails", async () => {
@@ -1015,6 +1048,7 @@ describe("updateEvent", () => {
     expect(patchCall.eventId).toBe("existing-event-id");
     expect(patchCall.requestBody.location).toBe(mockHangoutLink);
     expect(patchCall.requestBody.description).toBeDefined();
+    expect(patchCall.sendUpdates).toBe("none");
 
     // Verify result includes hangoutLink in additionalInfo
     expect(result.additionalInfo?.hangoutLink).toBe(mockHangoutLink);
@@ -1143,6 +1177,39 @@ describe("updateEvent", () => {
     expect(eventsPatchMock).not.toHaveBeenCalled();
 
     log.info("updateEvent without hangoutLink should not patch test passed");
+  });
+
+  test("should update the event without Google emailing the guests", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    const eventsUpdateMock = vi.fn().mockResolvedValue({ data: { id: "existing-event-id" } });
+    calendarMock.calendar_v3.Calendar().events.update = eventsUpdateMock;
+
+    await calendarService.updateEvent(
+      "existing-event-id",
+      {
+        ...calEventWithBookerDetails,
+        attendees: [
+          ...calEventWithBookerDetails.attendees,
+          {
+            name: "Phone Booker",
+            email: "38640123456@sms.cal.com",
+            timeZone: "UTC",
+            language: { translate: (...args: any[]) => args[0], locale: "en" },
+          },
+        ],
+      },
+      "primary"
+    );
+
+    expect(eventsUpdateMock).toHaveBeenCalledTimes(1);
+    const updateCall = eventsUpdateMock.mock.calls[0][0];
+    expect(updateCall.sendNotifications).toBe(false);
+    expect(updateCall.sendUpdates).toBe("none");
+    const guestEmails = updateCall.requestBody.attendees.map((attendee: { email: string }) => attendee.email);
+    expect(guestEmails).toContain("booker@example.com");
+    expect(guestEmails).not.toContain("38640123456@sms.cal.com");
   });
 
   test("should not log or rethrow attendee details or the access token when the update fails", async () => {

@@ -77,13 +77,15 @@ export function handleEvent(event: { detail: Record<string, unknown> & { type: s
   });
 
   // Support sending all events to opener which is currently used by ReroutingDialog to identify if the booking is successfully rescheduled.
-  if (window.opener) {
+  // Events carry booking details, so only an opener on our own origin may receive them.
+  // An opaque origin ("null", e.g. a popup from a sandboxed iframe) can't be targeted: postMessage would throw.
+  if (window.opener && window.location.origin !== "null") {
     window.opener.postMessage(
       {
         type: `CAL:${name}`,
         ...data,
       },
-      "*"
+      window.location.origin
     );
   }
   return true;

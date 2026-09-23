@@ -64,6 +64,24 @@ async function postHandler(request: NextRequest) {
   }
 }
 
+/**
+ * A token alone must not accept or reject a booking. The emailed link names the organizer, so the
+ * user in the link has to be the booking's organizer or a host of its event type.
+ */
+async function isOrganizerOrHost(
+  userId: number,
+  booking: { userId: number | null; eventTypeId: number | null }
+): Promise<boolean> {
+  if (!Number.isInteger(userId) || userId <= 0) return false;
+  if (booking.userId === userId) return true;
+  if (!booking.eventTypeId) return false;
+  const host = await prisma.host.findFirst({
+    where: { userId, eventTypeId: booking.eventTypeId },
+    select: { userId: true },
+  });
+  return !!host;
+}
+
 async function handleBookingAction(
   action: DirectAction,
   token: string,
@@ -74,9 +92,11 @@ async function handleBookingAction(
 ) {
   const booking = await prisma.booking.findUnique({
     where: { oneTimePassword: token },
+    select: { id: true, uid: true, userId: true, eventTypeId: true, recurringEventId: true },
   });
 
-  if (!booking) {
+  const actingUserId = Number(userId);
+  if (!booking || !(await isOrganizerOrHost(actingUserId, booking))) {
     return NextResponse.redirect(
       new URL(`/booking/${bookingUid}?error=${encodeURIComponent("Error confirming booking")}`, WEBAPP_URL),
       { status: 303 }
@@ -84,7 +104,7 @@ async function handleBookingAction(
   }
 
   const user = await prisma.user.findUniqueOrThrow({
-    where: { id: Number(userId) },
+    where: { id: actingUserId },
     select: {
       id: true,
       uuid: true,

@@ -5,6 +5,7 @@ import { getDestinationCalendarRepository } from "@calcom/features/di/containers
 import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository";
 import { getLocation, getRichDescription } from "@calcom/lib/CalEventParser";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
+import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import logger from "@calcom/lib/logger";
 import { getPiiFreeCalendarEvent, getPiiFreeSelectedCalendar } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
@@ -156,10 +157,13 @@ class GoogleCalendarService implements Calendar {
       .filter((domain) => domain.trim() !== "")
       .some((domain) => event.organizer.email.toLowerCase().endsWith(domain.toLowerCase()));
 
-    const eventAttendees = event.attendees.map(({ id: _id, ...rest }) => ({
-      ...rest,
-      responseStatus: "accepted",
-    }));
+    // Phone-only bookers have a placeholder @sms.cal.com address, which must not become a Google guest
+    const eventAttendees = event.attendees
+      .filter((attendee) => !isSmsCalEmail(attendee.email))
+      .map(({ id: _id, ...rest }) => ({
+        ...rest,
+        responseStatus: "accepted",
+      }));
 
     const attendees: calendar_v3.Schema$EventAttendee[] = [
       {
@@ -287,6 +291,7 @@ class GoogleCalendarService implements Calendar {
           await calendar.events.patch({
             calendarId: selectedCalendar,
             eventId: event.id || "",
+            sendUpdates: "none",
             requestBody: {
               location: getLocation({
                 videoCallData: calEvent.videoCallData,
@@ -319,6 +324,7 @@ class GoogleCalendarService implements Calendar {
           // Update the same event but this time we know the hangout link
           calendarId: selectedCalendar,
           eventId: event.id || "",
+          sendUpdates: "none",
           requestBody: {
             description: getRichDescription({
               ...calEvent,
@@ -420,7 +426,7 @@ class GoogleCalendarService implements Calendar {
       const evt = await calendar.events.update({
         calendarId: selectedCalendar,
         eventId: uid,
-        sendNotifications: true,
+        sendNotifications: false,
         sendUpdates: "none",
         requestBody: payload,
         conferenceDataVersion: 1,
@@ -436,6 +442,7 @@ class GoogleCalendarService implements Calendar {
           // Update the same event but this time we know the hangout link
           calendarId: selectedCalendar,
           eventId: evt.data.id || "",
+          sendUpdates: "none",
           requestBody: {
             description: getRichDescription({
               ...event,

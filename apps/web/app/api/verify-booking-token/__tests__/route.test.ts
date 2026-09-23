@@ -53,6 +53,16 @@ vi.mock("@calcom/prisma", () => ({
         return Promise.resolve(user ?? null);
       }),
     },
+    host: {
+      findFirst: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { userId: number; eventTypeId: number } }) => {
+          const host = DB.hosts.find(
+            (host) => host.userId === where.userId && host.eventTypeId === where.eventTypeId
+          );
+          return Promise.resolve(host ?? null);
+        }),
+    },
   },
 }));
 
@@ -104,8 +114,11 @@ const DB = {
       uid: string;
       oneTimePassword: string;
       recurringEventId?: string | null;
+      userId: number | null;
+      eventTypeId: number | null;
     }
   >,
+  hosts: [] as { userId: number; eventTypeId: number }[],
   users: {} as Record<
     string,
     {
@@ -123,12 +136,17 @@ function createMockBooking(overrides: {
   uid: string;
   oneTimePassword: string;
   recurringEventId?: string | null;
+  userId?: number | null;
+  eventTypeId?: number | null;
 }) {
   DB.bookings[overrides.uid] = {
     id: overrides.id,
     uid: overrides.uid,
     oneTimePassword: overrides.oneTimePassword,
     recurringEventId: overrides.recurringEventId ?? null,
+    // The organizer, whose id the emailed link carries
+    userId: overrides.userId === undefined ? 42 : overrides.userId,
+    eventTypeId: overrides.eventTypeId ?? null,
   };
 }
 
@@ -182,6 +200,7 @@ describe("verify-booking-token route", () => {
     setMockRequestBody({});
     Object.keys(DB.bookings).forEach((key) => delete DB.bookings[key]);
     Object.keys(DB.users).forEach((key) => delete DB.users[key]);
+    DB.hosts.length = 0;
   });
 
   describe("GET handler", () => {
@@ -399,6 +418,7 @@ describe("verify-booking-token route", () => {
         id: 1,
         uid: "booking-uid",
         oneTimePassword: "valid-token",
+        userId: 999,
       });
 
       const req = createMockRequest(
@@ -447,6 +467,145 @@ describe("verify-booking-token route", () => {
           }),
         })
       );
+    });
+  });
+
+  describe("user named in the link", () => {
+    const createBookerAsUser = () =>
+      createMockUser({
+        id: 7,
+        uuid: "booker-uuid",
+        email: "booker@example.com",
+        username: "booker",
+        role: "USER",
+        destinationCalendar: null,
+      });
+
+    it("should not accept a booking for a user who is neither its organizer nor a host", async () => {
+      createMockBooking({
+        id: 1,
+        uid: "booking-uid",
+        oneTimePassword: "valid-token",
+        userId: 42,
+        eventTypeId: 5,
+      });
+      createBookerAsUser();
+
+      const req = createMockRequest(
+        "https://app.example.com/api/verify-booking-token?action=accept&token=valid-token&bookingUid=booking-uid&userId=7",
+        "GET"
+      );
+      const res = await GET(req, { params: Promise.resolve({}) });
+
+      expectErrorRedirect(res, "/booking/booking-uid", "Error confirming booking");
+      expect(mockConfirmHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not reject a booking for a user who is neither its organizer nor a host", async () => {
+      createMockBooking({
+        id: 1,
+        uid: "booking-uid",
+        oneTimePassword: "valid-token",
+        userId: 42,
+        eventTypeId: 5,
+      });
+      createBookerAsUser();
+
+      const req = createMockRequest(
+        "https://app.example.com/api/verify-booking-token?action=reject&token=valid-token&bookingUid=booking-uid&userId=7",
+        "POST"
+      );
+      const res = await POST(req, { params: Promise.resolve({}) });
+
+      expect(res.status).toBe(303);
+      expectErrorRedirect(res, "/booking/booking-uid", "Error confirming booking");
+      expect(mockConfirmHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not accept a booking without an organizer for a user who is not a host", async () => {
+      createMockBooking({
+        id: 1,
+        uid: "booking-uid",
+        oneTimePassword: "valid-token",
+        userId: null,
+        eventTypeId: null,
+      });
+      createBookerAsUser();
+
+      const req = createMockRequest(
+        "https://app.example.com/api/verify-booking-token?action=accept&token=valid-token&bookingUid=booking-uid&userId=7",
+        "GET"
+      );
+      const res = await GET(req, { params: Promise.resolve({}) });
+
+      expectErrorRedirect(res, "/booking/booking-uid", "Error confirming booking");
+      expect(mockConfirmHandler).not.toHaveBeenCalled();
+    });
+
+    it("should redirect with error when userId is not a number", async () => {
+      createMockBooking({ id: 1, uid: "booking-uid", oneTimePassword: "valid-token" });
+
+      const req = createMockRequest(
+        "https://app.example.com/api/verify-booking-token?action=accept&token=valid-token&bookingUid=booking-uid&userId=abc",
+        "GET"
+      );
+      const res = await GET(req, { params: Promise.resolve({}) });
+
+      expectErrorRedirect(res, "/booking/booking-uid", "Error confirming booking");
+      expect(mockConfirmHandler).not.toHaveBeenCalled();
+    });
+
+    it("should accept a booking for a host of its event type", async () => {
+      createMockBooking({
+        id: 1,
+        uid: "booking-uid",
+        oneTimePassword: "valid-token",
+        userId: 42,
+        eventTypeId: 5,
+      });
+      DB.hosts.push({ userId: 43, eventTypeId: 5 });
+      createMockUser({
+        id: 43,
+        uuid: "host-uuid",
+        email: "host@example.com",
+        username: "host",
+        role: "USER",
+        destinationCalendar: null,
+      });
+
+      const req = createMockRequest(
+        "https://app.example.com/api/verify-booking-token?action=accept&token=valid-token&bookingUid=booking-uid&userId=43",
+        "GET"
+      );
+      await GET(req, { params: Promise.resolve({}) });
+
+      expect(mockConfirmHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ctx: expect.objectContaining({ user: expect.objectContaining({ id: 43 }) }),
+          input: expect.objectContaining({ bookingId: 1, confirmed: true }),
+        })
+      );
+    });
+
+    it("should not accept a booking for a host of a different event type", async () => {
+      createMockBooking({
+        id: 1,
+        uid: "booking-uid",
+        oneTimePassword: "valid-token",
+        userId: 42,
+        eventTypeId: 5,
+      });
+      DB.hosts.push({ userId: 7, eventTypeId: 6 });
+      createBookerAsUser();
+
+      const req = createMockRequest(
+        "https://app.example.com/api/verify-booking-token?action=accept&token=valid-token&bookingUid=booking-uid&userId=7",
+        "GET"
+      );
+      const res = await GET(req, { params: Promise.resolve({}) });
+
+      expectErrorRedirect(res, "/booking/booking-uid", "Error confirming booking");
+      expect(mockConfirmHandler).not.toHaveBeenCalled();
     });
   });
 });

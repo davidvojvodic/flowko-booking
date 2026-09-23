@@ -1,6 +1,10 @@
 import process from "node:process";
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import { getRegularBookingService } from "@calcom/features/bookings/di/RegularBookingService.container";
+import {
+  getBookerSubmittedEmails,
+  toPublicBookingResponse,
+} from "@calcom/features/bookings/lib/publicBookingResponse";
 import { BotDetectionService } from "@calcom/features/bot-detection";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
@@ -57,7 +61,8 @@ async function handler(req: NextApiRequest & { userId?: number; traceContext: Tr
     },
   });
 
-  return booking;
+  // The booker's browser forwards this response to the embedding page and analytics apps
+  return toPublicBookingResponse(booking, getBookerSubmittedEmails(req.body));
 }
 
 export default defaultResponder(handler, "/api/book/event");

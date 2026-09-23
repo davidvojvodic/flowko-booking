@@ -61,7 +61,6 @@ const getBaseBookingEventPayload = (booking: {
   status?: BookingStatus;
   paymentRequired: boolean;
   isRecurring: boolean;
-  videoCallUrl?: string;
 }) => {
   return {
     title: booking.title,
@@ -71,7 +70,6 @@ const getBaseBookingEventPayload = (booking: {
     status: booking.status,
     paymentRequired: booking.paymentRequired,
     isRecurring: booking.isRecurring,
-    videoCallUrl: booking.videoCallUrl,
   };
 };
 
@@ -84,7 +82,6 @@ const getBookingSuccessfulEventPayload = (booking: {
   paymentRequired: boolean;
   uid?: string;
   isRecurring: boolean;
-  videoCallUrl?: string;
 }) => {
   return {
     uid: booking.uid,
@@ -201,7 +198,7 @@ export const useBookings = ({ event, hashedLink, bookingForm, metadata, isBookin
           duration: validDuration,
           organizer: {
             name: users?.[0]?.name || "Nameless",
-            email: booking?.userPrimaryEmail || booking.user?.email || "Email-less",
+            email: booking.user?.email || "Email-less",
             timeZone: booking.user?.timeZone || "Europe/London",
           },
           confirmed: !(booking.status === BookingStatus.PENDING && event.data?.requiresConfirmation),
@@ -221,7 +218,7 @@ export const useBookings = ({ event, hashedLink, bookingForm, metadata, isBookin
           duration: validDuration,
           organizer: {
             name: users?.[0]?.name || "Nameless",
-            email: booking?.userPrimaryEmail || booking.user?.email || "Email-less",
+            email: booking.user?.email || "Email-less",
             timeZone: booking.user?.timeZone || "Europe/London",
           },
           confirmed: !(booking.status === BookingStatus.PENDING && event.data?.requiresConfirmation),

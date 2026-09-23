@@ -61,7 +61,6 @@ async function getBooking(prisma: PrismaClient, uid: string, isSeatedEvent?: boo
       location: true,
       eventTypeId: true,
       status: true,
-      userId: true,
       eventType: {
         select: {
           disableRescheduling: true,
@@ -78,9 +77,9 @@ async function getBooking(prisma: PrismaClient, uid: string, isSeatedEvent?: boo
           id: "asc",
         },
       },
+      // The booker page gets this booking as props: the host's user id stays out of it
       user: {
         select: {
-          id: true,
           username: true,
         },
       },
@@ -135,6 +134,7 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
       user: {
         select: {
           organizationId: true,
+          email: true,
         },
       },
       eventType: {
@@ -144,11 +144,22 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
           hosts: {
             select: {
               userId: true,
+              user: {
+                select: {
+                  email: true,
+                },
+              },
+            },
+          },
+          users: {
+            select: {
+              email: true,
             },
           },
           owner: {
             select: {
               id: true,
+              email: true,
             },
           },
         },
@@ -222,13 +233,27 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
     booking.description = bookingSeatData?.description ?? null;
     booking.responses = bookingResponsesDbSchema.parse(bookingSeatData?.responses ?? {});
   }
+
+  // Anyone holding the uid can open the reschedule page, and team members of collective and fixed
+  // round-robin events are stored as attendees. The first attendee is the booker, whom the form prefills.
+  const hostEmails = new Set(
+    [
+      theBooking?.user?.email,
+      theBooking?.eventType?.owner?.email,
+      ...(theBooking?.eventType?.hosts.map((host) => host.user.email) ?? []),
+      ...(theBooking?.eventType?.users.map((user) => user.email) ?? []),
+    ].flatMap((email) => (email ? [email.toLowerCase()] : []))
+  );
+  const isHostAttendee = (attendee: { email: string }, index: number) =>
+    index > 0 && hostEmails.has(attendee.email.toLowerCase());
+
   return {
     ...booking,
     attendees: rescheduleUid
       ? booking.attendees.filter((attendee) => attendee.email === attendeeEmail)
       : hasOwnershipOnBooking
         ? []
-        : booking.attendees,
+        : booking.attendees.filter((attendee, index) => !isHostAttendee(attendee, index)),
   };
 };
 
@@ -248,16 +273,15 @@ export const getBookingForSeatedEvent = async (uid: string) => {
       startTime: true,
       endTime: true,
       status: true,
-      userId: true,
       attendees: {
         select: {
           id: true,
         },
       },
       eventTypeId: true,
+      // The booker page gets this booking as props: the host's user id stays out of it
       user: {
         select: {
-          id: true,
           username: true,
         },
       },

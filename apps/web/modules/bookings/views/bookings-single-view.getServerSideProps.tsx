@@ -1,5 +1,11 @@
 import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-utils";
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
+import {
+  getHostEmails,
+  normaliseEmail,
+  toBookingInfoForViewer,
+  toEventTypeForViewer,
+} from "@calcom/features/bookings/lib/bookingPageForViewer";
 import getBookingInfo from "@calcom/features/bookings/lib/getBookingInfo";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
 import { getDefaultEvent } from "@calcom/features/eventtypes/lib/defaultEvents";
@@ -184,6 +190,9 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   const isLoggedInUserTeamMember = false;
 
   const canViewHiddenData = isLoggedInUserHost || isLoggedInUserTeamMember;
+  // Anyone holding the booking's uid can open this page and read its props, whatever the UI shows.
+  // Viewers who aren't a host get them without host ids and emails. See bookingPageForViewer.ts
+  const canViewHostDetails = canViewHiddenData || (!!userId && eventType.owner?.id === userId);
 
   if (bookingInfo !== null && eventType.seatsPerTimeSlot) {
     await handleSeatsEventTypeOnBooking(eventType, bookingInfo, seatReferenceUid, isLoggedInUserHost);
@@ -231,13 +240,27 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
 
   const internalNotes = await getInternalNotePresets(eventType.team?.id ?? eventType.parent?.teamId ?? null);
 
-  // Filter out organizer information if hideOrganizerEmail is true
+  const hostEmails = getHostEmails({
+    eventType,
+    organizerEmails: [bookingInfo.user?.email, bookingInfo.userPrimaryEmail],
+  });
+
+  // Filter out organizer information if hideOrganizerEmail is true. Co-hosts of team events can reschedule too.
+  const rescheduledBy = previousBooking?.rescheduledBy;
+  const rescheduledByHost = rescheduledBy
+    ? [bookingInfo.user, ...eventType.users].find(
+        (host) => !!host && normaliseEmail(host.email) === normaliseEmail(rescheduledBy)
+      )
+    : undefined;
   const sanitizedPreviousBooking =
-    eventType.hideOrganizerEmail &&
-    previousBooking &&
-    previousBooking.rescheduledBy === bookingInfo.user?.email
-      ? { ...previousBooking, rescheduledBy: bookingInfo.user?.name }
+    eventType.hideOrganizerEmail && previousBooking && rescheduledByHost
+      ? { ...previousBooking, rescheduledBy: rescheduledByHost.name }
       : previousBooking;
+
+  // The booker is redirected here with their email; a signed-in viewer is known by their session
+  const viewerEmails = new Set(
+    [session?.user?.email, parsedQuery.data.email].flatMap((email) => (email ? [normaliseEmail(email)] : []))
+  );
 
   const isPlatformBooking = eventType.users[0]?.isPlatformManaged || eventType.team?.createdByOAuthClientId;
 
@@ -253,11 +276,16 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
             owner: eventType.users[0] ?? null,
             organizationId: session?.user?.profile?.organizationId ?? session?.user?.org?.id ?? null,
           }),
-      profile,
-      eventType,
+      profile: canViewHostDetails ? profile : { ...profile, email: null },
+      eventType: toEventTypeForViewer(eventType, canViewHostDetails),
       recurringBookings: await getRecurringBookings(bookingInfo.recurringEventId),
       dynamicEventName: bookingInfo?.eventType?.eventName || "",
-      bookingInfo,
+      bookingInfo: toBookingInfoForViewer(bookingInfo, {
+        canViewHostDetails,
+        hideOrganizerEmail: !!eventType.hideOrganizerEmail,
+        hostEmails,
+        viewerEmails,
+      }),
       previousBooking: sanitizedPreviousBooking,
       paymentStatus: payment,
       ...(tz && { tz }),

@@ -1,6 +1,10 @@
 import process from "node:process";
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import { getRecurringBookingService } from "@calcom/features/bookings/di/RecurringBookingService.container";
+import {
+  getBookerSubmittedEmails,
+  toPublicBookingResponse,
+} from "@calcom/features/bookings/lib/publicBookingResponse";
 import type { BookingResponse } from "@calcom/features/bookings/types";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import getIP from "@calcom/lib/getIP";
@@ -61,6 +65,14 @@ async function handler(req: NextApiRequest & RequestMeta) {
   return createdBookings;
 }
 
+// The unfiltered service result, for tests. The route itself is publicHandler below.
 export const handleRecurringEventBooking = handler;
 
-export default defaultResponder(handler);
+// The booker's browser forwards this response to the embedding page and analytics apps
+async function publicHandler(req: NextApiRequest & RequestMeta) {
+  const createdBookings = await handler(req);
+  const bookerSubmittedEmails = getBookerSubmittedEmails(req.body);
+  return createdBookings.map((booking) => toPublicBookingResponse(booking, bookerSubmittedEmails));
+}
+
+export default defaultResponder(publicHandler);

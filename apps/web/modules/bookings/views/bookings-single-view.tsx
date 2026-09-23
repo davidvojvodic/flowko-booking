@@ -415,6 +415,8 @@ export default function Success(props: PageProps) {
     startTime: bookingInfo.startTime,
     eventTypeTeamId: eventType?.teamId,
     userId: eventType?.owner?.id,
+    // The owner's id is withheld from viewers who aren't a host
+    hasEventTypeOwner: !!eventType?.owner,
     payment: props.paymentStatus
       ? {
           success: props.paymentStatus.success,
@@ -518,7 +520,7 @@ export default function Success(props: PageProps) {
                       {isRoundRobin && bookingInfo.user && (
                         <Avatar
                           className="mx-auto flex items-center justify-center"
-                          alt={bookingInfo.user.name || bookingInfo.user.email}
+                          alt={bookingInfo.user.name || bookingInfo.user.email || ""}
                           size="xl"
                           imageSrc={`${bookingInfo.user.avatarUrl}`}
                         />
@@ -653,15 +655,13 @@ export default function Success(props: PageProps) {
                                 </div>
                               )}
                               {bookingInfo?.attendees.map((attendee) => {
-                                // Check if attendee is a team member/host (for round robin scenarios)
-                                const isTeamMemberOrHost =
-                                  eventType.hosts?.some((host) => host.user.email === attendee.email) ||
-                                  eventType.users?.some((user) => user.email === attendee.email);
+                                // Team members/hosts are stored as attendees (collective and round robin scenarios).
+                                // The server already drops their email for viewers who aren't a host.
                                 const shouldHideEmail =
-                                  bookingInfo.eventType?.hideOrganizerEmail && isTeamMemberOrHost;
+                                  bookingInfo.eventType?.hideOrganizerEmail && attendee.isHost;
 
                                 return (
-                                  <div key={attendee.name + attendee.email} className="mb-3 last:mb-0">
+                                  <div key={attendee.name + (attendee.email ?? "")} className="mb-3 last:mb-0">
                                     {attendee.name && (
                                       <p data-testid={`attendee-name-${attendee.name}`}>{attendee.name}</p>
                                     )}
@@ -670,7 +670,7 @@ export default function Success(props: PageProps) {
                                         {attendee.phoneNumber}
                                       </p>
                                     )}
-                                    {!isSmsCalEmail(attendee.email) && !shouldHideEmail && (
+                                    {attendee.email && !isSmsCalEmail(attendee.email) && !shouldHideEmail && (
                                       <p data-testid={`attendee-email-${attendee.email}`}>{attendee.email}</p>
                                     )}
                                   </div>

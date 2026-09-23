@@ -3380,7 +3380,7 @@ describe("handleNewBooking", () => {
       );
 
       test(
-        `Payment retry scenario - should return existing payment UID and prevent duplicate bookings when retrying canceled payment`,
+        `Payment retry scenario - should prevent duplicate bookings without returning the existing booking to an anonymous retry`,
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         async ({ emails }) => {
           const handleNewBooking = getNewBookingHandler();
@@ -3469,8 +3469,18 @@ describe("handleNewBooking", () => {
           expect(firstBookingInDb?.payment).toHaveLength(1);
           expect(firstBookingInDb?.paid).toBe(false);
 
+          // The request carries only the attendee's email and the slot, which anyone can submit, so the
+          // existing booking and its payment link are not returned. The attendee gets the link by email.
+          await expect(
+            handleNewBooking({
+              bookingData: mockBookingData,
+            })
+          ).rejects.toThrowError(ErrorCode.BookingAlreadyExists);
+
+          // The organizer still gets the existing booking and its payment back
           const secondBooking = await handleNewBooking({
             bookingData: mockBookingData,
+            userId: organizer.id,
           });
 
           expect(secondBooking.uid).toBe(firstBooking.uid);
@@ -3499,7 +3509,7 @@ describe("handleNewBooking", () => {
   });
 
   describe("Returning original booking", () => {
-    test("Return the original booking if a request is made twice by the same attendee when a booking requires confirmation", async () => {
+    test("Return the original booking only to its organizer if a request is made twice for the same attendee when a booking requires confirmation", async () => {
       const handleNewBooking = getNewBookingHandler();
       const booker = getBooker({
         email: "booker@example.com",
@@ -3551,13 +3561,21 @@ describe("handleNewBooking", () => {
         bookingData: mockBookingData,
       });
 
+      // Anyone who knows the attendee's email and the slot could send this request
+      const anonymousRequest = handleNewBooking({
+        bookingData: mockBookingData,
+      });
+      await expect(anonymousRequest).rejects.toThrowError(ErrorCode.BookingAlreadyExists);
+      await expect(anonymousRequest).rejects.toMatchObject({ statusCode: 409, data: undefined });
+
       const secondResponse = await handleNewBooking({
         bookingData: mockBookingData,
+        userId: organizer.id,
       });
 
       expect(secondResponse.id).toEqual(response.id);
     });
-    test("Return the original booking if request is made by the same attendee for a round robin event", async () => {
+    test("Return the original booking only to its organizer if a request is made for the same attendee for a round robin event", async () => {
       const handleNewBooking = getNewBookingHandler();
       const booker = getBooker({
         email: "booker@example.com",
@@ -3610,8 +3628,16 @@ describe("handleNewBooking", () => {
         bookingData: mockBookingData,
       });
 
+      // Anyone who knows the attendee's email and the slot could send this request
+      const anonymousRequest = handleNewBooking({
+        bookingData: mockBookingData,
+      });
+      await expect(anonymousRequest).rejects.toThrowError(ErrorCode.BookingAlreadyExists);
+      await expect(anonymousRequest).rejects.toMatchObject({ statusCode: 409, data: undefined });
+
       const secondResponse = await handleNewBooking({
         bookingData: mockBookingData,
+        userId: organizer.id,
       });
 
       expect(secondResponse.id).toEqual(response.id);
