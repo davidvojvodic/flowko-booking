@@ -32,7 +32,7 @@ const useNoFutureAvailability = (browsingDate: Dayjs, periodData: PeriodData) =>
 
 // Creates message to use in dialog explaining lack of availability based on period type
 const useDescription = (noFutureAvailability: boolean, p: PeriodData) => {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
 
   if (!noFutureAvailability) return "";
 
@@ -42,7 +42,12 @@ const useDescription = (noFutureAvailability: boolean, p: PeriodData) => {
   }
 
   if (p.periodType === "RANGE") {
-    return t("no_availability_range", { date: dayjs(p.periodEndDate).format("MMMM D YYYY") });
+    const date = new Intl.DateTimeFormat(i18n.language, {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }).format(dayjs(p.periodEndDate).toDate());
+    return t("no_availability_range", { date });
   }
 
   return "";

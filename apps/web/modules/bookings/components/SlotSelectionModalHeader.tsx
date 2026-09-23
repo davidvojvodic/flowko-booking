@@ -76,11 +76,16 @@ export const SlotSelectionModalHeader = ({
   );
 
   const formattedDate = useMemo(() => {
-    if (!selectedDate) return { dayOfWeek: "", fullDate: "" };
+    // Intl throws on an invalid date, e.g. from a malformed ?date= param
+    if (!selectedDate || !dayjs(selectedDate).isValid()) return { dayOfWeek: "", fullDate: "" };
 
-    const date = dayjs(selectedDate);
-    const dayOfWeek = date.locale(i18n.language).format("dddd");
-    const fullDate = date.locale(i18n.language).format("MMMM D, YYYY");
+    const date = dayjs(selectedDate).toDate();
+    const dayOfWeek = new Intl.DateTimeFormat(i18n.language, { weekday: "long" }).format(date);
+    const fullDate = new Intl.DateTimeFormat(i18n.language, {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }).format(date);
 
     return { dayOfWeek, fullDate };
   }, [selectedDate, i18n.language]);

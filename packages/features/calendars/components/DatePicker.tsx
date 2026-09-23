@@ -75,7 +75,7 @@ const Day = ({
   showMonthTooltip?: boolean;
   isFirstDayOfNextMonth?: boolean;
 }) => {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const enabledDateButtonEmbedStyles = useEmbedStyles("enabledDateButton");
   const disabledDateButtonEmbedStyles = useEmbedStyles("disabledDateButton");
 
@@ -114,7 +114,12 @@ const Day = ({
   );
 
   const content = showMonthTooltip ? (
-    <Tooltip content={date.format("MMMM")}>{buttonContent}</Tooltip>
+    <Tooltip
+      content={new Intl.DateTimeFormat(i18n.language, { month: "long" }).format(
+        new Date(date.year(), date.month())
+      )}>
+      {buttonContent}
+    </Tooltip>
   ) : (
     buttonContent
   );
@@ -133,7 +138,9 @@ const Day = ({
             lineHeight: "13px",
             padding: disabled ? "0 3px" : "3px 3px 3px 4px",
           }}>
-          {date.format("MMM")}
+          {new Intl.DateTimeFormat(i18n.language, { month: "short" }).format(
+            new Date(date.year(), date.month())
+          )}
         </div>
       )}
       {content}
