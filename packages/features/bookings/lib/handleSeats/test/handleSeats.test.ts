@@ -1860,6 +1860,125 @@ describe("handleSeats", () => {
 
         expect(attendeeSeat?.bookingSeat?.bookingId).toEqual(createdBooking.id);
       });
+
+      test("After its event type stops being seated, neither the uid nor one seat moves the whole booking", async () => {
+        const handleNewBooking = getNewBookingHandler();
+
+        const organizer = getOrganizer({
+          name: "Organizer",
+          email: "organizer@example.com",
+          id: 101,
+          schedules: [TestData.schedules.IstWorkHours],
+        });
+
+        const bookingId = 1;
+        const bookingUid = "abc123";
+        const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+        const bookingStartTime = `${plus1DateString}T04:00:00Z`;
+        const bookingEndTime = `${plus1DateString}T04:30:00Z`;
+
+        const { dateString: plus2DateString } = getDate({ dateIncrement: 2 });
+        const newStartTime = `${plus2DateString}T04:00:00Z`;
+        const newEndTime = `${plus2DateString}T04:30:00Z`;
+
+        await createBookingScenario(
+          getScenarioData({
+            eventTypes: [
+              {
+                id: 1,
+                slug: "formerly-seated-event",
+                slotInterval: 30,
+                length: 30,
+                users: [
+                  {
+                    id: 101,
+                  },
+                ],
+                // Seats turned off after the booking was made
+                seatsPerTimeSlot: null,
+              },
+            ],
+            bookings: [
+              {
+                id: bookingId,
+                uid: bookingUid,
+                eventTypeId: 1,
+                userId: organizer.id,
+                status: BookingStatus.ACCEPTED,
+                startTime: bookingStartTime,
+                endTime: bookingEndTime,
+                attendees: [
+                  getMockBookingAttendee({
+                    id: 1,
+                    name: "Seat 1",
+                    email: "seat1@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-1",
+                      data: {},
+                    },
+                  }),
+                  getMockBookingAttendee({
+                    id: 2,
+                    name: "Seat 2",
+                    email: "seat2@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-2",
+                      data: {},
+                    },
+                  }),
+                ],
+              },
+            ],
+            organizer,
+          })
+        );
+
+        // The booking's uid (every seat holder has it) and a single seat's reference
+        for (const rescheduleUid of [bookingUid, "booking-seat-1"]) {
+          await expect(
+            handleNewBooking({
+              bookingData: getMockRequestDataForBooking({
+                data: {
+                  eventTypeId: 1,
+                  responses: {
+                    email: "seat1@test.com",
+                    name: "Seat 1",
+                    location: { optionValue: "", value: BookingLocations.CalVideo },
+                  },
+                  rescheduleUid,
+                  start: newStartTime,
+                  end: newEndTime,
+                },
+              }),
+              userId: -1,
+            })
+          ).rejects.toMatchObject({ statusCode: 401 });
+        }
+
+        const booking = await prismaMock.booking.findFirst({
+          where: {
+            id: bookingId,
+          },
+          select: {
+            status: true,
+          },
+        });
+        expect(booking?.status).toEqual(BookingStatus.ACCEPTED);
+
+        const bookingSeats = await prismaMock.bookingSeat.findMany({
+          where: {
+            bookingId,
+          },
+          select: {
+            referenceUid: true,
+          },
+        });
+        expect(bookingSeats).toHaveLength(2);
+      });
     });
 
     describe("Canceling a booking", async () => {
@@ -2249,6 +2368,309 @@ describe("handleSeats", () => {
           },
         });
         expect(bookingSeats).toEqual([{ referenceUid: "booking-seat-1" }]);
+      });
+
+      test("After its event type stops being seated, the booking's uid alone doesn't cancel it for every seat", async () => {
+        const handleCancelBooking = (await import("@calcom/features/bookings/lib/handleCancelBooking"))
+          .default;
+
+        const organizer = getOrganizer({
+          name: "Organizer",
+          email: "organizer@example.com",
+          id: 101,
+          schedules: [TestData.schedules.IstWorkHours],
+        });
+
+        const bookingId = 1;
+        const bookingUid = "abc123";
+        const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+        const bookingStartTime = `${plus1DateString}T04:00:00Z`;
+        const bookingEndTime = `${plus1DateString}T04:30:00Z`;
+
+        await createBookingScenario(
+          getScenarioData({
+            eventTypes: [
+              {
+                id: 1,
+                slug: "formerly-seated-event",
+                slotInterval: 30,
+                length: 30,
+                users: [
+                  {
+                    id: 101,
+                  },
+                ],
+                // Seats turned off after the booking was made
+                seatsPerTimeSlot: null,
+                owner: organizer.id,
+              },
+            ],
+            bookings: [
+              {
+                id: bookingId,
+                uid: bookingUid,
+                eventTypeId: 1,
+                userId: organizer.id,
+                status: BookingStatus.ACCEPTED,
+                startTime: bookingStartTime,
+                endTime: bookingEndTime,
+                attendees: [
+                  getMockBookingAttendee({
+                    id: 1,
+                    name: "Seat 1",
+                    email: "seat1@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-1",
+                      data: {},
+                    },
+                  }),
+                  getMockBookingAttendee({
+                    id: 2,
+                    name: "Seat 2",
+                    email: "seat2@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-2",
+                      data: {},
+                    },
+                  }),
+                ],
+              },
+            ],
+            organizer,
+          })
+        );
+
+        // Any seat holder has the booking's uid, and so does anyone they forwarded their link to
+        await expect(
+          handleCancelBooking({
+            bookingData: {
+              ...getMockRequestDataForCancelBooking({
+                id: bookingId,
+                uid: bookingUid,
+              }),
+              cancellationReason: "test cancellation reason",
+            },
+            userId: -1,
+          })
+        ).rejects.toThrowError("User not a host of this event");
+
+        const booking = await prismaMock.booking.findFirst({
+          where: {
+            id: bookingId,
+          },
+          select: {
+            status: true,
+          },
+        });
+        expect(booking?.status).toEqual(BookingStatus.ACCEPTED);
+
+        const bookingSeats = await prismaMock.bookingSeat.findMany({
+          where: {
+            bookingId,
+          },
+          select: {
+            referenceUid: true,
+          },
+        });
+        expect(bookingSeats).toHaveLength(2);
+      });
+
+      test("A booker without a login cancels their own seat with its reference", async () => {
+        const handleCancelBooking = (await import("@calcom/features/bookings/lib/handleCancelBooking"))
+          .default;
+
+        const organizer = getOrganizer({
+          name: "Organizer",
+          email: "organizer@example.com",
+          id: 101,
+          schedules: [TestData.schedules.IstWorkHours],
+        });
+
+        const bookingId = 1;
+        const bookingUid = "abc123";
+        const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+        const bookingStartTime = `${plus1DateString}T04:00:00Z`;
+        const bookingEndTime = `${plus1DateString}T04:30:00Z`;
+
+        await createBookingScenario(
+          getScenarioData({
+            eventTypes: [
+              {
+                id: 1,
+                slug: "seated-event",
+                slotInterval: 30,
+                length: 30,
+                users: [
+                  {
+                    id: 101,
+                  },
+                ],
+                seatsPerTimeSlot: 4,
+                seatsShowAttendees: false,
+                owner: organizer.id,
+              },
+            ],
+            bookings: [
+              {
+                id: bookingId,
+                uid: bookingUid,
+                eventTypeId: 1,
+                userId: organizer.id,
+                status: BookingStatus.ACCEPTED,
+                startTime: bookingStartTime,
+                endTime: bookingEndTime,
+                attendees: [
+                  getMockBookingAttendee({
+                    id: 1,
+                    name: "Seat 1",
+                    email: "seat1@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-1",
+                      data: {},
+                    },
+                  }),
+                  getMockBookingAttendee({
+                    id: 2,
+                    name: "Seat 2",
+                    email: "seat2@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-2",
+                      data: {},
+                    },
+                  }),
+                ],
+              },
+            ],
+            organizer,
+          })
+        );
+
+        const result = await handleCancelBooking({
+          bookingData: {
+            ...getMockRequestDataForCancelBooking({
+              id: bookingId,
+              uid: bookingUid,
+              seatReferenceUid: "booking-seat-2",
+            }),
+            cancellationReason: "test cancellation reason",
+          },
+          userId: -1,
+        });
+        expect(result).toEqual(expect.objectContaining({ success: true, onlyRemovedAttendee: true }));
+
+        const booking = await prismaMock.booking.findFirst({
+          where: {
+            id: bookingId,
+          },
+          select: {
+            status: true,
+          },
+        });
+        expect(booking?.status).toEqual(BookingStatus.ACCEPTED);
+
+        const bookingSeats = await prismaMock.bookingSeat.findMany({
+          where: {
+            bookingId,
+          },
+          select: {
+            referenceUid: true,
+          },
+        });
+        expect(bookingSeats).toEqual([{ referenceUid: "booking-seat-1" }]);
+      });
+
+      test("A booker without a login who holds the last seat cancels the booking with its reference", async () => {
+        const handleCancelBooking = (await import("@calcom/features/bookings/lib/handleCancelBooking"))
+          .default;
+
+        const organizer = getOrganizer({
+          name: "Organizer",
+          email: "organizer@example.com",
+          id: 101,
+          schedules: [TestData.schedules.IstWorkHours],
+        });
+
+        const bookingId = 1;
+        const bookingUid = "abc123";
+        const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+        const bookingStartTime = `${plus1DateString}T04:00:00Z`;
+        const bookingEndTime = `${plus1DateString}T04:30:00Z`;
+
+        await createBookingScenario(
+          getScenarioData({
+            eventTypes: [
+              {
+                id: 1,
+                slug: "seated-event",
+                slotInterval: 30,
+                length: 30,
+                users: [
+                  {
+                    id: 101,
+                  },
+                ],
+                seatsPerTimeSlot: 4,
+                seatsShowAttendees: false,
+                owner: organizer.id,
+              },
+            ],
+            bookings: [
+              {
+                id: bookingId,
+                uid: bookingUid,
+                eventTypeId: 1,
+                userId: organizer.id,
+                status: BookingStatus.ACCEPTED,
+                startTime: bookingStartTime,
+                endTime: bookingEndTime,
+                attendees: [
+                  getMockBookingAttendee({
+                    id: 1,
+                    name: "Seat 1",
+                    email: "seat1@test.com",
+                    locale: "en",
+                    timeZone: "America/Toronto",
+                    bookingSeat: {
+                      referenceUid: "booking-seat-1",
+                      data: {},
+                    },
+                  }),
+                ],
+              },
+            ],
+            organizer,
+          })
+        );
+
+        await handleCancelBooking({
+          bookingData: {
+            ...getMockRequestDataForCancelBooking({
+              id: bookingId,
+              uid: bookingUid,
+              seatReferenceUid: "booking-seat-1",
+            }),
+            cancellationReason: "test cancellation reason",
+          },
+          userId: -1,
+        });
+
+        const booking = await prismaMock.booking.findFirst({
+          where: {
+            id: bookingId,
+          },
+          select: {
+            status: true,
+          },
+        });
+        expect(booking?.status).toEqual(BookingStatus.CANCELLED);
       });
     });
   });

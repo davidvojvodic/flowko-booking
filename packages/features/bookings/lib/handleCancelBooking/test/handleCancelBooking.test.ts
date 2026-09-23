@@ -386,6 +386,7 @@ describe("Cancel Booking", () => {
         cancelledBy: organizer.email,
         cancellationReason: "No reason",
       },
+      userId: organizer.id,
     });
 
     expect(processPaymentRefund).toHaveBeenCalledTimes(1);
