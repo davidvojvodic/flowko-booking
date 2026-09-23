@@ -119,13 +119,17 @@ describe("handleNewBooking with seats and recurring events off", () => {
       data: { eventTypeId: 1, responses: bookerResponses },
     });
 
+    // One field per request, so each condition of the refusal is covered on its own
     for (const requestNamingSeriesOrSeat of [
-      { ...bookingData, recurringEventId: uuidv4(), recurringCount: 3 },
-      {
-        ...bookingData,
-        allRecurringDates: [{ start: bookingData.start, end: bookingData.end }],
-        isFirstRecurringSlot: true,
-      },
+      { ...bookingData, recurringEventId: uuidv4() },
+      { ...bookingData, recurringCount: 3 },
+      { ...bookingData, allRecurringDates: [{ start: bookingData.start, end: bookingData.end }] },
+      // Would make Google Calendar patch an occurrence of the host's own recurring event
+      { ...bookingData, thirdPartyRecurringEventId: "host-recurring-event-id" },
+      { ...bookingData, isFirstRecurringSlot: true },
+      { ...bookingData, numSlotsToCheckForAvailability: 2 },
+      { ...bookingData, currentRecurringIndex: 1 },
+      { ...bookingData, luckyUsers: [101] },
       { ...bookingData, seatReferenceUid: "booking-seat-1" },
     ]) {
       const booking = handleNewBooking({ bookingData: requestNamingSeriesOrSeat });
@@ -209,6 +213,59 @@ describe("handleNewBooking with seats and recurring events off", () => {
     });
     expect(booking?.status).toEqual(BookingStatus.ACCEPTED);
     expect(await prismaMock.bookingSeat.findMany({ where: { bookingId } })).toHaveLength(2);
+    expect(await prismaMock.booking.findMany()).toHaveLength(1);
+  });
+
+  test("refuses to move a booking from a recurring series made before", async () => {
+    const handleNewBooking = getNewBookingHandler();
+
+    const organizer = getTestOrganizer();
+    const bookingId = 1;
+    const bookingUid = "abc123";
+    const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+    const { dateString: plus2DateString } = getDate({ dateIncrement: 2 });
+
+    await createBookingScenario(
+      getScenarioData({
+        // The event type isn't recurring (any more), but its booking is still part of a series
+        eventTypes: [{ id: 1, slotInterval: 30, length: 30, users: [{ id: 101 }] }],
+        bookings: [
+          {
+            id: bookingId,
+            uid: bookingUid,
+            eventTypeId: 1,
+            userId: organizer.id,
+            recurringEventId: uuidv4(),
+            status: BookingStatus.ACCEPTED,
+            startTime: `${plus1DateString}T04:00:00Z`,
+            endTime: `${plus1DateString}T04:30:00Z`,
+          },
+        ],
+        organizer,
+        apps: [TestData.apps["google-calendar"]],
+      })
+    );
+
+    await expect(
+      handleNewBooking({
+        bookingData: getMockRequestDataForBooking({
+          data: {
+            eventTypeId: 1,
+            rescheduleUid: bookingUid,
+            start: `${plus2DateString}T04:00:00Z`,
+            end: `${plus2DateString}T04:30:00Z`,
+            responses: bookerResponses,
+          },
+        }),
+        userId: organizer.id,
+      })
+    ).rejects.toMatchObject(refusal);
+
+    const booking = await prismaMock.booking.findFirst({
+      where: { id: bookingId },
+      select: { status: true },
+    });
+    expect(booking?.status).toEqual(BookingStatus.ACCEPTED);
     expect(await prismaMock.booking.findMany()).toHaveLength(1);
   });
 

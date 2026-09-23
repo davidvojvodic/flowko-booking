@@ -531,7 +531,9 @@ async function handler(
   });
 
   // Flowko: seats and recurring series are off on this instance, also for an event type made seated or
-  // recurring outside the event type handlers and for a request that names a series or a seat
+  // recurring outside the event type handlers and for a request that names a series or a seat. Only the
+  // recurring booking service sends the series fields, and it refuses first. thirdPartyRecurringEventId
+  // would otherwise make the calendar patch an occurrence of the host's own recurring event.
   if (
     !IS_SEATS_AND_RECURRING_ENABLED &&
     (eventType.seatsPerTimeSlot ||
@@ -539,6 +541,11 @@ async function handler(
       rawBookingData.recurringEventId ||
       rawBookingData.recurringCount ||
       rawBookingData.allRecurringDates ||
+      rawBookingData.thirdPartyRecurringEventId ||
+      rawBookingData.isFirstRecurringSlot ||
+      rawBookingData.numSlotsToCheckForAvailability ||
+      rawBookingData.currentRecurringIndex ||
+      rawBookingData.luckyUsers ||
       rawBookingData.seatReferenceUid)
   ) {
     throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
@@ -712,6 +719,12 @@ async function handler(
         throw new HttpError({ statusCode: 401 });
       }
     }
+  }
+
+  // Flowko: with recurring series off, a booking from a series made before can be cancelled but not moved,
+  // since the new booking would take over its recurringEventId (createBooking) and stay in the series
+  if (!IS_SEATS_AND_RECURRING_ENABLED && originalRescheduledBooking?.recurringEventId) {
+    throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
   }
 
   const paymentAppData = getPaymentAppData({
