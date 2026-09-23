@@ -7,6 +7,7 @@ import { useEmbedStyles } from "@calcom/embed-core/embed-iframe";
 import { useBookerStoreContext } from "@calcom/features/bookings/Booker/BookerStoreProvider";
 import { getAvailableDatesInMonth } from "@calcom/features/calendars/lib/getAvailableDatesInMonth";
 import type { Slots } from "@calcom/features/calendars/lib/types";
+import { formatDateTime } from "@calcom/lib/dateTimeFormatter";
 import { daysInMonth, yyyymmdd } from "@calcom/lib/dayjs";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { weekdayNames } from "@calcom/lib/weekday";
@@ -115,9 +116,7 @@ const Day = ({
 
   const content = showMonthTooltip ? (
     <Tooltip
-      content={new Intl.DateTimeFormat(i18n.language, { month: "long" }).format(
-        new Date(date.year(), date.month())
-      )}>
+      content={formatDateTime(new Date(date.year(), date.month()), { locale: i18n.language, month: "long" })}>
       {buttonContent}
     </Tooltip>
   ) : (
@@ -138,9 +137,7 @@ const Day = ({
             lineHeight: "13px",
             padding: disabled ? "0 3px" : "3px 3px 3px 4px",
           }}>
-          {new Intl.DateTimeFormat(i18n.language, { month: "short" }).format(
-            new Date(date.year(), date.month())
-          )}
+          {formatDateTime(new Date(date.year(), date.month()), { locale: i18n.language, month: "short" })}
         </div>
       )}
       {content}
