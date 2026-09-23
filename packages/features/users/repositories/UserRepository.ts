@@ -187,7 +187,10 @@ export class UserRepository {
       }
       const profile = profiles.find((profile) => profile.user.id === user.id) ?? null;
       if (!profile) {
-        log.error("Profile not found for user", safeStringify({ user, profiles }));
+        log.error(
+          "Profile not found for user",
+          safeStringify({ userId: user.id, profileUserIds: profiles.map((profile) => profile.user.id) })
+        );
         // Profile must be there because profile itself was used to retrieve the user
         throw new Error("Profile couldn't be found");
       }

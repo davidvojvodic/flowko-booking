@@ -472,7 +472,7 @@ export default class EventManager {
       if (!uid) {
         log.error(
           "updateLocation: No uid for booking reference. The corresponding record in third party if created is orphan now",
-          safeStringify({ result: getPiiFreeEventResult(result) })
+          safeStringify({ bookingId: booking.id, result: getPiiFreeEventResult(result) })
         );
       }
 

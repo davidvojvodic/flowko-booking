@@ -43,7 +43,16 @@ export function getPiiFreeCalendarEvent(calEvent: CalendarEvent) {
 export function getPiiFreeEventResult(
   result: Pick<
     EventResult<unknown>,
-    "type" | "appName" | "success" | "uid" | "credentialId" | "calError" | "calWarnings"
+    | "type"
+    | "appName"
+    | "success"
+    | "uid"
+    | "credentialId"
+    | "calError"
+    | "calWarnings"
+    | "createdEvent"
+    | "updatedEvent"
+    | "externalId"
   >
 ) {
   return {
@@ -54,6 +63,10 @@ export function getPiiFreeEventResult(
     credentialId: result.credentialId,
     calError: result.calError,
     calWarnings: result.calWarnings,
+    // Whether the app returned an event and a calendar id, never their contents
+    hasCreatedEvent: !!result.createdEvent,
+    hasUpdatedEvent: !!result.updatedEvent,
+    hasExternalId: !!result.externalId,
   };
 }
 

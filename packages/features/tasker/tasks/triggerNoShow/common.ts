@@ -77,11 +77,8 @@ export function sendWebhookPayload(
           : `Host with email ${hostEmail} didn't join the call or didn't join before ${maxStartTimeHumanReadable}`,
     },
   }).catch((e) => {
-    console.error(
-      `Error executing webhook for event: ${triggerEvent}, URL: ${webhook.subscriberUrl}`,
-      webhook,
-      e
-    );
+    // Flowko: the webhook carries its secret, and a hook URL works as a bearer secret
+    console.error(`Error executing webhook for event: ${triggerEvent}, webhookId: ${webhook.id}`, e);
     return undefined;
   });
 }

@@ -139,7 +139,7 @@ export class WrongAssignmentReportService {
           webhook,
           data: webhookPayload,
         }).catch((error) => {
-          log.error(`Failed to send webhook to ${webhook.subscriberUrl}:`, error);
+          log.error(`Failed to send webhook ${webhook.id}:`, error);
           return { ok: false, status: 0 };
         })
       );

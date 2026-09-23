@@ -31,7 +31,7 @@ export class WebhookService {
         payload
       ).catch((e) => {
         log.error(
-          `Error executing webhook for event: ${this.options.triggerEvent}, URL: ${sub.subscriberUrl}`,
+          `Error executing webhook for event: ${this.options.triggerEvent}, webhookId: ${sub.id}`,
           safeStringify(e)
         );
       })

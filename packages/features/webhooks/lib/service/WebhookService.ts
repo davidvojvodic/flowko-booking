@@ -197,7 +197,6 @@ export class WebhookService implements IWebhookService {
         this.log.error(`Webhook processing failed for subscriber`, {
           trigger,
           webhookId: subscriber?.id,
-          subscriberUrl: subscriber?.subscriberUrl,
           error: result.reason,
         });
       }
@@ -247,7 +246,7 @@ export class WebhookService implements IWebhookService {
       this.log.error("Failed to schedule time-based webhook", {
         trigger,
         bookingId: bookingData.id,
-        subscriberUrl: subscriber.subscriberUrl,
+        webhookId: subscriber.id,
         error: error instanceof Error ? error.message : String(error),
       });
     }

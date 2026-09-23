@@ -334,7 +334,7 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
       requestReschedule: false,
     }).catch((e) => {
       logger.error(
-        `Error executing webhook for event: ${eventTrigger}, URL: ${webhook.subscriberUrl}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
+        `Error executing webhook for event: ${eventTrigger}, webhookId: ${webhook.id}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
         safeStringify(e)
       );
     })

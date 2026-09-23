@@ -29,7 +29,7 @@ async function _handleWebhookTrigger(args: {
         (e) => {
           if (isEventPayload(args.webhookData)) {
             tracingLogger.error(
-              `Error executing webhook for event: ${args.eventTrigger}, URL: ${sub.subscriberUrl}, booking id: ${args.webhookData.bookingId}, booking uid: ${args.webhookData.uid}`,
+              `Error executing webhook for event: ${args.eventTrigger}, webhookId: ${sub.id}, booking id: ${args.webhookData.bookingId}, booking uid: ${args.webhookData.uid}`,
               safeStringify(e)
             );
           }
