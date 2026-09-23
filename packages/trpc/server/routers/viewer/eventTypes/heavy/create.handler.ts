@@ -8,6 +8,7 @@ import type { eventTypeLocations } from "@calcom/prisma/zod-utils";
 import { TRPCError } from "@trpc/server";
 import type { z } from "zod";
 import type { TrpcSessionUser } from "../../../../types";
+import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import type { TCreateInputSchema } from "./create.schema";
 
 class PermissionCheckService {
@@ -146,6 +147,12 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
       throw new TRPCError({ code: "UNAUTHORIZED" });
     }
   }
+
+  // The tRPC input schema has neither field, but API v2 passes its request body to this handler unparsed
+  ensureNotSeatedOrRecurring({
+    seatsPerTimeSlot: data.seatsPerTimeSlot,
+    recurringEvent: data.recurringEvent,
+  });
 
   const profile = ctx.user.profile;
   try {

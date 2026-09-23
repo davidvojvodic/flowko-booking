@@ -138,6 +138,9 @@ export const MINUTES_TO_BOOK = process.env.NEXT_PUBLIC_MINUTES_TO_BOOK || "5";
 export const ENABLE_PROFILE_SWITCHER = process.env.NEXT_PUBLIC_ENABLE_PROFILE_SWITCHER === "1";
 // Dynamic group links (/userA+userB) are off on this instance, whatever User.allowDynamicBooking says
 export const IS_DYNAMIC_GROUP_BOOKING_ENABLED = false;
+// Seated (seatsPerTimeSlot) and recurring (recurringEvent) event types are off on this instance: the event
+// type handlers refuse to set either and the booking services refuse to book one. true restores upstream.
+export const IS_SEATS_AND_RECURRING_ENABLED = false;
 // Needed for orgs
 export const ALLOWED_HOSTNAMES = JSON.parse(`[${process.env.ALLOWED_HOSTNAMES || ""}]`) as string[];
 export const RESERVED_SUBDOMAINS = JSON.parse(`[${process.env.RESERVED_SUBDOMAINS || ""}]`) as string[];

@@ -1,3 +1,4 @@
+import { IS_SEATS_AND_RECURRING_ENABLED } from "@calcom/lib/constants";
 import { randomString } from "@calcom/lib/random";
 import prisma from "@calcom/prisma";
 import { BookingStatus } from "@calcom/prisma/enums";
@@ -13,6 +14,7 @@ import {
 } from "./lib/testUtils";
 
 test.describe.configure({ mode: "parallel" });
+test.skip(!IS_SEATS_AND_RECURRING_ENABLED, "Seats and recurring events are off on this instance");
 test.afterEach(({ users }) => users.deleteAll());
 
 test.describe("Booking with Seats", () => {

@@ -22,6 +22,7 @@ const initialConstants = {
   SINGLE_ORG_SLUG: "",
   DEFAULT_GROUP_ID: "default_group_id",
   IS_DYNAMIC_GROUP_BOOKING_ENABLED: false,
+  IS_SEATS_AND_RECURRING_ENABLED: false,
 } as Partial<typeof constants>;
 
 export const mockedConstants = { ...initialConstants };

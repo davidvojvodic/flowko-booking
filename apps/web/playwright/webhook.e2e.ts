@@ -1,4 +1,5 @@
 import dayjs from "@calcom/dayjs";
+import { IS_SEATS_AND_RECURRING_ENABLED } from "@calcom/lib/constants";
 import prisma from "@calcom/prisma";
 import { BookingStatus } from "@calcom/prisma/enums";
 import { expect } from "@playwright/test";
@@ -387,6 +388,7 @@ test.describe("BOOKING_RESCHEDULED", async () => {
     bookings,
     webhooks,
   }) => {
+    test.skip(!IS_SEATS_AND_RECURRING_ENABLED, "Seats and recurring events are off on this instance");
     const { user, eventType, booking } = await createUserWithSeatedEventAndAttendees({ users, bookings }, [
       { name: "John First", email: "first+seats@cal.com", timeZone: "Europe/Berlin" },
       { name: "Jane Second", email: "second+seats@cal.com", timeZone: "Europe/Berlin" },

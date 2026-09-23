@@ -8,6 +8,7 @@ import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
+import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import type { TDuplicateInputSchema } from "./duplicate.schema";
 
 type DuplicateOptions = {
@@ -86,6 +87,11 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
         }
       }
     }
+
+    ensureNotSeatedOrRecurring({
+      seatsPerTimeSlot: eventType.seatsPerTimeSlot,
+      recurringEvent: eventType.recurringEvent,
+    });
 
     const {
       customInputs,
@@ -222,6 +228,8 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       eventType: newEventType,
     };
   } catch (error) {
+    // Keep a 400, such as the seated or recurring refusal above, instead of wrapping it in a 500
+    if (error instanceof TRPCError && error.code === "BAD_REQUEST") throw error;
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       
       if (Array.isArray(error.meta?.target) && error.meta?.target.includes("slug")) {

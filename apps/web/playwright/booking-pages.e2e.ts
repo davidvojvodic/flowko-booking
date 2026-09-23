@@ -1,4 +1,4 @@
-import { WEBAPP_URL } from "@calcom/lib/constants";
+import { IS_SEATS_AND_RECURRING_ENABLED, WEBAPP_URL } from "@calcom/lib/constants";
 import { generateHashedLink } from "@calcom/lib/generateHashedLink";
 import { randomString } from "@calcom/lib/random";
 import type { Schedule, TimeRange } from "@calcom/types/schedule";
@@ -573,6 +573,7 @@ test.describe("Event type with disabled cancellation and rescheduling", () => {
   });
 });
 test("Should throw error when both seatsPerTimeSlot and recurringEvent are set", async ({ page, users }) => {
+  test.skip(!IS_SEATS_AND_RECURRING_ENABLED, "Seats and recurring events are off on this instance");
   const user = await users.create({
     name: `Test-user-${randomString(4)}`,
     eventTypes: [

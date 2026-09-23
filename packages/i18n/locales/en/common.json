@@ -3781,6 +3781,7 @@
   "booking_limit_per_booker_doesnt_support_recurring": "Recurring event doesn't support booking limit per booker feature. Disable booking limit per booker to enable Recurring event.",
   "seats_doesnt_support_recurring": "Seats feature doesn't support recurring event. Disable seats feature to make it recurring.",
   "recurring_event_seats_error": "Recurring event doesn't support seats feature. Disable seats feature or make the event non-recurring.",
+  "seats_and_recurring_not_available_error": "Seats and recurring events aren't available.",
   "segment": "Segment",
   "saved_filters": "Saved filters",
   "rename": "Rename",
