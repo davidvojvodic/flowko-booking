@@ -120,6 +120,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         credentialId: gcalCredential.id,
         primaryCalendarId: primaryCal.id,
       }),
+      listNewConnectionCalendars: () => gCalService.listCalendars(),
     };
 
     // Wrapping in a try/catch to reduce chance of race conditions-
