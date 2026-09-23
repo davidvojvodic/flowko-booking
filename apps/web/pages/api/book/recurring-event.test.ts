@@ -21,13 +21,20 @@ import { getMockRequestDataForBooking } from "@calcom/testing/lib/bookingScenari
 import { setupAndTeardown } from "@calcom/testing/lib/bookingScenario/setupAndTeardown";
 
 import { v4 as uuidv4 } from "uuid";
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 
 import { WEBAPP_URL, WEBSITE_URL } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import logger from "@calcom/lib/logger";
 import { BookingStatus, SchedulingType } from "@calcom/prisma/enums";
 import { test } from "@calcom/testing/lib/fixtures/fixtures";
+
+// Seated and recurring event types are off on this instance (IS_SEATS_AND_RECURRING_ENABLED). These tests
+// cover upstream's seated and recurring flows, so they run with the switch on.
+vi.mock("@calcom/lib/constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@calcom/lib/constants")>()),
+  IS_SEATS_AND_RECURRING_ENABLED: true,
+}));
 
 const DAY_IN_MS = 1000 * 60 * 60 * 24;
 
