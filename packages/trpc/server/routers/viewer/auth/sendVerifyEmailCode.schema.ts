@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { emailSchema } from "@calcom/lib/emailSchema";
+
 export type TSendVerifyEmailCodeSchema = {
   email: string;
   username?: string;
@@ -9,7 +11,7 @@ export type TSendVerifyEmailCodeSchema = {
 };
 
 export const ZSendVerifyEmailCodeSchema: z.ZodType<TSendVerifyEmailCodeSchema> = z.object({
-  email: z.string().min(1),
+  email: emailSchema,
   username: z.string().optional(),
   language: z.string(),
   isVerifyingEmail: z.boolean().optional(),
