@@ -65,7 +65,11 @@ function preprocessField({
     try {
       parsedValue = JSON.parse(value);
     } catch (e) {
-      log.error(`Failed to parse JSON for field ${field.name}`, e);
+      // JSON.parse quotes the start of the booker's input in its error message
+      log.error(
+        `Failed to parse JSON for field ${field.name}`,
+        e instanceof Error ? e.name : "Unknown error"
+      );
     }
     const optionsInputs = field.optionsInputs;
     const optionInputField = optionsInputs?.[parsedValue.value];

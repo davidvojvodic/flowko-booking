@@ -7,6 +7,7 @@ import { scheduleTrigger } from "@calcom/features/webhooks/lib/scheduleTrigger";
 import sendPayload from "@calcom/features/webhooks/lib/sendOrSchedulePayload";
 import type { EventPayloadType, EventTypeInfo } from "@calcom/features/webhooks/lib/sendPayload";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
+import { getPiiFreeEventResult } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import type { TraceContext } from "@calcom/lib/tracing";
 import { distributedTracing } from "@calcom/lib/tracing/factory";
@@ -90,7 +91,11 @@ export async function handleConfirmation(args: {
       message: "Booking failed",
     };
 
-    tracingLogger.error(`Booking ${user.username} failed`, safeStringify({ error, results }));
+    // Each result carries the whole CalendarEvent (booker details) and the host's calendar id
+    tracingLogger.error(
+      `Booking ${user.username} failed`,
+      safeStringify({ error, results: results.map(getPiiFreeEventResult) })
+    );
   } else {
     if (results.length) {
       // TODO: Handle created event metadata more elegantly

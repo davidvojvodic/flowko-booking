@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import BaseEmail from "./_base-email";
 
-const { sentPayloads } = vi.hoisted(() => ({ sentPayloads: [] as Record<string, unknown>[] }));
+const { sentPayloads, sendMailError } = vi.hoisted(() => ({
+  sentPayloads: [] as Record<string, unknown>[],
+  sendMailError: { current: null as Error | null },
+}));
 
 vi.mock("@calcom/features/flags/features.repository", () => ({
   FeaturesRepository: class {
@@ -16,7 +19,7 @@ vi.mock("nodemailer", () => ({
   createTransport: () => ({
     sendMail: (payload: Record<string, unknown>, callback: (error: Error | null, info: unknown) => void) => {
       sentPayloads.push(payload);
-      callback(null, {});
+      callback(sendMailError.current, {});
     },
   }),
 }));
@@ -37,6 +40,7 @@ class TestEmail extends BaseEmail {
 describe("BaseEmail.sendEmail address fields", () => {
   beforeEach(() => {
     sentPayloads.length = 0;
+    sendMailError.current = null;
     // Vitest sets INTEGRATION_TEST_MODE, which makes sendEmail return before nodemailer is reached.
     vi.stubEnv("INTEGRATION_TEST_MODE", "false");
   });
@@ -94,6 +98,49 @@ describe("BaseEmail.sendEmail address fields", () => {
       cc: [{ name: "", address: "cc@flowko.si" }],
       bcc: [{ name: "Janez attacker-target@example.org x", address: "bcc@flowko.si" }],
     });
+  });
+
+  it("keeps the booker's address and name out of the log when sending fails", async () => {
+    // Like nodemailer's rejected-recipient error, the message and response quote the address
+    sendMailError.current = Object.assign(
+      new Error("Can't send mail - all recipients were rejected: 550 5.1.1 <booker@example.si>: no user"),
+      {
+        code: "EENVELOPE",
+        responseCode: 550,
+        command: "RCPT TO",
+        response: "550 5.1.1 <booker@example.si>: unknown user",
+        rejected: ["booker@example.si"],
+      }
+    );
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await new TestEmail({
+      from: "Organizer <noreply@flowko.si>",
+      to: "Janez Novak <booker@example.si>",
+      subject: "Rezervacija potrjena: Janez Novak",
+    }).sendEmail();
+    const logged = JSON.stringify(consoleErrorSpy.mock.calls);
+    consoleErrorSpy.mockRestore();
+
+    expect(logged).toContain("EENVELOPE");
+    expect(logged).toContain("550");
+    expect(logged).not.toContain("booker@example.si");
+    expect(logged).not.toContain("Janez Novak");
+  });
+
+  it("does not log the phone number of a faux email it skips", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const result = await new TestEmail({
+      from: "Organizer <noreply@flowko.si>",
+      to: "38640123456@sms.cal.com",
+      subject: "Rezervacija potrjena",
+    }).sendEmail();
+    const logged = JSON.stringify([consoleLogSpy.mock.calls, result]);
+    consoleLogSpy.mockRestore();
+
+    expect(sentPayloads).toHaveLength(0);
+    expect(logged).not.toContain("38640123456");
   });
 
   it("adds no replyTo when the template sets none", async () => {

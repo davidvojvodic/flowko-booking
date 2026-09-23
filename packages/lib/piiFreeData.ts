@@ -1,6 +1,7 @@
 import type { Credential, SelectedCalendar, DestinationCalendar } from "@calcom/prisma/client";
 import type { EventType } from "@calcom/prisma/client";
 import type { CalendarEvent } from "@calcom/types/Calendar";
+import type { EventResult } from "@calcom/types/EventManager";
 
 function getBooleanStatus(val: unknown) {
   if (process.env.NODE_ENV === "production") {
@@ -31,6 +32,28 @@ export function getPiiFreeCalendarEvent(calEvent: CalendarEvent) {
     // Not okay to have title which can have Booker and Organizer names
     title: getBooleanStatus(calEvent.title),
     // .... Add all other props here that we don't want to be logged. It prevents those properties from being logged accidentally
+  };
+}
+
+/**
+ * An EventResult carries the whole CalendarEvent (originalEvent), the event the calendar or video
+ * app returned (createdEvent/updatedEvent: attendees, description, meeting links) and the host's
+ * calendar id (externalId)
+ */
+export function getPiiFreeEventResult(
+  result: Pick<
+    EventResult<unknown>,
+    "type" | "appName" | "success" | "uid" | "credentialId" | "calError" | "calWarnings"
+  >
+) {
+  return {
+    type: result.type,
+    appName: result.appName,
+    success: result.success,
+    uid: result.uid,
+    credentialId: result.credentialId,
+    calError: result.calError,
+    calWarnings: result.calWarnings,
   };
 }
 

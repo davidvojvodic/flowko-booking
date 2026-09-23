@@ -281,7 +281,10 @@ class GoogleCalendarService implements Calendar {
             event = recurringEventInstances.data.items[0];
             this.log.error(
               "Unable to find matching event amongst recurring event instances",
-              safeStringify({ selectedCalendar, credentialId })
+              safeStringify({
+                selectedCalendar: getPiiFreeSelectedCalendar({ externalId: selectedCalendar }).externalId,
+                credentialId,
+              })
             );
           }
           await calendar.events.patch({
@@ -354,7 +357,12 @@ class GoogleCalendarService implements Calendar {
       removeRequestFromError(error);
       this.log.error(
         "There was an error creating event in google calendar: ",
-        safeStringify({ error, selectedCalendar, credentialId })
+        safeStringify({
+          error,
+          // The calendar id is usually the host's Gmail address
+          selectedCalendar: getPiiFreeSelectedCalendar({ externalId: selectedCalendar }).externalId,
+          credentialId,
+        })
       );
       throw error;
     }
@@ -496,7 +504,8 @@ class GoogleCalendarService implements Calendar {
         safeStringify({
           error: safeStringify(error),
           event: getPiiFreeCalendarEvent(event),
-          externalCalendarId,
+          externalCalendarId: getPiiFreeSelectedCalendar({ externalId: externalCalendarId ?? undefined })
+            .externalId,
         })
       );
       const err = error as GoogleCalError;

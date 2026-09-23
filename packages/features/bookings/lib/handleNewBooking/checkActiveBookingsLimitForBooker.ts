@@ -60,7 +60,7 @@ const checkActiveBookingsLimit = async ({
   });
 
   if (bookingsCount >= maxActiveBookingsPerBooker) {
-    log.warn(`Maximum booking limit reached for ${bookerEmail} for event type ${eventTypeId}`);
+    log.warn(`Maximum booking limit reached for a booker for event type ${eventTypeId}`);
     throw new ErrorWithCode(ErrorCode.BookerLimitExceeded, ErrorCode.BookerLimitExceeded, {
       count: maxActiveBookingsPerBooker,
     });
@@ -120,7 +120,7 @@ const checkActiveBookingsLimitAndOfferReschedule = async ({
   const seatUid = lastBooking?.attendees[0]?.bookingSeat?.referenceUid;
 
   if (bookingsCount.length >= maxActiveBookingsPerBooker) {
-    log.warn(`Maximum booking limit reached for ${bookerEmail} for event type ${eventTypeId}`);
+    log.warn(`Maximum booking limit reached for a booker for event type ${eventTypeId}`);
     throw new ErrorWithCode(
       ErrorCode.BookerLimitExceededReschedule,
       ErrorCode.BookerLimitExceededReschedule,

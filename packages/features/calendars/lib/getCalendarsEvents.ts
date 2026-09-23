@@ -285,10 +285,8 @@ export function filterSelectedCalendarsForCredential(
     const calendarServerUrl = getServerUrlFromCalendarExternalId(sc.externalId);
 
     if (!calendarServerUrl) {
-      log.warn("Could not extract server URL from calendar externalId", {
-        externalId: sc.externalId,
-        integration: sc.integration,
-      });
+      // A CalDAV calendar id is a URL that usually contains the account's username or email
+      log.warn("Could not extract server URL from calendar externalId", getPiiFreeSelectedCalendar(sc));
       return false;
     }
 

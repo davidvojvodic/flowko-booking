@@ -8,6 +8,7 @@ import {
 import { DestinationCalendarRepository } from "@calcom/features/calendars/repositories/DestinationCalendarRepository";
 import { isDelegationCredential } from "@calcom/lib/delegationCredential";
 import logger from "@calcom/lib/logger";
+import { getPiiFreeSelectedCalendar } from "@calcom/lib/piiFreeData";
 import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository";
 import type { PrismaClient } from "@calcom/prisma";
 import prisma from "@calcom/prisma";
@@ -222,11 +223,10 @@ async function ensureSelectedCalendarIsInDb({
   };
   eventTypeId: number | null;
 }) {
-  console.log(
-    `Upsert the selectedCalendar record to the DB for user ${user.id} with details ${JSON.stringify(
-      selectedCalendar
-    )}`
-  );
+  // The externalId is the host's calendar id, usually their Gmail address
+  log.debug(`Upsert the selectedCalendar record to the DB for user ${user.id}`, {
+    selectedCalendar: getPiiFreeSelectedCalendar(selectedCalendar),
+  });
 
   await SelectedCalendarRepository.createIfNotExists({
     userId: user.id,
