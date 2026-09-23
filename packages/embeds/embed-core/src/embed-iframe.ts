@@ -10,7 +10,7 @@ import {
   setReloadInitiated,
   incrementView,
 } from "./embed-iframe/lib/embedStore";
-import { getParentTargetOrigin, toWebOrigin } from "./embed-iframe/lib/parentOrigin";
+import { getParentTargetOrigin, getUrlWithoutQuery, toWebOrigin } from "./embed-iframe/lib/parentOrigin";
 import {
   runAsap,
   isBookerReady,
@@ -512,6 +512,9 @@ export const interfaceWithParent: InterfaceWithParent = methods;
 
 // Origin of the embedding page, learned from the first message it sends. See parentOrigin.ts
 let parentOrigin: string | null = null;
+// Events that couldn't be sent because the parent's origin wasn't known yet. Sent once it is.
+const eventsWaitingForParentOrigin: CustomEvent["detail"][] = [];
+const MAX_EVENTS_WAITING_FOR_PARENT_ORIGIN = 50;
 
 const messageParent = (data: CustomEvent["detail"]) => {
   const targetOrigin = getParentTargetOrigin({
@@ -521,7 +524,11 @@ const messageParent = (data: CustomEvent["detail"]) => {
     referrer: document.referrer,
   });
   if (!targetOrigin) {
-    log(`Not sending ${data.type} to parent as its origin isn't known yet`);
+    log(`Holding ${data.type} until the parent's origin is known`);
+    if (eventsWaitingForParentOrigin.length >= MAX_EVENTS_WAITING_FOR_PARENT_ORIGIN) {
+      eventsWaitingForParentOrigin.shift();
+    }
+    eventsWaitingForParentOrigin.push(data);
     return;
   }
   parent.postMessage(
@@ -575,10 +582,18 @@ function main() {
     if (!data) {
       return;
     }
+    // Only the embedding page may call methods. Another window holding a reference to this frame
+    // (e.g. a page that opened the embedding site) could otherwise prefill guests via `connect`.
+    if (e.source !== parent) {
+      return;
+    }
     const method: keyof typeof interfaceWithParent = data.method;
     if (data.originator === "CAL" && typeof method === "string") {
-      if (!parentOrigin && e.source === parent) {
+      if (!parentOrigin) {
         parentOrigin = toWebOrigin(e.origin);
+        if (parentOrigin) {
+          eventsWaitingForParentOrigin.splice(0).forEach(messageParent);
+        }
       }
       interfaceWithParent[method]?.(data.arg as never);
     }
@@ -646,7 +661,8 @@ function handlePageError(pageStatus: string) {
     code: pageStatus,
     msg: "Problem loading the link",
     data: {
-      url: document.URL,
+      // The query can carry prefilled names, emails and notes
+      url: getUrlWithoutQuery(document.URL),
     },
   });
 }

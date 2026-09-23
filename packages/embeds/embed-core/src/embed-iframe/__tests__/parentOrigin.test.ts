@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getParentTargetOrigin, toWebOrigin } from "../lib/parentOrigin";
+import { getParentTargetOrigin, getUrlWithoutQuery, toWebOrigin } from "../lib/parentOrigin";
 
 describe("toWebOrigin", () => {
   it("returns the origin of an http(s) URL", () => {
@@ -53,9 +53,49 @@ describe("getParentTargetOrigin", () => {
   });
 
   it("never sends events that can carry data to an unknown origin", () => {
-    for (const eventType of ["bookingSuccessful", "bookingSuccessfulV2", "linkFailed", "eventTypeSelected"]) {
+    for (const eventType of [
+      "bookingSuccessful",
+      "bookingSuccessfulV2",
+      "rescheduleBookingSuccessful",
+      "rescheduleBookingSuccessfulV2",
+      "dryRunBookingSuccessfulV2",
+      "dryRunRescheduleBookingSuccessfulV2",
+      "bookingCancelled",
+      "routed",
+      "eventTypeSelected",
+    ]) {
       expect(getParentTargetOrigin({ ...unknownParent, eventType })).toBeNull();
       expect(getParentTargetOrigin({ ...unknownParent, eventType, ancestorOrigin: "null" })).toBeNull();
+      expect(
+        getParentTargetOrigin({ ...unknownParent, eventType, ancestorOrigin: "file://", referrer: "" })
+      ).toBeNull();
+    }
+  });
+
+  it("lets data-free lifecycle events reach a parent whose origin can't be pinned", () => {
+    // file:// pages, sandboxed iframes and app schemes: the loader waits for linkReady
+    expect(
+      getParentTargetOrigin({
+        eventType: "linkReady",
+        originLearnedFromParent: null,
+        ancestorOrigin: "null",
+        referrer: "",
+      })
+    ).toBe("*");
+    for (const eventType of [
+      "linkReady",
+      "linkPrerendered",
+      "linkFailed",
+      "__connectInitiated",
+      "__connectCompleted",
+      "__closeIframe",
+      "bookerViewed",
+      "availabilityLoaded",
+    ]) {
+      expect(getParentTargetOrigin({ ...unknownParent, eventType })).toBe("*");
+      expect(
+        getParentTargetOrigin({ ...unknownParent, eventType, ancestorOrigin: "capacitor://localhost" })
+      ).toBe("*");
     }
   });
 
@@ -77,5 +117,14 @@ describe("getParentTargetOrigin", () => {
         originLearnedFromParent: "https://salon.example.si",
       })
     ).toBe("https://salon.example.si");
+  });
+});
+
+describe("getUrlWithoutQuery", () => {
+  it("keeps only the origin and path", () => {
+    expect(getUrlWithoutQuery("https://booking.example.si/salon/strizenje?email=a%40b.si&name=Ana#x")).toBe(
+      "https://booking.example.si/salon/strizenje"
+    );
+    expect(getUrlWithoutQuery("not a url")).toBe("");
   });
 });

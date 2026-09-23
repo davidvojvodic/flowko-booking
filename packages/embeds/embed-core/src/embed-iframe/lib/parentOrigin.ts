@@ -5,13 +5,30 @@
  * otherwise document.referrer.
  */
 
-// These carry no booking or user data and must reach the parent before it has sent anything.
-// The referrer can't be used for them: after a navigation inside the iframe it names the iframe's own page.
-const EVENTS_SENT_BEFORE_PARENT_ORIGIN_IS_KNOWN = [
+// Lifecycle events that carry no booking or personal data. They go to any origin when the parent's
+// origin can't be pinned to a web origin: before the parent has sent anything, and for parents whose
+// origin isn't http(s) (file:// pages, sandboxed iframes, capacitor://, app://, chrome-extension://).
+// The embed's loader waits for them, so withholding them leaves the modal stuck on it.
+// The referrer isn't used for them: after a navigation inside the iframe it names the iframe's own page.
+const EVENTS_WITHOUT_PRIVATE_DATA = [
   "__iframeReady",
   "__dimensionChanged",
   "__windowLoadComplete",
   "__routeChanged",
+  "__connectInitiated",
+  "__connectCompleted",
+  "__closeIframe",
+  "__scrollByDistance",
+  "linkReady",
+  "linkPrerendered",
+  // Its data.url is reduced to origin and path by the iframe, see getUrlWithoutQuery
+  "linkFailed",
+  "navigatedToBooker",
+  "bookerViewed",
+  "bookerReopened",
+  "bookerReloaded",
+  "bookerReady",
+  "availabilityLoaded",
 ];
 
 /**
@@ -31,7 +48,19 @@ export function toWebOrigin(value: string | null | undefined): string | null {
 }
 
 /**
- * The targetOrigin for posting an SDK event to the parent, or null when the event must not be sent.
+ * The page URL without its query and hash, which can carry prefilled names, emails and notes.
+ */
+export function getUrlWithoutQuery(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The targetOrigin for posting an SDK event to the parent, or null when the event can't be sent yet.
  */
 export function getParentTargetOrigin({
   eventType,
@@ -51,7 +80,7 @@ export function getParentTargetOrigin({
   if (originFromAncestors) {
     return originFromAncestors;
   }
-  if (EVENTS_SENT_BEFORE_PARENT_ORIGIN_IS_KNOWN.includes(eventType)) {
+  if (EVENTS_WITHOUT_PRIVATE_DATA.includes(eventType)) {
     return "*";
   }
   return toWebOrigin(referrer);
