@@ -59,7 +59,7 @@ export default function DryRunSuccessful() {
             <div className="mb-3">
               <div>
                 <span className="mr-2">{sampleBookingInfo.user.name}</span>
-                <Badge variant="blue">{t("Host")}</Badge>
+                <Badge variant="blue">{t("host")}</Badge>
               </div>
               <p className="text-default">{sampleBookingInfo.user.email}</p>
             </div>
