@@ -36,7 +36,15 @@ export const lookUpGoogleAccount = async (key: unknown): Promise<GoogleAccountLo
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const { client_id, client_secret, redirect_uris } = await getGoogleAppKeys();
-    const auth = new OAuth2Client(client_id, client_secret, redirect_uris[0]);
+    // With an expiry_date stored, the client only refreshes on a 401 when forceRefreshOnFailure is
+    // set. Without it, a revoked grant whose access token has not expired yet answers 401 instead of
+    // invalid_grant and reads as "unknown"
+    const auth = new OAuth2Client({
+      clientId: client_id,
+      clientSecret: client_secret,
+      redirectUri: redirect_uris[0],
+      forceRefreshOnFailure: true,
+    });
     auth.setCredentials(parsedKey.data);
 
     const result = await Promise.race([

@@ -1,5 +1,5 @@
 import "../__mocks__/getGoogleAppKeys";
-import { calendarMock, setCredentialsMock } from "../__mocks__/googleapis";
+import { calendarMock, getLastCreatedOAuth2Client, setCredentialsMock } from "../__mocks__/googleapis";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -43,6 +43,17 @@ describe("lookUpGoogleAccount", () => {
       refresh_token: "stored-refresh-token",
       expiry_date: 1625097600000,
     });
+  });
+
+  test("refreshes on a 401 even though the stored token has an expiry date", async () => {
+    // A grant revoked while its access token is still valid answers 401. Only a refresh then makes
+    // Google say invalid_grant, and google-auth-library skips that refresh when expiry_date is set
+    // unless forceRefreshOnFailure is on.
+    calendarsGetMock().mockResolvedValueOnce({ data: { id: "owner@gmail.com" } });
+
+    await lookUpGoogleAccount(storedKey);
+
+    expect(getLastCreatedOAuth2Client()?.args[0]).toMatchObject({ forceRefreshOnFailure: true });
   });
 
   test("reports a revoked grant when Google refuses the refresh token", async () => {
