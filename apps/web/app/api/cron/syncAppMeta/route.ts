@@ -49,15 +49,14 @@ async function postHandler(request: NextRequest) {
       updates["dirName"] = app.dirName ?? app.slug;
     }
 
-    // Ensure app is only enabled if it has valid keys (or doesn't require keys)
+    // Ensure app is only enabled if it has valid keys (or doesn't require keys).
+    // Flowko: never enable one here; enabling is the admin's choice, as in scripts/seed-app-store.ts
     const shouldBeEnabled = shouldEnableApp(dbApp.dirName, dbApp.keys);
-    if (dbApp.enabled !== shouldBeEnabled) {
-      updates["enabled"] = shouldBeEnabled;
-      if (!shouldBeEnabled && dbApp.enabled) {
-        log.warn(
-          `⚠️ Disabling app ${dbApp.slug} - required keys are missing or invalid. Please configure keys in admin settings.`
-        );
-      }
+    if (dbApp.enabled && !shouldBeEnabled) {
+      updates["enabled"] = false;
+      log.warn(
+        `⚠️ Disabling app ${dbApp.slug} - required keys are missing or invalid. Please configure keys in admin settings.`
+      );
     }
 
     if (Object.keys(updates).length > 0) {
