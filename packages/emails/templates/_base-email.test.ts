@@ -65,6 +65,18 @@ describe("BaseEmail.sendEmail address fields", () => {
     });
   });
 
+  it("hands nodemailer one recipient for a faux phone email that holds an address list", async () => {
+    await new TestEmail({
+      from: "Organizer <noreply@flowko.si>",
+      to: "Janez <38640123456;isub=>,attacker-target@example.org,x@sms.cal.com>",
+      subject: "Rezervacija potrjena",
+    }).sendEmail();
+
+    expect(sentPayloads[0]).toMatchObject({
+      to: [{ name: "Janez", address: '"38640123456;isub=,attacker-target@example.org,x"@sms.cal.com' }],
+    });
+  });
+
   it("keeps every address of a joined recipient list, cc and bcc included", async () => {
     await new TestEmail({
       from: "Flowko <noreply@flowko.si>",

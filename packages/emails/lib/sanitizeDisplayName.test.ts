@@ -81,15 +81,54 @@ describe("toMailAddresses", () => {
       expect(sent.header).toEqual([BOOKER]);
     });
 
-    it("keeps a comma in the booker's local part inside one address", async () => {
-      const sent = await sendTo("Janez <janez,novak@example.si>");
+    it("quotes a comma in the booker's local part so it stays one address", async () => {
+      const to = "Janez <janez,novak@example.si>";
 
-      expect(sent.envelope).toEqual(["janez,novak@example.si"]);
-      expect(sent.header).toEqual(["janez,novak@example.si"]);
+      expect(toMailAddresses(to)).toEqual([{ name: "Janez", address: '"janez,novak"@example.si' }]);
+
+      const sent = await sendTo(to);
+      expect(sent.envelope).toEqual(['"janez,novak"@example.si']);
+      expect(sent.header).toEqual(['"janez,novak"@example.si']);
     });
 
     it("returns no recipient when the address is empty", () => {
       expect(toMailAddresses(`Janez <${ATTACKER}>, x <>`)).toEqual([]);
+    });
+  });
+
+  // Phone-only bookings get `${phone}@sms.cal.com` as their email. Before contructEmailFromPhoneNumber
+  // kept only the digits, a phone number that passes isValidPhoneNumber could carry ";isub=" and any
+  // characters after it, and bookings stored then still hold such addresses.
+  describe("a faux email built from a phone number with an ;isub= extension", () => {
+    const legacyFauxEmail = (phone: string) => `${phone.replace(/\+/g, "")}@sms.cal.com`;
+
+    it.each([
+      ["a comma list after >", `+38640123456;isub=>,${ATTACKER},x`],
+      ["a semicolon list after >", `+38640123456;isub=>;${ATTACKER};x`],
+      ["a spaced list after >", `+38640123456;isub=>, ${ATTACKER} ,x`],
+      ["an angle-bracket address", `+38640123456;isub=<${ATTACKER}>`],
+      ["quotes around a list", `+38640123456;isub=",${ATTACKER},"x`],
+      ["a CRLF header line", `+38640123456;isub=x\r\nBcc: ${ATTACKER}`],
+      ["a backslash before a quote", `+38640123456;isub=\\",${ATTACKER},x`],
+    ])("with %s stays one address at sms.cal.com", async (_, phone) => {
+      const to = `Janez <${legacyFauxEmail(phone)}>`;
+
+      const addresses = toMailAddresses(to);
+      expect(addresses).toHaveLength(1);
+      expect(addresses[0].address).toMatch(/^"[^\r\n]*"@sms\.cal\.com$/);
+
+      const sent = await sendTo(to);
+      expect(sent.envelope).toEqual([addresses[0].address]);
+      expect(sent.header).toEqual([addresses[0].address]);
+      expect(sent.headers.some((header) => /^bcc:/i.test(header))).toBe(false);
+    });
+
+    it("is not split into a list when the template passes it bare", () => {
+      const faux = legacyFauxEmail(`+38640123456;isub=>,${ATTACKER},x`);
+
+      expect(toMailAddresses(faux)).toEqual([
+        { name: "", address: `"38640123456;isub=,${ATTACKER},x"@sms.cal.com` },
+      ]);
     });
   });
 
@@ -131,6 +170,12 @@ describe("toMailAddresses", () => {
       const sent = await sendTo("organizer@flowko.si>");
 
       expect(sent.envelope).toEqual(["organizer@flowko.si"]);
+    });
+
+    it("sends from the address of an EMAIL_FROM that carries its own name", () => {
+      expect(toMailAddresses("Salon Ana <Flowko <rezervacije@flowko.si>>")).toEqual([
+        { name: "Salon Ana Flowko", address: "rezervacije@flowko.si" },
+      ]);
     });
   });
 
