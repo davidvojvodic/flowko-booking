@@ -173,7 +173,12 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
   }
 
   // If the booking is a seated event and there is no seatReferenceUid we should validate that logged in user is host
-  if (bookingToDelete.eventType?.seatsPerTimeSlot && !seatReferenceUid) {
+  // Flowko: a reference that isn't one of this booking's seats counts as none. Any string skipped this check,
+  // and cancelAttendeeSeat leaves a booking with fewer than two attendees to the full cancellation below.
+  const isSeatOfBooking = bookingToDelete.seatsReferences.some(
+    (reference) => !!seatReferenceUid && reference.referenceUid === seatReferenceUid
+  );
+  if (bookingToDelete.eventType?.seatsPerTimeSlot && !isSeatOfBooking) {
     const userIsHost = bookingToDelete.eventType.hosts.find((host) => {
       if (host.user.id === userId) return true;
     });
