@@ -1,4 +1,5 @@
 import { prisma } from "@calcom/prisma";
+import { UserPermissionRole } from "@calcom/prisma/enums";
 
 import { TRPCError } from "@trpc/server";
 
@@ -7,6 +8,12 @@ import { webhookIdAndEventTypeIdSchema } from "./types";
 
 export const createWebhookProcedure = () => {
   return authedProcedure.input(webhookIdAndEventTypeIdSchema.optional()).use(async ({ ctx, input, next }) => {
+    // Flowko: a webhook sends full booker data to any URL, and client businesses have no use for one, so
+    // only an instance admin may list, read, create, edit, test or delete webhooks
+    if (ctx.user.role !== UserPermissionRole.ADMIN) {
+      throw new TRPCError({ code: "FORBIDDEN" });
+    }
+
     if (!input) return next();
 
     const { id, webhookId, eventTypeId } = input;

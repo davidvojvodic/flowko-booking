@@ -5,13 +5,14 @@ import { selectOOOEntries } from "@calcom/app-store/zapier/api/subscriptions/lis
 import dayjs from "@calcom/dayjs";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import tasker from "@calcom/features/tasker";
+import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { withReporting } from "@calcom/lib/sentryWrapper";
 import { getTranslation } from "@calcom/i18n/server";
 import { prisma } from "@calcom/prisma";
 import type { Prisma, Webhook, Booking, ApiKey } from "@calcom/prisma/client";
-import { BookingStatus, WebhookTriggerEvents } from "@calcom/prisma/enums";
+import { BookingStatus, UserPermissionRole, WebhookTriggerEvents } from "@calcom/prisma/enums";
 import { bookingMetadataSchema } from "@calcom/prisma/zod-utils";
 import { DEFAULT_WEBHOOK_VERSION, type WebhookVersion } from "./interface/IWebhookRepository";
 
@@ -26,6 +27,26 @@ const NO_SHOW_TRIGGERS: WebhookTriggerEvents[] = [
 ];
 
 const log = logger.getSubLogger({ prefix: ["[node-scheduler]"] });
+
+/**
+ * Flowko: a Zapier or Make subscription is a webhook, which sends full booker data to its URL. As in the
+ * webhook settings, only an instance admin may create or delete one; a team key or account never may.
+ */
+async function ensureSubscriptionOwnerIsAdmin({
+  userId,
+  teamId,
+}: {
+  userId: number | null;
+  teamId: number | null;
+}) {
+  const owner =
+    userId && !teamId
+      ? await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+      : null;
+  if (owner?.role !== UserPermissionRole.ADMIN) {
+    throw new HttpError({ statusCode: 403, message: "Only an admin can manage webhooks" });
+  }
+}
 
 export async function addSubscription({
   appApiKey,
@@ -44,6 +65,10 @@ export async function addSubscription({
     isTeam: boolean;
   } | null;
 }) {
+  await ensureSubscriptionOwnerIsAdmin({
+    userId: appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null,
+    teamId: appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null,
+  });
   try {
     const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
     const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
@@ -146,6 +171,7 @@ export async function deleteSubscription({
 }) {
   const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
   const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
+  await ensureSubscriptionOwnerIsAdmin({ userId, teamId });
   try {
     let where: Prisma.WebhookWhereInput = {};
     if (teamId) {

@@ -358,7 +358,10 @@ const useTabs = ({
         return { ...tab, children: filtered };
       } else if (tab.href === "/settings/developer") {
         const filtered = tab?.children?.filter(
-          (childTab) => permissions?.canUpdateOrganization || childTab.name !== "api_docs"
+          (childTab) =>
+            (permissions?.canUpdateOrganization || childTab.name !== "api_docs") &&
+            // Flowko: only an instance admin may manage webhooks
+            (isAdmin || childTab.name !== "webhooks")
         );
         return { ...tab, children: filtered };
       }

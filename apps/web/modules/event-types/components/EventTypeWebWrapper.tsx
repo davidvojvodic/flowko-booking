@@ -9,13 +9,14 @@ import { IS_SEATS_AND_RECURRING_ENABLED, WEBSITE_URL } from "@calcom/lib/constan
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { useTypedQuery } from "@calcom/lib/hooks/useTypedQuery";
 import { HttpError } from "@calcom/lib/http-error";
-import { SchedulingType } from "@calcom/prisma/enums";
+import { SchedulingType, UserPermissionRole } from "@calcom/prisma/enums";
 import type { RouterOutputs } from "@calcom/trpc/react";
 import { trpc } from "@calcom/trpc/react";
 import useMeQuery from "@calcom/trpc/react/hooks/useMeQuery";
 import { showToast } from "@calcom/ui/components/toast";
 import { revalidateEventTypeEditPage } from "@calcom/web/app/(use-page-wrapper)/event-types/[type]/actions";
 import { TRPCClientError } from "@trpc/react-query";
+import { useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import { useRouter as useAppRouter, usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -113,6 +114,9 @@ const EventTypeWeb = ({
   const pathname = usePathname();
   const appRouter = useAppRouter();
   const { data: user, isPending: isLoggedInUserPending } = useMeQuery();
+  const session = useSession();
+  // Flowko: only an instance admin may manage webhooks
+  const isAdmin = session.data?.user.role === UserPermissionRole.ADMIN;
   const isTeamEventTypeDeleted = useRef(false);
   const leaveWithoutAssigningHosts = useRef(false);
   const [isOpenAssignmentWarnDialog, setIsOpenAssignmentWarnDialog] = useState<boolean>(false);
@@ -225,7 +229,7 @@ const EventTypeWeb = ({
         isPendingApps={isPendingApps}
       />
     ),
-    webhooks: <EventWebhooksTab eventType={eventType} />,
+    webhooks: isAdmin ? <EventWebhooksTab eventType={eventType} /> : null,
   } as const;
 
   useHandleRouteChange({
@@ -325,6 +329,7 @@ const EventTypeWeb = ({
     eventType,
     team,
     eventTypeApps,
+    showWebhooksTab: isAdmin,
   });
 
   return (
