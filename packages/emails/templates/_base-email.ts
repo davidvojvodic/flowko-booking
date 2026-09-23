@@ -10,6 +10,7 @@ import { setTestEmail } from "@calcom/lib/testEmails";
 import { prisma } from "@calcom/prisma";
 
 import { sanitizeDisplayName } from "../lib/sanitizeDisplayName";
+import { formatRecipientDate } from "../lib/utils/date-formatting";
 
 export default class BaseEmail {
   name = "";
@@ -24,6 +25,10 @@ export default class BaseEmail {
 
   protected getFormattedRecipientTime({ time, format }: { time: string; format: string }) {
     return dayjs(time).tz(this.getTimezone()).locale(this.getLocale()).format(format);
+  }
+
+  protected getFormattedRecipientDate(time: string) {
+    return formatRecipientDate({ time, timeZone: this.getTimezone(), locale: this.getLocale() });
   }
 
   protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {

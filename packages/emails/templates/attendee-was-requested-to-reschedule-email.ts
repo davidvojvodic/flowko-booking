@@ -1,8 +1,10 @@
 import { getManageLink } from "@calcom/lib/CalEventParser";
 import { EMAIL_FROM_NAME } from "@calcom/lib/constants";
+import { getTimeFormatForLocale } from "@calcom/lib/timeFormat";
 import type { CalendarEvent } from "@calcom/types/Calendar";
 
 import generateIcsFile, { GenerateIcsRole } from "../lib/generateIcsFile";
+import { formatRecipientDate } from "../lib/utils/date-formatting";
 import renderEmail from "../src/renderEmail";
 import OrganizerScheduledEmail from "./organizer-scheduled-email";
 
@@ -39,16 +41,20 @@ export default class AttendeeWasRequestedToRescheduleEmail extends OrganizerSche
 
   // @OVERRIDE
   protected getWhen(): string {
+    const attendeeLocale = this.calEvent.attendees[0].language.locale;
+    const attendeeTimeFormat = getTimeFormatForLocale(attendeeLocale);
     return `
     <p style="height: 6px"></p>
     <div style="line-height: 6px;">
       <p style="color: #494949;">${this.t("when")}</p>
       <p style="color: #494949; font-weight: 400; line-height: 24px;text-decoration: line-through;">
-      ${this.t(this.getOrganizerStart("dddd").toLowerCase())}, ${this.t(
-        this.getOrganizerStart("MMMM").toLowerCase()
-      )} ${this.getOrganizerStart("D")}, ${this.getOrganizerStart("YYYY")} | ${this.getOrganizerStart(
-        "h:mma"
-      )} - ${this.getOrganizerEnd("h:mma")} <span style="color: #888888">(${this.getTimezone()})</span>
+      ${formatRecipientDate({
+        time: this.calEvent.startTime,
+        timeZone: this.getTimezone(),
+        locale: attendeeLocale,
+      })} | ${this.getOrganizerStart(attendeeTimeFormat)} - ${this.getOrganizerEnd(
+        attendeeTimeFormat
+      )} <span style="color: #888888">(${this.getTimezone()})</span>
       </p>
     </div>`;
   }

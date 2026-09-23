@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 
 import { getReplyToHeader } from "@calcom/lib/getReplyToHeader";
-import { TimeFormat } from "@calcom/lib/timeFormat";
+import { getTimeFormatForLocale } from "@calcom/lib/timeFormat";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
 import renderEmail from "../src/renderEmail";
@@ -79,10 +79,10 @@ export default class AttendeeDailyVideoDownloadTranscriptEmail extends BaseEmail
   }
 
   protected getFormattedDate() {
-    const inviteeTimeFormat = this.attendee.timeFormat || TimeFormat.TWELVE_HOUR;
+    const inviteeTimeFormat = this.attendee.timeFormat || getTimeFormatForLocale(this.getLocale());
 
-    return `${this.getInviteeStart(inviteeTimeFormat)} - ${this.getInviteeEnd(inviteeTimeFormat)}, ${this.t(
-      this.getInviteeStart("dddd").toLowerCase()
-    )}, ${this.t(this.getInviteeStart("MMMM").toLowerCase())} ${this.getInviteeStart("D, YYYY")}`;
+    return `${this.getInviteeStart(inviteeTimeFormat)} - ${this.getInviteeEnd(
+      inviteeTimeFormat
+    )}, ${this.getFormattedRecipientDate(this.calEvent.startTime)}`;
   }
 }
