@@ -122,11 +122,13 @@ export class CalendarAuth {
       log.debug("Authorizing using JWT auth");
       return await authClient.authorize();
     } catch (error) {
-      log.error("DelegatedTo: Error authorizing using JWT auth", JSON.stringify(error));
+      const errorCode = (error as { response?: { data?: { error?: string } } }).response?.data?.error;
+      // Never log the error itself: gaxios keeps the token request, with the signed assertion, on it
+      const { name, code } = (error ?? {}) as { name?: unknown; code?: unknown };
+      log.error("DelegatedTo: Error authorizing using JWT auth", JSON.stringify({ errorCode, name, code }));
 
       let delegationError: CalendarAppDelegationCredentialError;
 
-      const errorCode = (error as { response?: { data?: { error?: string } } }).response?.data?.error;
       if (errorCode === "unauthorized_client") {
         delegationError = new CalendarAppDelegationCredentialClientIdNotAuthorizedError(
           "Make sure that the Client ID for the delegation credential is added to the Google Workspace Admin Console"

@@ -176,7 +176,7 @@ export async function handlePaymentSuccess(params: {
         payload
       ).catch((e) => {
         tracingLogger.error(
-          `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_PAID}, URL: ${sub.subscriberUrl}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
+          `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_PAID}, webhookId: ${sub.id}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
           safeStringify(e)
         );
       })

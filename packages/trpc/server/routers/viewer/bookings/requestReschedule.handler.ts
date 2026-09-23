@@ -278,7 +278,7 @@ export const requestRescheduleHandler = async ({ ctx, input, source }: RequestRe
   const promises = webhooks.map((webhook) =>
     sendPayload(webhook.secret, eventTrigger, new Date().toISOString(), webhook, payload).catch((e) => {
       log.error(
-        `Error executing webhook for event: ${eventTrigger}, URL: ${webhook.subscriberUrl}, bookingId: ${payload.bookingId}, bookingUid: ${payload.uid}`,
+        `Error executing webhook for event: ${eventTrigger}, webhookId: ${webhook.id}, bookingId: ${payload.bookingId}, bookingUid: ${payload.uid}`,
         safeStringify(e)
       );
     })

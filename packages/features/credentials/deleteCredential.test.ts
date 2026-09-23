@@ -5,8 +5,11 @@ import { CredentialRepository } from "@calcom/features/credentials/repositories/
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { prisma } from "@calcom/prisma";
+import { lookUpGoogleAccount } from "@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount";
 import { OAuth2Client } from "googleapis-common";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+vi.mock("@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount", () => ({ lookUpGoogleAccount: vi.fn() }));
 const testUser = {
   email: "test@test.com",
   username: "test-user",
@@ -216,5 +219,122 @@ describe("deleteCredential", () => {
 
     // TODO: Add test for payment apps
     // TODO: Add test for event type apps
+  });
+
+  describe("revoking Google Calendar grants the app does not keep", () => {
+    const googleKey = (name: string) => ({ access_token: `${name}-access`, refresh_token: `${name}-refresh` });
+
+    const setupUserWithGoogleCredentials = async (
+      userInput: { email: string; username: string },
+      credentials: { id: number; name: string }[]
+    ) => {
+      const user = await new UserRepository(prisma).create({ ...testUser, ...userInput });
+      for (const { id, name } of credentials) {
+        await setupCredential({
+          id,
+          userId: user.id,
+          type: "google_calendar",
+          appId: "google-calendar",
+          key: googleKey(name),
+        });
+      }
+      return user;
+    };
+
+    const mockPrimaryCalendars = (primaryCalendarIdByToken: Record<string, string | "revoked">) => {
+      vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) => {
+        const primaryCalendarId = primaryCalendarIdByToken[(key as { refresh_token: string }).refresh_token];
+        if (!primaryCalendarId) return { status: "unknown" };
+        if (primaryCalendarId === "revoked") return { status: "grant_revoked" };
+        return { status: "found", primaryCalendarId };
+      });
+    };
+
+    test("Deleting an account revokes the grant of each Google Calendar credential", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, [
+        { id: 123, name: "work" },
+        { id: 124, name: "personal" },
+      ]);
+      mockPrimaryCalendars({ "work-refresh": "owner@work.si", "personal-refresh": "owner@gmail.com" });
+
+      await revokeGoogleCalendarTokensOfUser(user.id);
+
+      expect(revokeTokenSpy).toHaveBeenCalledTimes(2);
+      expect(revokeTokenSpy).toHaveBeenCalledWith("work-refresh");
+      expect(revokeTokenSpy).toHaveBeenCalledWith("personal-refresh");
+    });
+
+    test("Deleting an account keeps a grant another user's connection shares", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "shared" }]);
+      const otherUser = await setupUserWithGoogleCredentials(
+        { email: "colleague@test.com", username: "colleague" },
+        [{ id: 124, name: "colleague" }]
+      );
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: otherUser.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 124,
+        },
+      });
+      mockPrimaryCalendars({ "shared-refresh": "salon@gmail.com" });
+
+      await revokeGoogleCalendarTokensOfUser(user.id);
+
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+    });
+
+    test("Deleting an account does not revoke a grant Google already revoked, and never throws", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "dead" }]);
+      mockPrimaryCalendars({ "dead-refresh": "revoked" });
+
+      await revokeGoogleCalendarTokensOfUser(user.id);
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+
+      vi.mocked(lookUpGoogleAccount).mockRejectedValue(new Error("unexpected"));
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      await expect(revokeGoogleCalendarTokensOfUser(user.id)).resolves.toBeUndefined();
+    });
+
+    test("A token with a missing scope is revoked when no other connection shares its grant", async () => {
+      const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, []);
+      mockPrimaryCalendars({ "partial-refresh": "owner@gmail.com" });
+
+      await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
+
+      expect(revokeTokenSpy).toHaveBeenCalledWith("partial-refresh");
+    });
+
+    test("A token with a missing scope is kept when the account is unknown or already connected", async () => {
+      const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, []);
+
+      // Without calendar.readonly Google does not say which account the token belongs to
+      mockPrimaryCalendars({});
+      await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
+
+      // The user already has a working connection, which may be the same Google account
+      await setupCredential({
+        id: 125,
+        userId: user.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: googleKey("existing"),
+      });
+      mockPrimaryCalendars({ "partial-refresh": "owner@gmail.com" });
+      await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
+
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+    });
   });
 });

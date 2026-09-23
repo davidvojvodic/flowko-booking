@@ -22,6 +22,7 @@ import {
   getPiiFreeUser,
   getPiiFreeCredential,
   getPiiFreeCalendarEvent,
+  getPiiFreeEventResult,
 } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { prisma } from "@calcom/prisma";
@@ -204,9 +205,9 @@ export default class EventManager {
       const url = new URL(destination.externalId);
       return `${url.protocol}//${url.host}`;
     } catch (error) {
+      // A CalDAV calendar id is a URL that usually contains the account's username or email
       log.warn("Failed to extract server URL from destination calendar", {
         destinationId: destination.id,
-        externalId: destination.externalId,
         error: error instanceof Error ? error.message : "Unknown error",
       });
       return null;
@@ -471,7 +472,7 @@ export default class EventManager {
       if (!uid) {
         log.error(
           "updateLocation: No uid for booking reference. The corresponding record in third party if created is orphan now",
-          safeStringify({ result })
+          safeStringify({ bookingId: booking.id, result: getPiiFreeEventResult(result) })
         );
       }
 

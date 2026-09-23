@@ -67,7 +67,7 @@ export async function handleBookingRequested(args: {
         webhookPayload
       ).catch((e) => {
         log.error(
-          `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_REQUESTED}, URL: ${sub.subscriberUrl}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
+          `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_REQUESTED}, webhookId: ${sub.id}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
           safeStringify(e)
         );
       })

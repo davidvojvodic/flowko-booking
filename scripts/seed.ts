@@ -1377,7 +1377,8 @@ async function main() {
 async function runSeed() {
   await prisma.$connect();
 
-  await mainAppStore();
+  // E2E and local dev expect upstream's seed: every app enabled when its keys are valid
+  await mainAppStore({ syncEnabledFromKeys: true });
   await main();
   await mainHugeEventTypesSeed();
 }

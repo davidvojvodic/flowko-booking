@@ -14,6 +14,17 @@ import { AppCategories } from "@calcom/prisma/enums";
 dotEnv.config({ path: path.resolve(__dirname, "../.env") });
 dotEnv.config({ path: path.resolve(__dirname, "../.env.appStore") });
 
+/**
+ * Flowko: the container runs this script on every boot (scripts/start.sh). Upstream recomputed
+ * App.enabled from the keys on every run, which switched every keyless app (analytics tags, Make,
+ * Jitsi, CalDAV, ...) and Google Meet back on after each restart, so an admin could not keep them
+ * off. Only google-calendar still follows its keys here. Every other app is created disabled, and the
+ * enabled flag of an existing row is left as the admin set it. The E2E/dev seed (scripts/seed.ts)
+ * passes `syncEnabledFromKeys` to keep upstream's behaviour.
+ */
+const DIR_NAMES_ENABLED_FROM_KEYS = ["googlecalendar"];
+let syncEnabledFromKeysForAllApps = false;
+
 async function createApp(
   /** The App identifier in the DB also used for public page in `/apps/[slug]` */
   slug: Prisma.AppCreateInput["slug"],
@@ -51,18 +62,20 @@ async function createApp(
 
     // Only enable apps if they have valid keys (or don't require keys)
     const keysToValidate = (keys ?? foundApp?.keys) as Prisma.JsonValue | undefined;
-    const enabled = shouldEnableApp(dirName, keysToValidate);
+    const syncEnabledFromKeys =
+      syncEnabledFromKeysForAllApps || DIR_NAMES_ENABLED_FROM_KEYS.includes(dirName);
+    const enabled = syncEnabledFromKeys && shouldEnableApp(dirName, keysToValidate);
     const data = {
       slug,
       dirName,
       categories,
       ...(keys !== undefined && { keys }),
-      enabled,
+      ...(syncEnabledFromKeys && { enabled }),
     };
 
     if (!foundApp) {
       await prisma.app.create({
-        data,
+        data: { ...data, enabled },
       });
       console.log(`📲 Created ${isTemplate ? "template" : "app"}: '${slug}'`);
     } else {
@@ -91,7 +104,8 @@ async function createApp(
   }
 }
 
-export default async function main() {
+export default async function main({ syncEnabledFromKeys = false }: { syncEnabledFromKeys?: boolean } = {}) {
+  syncEnabledFromKeysForAllApps = syncEnabledFromKeys;
   // Calendar apps
   await createApp("apple-calendar", "applecalendar", ["calendar"], "apple_calendar");
   if (

@@ -11,7 +11,11 @@ import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
 import { buildNonDelegationCredentials } from "@calcom/lib/delegationCredential";
 import { formatCalEvent } from "@calcom/lib/formatCalendarEvent";
 import logger from "@calcom/lib/logger";
-import { getPiiFreeCalendarEvent, getPiiFreeCredential } from "@calcom/lib/piiFreeData";
+import {
+  getPiiFreeCalendarEvent,
+  getPiiFreeCredential,
+  getPiiFreeSelectedCalendar,
+} from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import type {
   CalendarEvent,
@@ -349,7 +353,7 @@ export const getBusyCalendarTimes = async (
     }
   } catch (e) {
     log.warn(`Error getting calendar availability`, {
-      selectedCalendarIds: selectedCalendars.map((calendar) => calendar.externalId),
+      selectedCalendars: selectedCalendars.map(getPiiFreeSelectedCalendar),
       error: safeStringify(e),
     });
     return { success: false, data: [{ start: startDate, end: endDate, source: "error-placeholder" }] };
@@ -572,7 +576,7 @@ export const deleteEvent = async ({
       "Could not do deleteEvent - No calendar adapter found",
       safeStringify({
         credential: getPiiFreeCredential(credential),
-        event,
+        event: getPiiFreeCalendarEvent(event),
       })
     );
   }

@@ -176,7 +176,7 @@ async function cancelAttendeeSeat(
       payload
     ).catch((e) => {
       logger.error(
-        `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_CANCELLED}, URL: ${webhook.subscriberUrl}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
+        `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_CANCELLED}, webhookId: ${webhook.id}, bookingId: ${evt.bookingId}, bookingUid: ${evt.uid}`,
         safeStringify(e)
       );
     })

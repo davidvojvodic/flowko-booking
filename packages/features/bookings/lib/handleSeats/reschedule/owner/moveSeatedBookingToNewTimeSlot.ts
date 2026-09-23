@@ -2,6 +2,8 @@ import { cloneDeep } from "lodash";
 
 import { sendRescheduledEmailsAndSMS } from "@calcom/emails/email-manager";
 import type EventManager from "@calcom/features/bookings/lib/EventManager";
+import { getPiiFreeEventResult } from "@calcom/lib/piiFreeData";
+import { safeStringify } from "@calcom/lib/safeStringify";
 import prisma from "@calcom/prisma";
 import type { AdditionalInformation, AppsStatus } from "@calcom/types/Calendar";
 
@@ -91,7 +93,11 @@ const moveSeatedBookingToNewTimeSlot = async (
       errorCode: "BookingReschedulingMeetingFailed",
       message: "Booking Rescheduling failed",
     };
-    loggerWithEventDetails.error(`Booking ${organizerUser.name} failed`, JSON.stringify({ error, results }));
+    // Each result carries the whole CalendarEvent (booker details) and the host's calendar id
+    loggerWithEventDetails.error(
+      `Booking ${organizerUser.id} failed`,
+      safeStringify({ error, results: results.map(getPiiFreeEventResult) })
+    );
   } else {
     const metadata: AdditionalInformation = {};
     if (results.length) {

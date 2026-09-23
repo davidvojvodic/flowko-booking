@@ -12,6 +12,25 @@ import { prisma } from "@calcom/prisma";
 import { toMailAddresses } from "../lib/sanitizeDisplayName";
 import { formatRecipientDate } from "../lib/utils/date-formatting";
 
+/**
+ * Nodemailer errors can quote recipient addresses: in the message and response of a rejected
+ * recipient, and in `rejected`/`envelope`. Keep only the codes; getServerErrorFromUnknown wraps the
+ * nodemailer error as `cause`.
+ */
+const getLoggableMailError = (error: unknown) => {
+  const { name, statusCode, cause } = (error ?? {}) as {
+    name?: unknown;
+    statusCode?: unknown;
+    cause?: unknown;
+  };
+  const { code, responseCode, command } = (cause ?? error ?? {}) as {
+    code?: unknown;
+    responseCode?: unknown;
+    command?: unknown;
+  };
+  return { name, statusCode, code, responseCode, command };
+};
+
 export default class BaseEmail {
   name = "";
 
@@ -58,9 +77,13 @@ export default class BaseEmail {
     const from = "from" in payload ? (payload.from as string) : "";
     const to = "to" in payload ? (payload.to as string) : "";
 
-    if (isSmsCalEmail(to)) {
-      console.log(`Skipped Sending Email to faux email: ${to}`);
-      return new Promise((r) => r(`Skipped Sending Email to faux email: ${to}`));
+    // A faux email is built from the booker's phone number, so it is never sent or logged. Flowko:
+    // attendee templates address `Name <address>`, so the parsed addresses are checked, not the field
+    const toAddresses = toMailAddresses(to);
+    const realToAddresses = toAddresses.filter(({ address }) => !isSmsCalEmail(address));
+    if (toAddresses.length && !realToAddresses.length) {
+      console.log(`Skipped Sending Email to faux email for ${this.name}`);
+      return new Promise((r) => r("Skipped Sending Email to faux email"));
     }
 
     const optionalAddressFields = Object.fromEntries(
@@ -75,7 +98,7 @@ export default class BaseEmail {
       ...payload,
       ...{
         from: toMailAddresses(from)[0],
-        to: toMailAddresses(to),
+        to: realToAddresses,
         ...optionalAddressFields,
       },
       ...(parseSubject.success && { subject: decodeHTML(parseSubject.data) }),
@@ -95,12 +118,8 @@ export default class BaseEmail {
         }
       )
     ).catch((e) =>
-      console.error(
-        "sendEmail",
-        `from: ${from}`,
-        `subject: ${"subject" in payloadWithUnEscapedSubject ? payloadWithUnEscapedSubject.subject : ""}`,
-        e
-      )
+      // The subject and sender name can hold the booker's and organizer's names
+      console.error("sendEmail", this.name, getLoggableMailError(e))
     );
     return new Promise((resolve) => resolve("send mail async"));
   }
@@ -114,6 +133,6 @@ export default class BaseEmail {
   protected printNodeMailerError(error: Error): void {
     /** Don't clog the logs with unsent emails in E2E */
     if (process.env.NEXT_PUBLIC_IS_E2E) return;
-    console.error(`${this.name}_ERROR`, error);
+    console.error(`${this.name}_ERROR`, getLoggableMailError(error));
   }
 }

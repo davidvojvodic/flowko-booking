@@ -980,6 +980,24 @@ describe("createEvent", () => {
     expect(logErrorSpy).toHaveBeenCalledTimes(1);
     expectNoBookerDetailsOrToken([logErrorSpy.mock.calls, { error }]);
   });
+
+  test("should not log the host's calendar id when the insert fails", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    calendarMock.calendar_v3.Calendar().events.insert = vi
+      .fn()
+      .mockRejectedValue(buildGaxiosError({ message: "Not Found", code: 404 }));
+    const logErrorSpy = vi.spyOn((calendarService as any).log, "error");
+
+    const error = await calendarService
+      .createEvent(calEventWithBookerDetails, mockCredential.id, "host.calendar@example.com")
+      .catch((e) => e);
+
+    expect(error.code).toBe(404);
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(logErrorSpy.mock.calls)).not.toContain("host.calendar@example.com");
+  });
 });
 
 describe("updateEvent", () => {
@@ -1258,6 +1276,28 @@ describe("deleteEvent", () => {
     expect(error.config).toBeUndefined();
     expect(consoleErrorCalls.length).toBeGreaterThan(0);
     expectNoBookerDetailsOrToken([logErrorSpy.mock.calls, consoleErrorCalls, { error }]);
+  });
+
+  test("should not log the host's calendar id when the delete fails", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    calendarMock.calendar_v3.Calendar().events.delete = vi
+      .fn()
+      .mockRejectedValue(buildGaxiosError({ message: "Backend Error", code: 500 }));
+    const logErrorSpy = vi.spyOn((calendarService as any).log, "error");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await calendarService
+      .deleteEvent("existing-event-id", calEventWithBookerDetails as any, "host.calendar@example.com")
+      .catch(() => undefined);
+    const consoleErrorCalls = [...consoleErrorSpy.mock.calls];
+    consoleErrorSpy.mockRestore();
+
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify([logErrorSpy.mock.calls, consoleErrorCalls])).not.toContain(
+      "host.calendar@example.com"
+    );
   });
 });
 

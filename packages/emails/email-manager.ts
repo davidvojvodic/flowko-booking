@@ -512,7 +512,8 @@ export const sendCancelledEmailsAndSMS = async (
   if (typeof calEventLength !== "number") {
     logger.error(
       "`calEventLength` is not a number",
-      safeStringify({ calEventLength, calEventTitle: calEvent.title, bookingId: calEvent.bookingId })
+      // The title holds the booker's name
+      safeStringify({ calEventLength, bookingId: calEvent.bookingId })
     );
   }
 

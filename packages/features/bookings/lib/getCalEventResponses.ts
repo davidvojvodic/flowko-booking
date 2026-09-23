@@ -49,9 +49,9 @@ export const getCalEventResponses = ({
   // To set placeholder email for the booking
   if (!backwardCompatibleResponses.email) {
     if (typeof backwardCompatibleResponses["attendeePhoneNumber"] !== "string") {
-      log.error(`backwardCompatibleResponses: ${JSON.stringify(backwardCompatibleResponses)}`, {
-        responses,
-        bookingResponses: booking?.responses,
+      // Log which fields were answered, never the booker's answers
+      log.error("Both Phone and Email are missing from the booking responses", {
+        responseFields: Object.keys(backwardCompatibleResponses),
       });
       throw new HttpError({
         statusCode: 400,

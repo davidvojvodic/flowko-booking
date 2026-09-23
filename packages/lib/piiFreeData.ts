@@ -1,6 +1,7 @@
 import type { Credential, SelectedCalendar, DestinationCalendar } from "@calcom/prisma/client";
 import type { EventType } from "@calcom/prisma/client";
 import type { CalendarEvent } from "@calcom/types/Calendar";
+import type { EventResult } from "@calcom/types/EventManager";
 
 function getBooleanStatus(val: unknown) {
   if (process.env.NODE_ENV === "production") {
@@ -34,6 +35,41 @@ export function getPiiFreeCalendarEvent(calEvent: CalendarEvent) {
   };
 }
 
+/**
+ * An EventResult carries the whole CalendarEvent (originalEvent), the event the calendar or video
+ * app returned (createdEvent/updatedEvent: attendees, description, meeting links) and the host's
+ * calendar id (externalId)
+ */
+export function getPiiFreeEventResult(
+  result: Pick<
+    EventResult<unknown>,
+    | "type"
+    | "appName"
+    | "success"
+    | "uid"
+    | "credentialId"
+    | "calError"
+    | "calWarnings"
+    | "createdEvent"
+    | "updatedEvent"
+    | "externalId"
+  >
+) {
+  return {
+    type: result.type,
+    appName: result.appName,
+    success: result.success,
+    uid: result.uid,
+    credentialId: result.credentialId,
+    calError: result.calError,
+    calWarnings: result.calWarnings,
+    // Whether the app returned an event and a calendar id, never their contents
+    hasCreatedEvent: !!result.createdEvent,
+    hasUpdatedEvent: !!result.updatedEvent,
+    hasExternalId: !!result.externalId,
+  };
+}
+
 export function getPiiFreeBooking(booking: {
   id: number;
   uid: string;
@@ -63,9 +99,18 @@ export function getPiiFreeCredential(credential: Partial<Credential> & { delegat
    */
   const booleanKeyStatus = getBooleanStatus(credential?.key);
 
+  // Flowko: an allow-list, not a spread: a calendar credential also carries encryptedKey and the
+  // host's user.email, which is often the Google primary calendar id
   return {
-    ...credential,
+    id: credential.id,
+    type: credential.type,
+    appId: credential.appId,
+    userId: credential.userId,
+    teamId: credential.teamId,
+    invalid: credential.invalid,
+    delegationCredentialId: credential.delegationCredentialId,
     key: booleanKeyStatus,
+    encryptedKey: getBooleanStatus(credential.encryptedKey),
     delegatedTo: !!credential.delegatedTo,
   };
 }

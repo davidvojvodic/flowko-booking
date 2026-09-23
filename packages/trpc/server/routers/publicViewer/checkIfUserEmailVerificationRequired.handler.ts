@@ -29,7 +29,8 @@ export const checkEmailVerificationRequired = async ({
   );
 
   if (!!blacklistedEmail && blacklistedEmail !== userSessionEmail) {
-    log.warn(`blacklistedEmail: ${blacklistedEmail}`);
+    // Flowko: never log the address the booker typed
+    log.warn("Booker email is blacklisted");
     return true;
   }
 
@@ -38,7 +39,7 @@ export const checkEmailVerificationRequired = async ({
   const user = users[0];
 
   if (user?.requiresBookerEmailVerification && baseEmail.toLowerCase() !== userSessionEmail?.toLowerCase()) {
-    log.warn(`user email requiring verification: ${baseEmail}`);
+    log.warn(`Booker email belongs to user ${user.id}, who requires booker email verification`);
     return true;
   }
 

@@ -3,6 +3,7 @@ import { OAuth2Client } from "googleapis-common";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 import { createGoogleCalendarServiceWithGoogleType } from "@calcom/app-store/googlecalendar/lib/CalendarService";
+import { revokeUnstoredGoogleCalendarToken } from "@calcom/features/credentials/handleDeleteCredential";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import { buildCredentialCreateData } from "@calcom/features/credentials/services/CredentialDataService";
 import { renewSelectedCalendarCredentialId } from "@calcom/lib/connectedCalendar";
@@ -16,6 +17,10 @@ import { Prisma } from "@calcom/prisma/client";
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
 import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
 import { getGoogleAppKeys } from "../lib/getGoogleAppKeys";
+import {
+  findEarlierGoogleCalendarCredentials,
+  replaceEarlierGoogleCalendarCredentials,
+} from "../lib/replaceEarlierCredentials";
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
@@ -50,6 +55,8 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     // Check if we have granted all required permissions
     const hasMissingRequiredScopes = GOOGLE_CALENDAR_SCOPES.some((scope) => !grantedScopes.includes(scope));
     if (hasMissingRequiredScopes) {
+      // Flowko: this token is discarded, so end its grant at Google too, unless another connection shares it
+      await revokeUnstoredGoogleCalendarToken({ userId: req.session.user.id, key });
       if (!state?.fromApp) {
         throw new HttpError({
           statusCode: 400,
@@ -102,6 +109,20 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
       integration: "google_calendar",
     };
 
+    // Flowko: read before the upsert below moves the primary calendar's SelectedCalendar to the
+    // new credential
+    const earlierCredentialsToReplace = {
+      userId: req.session.user.id,
+      credentialId: gcalCredential.id,
+      primaryCalendarId: primaryCal.id,
+      earlierCredentials: await findEarlierGoogleCalendarCredentials({
+        userId: req.session.user.id,
+        credentialId: gcalCredential.id,
+        primaryCalendarId: primaryCal.id,
+      }),
+      listNewConnectionCalendars: () => gCalService.listCalendars(),
+    };
+
     // Wrapping in a try/catch to reduce chance of race conditions-
     // also this improves performance for most of the happy-paths.
     try {
@@ -116,6 +137,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         // it is possible a selectedCalendar was orphaned, in this situation-
         // we want to recover by connecting the existing selectedCalendar to the new Credential.
         if (await renewSelectedCalendarCredentialId(selectedCalendarWhereUnique, gcalCredential.id)) {
+          await replaceEarlierGoogleCalendarCredentials(earlierCredentialsToReplace);
           res.redirect(
             getSafeRedirectUrl(state?.returnTo) ??
               getInstalledAppPath({ variant: "calendar", slug: "google-calendar" })
@@ -134,6 +156,9 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
       );
       return;
     }
+
+    // Flowko: a reconnect of the same Google account replaces the earlier credential instead of keeping both
+    await replaceEarlierGoogleCalendarCredentials(earlierCredentialsToReplace);
   }
 
   // No need to install? Redirect to the returnTo URL

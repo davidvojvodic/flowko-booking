@@ -96,7 +96,9 @@ async function postHandler(request: NextRequest) {
       const { user } = booking;
       const name = user?.name || user?.username;
       if (!user || !name || !user.timeZone) {
-        console.error(`Booking ${booking.id} is missing required properties for booking reminder`, { user });
+        console.error(`Booking ${booking.id} is missing required properties for booking reminder`, {
+          userId: user?.id,
+        });
         continue;
       }
 

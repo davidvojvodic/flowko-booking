@@ -3,6 +3,7 @@ import z from "zod";
 
 import { getCalendar } from "@calcom/app-store/_utils/getCalendar";
 import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
+import { lookUpGoogleAccount } from "@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount";
 import { DailyLocationType } from "@calcom/app-store/locations";
 import {
   type EventTypeAppMetadataSchema,
@@ -49,7 +50,8 @@ const googleCalendarTokenSchema = z.object({
 const GOOGLE_TOKEN_REVOKE_TIMEOUT_MS = 5000;
 
 // Best effort: disconnecting must never be blocked by Google being slow or the grant already being revoked
-const revokeGoogleCalendarToken = async (credentialId: number, key: Prisma.JsonValue) => {
+// credentialId only labels the log line; it is null for a token that was never stored
+export const revokeGoogleCalendarToken = async (credentialId: number | null, key: unknown) => {
   const parsedKey = googleCalendarTokenSchema.safeParse(key);
   // The stored access token has usually expired; the long-lived refresh token is what must stop working
   const token = parsedKey.success ? parsedKey.data.refresh_token || parsedKey.data.access_token : undefined;
@@ -79,19 +81,22 @@ const revokeGoogleCalendarToken = async (credentialId: number, key: Prisma.JsonV
 };
 
 // Revoking ends Google's grant for the whole Google account, not just this credential's token,
-// so any other connection to that account would silently stop syncing
-const isGoogleGrantSharedWithAnotherCredential = async ({
-  credentialId,
+// so any other connection to that account would silently stop syncing.
+// credentialIds are the credentials going away with the revoke: the one disconnected, none for a token
+// that was never stored, or every credential of a user whose account is deleted.
+export const isGoogleGrantSharedWithAnotherCredential = async ({
+  credentialIds,
   userId,
   primaryCalendarId,
 }: {
-  credentialId: number;
+  credentialIds: number[];
   userId: number;
   primaryCalendarId?: string;
 }) => {
-  // Reconnecting adds a credential and keeps the old one, so the user's other one may share the grant
+  // The user's other credential may be for the same Google account, e.g. from a reconnect whose earlier
+  // credential the callback could not replace
   const otherCredentialOfUser = await prisma.credential.findFirst({
-    where: { userId, type: "google_calendar", id: { not: credentialId } },
+    where: { userId, type: "google_calendar", id: { notIn: credentialIds } },
     select: { id: true },
   });
   if (otherCredentialOfUser) return true;
@@ -101,13 +106,80 @@ const isGoogleGrantSharedWithAnotherCredential = async ({
   const where = {
     integration: "google_calendar",
     externalId: primaryCalendarId,
-    credentialId: { not: credentialId },
+    credentialId: { notIn: credentialIds },
   };
   const [selectedCalendar, destinationCalendar] = await Promise.all([
     prisma.selectedCalendar.findFirst({ where, select: { id: true } }),
     prisma.destinationCalendar.findFirst({ where, select: { id: true } }),
   ]);
   return !!selectedCalendar || !!destinationCalendar;
+};
+
+// The callback never stores a token that lacks a required scope. Revoke its grant unless another
+// connection may share it. The Google account is only known when calendar.readonly was granted;
+// without it, keep the grant.
+export const revokeUnstoredGoogleCalendarToken = async ({
+  userId,
+  key,
+}: {
+  userId: number;
+  key: unknown;
+}) => {
+  try {
+    const account = await lookUpGoogleAccount(key);
+    if (account.status !== "found") return;
+    const grantShared = await isGoogleGrantSharedWithAnotherCredential({
+      credentialIds: [],
+      userId,
+      primaryCalendarId: account.primaryCalendarId,
+    });
+    if (grantShared) {
+      console.info(`Skipped revoking a shared Google Calendar grant for userId: ${userId}`);
+      return;
+    }
+    await revokeGoogleCalendarToken(null, key);
+  } catch (error) {
+    console.warn(`Error revoking an unstored Google Calendar token for userId: ${userId}`, {
+      error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
+    });
+  }
+};
+
+// Deleting an account cascade-deletes its credentials without telling Google. Revoke each Google
+// Calendar grant first, unless another user's connection to the same Google account shares it.
+// Best effort, like a disconnect: it never throws, so it can never block the deletion.
+export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
+  try {
+    const credentials = await prisma.credential.findMany({
+      where: { userId, type: "google_calendar" },
+      select: { id: true, key: true },
+    });
+    // All of them go away with the account, so none of them counts as sharing the grant
+    const credentialIds = credentials.map(({ id }) => id);
+    await Promise.all(
+      credentials.map(async (credential) => {
+        const account = await lookUpGoogleAccount(credential.key);
+        // Nothing left to revoke
+        if (account.status === "grant_revoked") return;
+        const grantShared = await isGoogleGrantSharedWithAnotherCredential({
+          credentialIds,
+          userId,
+          primaryCalendarId: account.status === "found" ? account.primaryCalendarId : undefined,
+        });
+        if (grantShared) {
+          console.info(`Skipped revoking shared Google Calendar grant for credentialId: ${credential.id}`);
+          return;
+        }
+        await revokeGoogleCalendarToken(credential.id, credential.key);
+      })
+    );
+  } catch (error) {
+    console.warn(`Error revoking Google Calendar tokens for userId: ${userId}`, {
+      error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
+    });
+  }
 };
 
 const handleDeleteCredential = async ({
@@ -553,7 +625,7 @@ const handleDeleteCredential = async ({
 
   if (credential.type === "google_calendar") {
     const grantShared = await isGoogleGrantSharedWithAnotherCredential({
-      credentialId: credential.id,
+      credentialIds: [credential.id],
       userId,
       // The primary calendar id is the Google account's email address
       primaryCalendarId: calendars?.find((cal) => cal.primary)?.externalId,

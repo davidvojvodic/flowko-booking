@@ -49,7 +49,8 @@ export class TaskRepository {
     options: { scheduledAt?: Date; maxAttempts?: number; referenceUid?: string } = {}
   ) {
     const { scheduledAt, maxAttempts, referenceUid } = options;
-    console.info("Creating task", { type, payload, scheduledAt, maxAttempts });
+    // Flowko: the payload can hold booking responses and a webhook's secret
+    console.info("Creating task", { type, scheduledAt, maxAttempts, referenceUid });
     const newTask = await this.deps.prismaClient.task.create({
       data: {
         payload,

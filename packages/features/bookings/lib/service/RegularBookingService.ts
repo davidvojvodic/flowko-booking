@@ -62,7 +62,7 @@ import { ErrorWithCode } from "@calcom/lib/errors";
 import { extractBaseEmail } from "@calcom/lib/extract-base-email";
 import { HttpError } from "@calcom/lib/http-error";
 import { criticalLogger } from "@calcom/lib/logger.server";
-import { getPiiFreeCalendarEvent, getPiiFreeEventType } from "@calcom/lib/piiFreeData";
+import { getPiiFreeCalendarEvent, getPiiFreeEventResult, getPiiFreeEventType } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { getServerErrorFromUnknown } from "@calcom/lib/server/getServerErrorFromUnknown";
 import { getTimeFormatStringFromUserTimeFormat } from "@calcom/lib/timeFormat";
@@ -1961,7 +1961,8 @@ async function handler(
 
       tracingLogger.error(
         `EventManager.reschedule failure in some of the integrations ${organizerUser.username}`,
-        safeStringify({ error, results })
+        // Each result carries the whole CalendarEvent (booker details) and the host's calendar id
+        safeStringify({ error, results: results.map(getPiiFreeEventResult) })
       );
     } else {
       if (results.length) {
@@ -2086,7 +2087,8 @@ async function handler(
 
       tracingLogger.error(
         `EventManager.create failure in some of the integrations ${organizerUser.username}`,
-        safeStringify({ error, results })
+        // Each result carries the whole CalendarEvent (booker details) and the host's calendar id
+        safeStringify({ error, results: results.map(getPiiFreeEventResult) })
       );
     } else {
       const additionalInformation: AdditionalInformation = {};
