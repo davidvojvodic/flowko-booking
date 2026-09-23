@@ -1,4 +1,4 @@
-import { WEBAPP_URL } from "@calcom/lib/constants";
+import { IS_SEATS_AND_RECURRING_ENABLED, WEBAPP_URL } from "@calcom/lib/constants";
 import { randomString } from "@calcom/lib/random";
 import type { Page } from "@playwright/test";
 import { expect } from "@playwright/test";
@@ -70,6 +70,7 @@ test.describe("Event Types tests", () => {
     });
 
     test("enabling recurring event comes with default options", async ({ page }) => {
+      test.skip(!IS_SEATS_AND_RECURRING_ENABLED, "Seats and recurring events are off on this instance");
       const nonce = randomString(3);
       const eventTitle = `my recurring event ${nonce}`;
       await createNewUserEventType(page, { eventTitle });
@@ -391,6 +392,7 @@ test.describe("Event Types tests", () => {
     test("Should not allow enabling both recurring event and offer seats at the same time", async ({
       page,
     }) => {
+      test.skip(!IS_SEATS_AND_RECURRING_ENABLED, "Seats and recurring events are off on this instance");
       const nonce = randomString(3);
       const eventTitle = `Conflict event ${nonce}`;
       await createNewUserEventType(page, { eventTitle });
@@ -447,6 +449,7 @@ test.describe("Event Types tests", () => {
       await expect(page.getByText("New York")).toBeVisible();
     });
     test("should create recurring event and successfully book multiple occurrences", async ({ page }) => {
+      test.skip(!IS_SEATS_AND_RECURRING_ENABLED, "Seats and recurring events are off on this instance");
       const nonce = randomString(3);
       const eventTitle = `Recurring Event Test ${nonce}`;
 

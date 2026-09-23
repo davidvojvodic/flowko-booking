@@ -19,6 +19,7 @@ import { TRPCError } from "@trpc/server";
 import type { GetServerSidePropsContext, NextApiResponse } from "next";
 import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
+import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import {
   ensureEmailOrPhoneNumberIsPresent,
   ensureUniqueBookingFields,
@@ -94,6 +95,8 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     enablePerHostLocations,
     ...rest
   } = input;
+
+  ensureNotSeatedOrRecurring({ seatsPerTimeSlot, recurringEvent });
 
   const eventType = await ctx.prisma.eventType.findUniqueOrThrow({
     where: { id },

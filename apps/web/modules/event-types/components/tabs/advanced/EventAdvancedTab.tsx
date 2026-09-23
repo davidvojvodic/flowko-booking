@@ -18,6 +18,7 @@ import type {
 import {
   DEFAULT_DARK_BRAND_COLOR,
   DEFAULT_LIGHT_BRAND_COLOR,
+  IS_SEATS_AND_RECURRING_ENABLED,
   MAX_SEATS_PER_TIME_SLOT,
 } from "@calcom/lib/constants";
 import { generateHashedLink } from "@calcom/lib/generateHashedLink";
@@ -1029,143 +1030,145 @@ export const EventAdvancedTab = ({
           }}
         />
       )}
-      <Controller
-        name="seatsPerTimeSlotEnabled"
-        render={({ field: { value, onChange } }) => (
-          <>
-            <SettingsToggle
-              labelClassName={classNames("text-sm", customClassNames?.seatsOptions?.label)}
-              toggleSwitchAtTheEnd={true}
-              switchContainerClassName={classNames(
-                "border-subtle rounded-lg border py-6 px-4 sm:px-6",
-                value && "rounded-b-none",
-                customClassNames?.seatsOptions?.container
-              )}
-              childrenClassName={classNames("lg:ml-0", customClassNames?.seatsOptions?.children)}
-              descriptionClassName={customClassNames?.seatsOptions?.description}
-              data-testid="offer-seats-toggle"
-              title={t("offer_seats")}
-              {...seatsLocked}
-              description={
-                <LearnMoreLink
-                  t={t}
-                  i18nKey="offer_seats_description"
-                  href="https://cal.com/help/event-types/offer-seats"
-                />
-              }
-              checked={value}
-              disabled={noShowFeeEnabled || multiLocation || (!seatsEnabled && isRecurringEvent)}
-              tooltip={
-                multiLocation
-                  ? t("multilocation_doesnt_support_seats")
-                  : noShowFeeEnabled
-                    ? t("no_show_fee_doesnt_support_seats")
-                    : isRecurringEvent
-                      ? t("recurring_event_doesnt_support_seats")
-                      : undefined
-              }
-              onCheckedChange={(e) => {
-                // Enabling seats will disable guests and requiring confirmation until fully supported
-                if (e) {
-                  toggleGuests(false);
-                  formMethods.setValue("requiresConfirmation", false, { shouldDirty: true });
-                  setRequiresConfirmation(false);
-                  formMethods.setValue("metadata.multipleDuration", undefined, { shouldDirty: true });
-                  formMethods.setValue("seatsPerTimeSlot", eventType.seatsPerTimeSlot ?? 2, {
-                    shouldDirty: true,
-                  });
-                } else {
-                  formMethods.setValue("seatsPerTimeSlot", null);
-                  toggleGuests(true);
+      {IS_SEATS_AND_RECURRING_ENABLED && (
+        <Controller
+          name="seatsPerTimeSlotEnabled"
+          render={({ field: { value, onChange } }) => (
+            <>
+              <SettingsToggle
+                labelClassName={classNames("text-sm", customClassNames?.seatsOptions?.label)}
+                toggleSwitchAtTheEnd={true}
+                switchContainerClassName={classNames(
+                  "border-subtle rounded-lg border py-6 px-4 sm:px-6",
+                  value && "rounded-b-none",
+                  customClassNames?.seatsOptions?.container
+                )}
+                childrenClassName={classNames("lg:ml-0", customClassNames?.seatsOptions?.children)}
+                descriptionClassName={customClassNames?.seatsOptions?.description}
+                data-testid="offer-seats-toggle"
+                title={t("offer_seats")}
+                {...seatsLocked}
+                description={
+                  <LearnMoreLink
+                    t={t}
+                    i18nKey="offer_seats_description"
+                    href="https://cal.com/help/event-types/offer-seats"
+                  />
                 }
-                onChange(e);
-              }}>
-              <div className="rounded-b-lg border border-subtle border-t-0 p-6">
-                <Controller
-                  name="seatsPerTimeSlot"
-                  render={({ field: { value, onChange } }) => (
-                    <div>
-                      <TextField
-                        required
-                        name="seatsPerTimeSlot"
-                        labelSrOnly
-                        label={t("number_of_seats")}
-                        type="number"
-                        disabled={seatsLocked.disabled}
-                        //For old events if value > MAX_SEATS_PER_TIME_SLOT
-                        value={value > MAX_SEATS_PER_TIME_SLOT ? MAX_SEATS_PER_TIME_SLOT : (value ?? 1)}
-                        step={1}
-                        placeholder="1"
-                        min={1}
-                        max={MAX_SEATS_PER_TIME_SLOT}
-                        containerClassName={classNames(
-                          "max-w-80",
-                          customClassNames?.seatsOptions?.seatsInput.container
-                        )}
-                        addOnClassname={customClassNames?.seatsOptions?.seatsInput.addOn}
-                        className={customClassNames?.seatsOptions?.seatsInput?.input}
-                        labelClassName={customClassNames?.seatsOptions?.seatsInput?.label}
-                        addOnSuffix={t("seats")}
-                        onChange={(e) => {
-                          const enteredValue = parseInt(e.target.value, 10);
-                          onChange(Math.min(enteredValue, MAX_SEATS_PER_TIME_SLOT));
-                        }}
-                        data-testid="seats-per-time-slot"
-                      />
-                      <div
-                        className={classNames(
-                          "mt-4",
-                          customClassNames?.seatsOptions?.showAttendeesCheckbox?.container
-                        )}>
-                        <Controller
-                          name="seatsShowAttendees"
-                          render={({ field: { value, onChange } }) => (
-                            <CheckboxField
-                              data-testid="show-attendees"
-                              description={t("show_attendees")}
-                              className={customClassNames?.seatsOptions?.showAttendeesCheckbox?.checkbox}
-                              descriptionClassName={
-                                customClassNames?.seatsOptions?.showAttendeesCheckbox?.description
-                              }
-                              disabled={seatsLocked.disabled}
-                              onChange={(e) => onChange(e)}
-                              checked={value}
-                            />
+                checked={value}
+                disabled={noShowFeeEnabled || multiLocation || (!seatsEnabled && isRecurringEvent)}
+                tooltip={
+                  multiLocation
+                    ? t("multilocation_doesnt_support_seats")
+                    : noShowFeeEnabled
+                      ? t("no_show_fee_doesnt_support_seats")
+                      : isRecurringEvent
+                        ? t("recurring_event_doesnt_support_seats")
+                        : undefined
+                }
+                onCheckedChange={(e) => {
+                  // Enabling seats will disable guests and requiring confirmation until fully supported
+                  if (e) {
+                    toggleGuests(false);
+                    formMethods.setValue("requiresConfirmation", false, { shouldDirty: true });
+                    setRequiresConfirmation(false);
+                    formMethods.setValue("metadata.multipleDuration", undefined, { shouldDirty: true });
+                    formMethods.setValue("seatsPerTimeSlot", eventType.seatsPerTimeSlot ?? 2, {
+                      shouldDirty: true,
+                    });
+                  } else {
+                    formMethods.setValue("seatsPerTimeSlot", null);
+                    toggleGuests(true);
+                  }
+                  onChange(e);
+                }}>
+                <div className="rounded-b-lg border border-subtle border-t-0 p-6">
+                  <Controller
+                    name="seatsPerTimeSlot"
+                    render={({ field: { value, onChange } }) => (
+                      <div>
+                        <TextField
+                          required
+                          name="seatsPerTimeSlot"
+                          labelSrOnly
+                          label={t("number_of_seats")}
+                          type="number"
+                          disabled={seatsLocked.disabled}
+                          //For old events if value > MAX_SEATS_PER_TIME_SLOT
+                          value={value > MAX_SEATS_PER_TIME_SLOT ? MAX_SEATS_PER_TIME_SLOT : (value ?? 1)}
+                          step={1}
+                          placeholder="1"
+                          min={1}
+                          max={MAX_SEATS_PER_TIME_SLOT}
+                          containerClassName={classNames(
+                            "max-w-80",
+                            customClassNames?.seatsOptions?.seatsInput.container
                           )}
+                          addOnClassname={customClassNames?.seatsOptions?.seatsInput.addOn}
+                          className={customClassNames?.seatsOptions?.seatsInput?.input}
+                          labelClassName={customClassNames?.seatsOptions?.seatsInput?.label}
+                          addOnSuffix={t("seats")}
+                          onChange={(e) => {
+                            const enteredValue = parseInt(e.target.value, 10);
+                            onChange(Math.min(enteredValue, MAX_SEATS_PER_TIME_SLOT));
+                          }}
+                          data-testid="seats-per-time-slot"
                         />
+                        <div
+                          className={classNames(
+                            "mt-4",
+                            customClassNames?.seatsOptions?.showAttendeesCheckbox?.container
+                          )}>
+                          <Controller
+                            name="seatsShowAttendees"
+                            render={({ field: { value, onChange } }) => (
+                              <CheckboxField
+                                data-testid="show-attendees"
+                                description={t("show_attendees")}
+                                className={customClassNames?.seatsOptions?.showAttendeesCheckbox?.checkbox}
+                                descriptionClassName={
+                                  customClassNames?.seatsOptions?.showAttendeesCheckbox?.description
+                                }
+                                disabled={seatsLocked.disabled}
+                                onChange={(e) => onChange(e)}
+                                checked={value}
+                              />
+                            )}
+                          />
+                        </div>
+                        <div
+                          className={classNames(
+                            "mt-2",
+                            customClassNames?.seatsOptions?.showAvalableSeatCountCheckbox?.container
+                          )}>
+                          <Controller
+                            name="seatsShowAvailabilityCount"
+                            render={({ field: { value, onChange } }) => (
+                              <CheckboxField
+                                description={t("show_available_seats_count")}
+                                disabled={seatsLocked.disabled}
+                                onChange={(e) => onChange(e)}
+                                checked={value}
+                                className={
+                                  customClassNames?.seatsOptions?.showAvalableSeatCountCheckbox?.checkbox
+                                }
+                                descriptionClassName={
+                                  customClassNames?.seatsOptions?.showAvalableSeatCountCheckbox?.description
+                                }
+                              />
+                            )}
+                          />
+                        </div>
                       </div>
-                      <div
-                        className={classNames(
-                          "mt-2",
-                          customClassNames?.seatsOptions?.showAvalableSeatCountCheckbox?.container
-                        )}>
-                        <Controller
-                          name="seatsShowAvailabilityCount"
-                          render={({ field: { value, onChange } }) => (
-                            <CheckboxField
-                              description={t("show_available_seats_count")}
-                              disabled={seatsLocked.disabled}
-                              onChange={(e) => onChange(e)}
-                              checked={value}
-                              className={
-                                customClassNames?.seatsOptions?.showAvalableSeatCountCheckbox?.checkbox
-                              }
-                              descriptionClassName={
-                                customClassNames?.seatsOptions?.showAvalableSeatCountCheckbox?.description
-                              }
-                            />
-                          )}
-                        />
-                      </div>
-                    </div>
-                  )}
-                />
-              </div>
-            </SettingsToggle>
-            {noShowFeeEnabled && <Alert severity="warning" title={t("seats_and_no_show_fee_error")} />}
-          </>
-        )}
-      />
+                    )}
+                  />
+                </div>
+              </SettingsToggle>
+              {noShowFeeEnabled && <Alert severity="warning" title={t("seats_and_no_show_fee_error")} />}
+            </>
+          )}
+        />
+      )}
       <Controller
         name="hideOrganizerEmail"
         render={({ field: { value, onChange } }) => (

@@ -23,6 +23,8 @@ export enum ErrorCode {
   MissingPaymentCredential = "missing_payment_credential_error",
   MissingPaymentAppId = "missing_payment_app_id_error",
   NotEnoughAvailableSeats = "not_enough_available_seats_error",
+  // Seated and recurring event types and bookings are off on this instance (IS_SEATS_AND_RECURRING_ENABLED)
+  SeatsAndRecurringNotAvailable = "seats_and_recurring_not_available_error",
   AvailabilityNotFoundInSchedule = "availability_not_found_in_schedule_error",
   CancelledBookingsCannotBeRescheduled = "cancelled_bookings_cannot_be_rescheduled",
   UnableToSubscribeToThePlatform = "unable_to_subscribe_to_the_platform",

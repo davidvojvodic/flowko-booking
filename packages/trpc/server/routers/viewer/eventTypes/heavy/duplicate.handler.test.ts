@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { TRPCError } from "@trpc/server";
 
+import { ErrorCode } from "@calcom/lib/errorCodes";
+
 import { duplicateHandler } from "./duplicate.handler";
 
 vi.mock("@calcom/prisma", () => ({
@@ -52,5 +54,27 @@ describe("duplicateHandler", () => {
         message: "Error duplicating event type PrismaClientKnownRequestError: Unique constraint failed",
       })
     );
+  });
+
+  // Seated and recurring event types are off on this instance (IS_SEATS_AND_RECURRING_ENABLED), so one made
+  // seated or recurring before, or outside the event type handlers, is not copied
+  it.each([
+    ["seated", { seatsPerTimeSlot: 5, recurringEvent: null }],
+    ["recurring", { seatsPerTimeSlot: null, recurringEvent: { freq: 2, count: 10, interval: 1 } }],
+  ])("should refuse to duplicate a %s event type", async (_kind, seatsAndRecurring) => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn();
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, ...seatsAndRecurring });
+
+    await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: ErrorCode.SeatsAndRecurringNotAvailable,
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 });

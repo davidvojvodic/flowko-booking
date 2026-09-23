@@ -1,5 +1,8 @@
 import type { CreateBookingMeta, CreateRecurringBookingData } from "@calcom/features/bookings/lib/dto/types";
 import type { BookingResponse } from "@calcom/features/bookings/types";
+import { IS_SEATS_AND_RECURRING_ENABLED } from "@calcom/lib/constants";
+import { ErrorCode } from "@calcom/lib/errorCodes";
+import { HttpError } from "@calcom/lib/http-error";
 import { type CreationSource, SchedulingType } from "@calcom/prisma/enums";
 import type { AppsStatus } from "@calcom/types/Calendar";
 import type { IBookingService } from "../interfaces/IBookingService";
@@ -20,6 +23,11 @@ export const handleNewRecurringBooking = async function (
     creationSource: CreationSource;
   }
 ): Promise<BookingResponse[]> {
+  // Flowko: recurring series are off on this instance
+  if (!IS_SEATS_AND_RECURRING_ENABLED) {
+    throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
+  }
+
   const data = input.bookingData;
   const { regularBookingService } = deps;
   const createdBookings: BookingResponse[] = [];

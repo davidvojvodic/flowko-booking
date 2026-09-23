@@ -57,7 +57,11 @@ import { getTranslation } from "@calcom/i18n/server";
 import { groupHostsByGroupId } from "@calcom/lib/bookings/hostGroupUtils";
 import { shouldIgnoreContactOwner } from "@calcom/lib/bookings/routing/utils";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
-import { DEFAULT_GROUP_ID, ENABLE_ASYNC_TASKER } from "@calcom/lib/constants";
+import {
+  DEFAULT_GROUP_ID,
+  ENABLE_ASYNC_TASKER,
+  IS_SEATS_AND_RECURRING_ENABLED,
+} from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
 import { extractBaseEmail } from "@calcom/lib/extract-base-email";
@@ -526,6 +530,27 @@ async function handler(
     eventTypeSlug: rawBookingData.eventTypeSlug,
   });
 
+  // Flowko: seats and recurring series are off on this instance, also for an event type made seated or
+  // recurring outside the event type handlers and for a request that names a series or a seat. Only the
+  // recurring booking service sends the series fields, and it refuses first. thirdPartyRecurringEventId
+  // would otherwise make the calendar patch an occurrence of the host's own recurring event.
+  if (
+    !IS_SEATS_AND_RECURRING_ENABLED &&
+    (eventType.seatsPerTimeSlot ||
+      eventType.recurringEvent ||
+      rawBookingData.recurringEventId ||
+      rawBookingData.recurringCount ||
+      rawBookingData.allRecurringDates ||
+      rawBookingData.thirdPartyRecurringEventId ||
+      rawBookingData.isFirstRecurringSlot ||
+      rawBookingData.numSlotsToCheckForAvailability ||
+      rawBookingData.currentRecurringIndex ||
+      rawBookingData.luckyUsers ||
+      rawBookingData.seatReferenceUid)
+  ) {
+    throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
+  }
+
   // Early validation: Check reschedule restrictions if rescheduling
   await validateRescheduleRestrictions({
     rescheduleUid: rawBookingData.rescheduleUid,
@@ -674,6 +699,10 @@ async function handler(
       where: { bookingId: originalRescheduledBooking.id },
     });
     if (seatCount > 0) {
+      // With seats off, a booking that still has seats can be cancelled but not moved
+      if (!IS_SEATS_AND_RECURRING_ENABLED) {
+        throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
+      }
       const isSignedInUser = !!userId && userId > 0;
       const isOnlySeatHolder =
         !!bookingSeat && seatCount === 1 && originalRescheduledBooking.attendees.length === 1;
@@ -690,6 +719,12 @@ async function handler(
         throw new HttpError({ statusCode: 401 });
       }
     }
+  }
+
+  // Flowko: with recurring series off, a booking from a series made before can be cancelled but not moved,
+  // since the new booking would take over its recurringEventId (createBooking) and stay in the series
+  if (!IS_SEATS_AND_RECURRING_ENABLED && originalRescheduledBooking?.recurringEventId) {
+    throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
   }
 
   const paymentAppData = getPaymentAppData({

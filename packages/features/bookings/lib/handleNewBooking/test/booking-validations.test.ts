@@ -25,6 +25,13 @@ import { test } from "@calcom/testing/lib/fixtures/fixtures";
 
 import { getNewBookingHandler } from "./getNewBookingHandler";
 
+// Seated and recurring event types are off on this instance (IS_SEATS_AND_RECURRING_ENABLED). These tests
+// cover upstream's seated and recurring flows, so they run with the switch on.
+vi.mock("@calcom/lib/constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@calcom/lib/constants")>()),
+  IS_SEATS_AND_RECURRING_ENABLED: true,
+}));
+
 vi.mock("@calcom/features/auth/lib/verifyCodeUnAuthenticated", () => ({
   verifyCodeUnAuthenticated: vi.fn(),
 }));
