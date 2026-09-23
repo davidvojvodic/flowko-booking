@@ -325,6 +325,15 @@ describe("Booking Validation Specifications", () => {
         selectedCalendars: [TestData.selectedCalendars.google],
       });
 
+      // The reschedule offer carries the booking's uid, so it goes to a caller signed in as the booker
+      const bookerUser = getOrganizer({
+        name: booker.name,
+        email: booker.email,
+        id: 201,
+        schedules: [TestData.schedules.IstWorkHours],
+        emailVerified: new Date(),
+      });
+
       // Create test scenario with event type that has reschedule option enabled
       await createBookingScenario(
         getScenarioData({
@@ -343,6 +352,7 @@ describe("Booking Validation Specifications", () => {
             },
           ],
           organizer,
+          usersApartFromOrganizer: [bookerUser],
           apps: [TestData.apps["google-calendar"]],
           bookings: [
             {
@@ -393,7 +403,9 @@ describe("Booking Validation Specifications", () => {
       try {
         await handleNewBooking({
           bookingData: mockBookingData,
+          userId: bookerUser.id,
         });
+        expect.fail("Expected booking to throw booker_limit_exceeded_error_reschedule");
       } catch (error) {
         expect(error.message).toEqual("booker_limit_exceeded_error_reschedule");
         expect(error.data).toEqual(
@@ -410,6 +422,11 @@ describe("Booking Validation Specifications", () => {
       const plus2DateString = "2025-01-03";
 
       const handleNewBooking = getNewBookingHandler();
+      const { verifyCodeUnAuthenticated } = await import(
+        "@calcom/features/auth/lib/verifyCodeUnAuthenticated"
+      );
+      // The reschedule offer carries the seat reference, so it goes to a caller who verified the email
+      vi.mocked(verifyCodeUnAuthenticated).mockResolvedValue(true);
 
       const bookerA = getBooker({
         email: "bookerA@example.com",
@@ -441,6 +458,7 @@ describe("Booking Validation Specifications", () => {
               length: 30,
               maxActiveBookingsPerBooker: 1,
               maxActiveBookingPerBookerOfferReschedule: true,
+              requiresBookerEmailVerification: true,
               seatsPerTimeSlot: 3,
               users: [
                 {
@@ -501,6 +519,7 @@ describe("Booking Validation Specifications", () => {
             name: bookerA.name,
             location: { optionValue: "", value: "New York" },
           },
+          verificationCode: "valid-code-123",
         },
       });
 
@@ -517,6 +536,114 @@ describe("Booking Validation Specifications", () => {
             seatUid: seatReferenceUidA,
           })
         );
+      }
+    });
+
+    test("does not hand the booking or seat of the email's owner to a caller who hasn't proved they own it", async () => {
+      vi.setSystemTime(new Date("2025-01-01"));
+      const plus1DateString = "2025-01-02";
+      const plus2DateString = "2025-01-03";
+
+      const handleNewBooking = getNewBookingHandler();
+
+      const victim = getBooker({
+        email: "victim@example.com",
+        name: "Victim",
+      });
+
+      const organizer = getOrganizer({
+        name: "Organizer",
+        email: "organizer@example.com",
+        id: 101,
+        schedules: [TestData.schedules.IstWorkHours],
+        credentials: [getGoogleCalendarCredential()],
+        selectedCalendars: [TestData.selectedCalendars.google],
+      });
+
+      const otherUser = getOrganizer({
+        name: "Someone Else",
+        email: "someone-else@example.com",
+        id: 301,
+        schedules: [TestData.schedules.IstWorkHours],
+        emailVerified: new Date(),
+      });
+
+      await createBookingScenario(
+        getScenarioData({
+          eventTypes: [
+            {
+              id: 1,
+              slotInterval: 30,
+              length: 30,
+              maxActiveBookingsPerBooker: 1,
+              maxActiveBookingPerBookerOfferReschedule: true,
+              seatsPerTimeSlot: 3,
+              users: [
+                {
+                  id: 101,
+                },
+              ],
+            },
+          ],
+          organizer,
+          usersApartFromOrganizer: [otherUser],
+          apps: [TestData.apps["google-calendar"]],
+          bookings: [
+            {
+              uid: "victims-booking",
+              eventTypeId: 1,
+              userId: organizer.id,
+              startTime: `${plus1DateString}T10:00:00.000Z`,
+              endTime: `${plus1DateString}T10:30:00.000Z`,
+              title: "Existing Booking",
+              status: BookingStatus.ACCEPTED,
+              attendees: [
+                getMockBookingAttendee({
+                  id: 1,
+                  name: victim.name,
+                  email: victim.email,
+                  locale: "en",
+                  timeZone: "America/Toronto",
+                  bookingSeat: {
+                    referenceUid: "victims-seat",
+                    data: {},
+                  },
+                }),
+              ],
+            },
+          ],
+        })
+      );
+
+      await mockCalendarToHaveNoBusySlots("googlecalendar", {});
+
+      const mockBookingData = getMockRequestDataForBooking({
+        data: {
+          eventTypeId: 1,
+          start: `${plus2DateString}T10:00:00.000Z`,
+          end: `${plus2DateString}T10:30:00.000Z`,
+          responses: {
+            email: victim.email,
+            name: "Attacker",
+            location: { optionValue: "", value: "New York" },
+          },
+        },
+      });
+
+      // Without a session (/api/book/event passes -1), and signed in as someone else
+      for (const userId of [-1, otherUser.id]) {
+        const error = await handleNewBooking({
+          bookingData: mockBookingData,
+          userId,
+        }).then(
+          () => expect.fail("Expected booking to throw booker_limit_exceeded_error"),
+          (error) => error
+        );
+
+        expect(error.message).toEqual("booker_limit_exceeded_error");
+        expect(error.data).toEqual({ count: 1 });
+        expect(JSON.stringify(error)).not.toContain("victims-booking");
+        expect(JSON.stringify(error)).not.toContain("victims-seat");
       }
     });
   });

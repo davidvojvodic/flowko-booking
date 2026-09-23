@@ -600,15 +600,6 @@ async function handler(
     null;
   spamCheckService.startCheck({ email: bookerEmail, organizationId: eventTypeOrganizationId });
 
-  if (!rawBookingData.rescheduleUid) {
-    await checkActiveBookingsLimitForBooker({
-      eventTypeId,
-      maxActiveBookingsPerBooker: eventType.maxActiveBookingsPerBooker,
-      bookerEmail,
-      offerToRescheduleLastBooking: eventType.maxActiveBookingPerBookerOfferReschedule,
-    });
-  }
-
   if (eventType.requiresBookerEmailVerification && !rawBookingData.rescheduleUid) {
     const verificationCode = reqBody.verificationCode;
     if (!verificationCode) {
@@ -626,6 +617,19 @@ async function handler(
         message: "invalid_verification_code",
       });
     }
+  }
+
+  // Flowko: after the email verification, so the reschedule offer can count a verified code as proof the
+  // caller owns bookerEmail (see checkActiveBookingsLimitForBooker)
+  if (!rawBookingData.rescheduleUid) {
+    await checkActiveBookingsLimitForBooker({
+      eventTypeId,
+      maxActiveBookingsPerBooker: eventType.maxActiveBookingsPerBooker,
+      bookerEmail,
+      offerToRescheduleLastBooking: eventType.maxActiveBookingPerBookerOfferReschedule,
+      loggedInUserId: userId,
+      isBookerEmailVerified: !!eventType.requiresBookerEmailVerification,
+    });
   }
 
   if (isEventTypeLoggingEnabled({ eventTypeId, usernameOrTeamName: reqBody.user })) {
