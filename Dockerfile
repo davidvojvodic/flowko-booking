@@ -11,7 +11,7 @@ ARG NEXT_PUBLIC_APP_NAME
 ARG NEXT_PUBLIC_COMPANY_NAME
 ARG NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS
 ARG NEXT_PUBLIC_SENDGRID_SENDER_NAME
-## Defaults to true: an empty value would be inlined and leave signup open with no runtime override
+## Defaults to true: an empty value would be inlined, leaving signup open unless the admin feature flag is set
 ARG NEXT_PUBLIC_DISABLE_SIGNUP=true
 ARG CALCOM_TELEMETRY_DISABLED
 ARG DATABASE_URL
