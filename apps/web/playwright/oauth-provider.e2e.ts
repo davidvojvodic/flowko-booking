@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { OAUTH_ERROR_REASONS } from "@calcom/features/oauth/services/OAuthService";
 import { generateSecret } from "@calcom/features/oauth/utils/generateSecret";
-import { WEBAPP_URL } from "@calcom/lib/constants";
+import { APP_NAME, WEBAPP_URL } from "@calcom/lib/constants";
 import { prisma } from "@calcom/prisma";
 import { getDefaultPassword } from "./lib/testUtils";
 
@@ -156,7 +156,7 @@ test.describe("OAuth Provider", () => {
     );
 
     // check if user is redirected to login page
-    await expect(page.getByRole("heading", { name: "Cal.diy" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: APP_NAME })).toBeVisible();
     await expect(page.getByTestId("login-subtitle")).toBeVisible();
     await page.locator("#email").fill(user.email);
     await page.locator("#password").fill(getDefaultPassword(user.username!));
