@@ -316,9 +316,11 @@ export const getBookingForSeatedEvent = async (uid: string) => {
       disableRescheduling: false,
       minimumRescheduleNotice: null,
     },
-    // mask attendee emails for seated events
-    attendees: booking.attendees.map((attendee) => ({
+    // mask attendee emails for seated events. Flowko: the booker page only counts them, so the Attendee row
+    // ids stay out too
+    attendees: booking.attendees.map((attendee, index) => ({
       ...attendee,
+      id: index,
       email: "",
       name: "",
     })),

@@ -59,7 +59,6 @@ async function getBooking(prisma: PrismaClient, uid: string) {
         select: {
           email: true,
           name: true,
-          bookingSeat: true,
         },
       },
       user: {
