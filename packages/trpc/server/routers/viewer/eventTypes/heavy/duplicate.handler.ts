@@ -1,4 +1,5 @@
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import { generateHashedLink } from "@calcom/lib/generateHashedLink";
 import { CalVideoSettingsRepository } from "@calcom/features/calVideoSettings/repositories/CalVideoSettingsRepository";
 import { prisma } from "@calcom/prisma";
@@ -228,8 +229,8 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       eventType: newEventType,
     };
   } catch (error) {
-    // Keep a 400, such as the seated or recurring refusal above, instead of wrapping it in a 500
-    if (error instanceof TRPCError && error.code === "BAD_REQUEST") throw error;
+    // Keep the seated or recurring refusal above a 400 instead of wrapping it in a 500
+    if (error instanceof TRPCError && error.message === ErrorCode.SeatsAndRecurringNotAvailable) throw error;
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       
       if (Array.isArray(error.meta?.target) && error.meta?.target.includes("slug")) {

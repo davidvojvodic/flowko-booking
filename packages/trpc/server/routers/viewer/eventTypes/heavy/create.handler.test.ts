@@ -3,6 +3,7 @@ import prismaMock from "@calcom/testing/lib/__mocks__/prismaMock";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorCode } from "@calcom/lib/errorCodes";
+import { Prisma } from "@calcom/prisma/client";
 
 import { createHandler } from "./create.handler";
 import type { TCreateInputSchema } from "./create.schema";
@@ -69,6 +70,21 @@ describe("createHandler with seats and recurring events off", () => {
     const result = await createHandler({ ctx, input });
 
     expect(result.eventType).toEqual({ id: 10, slug: "haircut" });
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["null", null],
+    ["Prisma.DbNull", Prisma.DbNull],
+    ["Prisma.JsonNull", Prisma.JsonNull],
+  ])("creates an event type whose seats and recurring series are set off with %s", async (_kind, off) => {
+    mockCreate.mockResolvedValue({ id: 10, slug: "haircut" });
+
+    await createHandler({
+      ctx,
+      input: { ...input, seatsPerTimeSlot: null, recurringEvent: off } as unknown as TCreateInputSchema,
+    });
+
     expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 });
