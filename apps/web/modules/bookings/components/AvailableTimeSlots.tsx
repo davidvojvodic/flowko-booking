@@ -12,7 +12,6 @@ import type { Slot } from "~/schedules/lib/types";
 import { useNonEmptyScheduleDays } from "@calcom/web/modules/schedules/hooks/useNonEmptyScheduleDays";
 import { useSlotsForAvailableDates } from "@calcom/web/modules/schedules/hooks/useSlotsForDate";
 import { PUBLIC_INVALIDATE_AVAILABLE_SLOTS_ON_BOOKING_FORM } from "@calcom/lib/constants";
-import { formatDateTime } from "@calcom/lib/dateTimeFormatter";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { localStorage } from "@calcom/lib/webstorage";
 import { BookerLayouts } from "@calcom/prisma/zod-utils";
@@ -219,7 +218,9 @@ export const AvailableTimeSlots = ({
                 showTimeFormatToggle={!isColumnView && !isOOODay}
                 availableMonth={
                   dayjs(selectedDate).format("MM") !== dayjs(slots.date).format("MM")
-                    ? formatDateTime(dayjs(slots.date).toDate(), { locale: i18n.language, month: "short" })
+                    ? new Intl.DateTimeFormat(i18n.language, { month: "short" }).format(
+                        dayjs(slots.date).toDate()
+                      )
                     : undefined
                 }
               />
