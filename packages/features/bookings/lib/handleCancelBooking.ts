@@ -173,14 +173,28 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
   }
 
   // If the booking is a seated event and there is no seatReferenceUid we should validate that logged in user is host
-  if (bookingToDelete.eventType?.seatsPerTimeSlot && !seatReferenceUid) {
-    const userIsHost = bookingToDelete.eventType.hosts.find((host) => {
+  // Flowko: a reference that isn't one of this booking's seats counts as none. Any string skipped this check,
+  // and cancelAttendeeSeat leaves a booking with fewer than two attendees to the full cancellation below.
+  const isSeatOfBooking = bookingToDelete.seatsReferences.some(
+    (reference) => !!seatReferenceUid && reference.referenceUid === seatReferenceUid
+  );
+  // Flowko: a booking keeps its seats when its event type stops being seated or is deleted, and every seat
+  // holder has its uid, so the booking's own seats decide this, not the event type's current setting
+  const isSeatedBooking =
+    !!bookingToDelete.eventType?.seatsPerTimeSlot || bookingToDelete.seatsReferences.length > 0;
+  if (isSeatedBooking && !isSeatOfBooking) {
+    // Without a user, a missing owner (a team or deleted event type) would otherwise equal the undefined userId
+    const isSignedInUser = !!userId && userId > 0;
+
+    const userIsHost = (bookingToDelete.eventType?.hosts ?? []).find((host) => {
       if (host.user.id === userId) return true;
     });
 
-    const userIsOwnerOfEventType = bookingToDelete.eventType.owner?.id === userId;
+    const userIsOwnerOfEventType = bookingToDelete.eventType?.owner?.id === userId;
 
-    if (!userIsHost && !userIsOwnerOfEventType) {
+    const userIsOrganizer = bookingToDelete.userId === userId;
+
+    if (!isSignedInUser || (!userIsHost && !userIsOwnerOfEventType && !userIsOrganizer)) {
       throw new HttpError({
         statusCode: 401,
         message: "User not a host of this event",

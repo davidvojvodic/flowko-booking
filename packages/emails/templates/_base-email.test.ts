@@ -169,6 +169,72 @@ describe("BaseEmail.sendEmail address fields", () => {
     expect(sentPayloads[0]).toMatchObject({ to: [{ name: "", address: "organizer@flowko.si" }] });
   });
 
+  it("drops faux emails from cc, bcc and replyTo", async () => {
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "organizer@flowko.si",
+      cc: "Janez Novak <38640123456@sms.cal.com>",
+      bcc: "38640999888@sms.cal.com,member@flowko.si",
+      // Organizer emails reply to the attendees, a phone-only booker among them
+      replyTo: "38640123456@sms.cal.com, guest@example.si",
+      subject: "Nova rezervacija",
+    }).sendEmail();
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({
+      to: [{ name: "", address: "organizer@flowko.si" }],
+      cc: [],
+      bcc: [{ name: "", address: "member@flowko.si" }],
+      replyTo: [{ name: "", address: "guest@example.si" }],
+    });
+    expect(JSON.stringify(sentPayloads[0])).not.toContain("sms.cal.com");
+  });
+
+  it("leaves replyTo empty when it only held faux emails", async () => {
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "organizer@flowko.si",
+      replyTo: "38640123456@sms.cal.com",
+      subject: "Nova rezervacija",
+    }).sendEmail();
+
+    expect(sentPayloads).toHaveLength(1);
+    // nodemailer writes no Reply-To header for an empty list
+    expect(sentPayloads[0]).toMatchObject({ replyTo: [] });
+    expect(JSON.stringify(sentPayloads[0])).not.toContain("38640123456");
+  });
+
+  it("sends to the cc recipients when every to address is faux", async () => {
+    await new TestEmail({
+      from: "Organizer <noreply@flowko.si>",
+      to: "Janez Novak <38640123456@sms.cal.com>",
+      cc: "cc@flowko.si",
+      subject: "Rezervacija potrjena",
+    }).sendEmail();
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({ to: [], cc: [{ name: "", address: "cc@flowko.si" }] });
+    expect(JSON.stringify(sentPayloads[0])).not.toContain("38640123456");
+  });
+
+  it("sends nothing when to, cc and bcc hold only faux emails", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const result = await new TestEmail({
+      from: "Organizer <noreply@flowko.si>",
+      to: "Janez Novak <38640123456@sms.cal.com>",
+      cc: "38640999888@sms.cal.com",
+      bcc: "Gost <38640777666@sms.cal.com>",
+      replyTo: "organizer@flowko.si",
+      subject: "Rezervacija potrjena",
+    }).sendEmail();
+    const logged = JSON.stringify([consoleLogSpy.mock.calls, result]);
+    consoleLogSpy.mockRestore();
+
+    expect(sentPayloads).toHaveLength(0);
+    expect(logged).not.toMatch(/386\d+/);
+  });
+
   it("adds no replyTo when the template sets none", async () => {
     await new TestEmail({
       from: "Flowko <noreply@flowko.si>",

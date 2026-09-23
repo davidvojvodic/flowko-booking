@@ -58,9 +58,11 @@ const rescheduleSeatedBooking = async (
     throw new Error("Internal Error.");
   }
 
+  // Flowko: the seat's own attendee leaves the original event, not whoever bookerEmail (the request's) names
+  const leavingAttendeeEmail = bookingSeat?.attendee.email ?? bookerEmail;
   const updatedBookingAttendees = originalRescheduledBooking.attendees.reduce(
     (filteredAttendees, attendee) => {
-      if (attendee.email === bookerEmail) {
+      if (attendee.email === leavingAttendeeEmail) {
         return filteredAttendees; // skip current booker, as we know the language already.
       }
       filteredAttendees.push({

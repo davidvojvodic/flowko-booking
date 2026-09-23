@@ -67,11 +67,12 @@ async function getBooking(prisma: PrismaClient, uid: string, isSeatedEvent?: boo
           minimumRescheduleNotice: true,
         },
       },
+      // Not the attendees' seats: a seat's referenceUid cancels or reschedules it without a login, and
+      // this booking reaches the booker page of anyone holding the uid
       attendees: {
         select: {
           email: true,
           name: true,
-          bookingSeat: true,
         },
         orderBy: {
           id: "asc",
@@ -131,6 +132,13 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
     select: {
       id: true,
       userId: true,
+      // Flowko: a booking keeps its seats when its event type stops being seated or is deleted
+      seatsReferences: {
+        select: {
+          id: true,
+        },
+        take: 1,
+      },
       user: {
         select: {
           organizationId: true,
@@ -210,7 +218,8 @@ export const getBookingForReschedule = async (uid: string, userId?: number) => {
   // If we have the booking and not bookingSeat, we need to make sure the booking belongs to the userLoggedIn
   // Otherwise, we return null here.
   let hasOwnershipOnBooking = false;
-  if (theBooking?.eventType?.seatsPerTimeSlot && bookingSeatReferenceUid === null) {
+  const isSeatedBooking = !!theBooking?.eventType?.seatsPerTimeSlot || !!theBooking?.seatsReferences.length;
+  if (isSeatedBooking && bookingSeatReferenceUid === null) {
     const isOwnerOfBooking = theBooking.userId === userId;
 
     const isHostOfEventType = theBooking?.eventType?.hosts.some((host) => host.userId === userId);
@@ -315,12 +324,13 @@ export const getBookingForSeatedEvent = async (uid: string) => {
       disableRescheduling: false,
       minimumRescheduleNotice: null,
     },
-    // mask attendee emails for seated events
-    attendees: booking.attendees.map((attendee) => ({
+    // mask attendee emails for seated events. Flowko: the booker page only counts them, so the Attendee row
+    // ids stay out too
+    attendees: booking.attendees.map((attendee, index) => ({
       ...attendee,
+      id: index,
       email: "",
       name: "",
-      bookingSeat: null,
     })),
   };
   return result;

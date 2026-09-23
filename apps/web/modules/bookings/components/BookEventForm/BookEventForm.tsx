@@ -288,7 +288,7 @@ const getError = ({
   let date = "";
   let count = 0;
 
-  if (error.message === ErrorCode.BookerLimitExceededReschedule) {
+  if (error.message === ErrorCode.BookerLimitExceededReschedule && error.data?.startTime) {
     const formattedDate = formatEventFromTime({
       date: error.data.startTime,
       timeFormat,

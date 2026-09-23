@@ -39,6 +39,7 @@ import { getUsernameList } from "@calcom/features/eventtypes/lib/defaultEvents";
 import { getEventName, updateHostInEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getFullName } from "@calcom/features/form-builder/utils";
 import type { HashedLinkService } from "@calcom/features/hashedLink/lib/service/HashedLinkService";
+import { PrismaOrgMembershipRepository } from "@calcom/features/membership/repositories/PrismaOrgMembershipRepository";
 import { ProfileRepository } from "@calcom/features/profile/repositories/ProfileRepository";
 import { handleAnalyticsEvents } from "@calcom/features/tasker/tasks/analytics/handleAnalyticsEvents";
 import type { UserRepository } from "@calcom/features/users/repositories/UserRepository";
@@ -600,15 +601,6 @@ async function handler(
     null;
   spamCheckService.startCheck({ email: bookerEmail, organizationId: eventTypeOrganizationId });
 
-  if (!rawBookingData.rescheduleUid) {
-    await checkActiveBookingsLimitForBooker({
-      eventTypeId,
-      maxActiveBookingsPerBooker: eventType.maxActiveBookingsPerBooker,
-      bookerEmail,
-      offerToRescheduleLastBooking: eventType.maxActiveBookingPerBookerOfferReschedule,
-    });
-  }
-
   if (eventType.requiresBookerEmailVerification && !rawBookingData.rescheduleUid) {
     const verificationCode = reqBody.verificationCode;
     if (!verificationCode) {
@@ -626,6 +618,19 @@ async function handler(
         message: "invalid_verification_code",
       });
     }
+  }
+
+  // Flowko: after the email verification, so the reschedule offer can count a verified code as proof the
+  // caller owns bookerEmail (see checkActiveBookingsLimitForBooker)
+  if (!rawBookingData.rescheduleUid) {
+    await checkActiveBookingsLimitForBooker({
+      eventTypeId,
+      maxActiveBookingsPerBooker: eventType.maxActiveBookingsPerBooker,
+      bookerEmail,
+      offerToRescheduleLastBooking: eventType.maxActiveBookingPerBookerOfferReschedule,
+      loggedInUserId: userId,
+      isBookerEmailVerified: !!eventType.requiresBookerEmailVerification,
+    });
   }
 
   if (isEventTypeLoggingEnabled({ eventTypeId, usernameOrTeamName: reqBody.user })) {
@@ -659,6 +664,33 @@ async function handler(
   let originalRescheduledBooking = rescheduleUid
     ? await getOriginalRescheduledBooking(rescheduleUid, !!eventType.seatsPerTimeSlot)
     : null;
+
+  // Flowko: handleSeats moves one seat at a time, but only while the requested event type is seated. When it
+  // isn't (seats turned off since, or another event type named), the regular path moves the whole booking and
+  // every other attendee's seat with it, and every seat holder has its uid. So a booking that has seats is
+  // moved whole only by its organizer (or an org admin over them, as handleSeats allows) or its only seat holder.
+  if (originalRescheduledBooking && !eventType.seatsPerTimeSlot) {
+    const seatCount = await deps.prismaClient.bookingSeat.count({
+      where: { bookingId: originalRescheduledBooking.id },
+    });
+    if (seatCount > 0) {
+      const isSignedInUser = !!userId && userId > 0;
+      const isOnlySeatHolder =
+        !!bookingSeat && seatCount === 1 && originalRescheduledBooking.attendees.length === 1;
+      const isOrganizer = isSignedInUser && originalRescheduledBooking.userId === userId;
+      const isOrgAdmin =
+        isSignedInUser &&
+        !isOrganizer &&
+        !!originalRescheduledBooking.userId &&
+        (await PrismaOrgMembershipRepository.isLoggedInUserOrgAdminOfBookingHost(
+          userId,
+          originalRescheduledBooking.userId
+        ));
+      if (!isOnlySeatHolder && !isOrganizer && !isOrgAdmin) {
+        throw new HttpError({ statusCode: 401 });
+      }
+    }
+  }
 
   const paymentAppData = getPaymentAppData({
     ...eventType,

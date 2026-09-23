@@ -19,6 +19,10 @@ Lines marked *planned* are not on `flowko` yet; each is updated when its change 
   - The seed never flips an existing row. On a database seeded before U7b, turn off Google Meet and the analytics and automation apps once under Settings → Admin → Apps.
   - After the first boot, `SELECT slug FROM "App" WHERE enabled;` should return only `google-calendar`.
 
+## API v2 must not be deployed
+
+The image builds only the web app (`./Dockerfile`); `apps/api/v2` (the `calcom-api` service in `docker-compose.yml`) is not part of the deployment and must stay out of it. Flowko's booker-facing fixes were made on the web app's routes and pages, not on API v2. There, `GET /v2/bookings/:bookingUid` (2024-04-15, no auth guard on the route) returns every seat's reference, and the 2024-08-13 `GET /v2/bookings/:bookingUid` and `/v2/bookings/by-seat/:seatUid` (optional auth) return every attendee's `seatUid` when the event type shows attendees. A seat's reference cancels that seat through `POST /v2/bookings/:bookingUid/cancel`. Deploying API v2 first needs an auth guard on those routes, or their output limited to the caller's own seat.
+
 ## One-time GitHub setup
 
 The fork's default branch is still `main`, which carries all of upstream's workflows, eleven of them scheduled (two run every minute). GitHub runs scheduled workflows only from the default branch, and shows the "Run workflow" button only for workflows on the default branch. These are repository settings, so the owner does them once, in this order:
