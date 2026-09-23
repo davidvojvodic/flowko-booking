@@ -5,7 +5,8 @@ import { CredentialRepository } from "@calcom/features/credentials/repositories/
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { prisma } from "@calcom/prisma";
-import { beforeEach, describe, expect, test } from "vitest";
+import { OAuth2Client } from "googleapis-common";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const testUser = {
   email: "test@test.com",
   username: "test-user",
@@ -27,6 +28,10 @@ const setupCredential = async (credentialInput) => {
 describe("deleteCredential", () => {
   beforeEach(async () => {
     mockNoTranslations();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe("individual credentials", () => {
@@ -120,6 +125,53 @@ describe("deleteCredential", () => {
 
       const eventTypeCalendarAfter = await DestinationCalendarRepository.getByEventTypeId(eventTypes[0].id);
       expect(eventTypeCalendarAfter).toBeNull();
+    });
+    test("Delete Google Calendar credential revokes the refresh token at Google", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+
+      const user = await new UserRepository(prisma).create({
+        ...testUser,
+      });
+
+      await PrismaAppRepository.seedApp("googlecalendar");
+
+      await setupCredential({
+        userId: user.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: { access_token: "test-access-token", refresh_token: "test-refresh-token" },
+      });
+
+      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
+
+      expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+      expect(revokeTokenSpy).toHaveBeenCalledWith("test-refresh-token");
+      expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+    });
+    test("Delete Google Calendar credential even when revoking at Google fails", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      const revokeTokenSpy = vi
+        .spyOn(OAuth2Client.prototype, "revokeToken")
+        .mockRejectedValue(new Error("invalid_token"));
+
+      const user = await new UserRepository(prisma).create({
+        ...testUser,
+      });
+
+      await PrismaAppRepository.seedApp("googlecalendar");
+
+      await setupCredential({
+        userId: user.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: { access_token: "test-access-token" },
+      });
+
+      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
+
+      expect(revokeTokenSpy).toHaveBeenCalledWith("test-access-token");
+      expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
     });
 
     // TODO: Add test for payment apps

@@ -1,3 +1,4 @@
+import { OAuth2Client } from "googleapis-common";
 import z from "zod";
 
 import { getCalendar } from "@calcom/app-store/_utils/getCalendar";
@@ -38,6 +39,40 @@ const getRemovedIntegrationNameFromAppSlug = (slug: string) =>
 
 const locationsSchema = z.array(z.object({ type: z.string() }));
 type TlocationsSchema = z.infer<typeof locationsSchema>;
+
+const googleCalendarTokenSchema = z.object({
+  access_token: z.string().optional(),
+  refresh_token: z.string().optional(),
+});
+
+const GOOGLE_TOKEN_REVOKE_TIMEOUT_MS = 5000;
+
+// Best effort: disconnecting must never be blocked by Google being slow or the grant already being revoked
+const revokeGoogleCalendarToken = async (credentialId: number, key: Prisma.JsonValue) => {
+  const parsedKey = googleCalendarTokenSchema.safeParse(key);
+  // The stored access token has usually expired; the long-lived refresh token is what must stop working
+  const token = parsedKey.success ? parsedKey.data.refresh_token ?? parsedKey.data.access_token : undefined;
+  if (!token) return;
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      new OAuth2Client().revokeToken(token),
+      new Promise<"timeout">((resolve) => {
+        timeoutId = setTimeout(() => resolve("timeout"), GOOGLE_TOKEN_REVOKE_TIMEOUT_MS);
+      }),
+    ]);
+    if (result === "timeout") {
+      console.warn(`Timed out revoking Google Calendar token for credentialId: ${credentialId}`);
+    }
+  } catch (error) {
+    // Never log the error itself: revokeToken sends the token in the request URL, which errors can echo back
+    const status = (error as { response?: { status?: number } } | null)?.response?.status;
+    console.warn(`Error revoking Google Calendar token for credentialId: ${credentialId}`, { status });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
 
 const handleDeleteCredential = async ({
   userId,
@@ -476,6 +511,10 @@ const handleDeleteCredential = async ({
         error
       );
     }
+  }
+
+  if (credential.type === "google_calendar") {
+    await revokeGoogleCalendarToken(credential.id, credential.key);
   }
 
   // Validated that credential is user's above
