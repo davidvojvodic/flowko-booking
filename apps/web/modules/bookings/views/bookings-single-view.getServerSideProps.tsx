@@ -285,6 +285,7 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
         hideOrganizerEmail: !!eventType.hideOrganizerEmail,
         hostEmails,
         viewerEmails,
+        viewerSeatReferenceUid: seatReferenceUid,
       }),
       previousBooking: sanitizedPreviousBooking,
       paymentStatus: payment,

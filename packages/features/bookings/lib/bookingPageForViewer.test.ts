@@ -51,6 +51,7 @@ const bookingInfo = {
   uid: "booking-uid",
   title: "Striženje med Salon in Ana Novak",
   startTime: "2026-10-01T09:00:00.000Z",
+  recurringEventId: "recurring-series-id",
   userPrimaryEmail: "salon.calendar@gmail.com",
   smsReminderNumber: "+38640111222",
   cancelledBy: null,
@@ -71,6 +72,8 @@ const bookingInfo = {
   ],
   eventType: { hideOrganizerEmail: true },
   assignmentReason: [{ reasonEnum: "REASSIGNED", reasonString: "Reassigned by maja.private@gmail.com" }],
+  // Each one cancels or reschedules its seat without a login
+  seatsReferences: [{ referenceUid: "seat-ref-ana" }, { referenceUid: "seat-ref-gost" }],
 };
 
 const hostEmails = getHostEmails({
@@ -82,10 +85,12 @@ function getPropsForViewer({
   canViewHostDetails,
   hideOrganizerEmail = true,
   viewerEmails = new Set<string>(),
+  viewerSeatReferenceUid,
 }: {
   canViewHostDetails: boolean;
   hideOrganizerEmail?: boolean;
   viewerEmails?: Set<string>;
+  viewerSeatReferenceUid?: string;
 }) {
   return {
     bookingInfo: toBookingInfoForViewer(bookingInfo, {
@@ -93,6 +98,7 @@ function getPropsForViewer({
       hideOrganizerEmail,
       hostEmails,
       viewerEmails,
+      viewerSeatReferenceUid,
     }),
     eventType: toEventTypeForViewer({ ...eventType, hideOrganizerEmail }, canViewHostDetails),
   };
@@ -163,6 +169,13 @@ describe("booking page props for a viewer who isn't a host", () => {
     expect(JSON.stringify(props)).not.toContain("+3864");
   });
 
+  it("leave out the recurring series id", () => {
+    const props = getPropsForViewer({ canViewHostDetails: false });
+
+    expect(props.bookingInfo.recurringEventId).toBeNull();
+    expect(JSON.stringify(props)).not.toContain("recurring-series-id");
+  });
+
   it("keep the organizer's email, which the page shows, when the event type doesn't hide it", () => {
     const props = getPropsForViewer({ canViewHostDetails: false, hideOrganizerEmail: false });
 
@@ -195,20 +208,54 @@ describe("booking page props for a viewer who isn't a host", () => {
 
     expect(bookingInfo.user.id).toBe(7);
     expect(bookingInfo.attendees[2].email).toBe("Maja.Private@gmail.com");
+    expect(bookingInfo.seatsReferences).toHaveLength(2);
     expect(eventType.metadata.apps.stripe.credentialId).toBe(11);
     expect(eventType.owner.email).toBe("salon.owner@gmail.com");
   });
 });
 
 describe("booking page props for a host", () => {
-  it("keep every field and only tag the attendees who are hosts", () => {
+  it("keep every field but the seat references and only tag the attendees who are hosts", () => {
     const props = getPropsForViewer({ canViewHostDetails: true });
 
     expect(props.bookingInfo).toEqual({
       ...bookingInfo,
       attendees: bookingInfo.attendees.map((attendee, index) => ({ ...attendee, isHost: index === 2 })),
+      seatsReferences: [],
     });
     expect(props.eventType).toEqual(eventType);
+  });
+});
+
+describe("seat references on the booking page", () => {
+  it("are left out for a viewer who opened the page without one, host or not", () => {
+    for (const canViewHostDetails of [false, true]) {
+      const props = getPropsForViewer({ canViewHostDetails });
+
+      expect(props.bookingInfo.seatsReferences).toEqual([]);
+      expect(JSON.stringify(props)).not.toContain("seat-ref-");
+    }
+  });
+
+  it("keep only the seat the viewer opened the page with", () => {
+    for (const canViewHostDetails of [false, true]) {
+      const props = getPropsForViewer({ canViewHostDetails, viewerSeatReferenceUid: "seat-ref-gost" });
+
+      // The page reads it to tell whether the viewer's seat is still booked
+      expect(props.bookingInfo.seatsReferences).toEqual([{ referenceUid: "seat-ref-gost" }]);
+      expect(JSON.stringify(props)).not.toContain("seat-ref-ana");
+    }
+  });
+
+  it("are empty for a reference that isn't one of the booking's seats", () => {
+    const props = getPropsForViewer({
+      canViewHostDetails: false,
+      viewerSeatReferenceUid: "seat-ref-of-another-booking",
+    });
+
+    expect(props.bookingInfo.seatsReferences).toEqual([]);
+    expect(JSON.stringify(props)).not.toContain("seat-ref-ana");
+    expect(JSON.stringify(props)).not.toContain("seat-ref-gost");
   });
 });
 

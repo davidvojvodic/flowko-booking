@@ -67,11 +67,12 @@ async function getBooking(prisma: PrismaClient, uid: string, isSeatedEvent?: boo
           minimumRescheduleNotice: true,
         },
       },
+      // Not the attendees' seats: a seat's referenceUid cancels or reschedules it without a login, and
+      // this booking reaches the booker page of anyone holding the uid
       attendees: {
         select: {
           email: true,
           name: true,
-          bookingSeat: true,
         },
         orderBy: {
           id: "asc",
@@ -320,7 +321,6 @@ export const getBookingForSeatedEvent = async (uid: string) => {
       ...attendee,
       email: "",
       name: "",
-      bookingSeat: null,
     })),
   };
   return result;

@@ -5,6 +5,7 @@
  * viewer who isn't a host of the booking, these helpers drop what the page doesn't need to show:
  * host user ids, host emails (every one of them when the event type hides the organizer's email),
  * phone numbers other than the viewer's own, app credential ids and private location details.
+ * Every viewer, hosts included, gets at most one seat reference: the one they opened the page with.
  */
 
 type HostIdentity = { id: number; email: string };
@@ -38,6 +39,8 @@ type BookingInfoWithPeople = {
   cancelledBy: string | null;
   rescheduledBy: string | null;
   assignmentReason: unknown[];
+  seatsReferences: { referenceUid: string }[];
+  recurringEventId: string | null;
 };
 
 export type BookingInfoForViewer<T extends BookingInfoWithPeople> = Omit<T, "user" | "attendees"> & {
@@ -131,14 +134,25 @@ export function toBookingInfoForViewer<T extends BookingInfoWithPeople>(
     hideOrganizerEmail,
     hostEmails,
     viewerEmails,
+    viewerSeatReferenceUid,
   }: {
     canViewHostDetails: boolean;
     hideOrganizerEmail: boolean;
     hostEmails: Set<string>;
     /** The signed-in user's email and the email the booker was redirected with */
     viewerEmails: Set<string>;
+    /** The seat reference the page was opened with: `?seatReferenceUid=` or /booking/[seatReferenceUid] */
+    viewerSeatReferenceUid?: string;
   }
 ): BookingInfoForViewer<T> {
+  // A seat's referenceUid cancels or reschedules that seat without a login (handleCancelBooking,
+  // handleSeats), so the page must not hand out the other seats' references. The viewer proves a seat is
+  // theirs by holding its reference, which the booker's success redirect and their emails carry. The page
+  // only checks that this reference is still among the booking's seats.
+  const seatsReferences = bookingInfo.seatsReferences.filter(
+    (reference) => !!viewerSeatReferenceUid && reference.referenceUid === viewerSeatReferenceUid
+  );
+
   // Team members of collective and fixed round-robin events are stored as attendees
   const attendees = bookingInfo.attendees.map((attendee) => {
     const isHost = hostEmails.has(normaliseEmail(attendee.email));
@@ -152,7 +166,9 @@ export function toBookingInfoForViewer<T extends BookingInfoWithPeople>(
   });
 
   // TypeScript can't relate spreads of a generic type to the mapped result type, hence the casts
-  if (canViewHostDetails) return { ...bookingInfo, attendees } as unknown as BookingInfoForViewer<T>;
+  if (canViewHostDetails) {
+    return { ...bookingInfo, attendees, seatsReferences } as unknown as BookingInfoForViewer<T>;
+  }
 
   return {
     ...bookingInfo,
@@ -163,8 +179,12 @@ export function toBookingInfoForViewer<T extends BookingInfoWithPeople>(
     cancelledBy: hideOrganizerEmail ? null : bookingInfo.cancelledBy,
     rescheduledBy: hideOrganizerEmail ? null : bookingInfo.rescheduledBy,
     smsReminderNumber: null,
+    // Not read by the page. A booking request can name any series' id, and cancelling that booking with
+    // allRemainingBookings cancels the series' remaining occurrences
+    recurringEventId: null,
     // Shown to hosts only; the reason text can name team members
     assignmentReason: [],
     attendees,
+    seatsReferences,
   } as unknown as BookingInfoForViewer<T>;
 }
