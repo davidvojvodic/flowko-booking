@@ -141,6 +141,11 @@ export const userAdminRouter = router({
     }),
   delete: authedAdminProcedureWithRequestedUser.input(userIdSchema).mutation(async ({ ctx }) => {
     const { prisma, requestedUser } = ctx;
+    // Flowko: deleting the user cascade-deletes their credentials, so end their Google grants first.
+    // Best effort: it never blocks the deletion.
+    await import("@calcom/features/credentials/handleDeleteCredential")
+      .then(({ revokeGoogleCalendarTokensOfUser }) => revokeGoogleCalendarTokensOfUser(requestedUser.id))
+      .catch(console.warn);
     await prisma.user.delete({ where: { id: requestedUser.id } });
     return { message: `User with id: ${requestedUser.id} deleted successfully` };
   }),

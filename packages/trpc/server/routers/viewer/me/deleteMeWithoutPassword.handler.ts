@@ -31,6 +31,12 @@ export const deleteMeWithoutPasswordHandler = async ({ ctx }: DeleteMeWithoutPas
   // Remove me from Stripe
   await deleteStripeCustomer(user).catch(console.warn);
 
+  // Flowko: deleting the user cascade-deletes their credentials, so end their Google grants first.
+  // Best effort: it never blocks the deletion.
+  await import("@calcom/features/credentials/handleDeleteCredential")
+    .then(({ revokeGoogleCalendarTokensOfUser }) => revokeGoogleCalendarTokensOfUser(ctx.user.id))
+    .catch(console.warn);
+
   // Remove my account
   await prisma.user.delete({
     where: {

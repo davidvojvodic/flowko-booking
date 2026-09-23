@@ -3,6 +3,7 @@ import { OAuth2Client } from "googleapis-common";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 import { createGoogleCalendarServiceWithGoogleType } from "@calcom/app-store/googlecalendar/lib/CalendarService";
+import { revokeUnstoredGoogleCalendarToken } from "@calcom/features/credentials/handleDeleteCredential";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import { buildCredentialCreateData } from "@calcom/features/credentials/services/CredentialDataService";
 import { renewSelectedCalendarCredentialId } from "@calcom/lib/connectedCalendar";
@@ -54,6 +55,8 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     // Check if we have granted all required permissions
     const hasMissingRequiredScopes = GOOGLE_CALENDAR_SCOPES.some((scope) => !grantedScopes.includes(scope));
     if (hasMissingRequiredScopes) {
+      // Flowko: this token is discarded, so end its grant at Google too, unless another connection shares it
+      await revokeUnstoredGoogleCalendarToken({ userId: req.session.user.id, key });
       if (!state?.fromApp) {
         throw new HttpError({
           statusCode: 400,
