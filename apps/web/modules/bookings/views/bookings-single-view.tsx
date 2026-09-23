@@ -28,7 +28,7 @@ import { isWithinMinimumRescheduleNotice as isWithinMinimumRescheduleNoticeUtil 
 import type { nameObjectSchema } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { shouldShowFieldInCustomResponses } from "@calcom/lib/bookings/SystemField";
-import { APP_NAME } from "@calcom/lib/constants";
+import { APP_NAME, IS_CALCOM } from "@calcom/lib/constants";
 import { formatToLocalizedDate, formatToLocalizedTime, formatToLocalizedTimezone } from "@calcom/lib/dayjs";
 import useGetBrandingColours from "@calcom/lib/getBrandColours";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
@@ -1034,7 +1034,7 @@ export default function Success(props: PageProps) {
                       </>
                     )}
 
-                    {session === null && !(userIsOwner || props.hideBranding) && (
+                    {IS_CALCOM && session === null && !(userIsOwner || props.hideBranding) && (
                       <>
                         <hr className="border-subtle mt-8" />
                         <div className="text-default pt-8 text-center text-xs">
@@ -1140,14 +1140,6 @@ export default function Success(props: PageProps) {
                   message={
                     <div>
                       <p className="font-semibold">{t("google_new_spam_policy")}</p>
-                      <span className="underline">
-                        <a
-                          target="_blank"
-                          href="https://cal.com/blog/google-s-new-spam-policy-may-be-affecting-your-invitations"
-                          rel="noreferrer">
-                          {t("resolve")}
-                        </a>
-                      </span>
                     </div>
                   }
                   CustomIcon="circle-alert"
