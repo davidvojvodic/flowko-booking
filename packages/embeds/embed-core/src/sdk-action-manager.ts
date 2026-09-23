@@ -15,29 +15,58 @@ function _fireEvent(fullName: string, detail: CustomEventDetail) {
  * - oneTimePassword: the token that lets the organizer accept or reject a booking from an email link
  * - references: calendar and video references (external calendar IDs, event IDs, credential IDs)
  * - videoCallUrl: the video call link
+ * - userPrimaryEmail: the organizer's calendar email
+ * - smsReminderNumber: the phone number SMS reminders go to
  */
-const PRIVATE_BOOKING_KEYS = ["oneTimePassword", "references", "videoCallUrl"];
+const PRIVATE_BOOKING_KEYS = [
+  "oneTimePassword",
+  "references",
+  "videoCallUrl",
+  "userPrimaryEmail",
+  "smsReminderNumber",
+];
+
+/** Event type fields that list hosts with their user ids and emails. */
+const PRIVATE_EVENT_TYPE_KEYS = ["users", "hosts", "owner", "userId"];
+
+// Same placeholder the booking events use when the organizer's email isn't known
+const ORGANIZER_EMAIL_PLACEHOLDER = "Email-less";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function withoutPrivateBookingKeys(value: Record<string, unknown>) {
+function withoutKeys(value: Record<string, unknown>, keys: string[]) {
   const copy: Record<string, unknown> = {};
   for (const [key, keyValue] of Object.entries(value)) {
-    if (!PRIVATE_BOOKING_KEYS.includes(key)) {
+    if (!keys.includes(key)) {
       copy[key] = keyValue;
     }
   }
+  return copy;
+}
+
+function withoutPrivateBookingKeys(value: Record<string, unknown>) {
+  const copy = withoutKeys(value, PRIVATE_BOOKING_KEYS);
   if (isPlainObject(copy.metadata) && "videoCallUrl" in copy.metadata) {
     const { videoCallUrl: _videoCallUrl, ...metadata } = copy.metadata;
     copy.metadata = metadata;
+  }
+  // The organizer's user row: only the name and time zone the booking UI shows
+  if (isPlainObject(copy.user)) {
+    copy.user = { name: copy.user.name, timeZone: copy.user.timeZone };
+  }
+  if (Array.isArray(copy.attendees)) {
+    copy.attendees = copy.attendees.map((attendee) =>
+      isPlainObject(attendee) ? withoutKeys(attendee, ["phoneNumber"]) : attendee
+    );
   }
   return copy;
 }
 
 /**
- * Removes PRIVATE_BOOKING_KEYS from an event's data and from the booking it carries.
+ * Removes the private booking, organizer and host fields from an event's data and from the booking
+ * and event type it carries.
  */
 export function sanitizeEventData<T>(data: T): T {
   if (!isPlainObject(data)) {
@@ -46,6 +75,12 @@ export function sanitizeEventData<T>(data: T): T {
   const sanitized = withoutPrivateBookingKeys(data);
   if (isPlainObject(sanitized.booking)) {
     sanitized.booking = withoutPrivateBookingKeys(sanitized.booking);
+  }
+  if (isPlainObject(sanitized.eventType)) {
+    sanitized.eventType = withoutKeys(sanitized.eventType, PRIVATE_EVENT_TYPE_KEYS);
+  }
+  if (isPlainObject(sanitized.organizer) && "email" in sanitized.organizer) {
+    sanitized.organizer = { ...sanitized.organizer, email: ORGANIZER_EMAIL_PLACEHOLDER };
   }
   return sanitized as T;
 }

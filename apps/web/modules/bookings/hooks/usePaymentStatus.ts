@@ -15,6 +15,8 @@ interface UsePaymentStatusParams {
   startTime: Date | string;
   eventTypeTeamId?: number | null;
   userId?: number | null;
+  /** For callers that know the event type has an owner but not the owner's id */
+  hasEventTypeOwner?: boolean;
   payment: Payment;
   refundPolicy?: string | null;
   refundDaysCount?: number | null;
@@ -29,6 +31,7 @@ export function usePaymentStatus({
   startTime,
   eventTypeTeamId,
   userId,
+  hasEventTypeOwner,
   payment,
   refundPolicy,
   refundDaysCount,
@@ -50,7 +53,7 @@ export function usePaymentStatus({
     // Payment completed but not refunded
     if (payment.success && !payment.refunded) {
       // Handle missing team or event type owner (same in processPaymentRefund.ts)
-      if (!eventTypeTeamId && !userId) {
+      if (!eventTypeTeamId && !userId && !hasEventTypeOwner) {
         return t("booking_with_payment_cancelled_no_refund");
       }
 
@@ -83,7 +86,17 @@ export function usePaymentStatus({
     }
 
     return null;
-  }, [bookingStatus, startTime, eventTypeTeamId, userId, payment, refundPolicy, refundDaysCount, t]);
+  }, [
+    bookingStatus,
+    startTime,
+    eventTypeTeamId,
+    userId,
+    hasEventTypeOwner,
+    payment,
+    refundPolicy,
+    refundDaysCount,
+    t,
+  ]);
 
   return message;
 }

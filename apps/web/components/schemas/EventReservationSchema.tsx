@@ -5,8 +5,9 @@ import type { EventReservation, Person, ReservationStatusType } from "schema-dts
 
 import type { Attendee, Booking, User } from "@calcom/prisma/client";
 
-type EventSchemaUser = Pick<User, "name" | "email">;
-type EventSchemaAttendee = Pick<Attendee, "name" | "email">;
+// The booking page withholds host emails from viewers who aren't a host
+type EventSchemaUser = Pick<User, "name"> & { email: string | null };
+type EventSchemaAttendee = Pick<Attendee, "name"> & { email: string | null };
 
 interface EventReservationSchemaInterface {
   reservationId: Booking["uid"];
@@ -58,10 +59,10 @@ const EventReservationSchema: FC<EventReservationSchemaInterface> = ({
           startDate: startTime.toString(),
           endDate: endTime.toString(),
           organizer: organizer
-            ? ({ "@type": "Person", name: organizer.name, email: organizer.email } as Person)
+            ? ({ "@type": "Person", name: organizer.name, email: organizer.email ?? undefined } as Person)
             : undefined,
           attendee: attendees?.map(
-            (person) => ({ "@type": "Person", name: person.name, email: person.email }) as Person
+            (person) => ({ "@type": "Person", name: person.name, email: person.email ?? undefined }) as Person
           ),
           location: location || undefined,
           description: description || undefined,

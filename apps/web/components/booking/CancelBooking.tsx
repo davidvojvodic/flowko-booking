@@ -14,6 +14,8 @@ import { showToast } from "@calcom/ui/components/toast";
 import { InfoIcon, XIcon } from "@coss/ui/icons";
 import { useCallback, useState } from "react";
 
+import { getBookingCancelledEventData } from "./getBookingCancelledEventData";
+
 interface InternalNotePresetsSelectProps {
   internalNotePresets: { id: number; name: string }[];
   onPresetSelect: (
@@ -300,16 +302,11 @@ export default function CancelBooking(props: Props) {
                     method: "POST",
                   });
 
-                  const bookingWithCancellationReason = {
-                    ...(bookingCancelledEventProps.booking as object),
-                    cancellationReason,
-                  } as unknown;
-
                   if (res.status >= 200 && res.status < 300) {
-                    sdkActionManager?.fire("bookingCancelled", {
-                      ...bookingCancelledEventProps,
-                      booking: bookingWithCancellationReason,
-                    });
+                    sdkActionManager?.fire(
+                      "bookingCancelled",
+                      getBookingCancelledEventData(bookingCancelledEventProps, cancellationReason)
+                    );
                     refreshData();
                     if (props.onCanceled) {
                       props.onCanceled();

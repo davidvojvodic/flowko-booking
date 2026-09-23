@@ -41,6 +41,47 @@ describe("sanitizeEventData", () => {
     expect(data.booking.metadata.videoCallUrl).toBe("https://meet.google.com/abc-defg-hij");
   });
 
+  it("removes the organizer's and hosts' details that the booking page passes to bookingCancelled", () => {
+    const data = {
+      booking: {
+        uid: "booking-uid",
+        userPrimaryEmail: "organizer@gmail.com",
+        smsReminderNumber: "+38640111222",
+        user: { id: 7, name: "Salon", email: "organizer@gmail.com", username: "salon", timeZone: "Europe/Ljubljana" },
+        attendees: [
+          { name: "Ana Novak", email: "ana@example.com", phoneNumber: "+38640111222" },
+          { name: "Co-host", email: "cohost@gmail.com", phoneNumber: null },
+        ],
+      },
+      organizer: { name: "Salon", email: "organizer@gmail.com", timeZone: "Europe/Ljubljana" },
+      eventType: {
+        id: 5,
+        slug: "strizenje",
+        userId: 7,
+        users: [{ id: 7, email: "organizer@gmail.com" }],
+        hosts: [{ user: { id: 8, email: "cohost@gmail.com" } }],
+        owner: { id: 7, email: "organizer@gmail.com" },
+      },
+    };
+
+    const sanitized = sanitizeEventData(data);
+
+    expect(sanitized).toEqual({
+      booking: {
+        uid: "booking-uid",
+        user: { name: "Salon", timeZone: "Europe/Ljubljana" },
+        attendees: [
+          { name: "Ana Novak", email: "ana@example.com" },
+          { name: "Co-host", email: "cohost@gmail.com" },
+        ],
+      },
+      organizer: { name: "Salon", email: "Email-less", timeZone: "Europe/Ljubljana" },
+      eventType: { id: 5, slug: "strizenje" },
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("organizer@gmail.com");
+    expect(JSON.stringify(sanitized)).not.toContain("+38640111222");
+  });
+
   it("passes other values through", () => {
     expect(sanitizeEventData({})).toEqual({});
     expect(sanitizeEventData({ iframeHeight: 100, iframeWidth: 200, isFirstTime: true })).toEqual({
