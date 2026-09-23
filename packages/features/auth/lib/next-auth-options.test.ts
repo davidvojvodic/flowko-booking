@@ -17,12 +17,14 @@ vi.mock("@calcom/prisma", () => ({
 }));
 
 const mockFindByEmailAndIncludeProfilesAndPassword = vi.fn();
+const mockFindByEmail = vi.fn();
 
 vi.mock("@calcom/features/users/repositories/UserRepository", () => {
   return {
     UserRepository: vi.fn().mockImplementation(function () {
       return {
         findByEmailAndIncludeProfilesAndPassword: mockFindByEmailAndIncludeProfilesAndPassword,
+        findByEmail: mockFindByEmail,
       };
     }),
   };
@@ -860,6 +862,108 @@ describe("Azure AD signIn callback", () => {
 
       expect(result).toBe("/auth/error?error=unverified-email");
     });
+  });
+});
+
+describe("Email (magic link) signIn callback", () => {
+  let getOptions: typeof import("./next-auth-options").getOptions;
+  let signInCallback: NonNullable<ReturnType<typeof getOptions>["callbacks"]>["signIn"];
+
+  const emailAccount = {
+    provider: "email",
+    providerAccountId: "user@example.com",
+    type: "email" as const,
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockFindByEmail.mockReset();
+
+    const authModule = await import("./next-auth-options");
+    getOptions = authModule.getOptions;
+    const options = getOptions({ getDubId: () => undefined, getTrackingData: () => ({}) as any });
+    signInCallback = options.callbacks!.signIn! as any;
+  });
+
+  it("allows an existing user", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com" });
+
+    const result = await signInCallback({
+      user: { id: "1", email: "user@example.com", emailVerified: null },
+      account: emailAccount,
+      email: { verificationRequest: true },
+    } as any);
+
+    expect(result).toBe(true);
+    expect(mockFindByEmail).toHaveBeenCalledWith({ email: "user@example.com" });
+  });
+
+  it("denies an unknown email, so no link is sent and no user is created", async () => {
+    mockFindByEmail.mockResolvedValue(null);
+
+    // next-auth passes a placeholder user (id = email) when the adapter finds no user
+    const result = await signInCallback({
+      user: { id: "stranger@example.com", email: "stranger@example.com", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "stranger@example.com" },
+      email: { verificationRequest: true },
+    } as any);
+
+    // A string makes next-auth redirect there without sending the link; it matches the answer for a sent link
+    expect(result).toBe("http://localhost:3000/api/auth/verify-request?provider=email&type=email");
+  });
+
+  it("denies an unknown email when the link is opened", async () => {
+    mockFindByEmail.mockResolvedValue(null);
+
+    const result = await signInCallback({
+      user: { id: "stranger@example.com", email: "stranger@example.com", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "stranger@example.com" },
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies a differently cased address, which next-auth would create as a new user", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com" });
+
+    const result = await signInCallback({
+      user: { id: "User@Example.com", email: "User@Example.com", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "User@Example.com" },
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies a locked user", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com", locked: true });
+
+    const result = await signInCallback({
+      user: { id: "1", email: "user@example.com", emailVerified: null },
+      account: emailAccount,
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies a user with 2FA enabled", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com", twoFactorEnabled: true });
+
+    const result = await signInCallback({
+      user: { id: "1", email: "user@example.com", emailVerified: null },
+      account: emailAccount,
+    } as any);
+
+    expect(result).toBe(false);
+  });
+
+  it("denies without a lookup when the email is missing", async () => {
+    const result = await signInCallback({
+      user: { id: "1", email: null, emailVerified: null },
+      account: emailAccount,
+    } as any);
+
+    expect(result).toBe(false);
+    expect(mockFindByEmail).not.toHaveBeenCalled();
   });
 });
 

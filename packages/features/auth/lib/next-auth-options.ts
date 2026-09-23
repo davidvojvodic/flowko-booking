@@ -359,7 +359,7 @@ if (OUTLOOK_LOGIN_ENABLED && OUTLOOK_CLIENT_ID && OUTLOOK_CLIENT_SECRET) {
 providers.push(
   EmailProvider({
     type: "email",
-    maxAge: 10 * 60 * 60, // Magic links are valid for 10 min only
+    maxAge: 10 * 60, // Magic links are valid for 10 min only
     // Here we setup the sendVerificationRequest that calls the email template with the identifier (email) and token to verify.
     sendVerificationRequest: async (props) => (await import("./sendVerificationRequest")).default(props),
   })
@@ -801,6 +801,25 @@ export const getOptions = ({
       log.debug("callbacks:signin", safeStringify(params));
 
       if (account?.provider === "email") {
+        // Magic links only sign in existing users. next-auth runs this callback before it sends the
+        // link and again before its callback handler would create a User for an unknown address.
+        // That handler looks the address up case-sensitively, so a differently cased address is
+        // denied too. Locked and 2FA users must go through password login.
+        const userRepo = new UserRepository(prisma);
+        const existingUser = user.email ? await userRepo.findByEmail({ email: user.email }) : null;
+        if (
+          !existingUser ||
+          existingUser.email !== user.email ||
+          existingUser.locked ||
+          existingUser.twoFactorEnabled
+        ) {
+          log.warn("callbacks:signIn - magic link not allowed for this email, denying access");
+          // Answer a link request as if the link was sent, so the response does not reveal who has an account
+          if (params.email?.verificationRequest) {
+            return `${WEBAPP_URL}/api/auth/verify-request?provider=email&type=email`;
+          }
+          return false;
+        }
         return true;
       }
       // In this case we've already verified the credentials in the authorize

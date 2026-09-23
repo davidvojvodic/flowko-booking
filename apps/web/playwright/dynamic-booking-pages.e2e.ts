@@ -1,94 +1,20 @@
 import { expect } from "@playwright/test";
 
 import { test } from "./lib/fixtures";
-import {
-  bookTimeSlot,
-  confirmReschedule,
-  confirmBooking,
-  selectFirstAvailableTimeSlotNextMonth,
-  selectSecondAvailableTimeSlotNextMonth,
-  cancelBookingFromBookingsList,
-} from "./lib/testUtils";
+import { confirmBooking, selectFirstAvailableTimeSlotNextMonth } from "./lib/testUtils";
 
 test.afterEach(({ users }) => users.deleteAll());
 
-test("dynamic booking", async ({ page, users }) => {
+// Dynamic group booking is disabled instance-wide (IS_DYNAMIC_GROUP_BOOKING_ENABLED)
+test("dynamic group links return 404", async ({ page, users }) => {
   const pro = await users.create();
-  await pro.apiLogin();
-
   const free = await users.create({ username: "free.example" });
-  await page.goto(`/${pro.username}+${free.username}`);
-  //fix race condition
-  await page.locator('[data-testid="day"][data-disabled="false"]').nth(0).waitFor({ state: "visible" });
 
-  await test.step("book an event first day in next month", async () => {
-    await selectFirstAvailableTimeSlotNextMonth(page);
+  const groupPage = await page.goto(`/${pro.username}+${free.username}`);
+  expect(groupPage?.status()).toBe(404);
 
-    // Fill what is this meeting about? title
-    await page.locator('[name="title"]').fill("Test meeting");
-
-    await bookTimeSlot(page);
-
-    await expect(page.locator("[data-testid=success-page]")).toBeVisible();
-  });
-
-  await test.step("can reschedule a booking", async () => {
-    // Logged in
-    await page.goto("/bookings/upcoming");
-    // Click the ellipsis menu button to open the dropdown
-    await page.locator('[data-testid="booking-actions-dropdown"]').nth(0).click();
-    // Click the reschedule option in the dropdown
-    await page.locator('[data-testid="reschedule"]').click();
-    await page.waitForURL((url) => {
-      const bookingId = url.searchParams.get("rescheduleUid");
-      return !!bookingId;
-    });
-    await selectSecondAvailableTimeSlotNextMonth(page);
-
-    // No need to fill fields since they should be already filled
-    await confirmReschedule(page);
-    await page.waitForURL((url) => {
-      return url.pathname.startsWith("/booking");
-    });
-    await expect(page.locator("[data-testid=success-page]")).toBeVisible();
-  });
-
-  await test.step("Can cancel the recently created booking", async () => {
-    await page.goto("/bookings/upcoming");
-    await cancelBookingFromBookingsList({
-      page,
-      nth: 0,
-      reason: "Test reason",
-    });
-  });
-});
-
-test("dynamic booking info prefilled by query params", async ({ page, users }) => {
-  const pro = await users.create();
-  await pro.apiLogin();
-
-  let duration = 15;
-  const free = await users.create({ username: "free.example" });
-  await page.goto(`/${pro.username}+${free.username}?duration=${duration}`);
-
-  const listItemByDurationTestId = (duration: number) => `multiple-choice-${duration}mins`;
-
-  let listItemLocator = await page.getByTestId(listItemByDurationTestId(duration));
-  let activeState = await listItemLocator.getAttribute("data-active");
-
-  expect(activeState).toEqual("true");
-
-  duration = 30;
-  await page.goto(`/${pro.username}+${free.username}?duration=${duration}`);
-  listItemLocator = await page.getByTestId(listItemByDurationTestId(duration));
-  activeState = await listItemLocator.getAttribute("data-active");
-
-  expect(activeState).toEqual("true");
-
-  // Check another badge just to ensure its not selected
-  listItemLocator = await page.getByTestId(listItemByDurationTestId(15));
-  activeState = await listItemLocator.getAttribute("data-active");
-  expect(activeState).toEqual("false");
+  const groupEventPage = await page.goto(`/${pro.username}+${free.username}/30`);
+  expect(groupEventPage?.status()).toBe(404);
 });
 
 test("multiple duration selection updates event length correctly", async ({ page, users }) => {

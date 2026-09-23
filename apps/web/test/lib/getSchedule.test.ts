@@ -3885,4 +3885,45 @@ describe("getSchedule", () => {
       });
     });
   });
+
+  describe("Dynamic group event", () => {
+    test("rejects a dynamic group, even when every user allows dynamic booking", async () => {
+      await createBookingScenario({
+        eventTypes: [],
+        users: [
+          {
+            ...TestData.users.example,
+            id: 101,
+            username: "group-user-1",
+            email: "group-user-1@example.com",
+            schedules: [TestData.schedules.IstWorkHours],
+          },
+          {
+            ...TestData.users.example,
+            id: 102,
+            username: "group-user-2",
+            email: "group-user-2@example.com",
+            schedules: [TestData.schedules.IstWorkHours],
+          },
+        ],
+      });
+
+      const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+      const { dateString: plus2DateString } = getDate({ dateIncrement: 2 });
+
+      await expect(
+        availableSlotsService.getAvailableSlots({
+          input: {
+            eventTypeSlug: "30",
+            usernameList: ["group-user-1", "group-user-2"],
+            startTime: `${plus1DateString}T18:30:00.000Z`,
+            endTime: `${plus2DateString}T18:29:59.999Z`,
+            timeZone: Timezones["+5:30"],
+            isTeamEvent: false,
+            orgSlug: null,
+          },
+        })
+      ).rejects.toThrow("Some of the users in this group do not allow dynamic booking");
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { ProfileRepository } from "@calcom/features/profile/repositories/Profile
 import { withSelectedCalendars } from "@calcom/features/users/repositories/UserRepository";
 import { sentrySpan } from "@calcom/features/watchlist/lib/telemetry";
 import { filterBlockedUsers } from "@calcom/features/watchlist/operations/filter-blocked-users.controller";
+import { IS_DYNAMIC_GROUP_BOOKING_ENABLED } from "@calcom/lib/constants";
 import getOrgIdFromMemberOrTeamId from "@calcom/lib/getOrgIdFromMemberOrTeamId";
 import { HttpError } from "@calcom/lib/http-error";
 import { getPiiFreeUser } from "@calcom/lib/piiFreeData";
@@ -95,7 +96,8 @@ const _loadAndValidateUsers = async ({
     contactOwnerEmail,
   });
 
-  const isDynamicAllowed = !users.some((user) => !user.allowDynamicBooking);
+  const isDynamicAllowed =
+    IS_DYNAMIC_GROUP_BOOKING_ENABLED && !users.some((user) => !user.allowDynamicBooking);
   if (!isDynamicAllowed && !eventTypeId) {
     logger.warn({
       message: "NewBooking: Some of the users in this group do not allow dynamic booking",

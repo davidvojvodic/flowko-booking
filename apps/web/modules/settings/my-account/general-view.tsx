@@ -2,6 +2,7 @@
 
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import SectionBottomActions from "@calcom/features/settings/SectionBottomActions";
+import { IS_DYNAMIC_GROUP_BOOKING_ENABLED } from "@calcom/lib/constants";
 import { formatLocalizedDateTime } from "@calcom/lib/dayjs";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { localeOptions } from "@calcom/lib/i18n";
@@ -326,18 +327,20 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
           </SectionBottomActions>
         </Form>
 
-        <SettingsToggle
-          toggleSwitchAtTheEnd={true}
-          title={t("dynamic_booking")}
-          description={t("allow_dynamic_booking")}
-          disabled={mutation.isPending}
-          checked={isAllowDynamicBookingChecked}
-          onCheckedChange={(checked) => {
-            setIsAllowDynamicBookingChecked(checked);
-            mutation.mutate({ allowDynamicBooking: checked });
-          }}
-          switchContainerClassName="mt-6"
-        />
+        {IS_DYNAMIC_GROUP_BOOKING_ENABLED && (
+          <SettingsToggle
+            toggleSwitchAtTheEnd={true}
+            title={t("dynamic_booking")}
+            description={t("allow_dynamic_booking")}
+            disabled={mutation.isPending}
+            checked={isAllowDynamicBookingChecked}
+            onCheckedChange={(checked) => {
+              setIsAllowDynamicBookingChecked(checked);
+              mutation.mutate({ allowDynamicBooking: checked });
+            }}
+            switchContainerClassName="mt-6"
+          />
+        )}
 
         <SettingsToggle
           data-testid="my-seo-indexing-switch"
