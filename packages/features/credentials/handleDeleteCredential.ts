@@ -141,6 +141,7 @@ export const revokeUnstoredGoogleCalendarToken = async ({
   } catch (error) {
     console.warn(`Error revoking an unstored Google Calendar token for userId: ${userId}`, {
       error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
     });
   }
 };
@@ -176,6 +177,7 @@ export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
   } catch (error) {
     console.warn(`Error revoking Google Calendar tokens for userId: ${userId}`, {
       error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
     });
   }
 };

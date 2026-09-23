@@ -124,7 +124,8 @@ export class CalendarAuth {
     } catch (error) {
       const errorCode = (error as { response?: { data?: { error?: string } } }).response?.data?.error;
       // Never log the error itself: gaxios keeps the token request, with the signed assertion, on it
-      log.error("DelegatedTo: Error authorizing using JWT auth", JSON.stringify({ errorCode }));
+      const { name, code } = (error ?? {}) as { name?: unknown; code?: unknown };
+      log.error("DelegatedTo: Error authorizing using JWT auth", JSON.stringify({ errorCode, name, code }));
 
       let delegationError: CalendarAppDelegationCredentialError;
 

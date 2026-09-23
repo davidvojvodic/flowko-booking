@@ -74,6 +74,7 @@ export const findEarlierGoogleCalendarCredentials = async ({
       userId,
       credentialId,
       error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
     });
     return [];
   }
@@ -97,6 +98,7 @@ const listNewConnectionCalendars = async (
   } catch (error) {
     log.warn("Could not list the new Google Calendar connection's calendars", {
       error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
     });
     return [];
   } finally {
@@ -197,6 +199,7 @@ export const replaceEarlierGoogleCalendarCredentials = async ({
       userId,
       credentialId,
       error: error instanceof Error ? error.name : "Unknown error",
+      code: (error as { code?: unknown } | null)?.code,
     });
   }
 };
