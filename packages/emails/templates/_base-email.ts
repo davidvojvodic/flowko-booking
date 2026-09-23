@@ -77,8 +77,11 @@ export default class BaseEmail {
     const from = "from" in payload ? (payload.from as string) : "";
     const to = "to" in payload ? (payload.to as string) : "";
 
-    // A faux email is built from the booker's phone number, so it is never logged
-    if (isSmsCalEmail(to)) {
+    // A faux email is built from the booker's phone number, so it is never sent or logged. Flowko:
+    // attendee templates address `Name <address>`, so the parsed addresses are checked, not the field
+    const toAddresses = toMailAddresses(to);
+    const realToAddresses = toAddresses.filter(({ address }) => !isSmsCalEmail(address));
+    if (toAddresses.length && !realToAddresses.length) {
       console.log(`Skipped Sending Email to faux email for ${this.name}`);
       return new Promise((r) => r("Skipped Sending Email to faux email"));
     }
@@ -95,7 +98,7 @@ export default class BaseEmail {
       ...payload,
       ...{
         from: toMailAddresses(from)[0],
-        to: toMailAddresses(to),
+        to: realToAddresses,
         ...optionalAddressFields,
       },
       ...(parseSubject.success && { subject: decodeHTML(parseSubject.data) }),
