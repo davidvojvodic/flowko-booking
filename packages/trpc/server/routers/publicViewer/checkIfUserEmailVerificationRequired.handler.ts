@@ -39,7 +39,7 @@ export const checkEmailVerificationRequired = async ({
   const user = users[0];
 
   if (user?.requiresBookerEmailVerification && baseEmail.toLowerCase() !== userSessionEmail?.toLowerCase()) {
-    log.warn(`Booker email belongs to user ${user.id}, who requires booker email verification`);
+    log.warn("Booker email belongs to a user who requires booker email verification");
     return true;
   }
 
