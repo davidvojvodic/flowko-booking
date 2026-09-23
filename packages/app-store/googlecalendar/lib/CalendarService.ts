@@ -6,7 +6,7 @@ import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/re
 import { getLocation, getRichDescription } from "@calcom/lib/CalEventParser";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
 import logger from "@calcom/lib/logger";
-import { getPiiFreeCalendarEvent } from "@calcom/lib/piiFreeData";
+import { getPiiFreeCalendarEvent, getPiiFreeSelectedCalendar } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import type { Prisma } from "@calcom/prisma/client";
 import type {
@@ -73,6 +73,24 @@ interface GoogleCalError extends Error {
 const isGaxiosResponse = (error: unknown): error is GaxiosResponse<calendar_v3.Schema$Event> =>
   // biome-ignore lint/suspicious/noPrototypeBuiltins: Object.hasOwn not available in all build targets
   typeof error === "object" && !!error && Object.prototype.hasOwnProperty.call(error, "config");
+
+/**
+ * gaxios keeps the whole request on its errors: the event body (attendees, booking answers) and the
+ * `Authorization: Bearer` header, which its default redactor does not mask. Callers only read `code`,
+ * so drop the request before the error is logged here or rethrown to callers that log it.
+ */
+const removeRequestFromError = (error: unknown) => {
+  if (!isGaxiosResponse(error)) return;
+  const gaxiosError = error as {
+    config?: unknown;
+    response?: { config?: unknown; request?: unknown };
+  };
+  delete gaxiosError.config;
+  if (gaxiosError.response) {
+    delete gaxiosError.response.config;
+    delete gaxiosError.response.request;
+  }
+};
 
 class GoogleCalendarService implements Calendar {
   private integrationName = "";
@@ -333,11 +351,7 @@ class GoogleCalendarService implements Calendar {
         iCalUID: event?.iCalUID,
       };
     } catch (error) {
-      if (isGaxiosResponse(error)) {
-        // Prevent clogging up the logs with the body of the request
-        // Plus, we already have this data in error.data.summary
-        delete error.config.body;
-      }
+      removeRequestFromError(error);
       this.log.error(
         "There was an error creating event in google calendar: ",
         safeStringify({ error, selectedCalendar, credentialId })
@@ -453,6 +467,7 @@ class GoogleCalendarService implements Calendar {
       }
       return evt?.data;
     } catch (error) {
+      removeRequestFromError(error);
       this.log.error(
         "There was an error updating event in google calendar: ",
         safeStringify({ error: safeStringify(error), event: getPiiFreeCalendarEvent(event), uid })
@@ -475,6 +490,7 @@ class GoogleCalendarService implements Calendar {
       });
       return event?.data;
     } catch (error) {
+      removeRequestFromError(error);
       this.log.error(
         "There was an error deleting event from google calendar: ",
         safeStringify({
@@ -489,7 +505,7 @@ class GoogleCalendarService implements Calendar {
        *  404 is when the event is on a different calendar
        */
       if (err.code === 410) return;
-      console.error("There was an error contacting google calendar service: ", err);
+      console.error("There was an error contacting google calendar service: ", safeStringify(err));
       if (err.code === 404) return;
       throw err;
     }
@@ -602,7 +618,7 @@ class GoogleCalendarService implements Calendar {
     } catch (error) {
       this.log.error(
         "There was an error getting availability from google calendar: ",
-        safeStringify({ error, selectedCalendars })
+        safeStringify({ error, selectedCalendars: selectedCalendars.map(getPiiFreeSelectedCalendar) })
       );
       throw error;
     }
@@ -724,7 +740,7 @@ class GoogleCalendarService implements Calendar {
     } catch (error) {
       this.log.error(
         "There was an error getting availability from google calendar: ",
-        safeStringify({ error, selectedCalendars })
+        safeStringify({ error, selectedCalendars: selectedCalendars.map(getPiiFreeSelectedCalendar) })
       );
       throw error;
     }
@@ -863,6 +879,7 @@ class GoogleCalendarService implements Calendar {
 
       return allCalendars;
     } catch (error) {
+      removeRequestFromError(error);
       logger.error("Error fetching all Google Calendars", { error });
       throw error;
     }
@@ -876,6 +893,7 @@ class GoogleCalendarService implements Calendar {
       });
       return response.data;
     } catch (error) {
+      removeRequestFromError(error);
       // should not be reached because Google Cal always has a primary cal
       logger.error("Error getting primary calendar", { error });
       throw error;

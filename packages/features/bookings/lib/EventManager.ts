@@ -840,7 +840,7 @@ export default class EventManager {
         // Make it a soft error because in case a PENDING booking is rescheduled there would be no calendar events or video meetings.
         log.warn(
           "Error deleting calendar event or video meeting for booking",
-          safeStringify({ error: result.reason })
+          safeStringify({ error: safeStringify(result.reason) })
         );
       }
     });
