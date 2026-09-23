@@ -1,6 +1,6 @@
 import dayjs from "@calcom/dayjs";
 import { formatDateTime } from "@calcom/lib/dateTimeFormatter";
-import { getTimeFormatForLocale } from "@calcom/lib/timeFormat";
+import { getRecipientTimeFormat } from "@calcom/lib/timeFormat";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
 /**
@@ -26,7 +26,7 @@ export function formatRecipientDate({
 }
 
 export function getFormattedDate(calEvent: CalendarEvent, attendee: Person): string {
-  const inviteeTimeFormat = calEvent.organizer.timeFormat || getTimeFormatForLocale(attendee.language.locale);
+  const inviteeTimeFormat = getRecipientTimeFormat(calEvent.organizer.timeFormat, attendee.language.locale);
   const timezone = attendee.timeZone;
   const locale = attendee.language.locale;
 

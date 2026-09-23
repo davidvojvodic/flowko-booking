@@ -1,3 +1,5 @@
+import { getRecipientTimeFormat } from "@calcom/lib/timeFormat";
+
 import { CallToAction, CallToActionTable } from "../components";
 import { OrganizerScheduledEmail } from "./OrganizerScheduledEmail";
 
@@ -8,6 +10,8 @@ export const AttendeeWasRequestedToRescheduleEmail = (
   return (
     <OrganizerScheduledEmail
       t={t}
+      locale={props.attendee.language.locale}
+      timeFormat={getRecipientTimeFormat(props.calEvent.organizer.timeFormat, props.attendee.language.locale)}
       title="request_reschedule_booking"
       subtitle={
         <>

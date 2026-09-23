@@ -1,6 +1,6 @@
 import { getRichDescription } from "@calcom/lib/CalEventParser";
 import { getReplyToHeader } from "@calcom/lib/getReplyToHeader";
-import { getTimeFormatForLocale } from "@calcom/lib/timeFormat";
+import { getRecipientTimeFormat } from "@calcom/lib/timeFormat";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 import type { TFunction } from "i18next";
 import { default as cloneDeep } from "lodash/cloneDeep";
@@ -102,7 +102,7 @@ ${getRichDescription(this.calEvent, this.t)}
   }
 
   public getFormattedDate() {
-    const inviteeTimeFormat = this.calEvent.organizer.timeFormat || getTimeFormatForLocale(this.getLocale());
+    const inviteeTimeFormat = getRecipientTimeFormat(this.calEvent.organizer.timeFormat, this.getLocale());
 
     return `${this.getInviteeStart(inviteeTimeFormat)} - ${this.getInviteeEnd(
       inviteeTimeFormat
