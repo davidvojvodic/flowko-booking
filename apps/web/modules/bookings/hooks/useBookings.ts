@@ -201,7 +201,7 @@ export const useBookings = ({ event, hashedLink, bookingForm, metadata, isBookin
           duration: validDuration,
           organizer: {
             name: users?.[0]?.name || "Nameless",
-            email: booking?.userPrimaryEmail || booking.user?.email || "Email-less",
+            email: booking.user?.email || "Email-less",
             timeZone: booking.user?.timeZone || "Europe/London",
           },
           confirmed: !(booking.status === BookingStatus.PENDING && event.data?.requiresConfirmation),
@@ -221,7 +221,7 @@ export const useBookings = ({ event, hashedLink, bookingForm, metadata, isBookin
           duration: validDuration,
           organizer: {
             name: users?.[0]?.name || "Nameless",
-            email: booking?.userPrimaryEmail || booking.user?.email || "Email-less",
+            email: booking.user?.email || "Email-less",
             timeZone: booking.user?.timeZone || "Europe/London",
           },
           confirmed: !(booking.status === BookingStatus.PENDING && event.data?.requiresConfirmation),
