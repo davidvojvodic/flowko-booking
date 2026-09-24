@@ -102,17 +102,29 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
   if (otherCredentialOfUser) return true;
   if (!primaryCalendarId) return false;
 
-  // Another user connected the same Google account
-  const where = {
-    integration: "google_calendar",
-    externalId: primaryCalendarId,
-    credentialId: { notIn: credentialIds },
-  };
-  const [selectedCalendar, destinationCalendar] = await Promise.all([
-    prisma.selectedCalendar.findFirst({ where, select: { id: true } }),
-    prisma.destinationCalendar.findFirst({ where, select: { id: true } }),
-  ]);
-  return !!selectedCalendar || !!destinationCalendar;
+  // Another user connected the same Google account.
+  // Flowko: a SelectedCalendar or DestinationCalendar row with this calendar id proves nothing on its own:
+  // a calendar shared from this account carries the same id, and another tenant could write such a row.
+  // Only another user's google_calendar credential whose token Google says belongs to this account shares
+  // the grant. The rows only pick which credentials to ask about. When Google does not answer, the
+  // credential does not count and the grant is revoked, which keeps the disconnect's privacy promise.
+  const calendarOfAccount = { integration: "google_calendar", externalId: primaryCalendarId };
+  const otherUsersCredentials = await prisma.credential.findMany({
+    where: {
+      type: "google_calendar",
+      id: { notIn: credentialIds },
+      userId: { not: userId },
+      OR: [
+        { selectedCalendars: { some: calendarOfAccount } },
+        { destinationCalendars: { some: calendarOfAccount } },
+      ],
+    },
+    select: { key: true },
+  });
+  const accounts = await Promise.all(otherUsersCredentials.map(({ key }) => lookUpGoogleAccount(key)));
+  return accounts.some(
+    (account) => account.status === "found" && account.primaryCalendarId === primaryCalendarId
+  );
 };
 
 // The callback never stores a token that lacks a required scope. Revoke its grant unless another
