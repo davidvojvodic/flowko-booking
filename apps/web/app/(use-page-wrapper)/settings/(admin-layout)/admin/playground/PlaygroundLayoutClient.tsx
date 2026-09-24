@@ -8,8 +8,9 @@ export default function PlaygroundLayoutClient({ children }: { children: React.R
 
   const isPlaygroundRoot = pathname === "/settings/admin/playground";
 
+  // Flowko: a fragment, so the server layout can render this as a JSX component (children may be undefined)
   return isPlaygroundRoot ? (
-    children
+    <>{children}</>
   ) : (
     <div>
       <Link href="/settings/admin/playground" className="text-sm underline">

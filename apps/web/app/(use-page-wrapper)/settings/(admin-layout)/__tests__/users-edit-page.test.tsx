@@ -40,10 +40,13 @@ vi.mock("app/_utils", () => ({
 vi.mock("@calcom/features/settings/appDir/SettingsHeader", () => ({ default: () => null }));
 vi.mock("@calcom/web/modules/users/views/users-edit-view", () => ({ UsersEditView: () => null }));
 
+import type { Params } from "app/_types";
+
 import Page, { generateMetadata } from "../admin/users/[id]/edit/page";
 
-const params = Promise.resolve({ id: "2" });
-const render = () => Page({ params: Promise.resolve({ id: "2" }) });
+// Next.js passes params as a promise; the page types it as Params and awaits it
+const params = Promise.resolve({ id: "2" }) as unknown as Params;
+const render = () => Page({ params });
 
 const tenant = { id: 2, username: "salon-ana", email: "ana@example.com" };
 
