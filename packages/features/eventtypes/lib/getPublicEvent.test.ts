@@ -85,3 +85,88 @@ describe("getPublicEvent with apps the admin switched off", () => {
     });
   });
 });
+
+// The result goes to anonymous callers of viewer.public.event and is SSR'd into every booking page
+describe("getPublicEvent owner and host data", () => {
+  const weekView = { enabledLayouts: ["week_view", "month_view"], defaultLayout: "week_view" };
+  const privateUserMetadata = {
+    emailChangeWaitingForVerification: "new-login@salon.si",
+    stripeCustomerId: "cus_123",
+    defaultConferencingApp: { appSlug: "zoom", appLink: "https://zoom.us/j/1" },
+  };
+  const ownerWithMetadata = {
+    ...owner,
+    metadata: { ...privateUserMetadata, defaultBookerLayouts: weekView },
+    defaultScheduleId: 7,
+  };
+  const host = {
+    user: {
+      ...owner,
+      id: 2,
+      username: "stylist",
+      metadata: { ...privateUserMetadata, defaultBookerLayouts: weekView },
+      defaultScheduleId: 8,
+    },
+  };
+
+  beforeEach(() => {
+    prismaMock.app.findMany.mockResolvedValue([] as never);
+    prismaMock.schedule.findUnique.mockResolvedValue({ id: 7, timeZone: "Europe/Ljubljana" } as never);
+  });
+
+  const expectNoPrivateUserFields = (user: object | null | undefined) => {
+    expect(user).toBeTruthy();
+    expect(user).not.toHaveProperty("metadata");
+    expect(user).not.toHaveProperty("defaultScheduleId");
+  };
+
+  it("returns the owner without metadata or defaultScheduleId, and still applies their booker layouts", async () => {
+    prismaMock.eventType.findFirst.mockResolvedValue({
+      ...eventType,
+      metadata: {},
+      owner: ownerWithMetadata,
+      schedule: null,
+    } as never);
+
+    const event = await getPublicEvent("salon", "haircut", false, null, prismaMock, false);
+
+    expectNoPrivateUserFields(event?.owner);
+    expect(JSON.stringify(event)).not.toContain("new-login@salon.si");
+    expect(JSON.stringify(event)).not.toContain("cus_123");
+    expect(event?.profile.bookerLayouts).toEqual(weekView);
+    // The owner's default schedule still stands in for a missing event schedule
+    expect(prismaMock.schedule.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 7 } })
+    );
+    expect(event?.schedule).toEqual({ timeZone: "Europe/Ljubljana" });
+  });
+
+  it("returns the event's own schedule as its time zone only", async () => {
+    prismaMock.eventType.findFirst.mockResolvedValue({ ...eventType, metadata: {} } as never);
+
+    const event = await getPublicEvent("salon", "haircut", false, null, prismaMock, false);
+
+    expect(event?.schedule).toEqual({ timeZone: "Europe/Ljubljana" });
+    expect(prismaMock.schedule.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns the hosts without metadata or defaultScheduleId, and still applies the first host's layouts", async () => {
+    prismaMock.eventType.findFirst.mockResolvedValue({
+      ...eventType,
+      metadata: {},
+      owner: ownerWithMetadata,
+      hosts: [host],
+    } as never);
+
+    const event = await getPublicEvent("salon", "haircut", false, null, prismaMock, false, undefined, true);
+
+    expectNoPrivateUserFields(event?.owner);
+    expect(event?.subsetOfHosts).toHaveLength(1);
+    expectNoPrivateUserFields(event?.subsetOfHosts[0].user);
+    expect(event?.hosts).toHaveLength(1);
+    expectNoPrivateUserFields(event?.hosts?.[0].user);
+    expect(event?.subsetOfHosts[0].user).toMatchObject({ username: "stylist", name: "Salon" });
+    expect(JSON.stringify(event)).not.toContain("new-login@salon.si");
+    expect(event?.profile.bookerLayouts).toEqual(weekView);
+  });
+});

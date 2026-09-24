@@ -73,7 +73,7 @@ export function getHostEmails({
   return new Set(emails.flatMap((email) => (email ? [normaliseEmail(email)] : [])));
 }
 
-function toOrganizerForViewer<TUser extends HostIdentity>(user: TUser, hideOrganizerEmail: boolean) {
+export function toOrganizerForViewer<TUser extends HostIdentity>(user: TUser, hideOrganizerEmail: boolean) {
   const { id: _id, email, ...userWithoutIdentity } = user;
   return { ...userWithoutIdentity, email: hideOrganizerEmail ? null : email };
 }
@@ -88,7 +88,7 @@ export function toHostForViewer<TUser extends HostIdentity>(
 }
 
 // The event type's app settings keep the id of the credential each app uses
-function withoutAppCredentialIds<TMetadata>(metadata: TMetadata): TMetadata {
+export function withoutAppCredentialIds<TMetadata>(metadata: TMetadata): TMetadata {
   if (!isRecord(metadata) || !isRecord(metadata.apps)) return metadata;
   const apps = Object.fromEntries(
     Object.entries(metadata.apps).map(([slug, app]) => {

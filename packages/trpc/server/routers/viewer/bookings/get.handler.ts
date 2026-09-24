@@ -1,4 +1,9 @@
 import dayjs from "@calcom/dayjs";
+import {
+  normaliseEmail,
+  toOrganizerForViewer,
+  withoutAppCredentialIds,
+} from "@calcom/features/bookings/lib/bookingPageForViewer";
 import getAllUserBookings from "@calcom/features/bookings/lib/getAllUserBookings";
 import { isTextFilterValue } from "@calcom/features/data-table/lib/utils";
 import type { DB } from "@calcom/kysely";
@@ -128,25 +133,11 @@ export async function getBookings({
   // PERFORMANCE: We no longer need to fetch all emails/IDs for the main query since we use subqueries
   const needsUserIdsValidation = !!filters?.userIds && filters.userIds.length > 0;
 
-  const [
-    eventTypeIdsFromTeamIdsFilter,
-    attendeeEmailsFromUserIdsFilter,
-    eventTypeIdsFromEventTypeIdsFilter,
-    allAccessibleUserIds,
-  ] = await Promise.all([
-    getEventTypeIdsFromTeamIdsFilter(prisma, filters?.teamIds),
-    getAttendeeEmailsFromUserIdsFilter(prisma, user.email, filters?.userIds),
-    getEventTypeIdsFromEventTypeIdsFilter(prisma, filters?.eventTypeIds),
-    // Only fetch accessible user IDs when we need to validate the userIds filter
-    needsUserIdsValidation
-      ? getUserIdsFromTeamIds(prisma, teamIdsWithBookingPermission)
-      : Promise.resolve([]),
-  ]);
-
-  const bookingQueries: { query: BookingsUnionQuery; tables: (keyof DB)[] }[] = [];
-
-  // If userIds filter is provided
-  if (!!filters?.userIds && filters.userIds.length > 0) {
+  // Flowko: authorise the userIds filter before any user lookup. getAttendeeEmailsFromUserIdsFilter answers
+  // BAD_REQUEST for an id no user has, so checking afterwards told a caller which foreign ids exist. Without
+  // teams allAccessibleUserIds is [] and the caller's own id is the only one allowed.
+  if (needsUserIdsValidation && filters.userIds) {
+    const allAccessibleUserIds = await getUserIdsFromTeamIds(prisma, teamIdsWithBookingPermission);
     const areUserIdsWithinUserOrgOrTeam = filters.userIds.every((userId) =>
       allAccessibleUserIds.includes(userId)
     );
@@ -162,7 +153,19 @@ export async function getBookings({
         message: "You do not have permissions to fetch bookings for specified userIds",
       });
     }
+  }
 
+  const [eventTypeIdsFromTeamIdsFilter, attendeeEmailsFromUserIdsFilter, eventTypeIdsFromEventTypeIdsFilter] =
+    await Promise.all([
+      getEventTypeIdsFromTeamIdsFilter(prisma, filters?.teamIds),
+      getAttendeeEmailsFromUserIdsFilter(prisma, user.email, filters?.userIds),
+      getEventTypeIdsFromEventTypeIdsFilter(prisma, filters?.eventTypeIds),
+    ]);
+
+  const bookingQueries: { query: BookingsUnionQuery; tables: (keyof DB)[] }[] = [];
+
+  // If userIds filter is provided (authorised above)
+  if (!!filters?.userIds && filters.userIds.length > 0) {
     // 1. Booking created by one of the filtered users
     bookingQueries.push({
       query: kysely
@@ -744,16 +747,123 @@ export async function getBookings({
     });
   };
 
+  // Flowko: a row the caller doesn't organize is a booking they made, or are a guest on, on another tenant's
+  // page under their own account email. It gets what the booking page gives a booker (U7a,
+  // bookingPageForViewer.ts), not the host-side record: no organizer id, no organizer email when the event
+  // type hides it, no calendar references beyond the meeting link (externalCalendarId is the host's Google
+  // calendar id), no host report or assignment reasons, no host ids or emails, no app credential ids, only
+  // the caller's own seats, no phone number but the caller's own and no hidden booking-field answers. The
+  // list UI reads user.id only to tell whether the caller is the host, so its absence reads as "not the
+  // host". The row keeps the organizer view's type, hence the casts on user and references. Unlike the
+  // booking page it keeps recurringEventId: it is the series of a booking the caller is on, and the list
+  // reads it to mark the row recurring and act on that series.
+  const viewerEmail = normaliseEmail(user.email);
+  const isViewerEmail = (email: string | null | undefined): boolean =>
+    !!email && normaliseEmail(email) === viewerEmail;
+  // Flowko: the booking page drops hidden booking fields' answers for anyone who isn't a host
+  // (bookings-single-view.getServerSideProps.tsx) and attendee emails skip them (getLabelValueMapFromResponses).
+  // A system field keeps its default from getBookingFields.ts for any property the event type didn't save,
+  // and those defaults hide the phone number, the title and, with guests off, the guests. Phone answers are
+  // the booker's number (Attendee.phoneNumber is copied from attendeePhoneNumber), so an attendee who isn't
+  // the booker gets none of them.
+  const toResponsesForBooker = (booking: (typeof plainBookings)[number]): Prisma.JsonValue => {
+    const { responses, eventType } = booking;
+    if (!isJsonRecord(responses)) return {};
+    const bookingFields: unknown = eventType?.bookingFields;
+    const storedFields: unknown[] = Array.isArray(bookingFields) ? bookingFields : [];
+    const fields = new Map(
+      storedFields.flatMap((field) =>
+        isJsonRecord(field) && typeof field.name === "string" ? [[field.name, field] as const] : []
+      )
+    );
+    const hiddenByDefault = new Set([
+      "attendeePhoneNumber",
+      "title",
+      ...(eventType?.disableGuests ? ["guests"] : []),
+    ]);
+    const isHidden = (name: string) => {
+      const hidden = fields.get(name)?.hidden;
+      return hidden === undefined ? hiddenByDefault.has(name) : !!hidden;
+    };
+    const isPhone = (name: string) =>
+      name === "attendeePhoneNumber" || name === "smsReminderNumber" || fields.get(name)?.type === "phone";
+    const isBooker = typeof responses.email === "string" && isViewerEmail(responses.email);
+    return Object.fromEntries(
+      Object.entries(responses).filter(([name]) => !isHidden(name) && (isBooker || !isPhone(name)))
+    ) as Prisma.JsonObject;
+  };
+  // Every email under which a host of the row can appear (read before the booker view strips them)
+  const getHostEmailsOfRow = (booking: (typeof plainBookings)[number]) =>
+    new Set(
+      [
+        booking.user?.email,
+        booking.userPrimaryEmail,
+        ...(booking.eventType?.hosts ?? []).map((host) => host.user?.email),
+      ].flatMap((email) => (email ? [normaliseEmail(email)] : []))
+    );
+  // Flowko: who cancelled or rescheduled, on a booker's row whose event type hides the organizer's email: the
+  // caller's own email stays, a host's becomes the organizer's name (as the booking page shows the
+  // rescheduler) and anyone else's is dropped
+  const toActorForBooker = (booking: (typeof plainBookings)[number], email: string | null) => {
+    if (!booking.eventType?.hideOrganizerEmail || !email || isViewerEmail(email)) return email;
+    return getHostEmailsOfRow(booking).has(normaliseEmail(email)) ? (booking.user?.name ?? null) : null;
+  };
+  const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
+    const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
+    const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
+    // Flowko: a host added as a guest is an attendee under their own email, which the event type may hide
+    // (U7a nulls it on the booking page). The row is dropped rather than nulled, so Attendee.email stays a string
+    const hostEmails = getHostEmailsOfRow(booking);
+    const isHiddenHostAttendee = (email: string) =>
+      hideOrganizerEmail && !isViewerEmail(email) && hostEmails.has(normaliseEmail(email));
+    return {
+      ...booking,
+      user: organizer as (typeof booking)["user"],
+      responses: toResponsesForBooker(booking),
+      userPrimaryEmail: hideOrganizerEmail ? null : booking.userPrimaryEmail,
+      cancelledBy: toActorForBooker(booking, booking.cancelledBy),
+      rescheduledBy: toActorForBooker(booking, booking.rescheduledBy),
+      references: booking.references
+        .filter((reference) => !reference.deleted)
+        .map(({ type, meetingUrl, meetingPassword }) => ({
+          type,
+          meetingUrl,
+          meetingPassword,
+        })) as (typeof booking)["references"],
+      report: null,
+      assignmentReasonSortedByCreatedAt: [],
+      eventType: booking.eventType && {
+        ...booking.eventType,
+        // Without teams a booker's row has no hosts to show; dropping them drops their ids and emails
+        hosts: [],
+        metadata: withoutAppCredentialIds(booking.eventType.metadata),
+      },
+      attendees: booking.attendees
+        .filter((attendee) => !isHiddenHostAttendee(attendee.email))
+        .map((attendee) => ({
+          ...attendee,
+          phoneNumber: isViewerEmail(attendee.email) ? attendee.phoneNumber : null,
+        })),
+      // A seat's referenceUid cancels or reschedules that seat without a login
+      seatsReferences: booking.seatsReferences.filter((seat) => isViewerEmail(seat.attendee?.email)),
+    };
+  };
+
   const bookings = await Promise.all(
-    plainBookings.map(async (booking) => {
+    plainBookings.map(async (bookingFromDb) => {
+      // Flowko: without teams the organizer is the only host (Host rows are written for team event types only),
+      // so the host-side record goes to the organizer alone and never on the strength of a Host row
+      const isHostRow = bookingFromDb.user?.id === user.id;
       // If seats are enabled, the event is not set to show attendees, and the current user is not the host, filter out attendees who are not the current user
       if (
-        booking.seatsReferences.length &&
-        !booking.eventType?.seatsShowAttendees &&
-        !checkIfUserIsHost(user.id, booking)
+        bookingFromDb.seatsReferences.length &&
+        !bookingFromDb.eventType?.seatsShowAttendees &&
+        !checkIfUserIsHost(user.id, bookingFromDb)
       ) {
-        booking.attendees = booking.attendees.filter((attendee) => attendee.email === user.email);
+        bookingFromDb.attendees = bookingFromDb.attendees.filter((attendee) => attendee.email === user.email);
       }
+      // Flowko: see toBookingForBooker
+      const booking = isHostRow ? bookingFromDb : toBookingForBooker(bookingFromDb);
 
       let rescheduler = null;
       if (booking.fromReschedule) {
@@ -766,7 +876,10 @@ export async function getBookings({
           },
         });
         if (rescheduledBooking) {
-          rescheduler = rescheduledBooking.rescheduledBy;
+          // Flowko: see toActorForBooker
+          rescheduler = isHostRow
+            ? rescheduledBooking.rescheduledBy
+            : toActorForBooker(bookingFromDb, rescheduledBooking.rescheduledBy);
         }
       }
 
@@ -791,6 +904,10 @@ export async function getBookings({
   const enrichedBookings = await enrichAttendeesWithUserData(bookings, kysely);
 
   return { bookings: enrichedBookings, recurringInfo, totalCount };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 type EnrichedUserData = {
@@ -960,11 +1077,11 @@ async function getEventTypeIdsFromEventTypeIdsFilter(prisma: PrismaClient, event
 
   const eventTypeIdsFromDb = Array.from(new Set([...directEventTypeIds, ...parentEventTypeIds]));
 
-  if (eventTypeIdsFromDb?.length === 0) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "The requested event-types do not exist.",
-    });
+  // Flowko: ids no event type has answered BAD_REQUEST, while another tenant's existing id just narrowed the
+  // list, which told a caller which event type ids exist. They now stay in the filter and match no booking
+  // (Booking.eventTypeId references EventType). An empty list here would drop the filter, so it's never returned
+  if (eventTypeIdsFromDb.length === 0) {
+    return eventTypeIds;
   }
 
   return eventTypeIdsFromDb;
