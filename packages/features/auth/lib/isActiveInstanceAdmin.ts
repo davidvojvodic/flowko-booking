@@ -1,5 +1,7 @@
 import { isENVDev } from "@calcom/lib/env";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
+import type { GetTokenParams } from "next-auth/jwt";
+import { getToken } from "next-auth/jwt";
 
 export type InstanceAdminCandidate = {
   role?: UserPermissionRole | "INACTIVE_ADMIN" | string | null;
@@ -21,7 +23,8 @@ export type InstanceAdminCandidate = {
  *
  * validateRole also requires a strong password, which cannot be read from the user row (only a hash is
  * stored). Its verdict lives only in the session's JWT role; pass that role as `signInRole` wherever a
- * session is at hand, and an admin who signed in as INACTIVE_ADMIN stays refused.
+ * session is at hand (isActiveInstanceAdminSession does), and an admin who signed in as INACTIVE_ADMIN
+ * stays refused. Without `signInRole` (an API key has no session) only the row is checked.
  *
  * Fails closed: a missing field counts as 2FA off and identity provider CAL.
  */
@@ -35,4 +38,28 @@ export function isActiveInstanceAdmin(
   if (process.env.NEXT_PUBLIC_IS_E2E) return true;
   if (user.twoFactorEnabled === true) return true;
   return isENVDev;
+}
+
+/**
+ * Flowko: the role next-auth gave this session at sign-in, from its JWT. getServerSession replaces it with
+ * the database role, so this is the only place where "INACTIVE_ADMIN" is still visible on the server.
+ * Null when there is no request or no token.
+ */
+export async function getSignInRole(req: GetTokenParams["req"] | undefined) {
+  if (!req) return null;
+  const token = await getToken({ req });
+  return token?.role ?? null;
+}
+
+/**
+ * Flowko: isActiveInstanceAdmin for a signed-in request: the user row (with twoFactorEnabled and
+ * identityProvider selected) and the session's sign-in role must both pass. Fails closed without a request.
+ */
+export async function isActiveInstanceAdminSession(
+  user: InstanceAdminCandidate | null | undefined,
+  req: GetTokenParams["req"] | undefined
+): Promise<boolean> {
+  // Only an admin by the row needs the JWT read at all
+  if (!isActiveInstanceAdmin(user)) return false;
+  return isActiveInstanceAdmin(user, await getSignInRole(req));
 }

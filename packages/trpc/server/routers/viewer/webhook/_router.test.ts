@@ -14,9 +14,12 @@ const mocks = vi.hoisted(() => ({
   deleteHandler: vi.fn(),
   testTriggerHandler: vi.fn(),
   getByViewerHandler: vi.fn(),
+  getToken: vi.fn(),
 }));
 
 vi.mock("@calcom/features/auth/lib/userFromSessionUtils", () => ({ getUserSession: mocks.getUserSession }));
+// The session's JWT, which carries the role validateRole gave it at sign-in
+vi.mock("next-auth/jwt", () => ({ getToken: mocks.getToken }));
 vi.mock("./list.handler", () => ({ listHandler: mocks.listHandler }));
 vi.mock("./get.handler", () => ({ getHandler: mocks.getHandler }));
 vi.mock("./create.handler", () => ({ createHandler: mocks.createHandler }));
@@ -29,21 +32,23 @@ const createCaller = createCallerFactory(webhookRouter);
 
 type Caller = ReturnType<typeof createCaller>;
 
-// INACTIVE_ADMIN: an ADMIN without 2FA, whom validateRole demotes only in the JWT, never in the database
-function callerFor(role: "USER" | "ADMIN" | "INACTIVE_ADMIN") {
+// validateRole demotes an ADMIN without 2FA or a strong password to INACTIVE_ADMIN only in the JWT, never in
+// the database. NO_2FA: 2FA off in the database. WEAK_PASSWORD: 2FA on, but the JWT says INACTIVE_ADMIN.
+function callerFor(role: "USER" | "ADMIN" | "NO_2FA" | "WEAK_PASSWORD") {
   const isAdmin = role !== "USER";
   const user = {
     id: isAdmin ? 9 : 1,
     role: isAdmin ? "ADMIN" : role,
     username: isAdmin ? "flowko" : "salon",
-    twoFactorEnabled: role === "ADMIN",
+    twoFactorEnabled: role !== "NO_2FA",
     identityProvider: "CAL",
   };
   mocks.getUserSession.mockResolvedValue({
     user,
     session: { user: { id: user.id }, upId: `usr-${user.id}` },
   });
-  return createCaller({} as Parameters<typeof createCaller>[0]);
+  mocks.getToken.mockResolvedValue({ role: role === "ADMIN" ? "ADMIN" : isAdmin ? "INACTIVE_ADMIN" : role });
+  return createCaller({ req: {} } as Parameters<typeof createCaller>[0]);
 }
 
 const handlers = [
@@ -91,7 +96,14 @@ describe("webhookRouter", () => {
   });
 
   it.each(calls)("refuses %s to an admin with two-factor authentication off", async (_name, call) => {
-    await expect(call(callerFor("INACTIVE_ADMIN"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call(callerFor("NO_2FA"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    for (const handler of handlers) expect(handler).not.toHaveBeenCalled();
+    expect(prismaMock.webhook.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each(calls)("refuses %s to an admin whose session signed in as INACTIVE_ADMIN", async (_name, call) => {
+    await expect(call(callerFor("WEAK_PASSWORD"))).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     for (const handler of handlers) expect(handler).not.toHaveBeenCalled();
     expect(prismaMock.webhook.findUnique).not.toHaveBeenCalled();

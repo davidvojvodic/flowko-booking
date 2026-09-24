@@ -1,6 +1,13 @@
+import type { NextApiRequest } from "next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isActiveInstanceAdmin } from "./isActiveInstanceAdmin";
+import { getSignInRole, isActiveInstanceAdmin, isActiveInstanceAdminSession } from "./isActiveInstanceAdmin";
+
+const { getToken } = vi.hoisted(() => ({ getToken: vi.fn() }));
+
+vi.mock("next-auth/jwt", () => ({ getToken }));
+
+const req = {} as NextApiRequest;
 
 const admin = { role: "ADMIN", twoFactorEnabled: true, identityProvider: "CAL" };
 
@@ -51,5 +58,40 @@ describe("isActiveInstanceAdmin", () => {
 
   it("refuses a user who was an admin at sign-in but no longer is", () => {
     expect(isActiveInstanceAdmin({ ...admin, role: "USER" }, "ADMIN")).toBe(false);
+  });
+});
+
+describe("isActiveInstanceAdminSession", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("accepts an admin with 2FA whose session signed in as ADMIN", async () => {
+    getToken.mockResolvedValue({ role: "ADMIN" });
+
+    await expect(isActiveInstanceAdminSession(admin, req)).resolves.toBe(true);
+    expect(getToken).toHaveBeenCalledWith({ req });
+  });
+
+  // An admin with 2FA but a weak password: validateRole signed them in as INACTIVE_ADMIN
+  it("refuses an admin whose session signed in as INACTIVE_ADMIN", async () => {
+    getToken.mockResolvedValue({ role: "INACTIVE_ADMIN" });
+
+    await expect(isActiveInstanceAdminSession(admin, req)).resolves.toBe(false);
+  });
+
+  it("refuses when there is no token or no request", async () => {
+    getToken.mockResolvedValue(null);
+
+    await expect(isActiveInstanceAdminSession(admin, req)).resolves.toBe(false);
+    await expect(isActiveInstanceAdminSession(admin, undefined)).resolves.toBe(false);
+    await expect(getSignInRole(undefined)).resolves.toBeNull();
+  });
+
+  it("does not read the token for a user who isn't an admin by the row", async () => {
+    await expect(isActiveInstanceAdminSession({ ...admin, twoFactorEnabled: false }, req)).resolves.toBe(false);
+    await expect(isActiveInstanceAdminSession({ ...admin, role: "USER" }, req)).resolves.toBe(false);
+
+    expect(getToken).not.toHaveBeenCalled();
   });
 });
