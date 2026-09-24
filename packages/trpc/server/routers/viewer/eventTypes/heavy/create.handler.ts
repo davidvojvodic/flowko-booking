@@ -120,15 +120,19 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
   if (teamId && schedulingType) {
     const isSystemAdmin = ctx.user.role === "ADMIN";
 
-    // Only check for team-level permissions - this will also check for membership
-    const hasCreatePermission = await permissionService.checkPermission({
-      userId,
-      teamId,
-      permission: "eventType.create",
-      fallbackRoles: [MembershipRole.ADMIN, MembershipRole.OWNER],
-    });
+    // Flowko: there are no teams or organizations on this instance and the PBAC service above is a stub that
+    // allows everyone, so a team event type needs an accepted admin or owner membership of that team
+    const hasCreatePermission = !!(await ctx.prisma.membership.findFirst({
+      where: {
+        teamId,
+        userId,
+        accepted: true,
+        role: { in: [MembershipRole.ADMIN, MembershipRole.OWNER] },
+      },
+      select: { id: true },
+    }));
 
-    if (!isSystemAdmin && !hasOrgEventTypeCreatePermission && !hasCreatePermission) {
+    if (!isSystemAdmin && !hasCreatePermission) {
       // If none of the above conditions are met, the user is unauthorized.
       // which means the user is not admin of the team nor the org.
       console.warn(`User ${userId} does not have eventType.create permission for team ${teamId}`);
