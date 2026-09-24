@@ -317,10 +317,12 @@ const _sendPayload = async (
     throw new Error("Missing required elements to send webhook payload.");
   }
 
-  // Flowko: re-check the URL (with DNS) right before every delivery: stored webhooks saved before the
-  // guard, scheduled triggers, no-show tasks and the test trigger. Loopback, private and metadata
-  // targets are refused whatever the scheme; https-only is enforced when the URL is saved. The error
-  // names no URL (U7b keeps webhook URLs out of logs).
+  // Flowko: re-check the URL (with DNS) right before every delivery that goes through sendPayload or
+  // sendGenericWebhookPayload: booking flows, the sendWebhook tasker task, no-show tasks, OOO and the
+  // test trigger, including webhooks stored before the guard. handleWebhookScheduledTriggers and
+  // service/WebhookService.sendWebhookDirectly do their own fetch and need the same check there.
+  // Loopback, private and metadata targets are refused whatever the scheme; https-only is enforced
+  // when the URL is saved. The error names no URL (U7b keeps webhook URLs out of logs).
   const ssrfValidation = await validateUrlForSSRF(subscriberUrl, { allowHttp: true });
   if (!ssrfValidation.isValid) {
     throw new Error(`Webhook URL is not allowed: ${ssrfValidation.error}`);
