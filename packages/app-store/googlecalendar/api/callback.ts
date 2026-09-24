@@ -42,6 +42,13 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     throw new HttpError({ statusCode: 401, message: "You must be logged in to do this" });
   }
 
+  // Flowko: redeem the code only for the user who started this connect flow. decodeOAuthState returns
+  // undefined for a state that is missing, has no nonce, or whose nonce was signed for another user, so a
+  // victim who opens an attacker's callback link can't get the attacker's Google account attached (login CSRF)
+  if (!state) {
+    throw new HttpError({ statusCode: 403, message: "Invalid OAuth state" });
+  }
+
   const { client_id, client_secret } = await getGoogleAppKeys();
 
   const redirect_uri = `${WEBAPP_URL_FOR_OAUTH}/api/integrations/googlecalendar/callback`;
