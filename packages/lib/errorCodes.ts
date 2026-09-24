@@ -42,6 +42,8 @@ export enum ErrorCode {
   RestrictionScheduleNotFound = "restriction_schedule_not_found_error",
   EventTypeNoHosts = "event_type_no_hosts",
   RequestBodyInvalid = "request_body_invalid_error",
+  // The booker picked a location the event type doesn't offer (see isBookerLocationOffered)
+  LocationNotOffered = "location_not_offered_error",
   PrivateLinkExpired = "private_link_expired",
   BookerEmailBlocked = "booker_email_blocked",
   BookerEmailRequiresLogin = "booker_email_requires_login",

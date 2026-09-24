@@ -291,7 +291,7 @@ describe("Per-Host Locations - handleNewBooking", () => {
       // Per-host location resolution was removed during EE cleanup, so the host's location is not offered.
       // Flowko (B1): a location the event type itself doesn't offer is refused
       await expect(handleNewBooking({ bookingData: mockBookingData })).rejects.toThrow(
-        ErrorCode.RequestBodyInvalid
+        ErrorCode.LocationNotOffered
       );
     });
 
@@ -372,7 +372,7 @@ describe("Per-Host Locations - handleNewBooking", () => {
       // Per-host location resolution was removed during EE cleanup, so the host's location is not offered.
       // Flowko (B1): a location the event type itself doesn't offer is refused
       await expect(handleNewBooking({ bookingData: mockBookingData })).rejects.toThrow(
-        ErrorCode.RequestBodyInvalid
+        ErrorCode.LocationNotOffered
       );
     });
 

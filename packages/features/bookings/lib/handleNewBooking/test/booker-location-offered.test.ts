@@ -130,7 +130,7 @@ describe("handleNewBooking with a booker-picked location", () => {
   }
 
   async function expectRefused({ booking, calendar, calVideo }: Awaited<ReturnType<typeof book>>) {
-    await expect(booking).rejects.toThrow(ErrorCode.RequestBodyInvalid);
+    await expect(booking).rejects.toThrow(ErrorCode.LocationNotOffered);
     expect(await prismaMock.booking.findMany()).toHaveLength(0);
     expect(calendar.createEventCalls).toHaveLength(0);
     expect(calVideo.createMeetingCalls).toHaveLength(0);
