@@ -21,6 +21,15 @@ const log = logger.getSubLogger({ prefix: ["[features/conferencing/lib] videoCli
 
 const translator = short();
 
+/**
+ * Flowko: Cal Video (the daily-video App row) stands in for a missing or failing video app only while the
+ * admin keeps it enabled under Settings → Admin → Apps. Every booking-time Cal Video fallback asks this.
+ */
+export const isCalVideoEnabled = async (): Promise<boolean> => {
+  const calVideo = await prisma.app.findUnique({ where: { slug: CAL_VIDEO }, select: { enabled: true } });
+  return !!calVideo?.enabled;
+};
+
 const getBusyVideoTimes = async (withCredentials: CredentialPayload[]) =>
   Promise.all((await getVideoAdapters(withCredentials)).map((c) => c?.getAvailability())).then((results) =>
     results.reduce((acc, availability) => acc.concat(availability), [] as (EventBusyDate | undefined)[])
@@ -177,6 +186,8 @@ const deleteMeeting = async (
 
 // @TODO: This is a temporary solution to create a meeting with cal.com video as fallback url
 const createMeetingWithCalVideo = async (calEvent: CalendarEvent) => {
+  // Flowko: no Daily room in place of a failed (or switched-off) video app while Cal Video is switched off
+  if (!(await isCalVideoEnabled())) return;
   let dailyAppKeys: Awaited<ReturnType<typeof getDailyAppKeys>>;
   try {
     dailyAppKeys = await getDailyAppKeys();
