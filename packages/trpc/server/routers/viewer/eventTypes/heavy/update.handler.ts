@@ -21,6 +21,7 @@ import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
+import { ensureSchedulesBelongTo } from "../ensureSchedulesBelongTo";
 import {
   ensureEmailOrPhoneNumberIsPresent,
   ensureUniqueBookingFields,
@@ -63,6 +64,10 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
   const {
     schedule,
     instantMeetingSchedule,
+    // Flowko: the scalar ids are aliases of the two fields above. They are taken out so they can't reach
+    // ...rest, which wrote them with no ownership check
+    scheduleId,
+    instantMeetingScheduleId,
     periodType,
     locations,
     bookingLimits,
@@ -207,6 +212,24 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
   // Flowko: the team comes from the stored event type only, so a request can't name a team to pass the
   // restriction schedule and host membership checks below
   const teamId = eventType.team?.id;
+
+  // Flowko: each schedule field resolves to one value, the relation-style field winning over its scalar
+  // alias. Another tenant's schedule is refused before anything is written, where the old check skipped a
+  // foreign `schedule` silently and never looked at the other three
+  const scheduleToSet = schedule !== undefined ? schedule : scheduleId;
+  const instantMeetingScheduleToSet =
+    instantMeetingSchedule !== undefined ? instantMeetingSchedule : instantMeetingScheduleId;
+  const hostSchedules = teamId && hosts ? hosts.filter((host) => !!host.scheduleId) : [];
+  await ensureSchedulesBelongTo(ctx.prisma, [
+    ...(scheduleToSet ? [{ scheduleId: scheduleToSet, userId: ctx.user.id }] : []),
+    ...(instantMeetingScheduleToSet
+      ? [{ scheduleId: instantMeetingScheduleToSet, userId: ctx.user.id }]
+      : []),
+    // A host's schedule must be that host's own, as the host schedule picker offers. Hosts are only written
+    // for a team event type (none on this instance)
+    ...hostSchedules.map((host) => ({ scheduleId: host.scheduleId as number, userId: host.userId })),
+  ]);
+
   const guestsField = bookingFields?.find((field) => field.name === "guests");
 
   ensureUniqueBookingFields(bookingFields);
@@ -333,36 +356,28 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     throw new TRPCError({ code: "BAD_REQUEST", message: t(bookerLayoutsError) });
   }
 
-  if (schedule) {
-    // Check that the schedule belongs to the user
-    const userScheduleQuery = await ctx.prisma.schedule.findFirst({
-      where: {
-        userId: ctx.user.id,
-        id: schedule,
+  // Flowko: both schedules were checked against the caller above (ensureSchedulesBelongTo)
+  if (scheduleToSet) {
+    data.schedule = {
+      connect: {
+        id: scheduleToSet,
       },
-    });
-    if (userScheduleQuery) {
-      data.schedule = {
-        connect: {
-          id: schedule,
-        },
-      };
-    }
+    };
   }
   // allows unsetting a schedule through { schedule: null, ... }
-  else if (null === schedule || schedule === 0) {
+  else if (null === scheduleToSet || scheduleToSet === 0) {
     data.schedule = {
       disconnect: true,
     };
   }
 
-  if (instantMeetingSchedule) {
+  if (instantMeetingScheduleToSet) {
     data.instantMeetingSchedule = {
       connect: {
-        id: instantMeetingSchedule,
+        id: instantMeetingScheduleToSet,
       },
     };
-  } else if (schedule === null) {
+  } else if (schedule === null || instantMeetingScheduleToSet === null) {
     data.instantMeetingSchedule = {
       disconnect: true,
     };
