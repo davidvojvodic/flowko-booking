@@ -1,19 +1,25 @@
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { findUsersForAvailabilityCheck } from "@calcom/features/availability/lib/findUsersForAvailabilityCheck";
 import { getUserAvailabilityService } from "@calcom/features/di/containers/GetUserAvailability";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { prisma } from "@calcom/prisma";
 import type { Prisma } from "@calcom/prisma/client";
-import { UserPermissionRole } from "@calcom/prisma/enums";
 import { TRPCError } from "@trpc/server";
+import type { GetTokenParams } from "next-auth/jwt";
 import type { TrpcSessionUser } from "../../../types";
 import type { TUserInputSchema } from "./user.schema";
 
 type UserOptions = {
   ctx: {
     user: NonNullable<TrpcSessionUser>;
+    req?: GetTokenParams["req"];
   };
   input: TUserInputSchema;
 };
+
+// Flowko: the troubleshooter and onboarding ask for about a week. A longer window would walk a tenant's whole
+// booking history in one call and make one Google freebusy request per 90 days with their credential.
+const MAX_RANGE_DAYS = 90;
 
 function getUser(where: Prisma.UserWhereInput) {
   return findUsersForAvailabilityCheck({
@@ -23,8 +29,10 @@ function getUser(where: Prisma.UserWhereInput) {
 
 export const userHandler = async ({ ctx, input }: UserOptions) => {
   // Flowko: every client business is its own user on this instance, so a user reads only their own
-  // availability (busy times with calendar event titles, schedules, out of office). An admin may read anyone's.
-  const isAdmin = ctx.user.role === UserPermissionRole.ADMIN;
+  // availability (busy times with calendar event titles, schedules, out of office). An admin may read anyone's,
+  // but only an active one: an ADMIN without 2FA or a strong password is an INACTIVE_ADMIN at sign-in, while
+  // the database still says ADMIN.
+  const isAdmin = await isActiveInstanceAdminSession(ctx.user, ctx.req);
   if (!isAdmin && input.username !== ctx.user.username) {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
@@ -35,6 +43,10 @@ export const userHandler = async ({ ctx, input }: UserOptions) => {
       userId: ctx.user.id,
     });
     if (!eventType) throw new TRPCError({ code: "FORBIDDEN" });
+  }
+
+  if (input.dateTo.diff(input.dateFrom, "day", true) > MAX_RANGE_DAYS) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `The date range can be at most ${MAX_RANGE_DAYS} days` });
   }
 
   const userAvailabilityService = getUserAvailabilityService();

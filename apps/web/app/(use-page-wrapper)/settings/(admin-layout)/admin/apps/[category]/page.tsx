@@ -1,8 +1,10 @@
 import { _generateMetadata } from "app/_utils";
 import { getTranslate } from "app/_utils";
 
-import AdminAppsList from "~/apps/components/AdminAppsList";
+import AdminAppsList from "@calcom/web/modules/apps/components/AdminAppsList";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
+
+import { requireActiveAdmin } from "../../../requireActiveAdmin";
 
 export const generateMetadata = async ({ params }: { params: Promise<{ category: string }> }) =>
   await _generateMetadata(
@@ -14,6 +16,8 @@ export const generateMetadata = async ({ params }: { params: Promise<{ category:
   );
 
 const Page = async () => {
+  // Flowko: the layout's admin check can be skipped on a partial render, so the page checks itself
+  await requireActiveAdmin();
   const t = await getTranslate();
 
   return (

@@ -1,3 +1,4 @@
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { getUserSession } from "@calcom/features/auth/lib/userFromSessionUtils";
 import logger from "@calcom/lib/logger";
 import { setUser as SentrySetUser } from "@sentry/nextjs";
@@ -23,9 +24,11 @@ export const isAuthed = middleware(async ({ ctx, next }) => {
   });
 });
 
-export const isAdminMiddleware = isAuthed.unstable_pipe(({ ctx, next }) => {
+export const isAdminMiddleware = isAuthed.unstable_pipe(async ({ ctx, next }) => {
   const { user } = ctx;
-  if (user?.role !== "ADMIN") {
+  // Flowko: an ADMIN without 2FA or a strong password is an INACTIVE_ADMIN at sign-in, but the database
+  // still says ADMIN
+  if (!(await isActiveInstanceAdminSession(user, ctx.req))) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
   return next({ ctx: { user: user } });

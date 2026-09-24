@@ -3,6 +3,7 @@ import { v4 } from "uuid";
 import { DailyLocationType, getHumanReadableLocationValue } from "@calcom/app-store/locations";
 import { selectOOOEntries } from "@calcom/app-store/zapier/api/subscriptions/listOOOEntries";
 import dayjs from "@calcom/dayjs";
+import { isActiveInstanceAdmin } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import tasker from "@calcom/features/tasker";
 import { HttpError } from "@calcom/lib/http-error";
@@ -12,7 +13,7 @@ import { withReporting } from "@calcom/lib/sentryWrapper";
 import { getTranslation } from "@calcom/i18n/server";
 import { prisma } from "@calcom/prisma";
 import type { Prisma, Webhook, Booking, ApiKey } from "@calcom/prisma/client";
-import { BookingStatus, UserPermissionRole, WebhookTriggerEvents } from "@calcom/prisma/enums";
+import { BookingStatus, WebhookTriggerEvents } from "@calcom/prisma/enums";
 import { bookingMetadataSchema } from "@calcom/prisma/zod-utils";
 import { DEFAULT_WEBHOOK_VERSION, type WebhookVersion } from "./interface/IWebhookRepository";
 
@@ -30,7 +31,8 @@ const log = logger.getSubLogger({ prefix: ["[node-scheduler]"] });
 
 /**
  * Flowko: a Zapier or Make subscription is a webhook, which sends full booker data to its URL. As in the
- * webhook settings, only an instance admin may create or delete one; a team key or account never may.
+ * webhook settings, only an active instance admin may create or delete one (an ADMIN without 2FA is an
+ * INACTIVE_ADMIN, also when they use an API key); a team key or account never may.
  */
 async function ensureSubscriptionOwnerIsAdmin({
   userId,
@@ -41,9 +43,12 @@ async function ensureSubscriptionOwnerIsAdmin({
 }) {
   const owner =
     userId && !teamId
-      ? await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+      ? await prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: true, twoFactorEnabled: true, identityProvider: true },
+        })
       : null;
-  if (owner?.role !== UserPermissionRole.ADMIN) {
+  if (!isActiveInstanceAdmin(owner)) {
     throw new HttpError({ statusCode: 403, message: "Only an admin can manage webhooks" });
   }
 }
