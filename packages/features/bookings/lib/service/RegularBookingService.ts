@@ -85,7 +85,6 @@ import type {
 import type { CredentialForCalendarService } from "@calcom/types/Credential";
 import type { EventResult, PartialReference } from "@calcom/types/EventManager";
 import short, { uuid } from "short-uuid";
-import { v5 as uuidv5 } from "uuid";
 import type { BookingRepository } from "../../repositories/BookingRepository";
 import { BookingActionMap, type BookingActionType, BookingEmailSmsHandler } from "../BookingEmailSmsHandler";
 import { getAllCredentialsIncludeServiceAccountKey } from "../getAllCredentialsForUsersOnEvent/getAllCredentials";
@@ -1348,8 +1347,11 @@ async function handler(
     tracingLogger.info("Removed guests from the booking", guestsRemoved);
   }
 
-  const seed = `${organizerUser.username}:${dayjs(reqBody.start).utc().format()}:${Date.now()}`;
-  const uid = translator.fromUUID(uuidv5(seed, uuidv5.URL));
+  // Flowko: the uid alone opens /booking/<uid> (the booker's name, email and answers) and lets anyone cancel
+  // the booking, rate it or mark the host as a no-show, so it must be a secret. It was uuidv5 of the host's
+  // public username, the public slot start and Date.now(), which an outsider can compute offline; now it is
+  // a random v4 uuid (crypto RNG) in the same short-uuid format.
+  const uid = translator.generate();
 
   // For static link based video apps, it would have the static URL value instead of it's type(e.g. integrations:campfire_video)
   // This ensures that createMeeting isn't called for static video apps as bookingLocation becomes just a regular value for them.
