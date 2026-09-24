@@ -141,3 +141,93 @@ describe("createHandler with apps the admin switched off", () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ locations: [] }));
   });
 });
+
+// There are no teams on this instance and the PBAC service in the handler is a stub that allows everyone, so a
+// tenant could otherwise create an event type inside any team by naming its id
+describe("createHandler with a team", () => {
+  const teamInput = { ...input, teamId: 7, schedulingType: "COLLECTIVE" } as TCreateInputSchema;
+
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({ id: 10, slug: "haircut" });
+    prismaMock.app.findMany.mockResolvedValue([]);
+  });
+
+  it("refuses a team the user is not an admin or owner of", async () => {
+    prismaMock.membership.findFirst.mockResolvedValue(null);
+
+    await expect(createHandler({ ctx, input: teamInput })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    expect(prismaMock.membership.findFirst).toHaveBeenCalledWith({
+      where: { teamId: 7, userId: 1, accepted: true, role: { in: ["ADMIN", "OWNER"] } },
+      select: { id: true },
+    });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates the event type for an accepted admin or owner of the team", async () => {
+    prismaMock.membership.findFirst.mockResolvedValue({ id: 3 } as never);
+
+    await createHandler({ ctx, input: teamInput });
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ team: { connect: { id: 7 } } }));
+  });
+
+  it("lets the system admin create a team event type", async () => {
+    prismaMock.membership.findFirst.mockResolvedValue(null);
+    const adminCtx = { ...ctx, user: { ...ctx.user, role: "ADMIN" } } as unknown as CreateOptions["ctx"];
+
+    await createHandler({ ctx: adminCtx, input: teamInput });
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ team: { connect: { id: 7 } } }));
+  });
+});
+
+// Schedule ids are sequential. A new event type bound to another tenant's schedule showed that tenant's working
+// hours, date overrides and timezone in its public slots
+describe("createHandler with a schedule", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({ id: 10, slug: "haircut" });
+    prismaMock.app.findMany.mockResolvedValue([]);
+  });
+
+  it("refuses another tenant's schedule", async () => {
+    prismaMock.schedule.findMany.mockResolvedValue([{ id: 50, userId: 2 }] as never);
+
+    await expect(createHandler({ ctx, input: { ...input, scheduleId: 50 } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    expect(prismaMock.schedule.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [50] } },
+      select: { id: true, userId: true },
+    });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a schedule id that does not exist the same way", async () => {
+    prismaMock.schedule.findMany.mockResolvedValue([]);
+
+    await expect(createHandler({ ctx, input: { ...input, scheduleId: 999 } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("connects the owner's own schedule", async () => {
+    prismaMock.schedule.findMany.mockResolvedValue([{ id: 10, userId: 1 }] as never);
+
+    await createHandler({ ctx, input: { ...input, scheduleId: 10 } });
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ schedule: { connect: { id: 10 } } }));
+  });
+
+  it("creates an event type without a schedule with no schedule lookup", async () => {
+    await createHandler({ ctx, input });
+
+    expect(prismaMock.schedule.findMany).not.toHaveBeenCalled();
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ schedule: undefined }));
+  });
+});

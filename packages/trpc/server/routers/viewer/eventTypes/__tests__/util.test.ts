@@ -3,7 +3,7 @@ import { MembershipRole } from "@calcom/prisma/enums";
 import { TRPCError } from "@trpc/server";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { authedProcedure } from "../../../procedures/authedProcedure";
-import { createEventPbacProcedure, ensureEmailOrPhoneNumberIsPresent } from "../util";
+import { createEventPbacProcedure, ensureEmailOrPhoneNumberIsPresent, eventOwnerProcedure } from "../util";
 
 describe("createEventPbacProcedure", () => {
   const mockPrisma = {
@@ -19,6 +19,14 @@ describe("createEventPbacProcedure", () => {
   };
 
   const mockNext = vi.fn().mockResolvedValue({ ctx: mockCtx });
+
+  const personalEventOf = (userId: number) => ({
+    id: 1,
+    userId,
+    teamId: null,
+    users: [{ id: userId }],
+    team: null,
+  });
 
   // Helper to get the custom middleware (after authedProcedure)
   const getMiddleware = (procedure: ReturnType<typeof authedProcedure>) => {
@@ -400,6 +408,48 @@ describe("createEventPbacProcedure", () => {
         select: expect.any(Object),
       });
     });
+
+    // ET-1: the middleware checks one key and the handler may act on the other, so they must agree
+    it("should refuse id and eventTypeId naming different event types", async () => {
+      mockPrisma.eventType.findUnique = vi.fn().mockResolvedValue(personalEventOf(1));
+
+      const procedure = createEventPbacProcedure("eventType.delete");
+      const middleware = getMiddleware(procedure);
+
+      const result = middleware({
+        ctx: mockCtx,
+        input: { id: 2, eventTypeId: 1 },
+        next: mockNext,
+        path: "test",
+        type: "mutation",
+        getRawInput: async () => ({}),
+        meta: undefined,
+      });
+
+      await expect(result).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(mockPrisma.eventType.findUnique).not.toHaveBeenCalled();
+      expect(mockNext).not.toHaveBeenCalled();
+    });
+
+    it("should accept id and eventTypeId naming the same event type", async () => {
+      mockPrisma.eventType.findUnique = vi.fn().mockResolvedValue(personalEventOf(1));
+
+      const procedure = createEventPbacProcedure("eventType.update");
+      const middleware = getMiddleware(procedure);
+
+      await expect(
+        middleware({
+          ctx: mockCtx,
+          input: { id: 1, eventTypeId: 1 },
+          next: mockNext,
+          path: "test",
+          type: "mutation",
+          getRawInput: async () => ({}),
+          meta: undefined,
+        })
+      ).resolves.not.toThrow();
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("different permissions and fallback roles", () => {
@@ -611,5 +661,43 @@ describe("createEventPbacProcedure", () => {
 
       expect(() => ensureEmailOrPhoneNumberIsPresent(fields)).not.toThrow();
     });
+  });
+});
+
+describe("eventOwnerProcedure", () => {
+  const findUnique = vi.fn();
+  const mockCtx = {
+    user: { id: 1, profile: { upId: "user-1" } },
+    session: { user: { id: 1 } },
+    prisma: { eventType: { findUnique } } as unknown as PrismaClient,
+  };
+  const mockNext = vi.fn().mockResolvedValue({ ctx: mockCtx });
+  const middleware = eventOwnerProcedure._def.middlewares[eventOwnerProcedure._def.middlewares.length - 1];
+  const run = (input: Record<string, unknown>) =>
+    middleware({
+      ctx: mockCtx,
+      input,
+      next: mockNext,
+      path: "test",
+      type: "mutation",
+      getRawInput: async () => ({}),
+      meta: undefined,
+    } as never);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findUnique.mockResolvedValue({ id: 1, userId: 1, users: [{ id: 1 }], team: null });
+  });
+
+  it("should allow the owner of the event type", async () => {
+    await expect(run({ id: 1, users: [] })).resolves.not.toThrow();
+    expect(mockNext).toHaveBeenCalledTimes(1);
+  });
+
+  // ET-1: the middleware checks one key and the handler may act on the other, so they must agree
+  it("should refuse id and eventTypeId naming different event types", async () => {
+    await expect(run({ id: 2, eventTypeId: 1, users: [] })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(mockNext).not.toHaveBeenCalled();
   });
 });

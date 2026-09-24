@@ -26,6 +26,21 @@ export const bulkUpdateToDefaultAvailabilityHandler = async ({
     });
   }
 
+  const scheduleId = selectedDefaultScheduleId || defaultScheduleId;
+
+  // Flowko: schedule ids are sequential, and binding another tenant's schedule to the caller's event types
+  // showed that tenant's working hours, date overrides and timezone in their slots. A missing schedule gets
+  // the same FORBIDDEN, so the call does not tell which ids exist
+  const ownSchedule = scheduleId
+    ? await prisma.schedule.findFirst({
+        where: { id: scheduleId, userId: ctx.user.id },
+        select: { id: true },
+      })
+    : null;
+  if (!ownSchedule) {
+    throw new TRPCError({ code: "FORBIDDEN" });
+  }
+
   return await prisma.eventType.updateMany({
     where: {
       id: {
@@ -34,7 +49,7 @@ export const bulkUpdateToDefaultAvailabilityHandler = async ({
       userId: ctx.user.id,
     },
     data: {
-      scheduleId: selectedDefaultScheduleId || defaultScheduleId,
+      scheduleId: ownSchedule.id,
     },
   });
 };

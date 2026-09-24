@@ -87,6 +87,8 @@ export class WebhookRepository implements IWebhookRepository {
     const orgId = options.orgId;
     const oAuthClientId = options.oAuthClientId;
 
+    // Flowko: set only when the parent is a managed team event type (see findParentEventTypeId), so the
+    // parent branch of the query below can't pull in another tenant's webhooks through a forged parentId
     let managedParentEventTypeId: number | undefined;
     if (eventTypeId) {
       managedParentEventTypeId =

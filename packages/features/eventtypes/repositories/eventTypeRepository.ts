@@ -11,7 +11,7 @@ import { eventTypeSelect } from "@calcom/lib/server/eventTypeSelect";
 import type { PrismaClient } from "@calcom/prisma";
 import { availabilityUserSelect, userSelect as userSelectWithSelectedCalendars } from "@calcom/prisma";
 import type { Prisma, EventType as PrismaEventType } from "@calcom/prisma/client";
-import { MembershipRole } from "@calcom/prisma/enums";
+import { MembershipRole, SchedulingType } from "@calcom/prisma/enums";
 import { credentialForCalendarServiceSelect } from "@calcom/prisma/selects/credential";
 import { EventTypeMetaDataSchema, rrSegmentQueryValueSchema } from "@calcom/prisma/zod-utils";
 import type { Ensure } from "@calcom/types/utils";
@@ -78,6 +78,34 @@ function usersWithSelectedCalendars<
   return users.map((user) => withSelectedCalendars(user));
 }
 
+// Flowko: an event type's schedule counts only when it belongs to the event type's owner, one of its users
+// or one of its hosts. Since U8c the write paths refuse another tenant's schedule (ET-3, ET-4, AV-3); this
+// keeps an event type bound to one before that from publishing it in its public slots. An event type with
+// no owner (a team event type, none on this instance) keeps its schedule as before
+function scheduleOfOwnerOrHost<TSchedule extends { userId: number }>(eventType: {
+  id: number;
+  userId: number | null;
+  schedule: TSchedule | null;
+  users: { id: number }[];
+  hosts: { user: { id: number } }[];
+}): Omit<TSchedule, "userId"> | null {
+  if (!eventType.schedule) return null;
+  const { userId: scheduleOwnerId, ...schedule } = eventType.schedule;
+  const isOwnerOrHost =
+    eventType.userId === null ||
+    scheduleOwnerId === eventType.userId ||
+    eventType.users.some((user) => user.id === scheduleOwnerId) ||
+    eventType.hosts.some((host) => host.user.id === scheduleOwnerId);
+  if (!isOwnerOrHost) {
+    log.warn(
+      "Ignoring an event type schedule that is not its owner's or a host's",
+      safeStringify({ eventTypeId: eventType.id })
+    );
+    return null;
+  }
+  return schedule;
+}
+
 export class EventTypeRepository implements IEventTypesRepository {
   constructor(private prismaClient: PrismaClient) {}
 
@@ -87,6 +115,14 @@ export class EventTypeRepository implements IEventTypesRepository {
         id: eventTypeId,
         parentId: {
           not: null,
+        },
+        // Flowko: follow the parent only when it is a managed team event type (never, on this instance). A
+        // parentId naming another tenant's personal event type must not pull in that tenant's webhooks
+        parent: {
+          teamId: {
+            not: null,
+          },
+          schedulingType: SchedulingType.MANAGED,
         },
       },
       select: {
@@ -1312,6 +1348,8 @@ export class EventTypeRepository implements IEventTypesRepository {
         schedule: {
           select: {
             id: true,
+            // Flowko: read by scheduleOfOwnerOrHost below, not returned
+            userId: true,
             availability: {
               select: {
                 date: true,
@@ -1377,6 +1415,7 @@ export class EventTypeRepository implements IEventTypesRepository {
 
     return {
       ...eventType,
+      schedule: scheduleOfOwnerOrHost(eventType),
       hosts: hostsWithSelectedCalendars(eventType.hosts),
       users: usersWithSelectedCalendars(eventType.users),
       metadata: EventTypeMetaDataSchema.parse(eventType.metadata),

@@ -35,6 +35,11 @@ export const eventOwnerProcedure = authedProcedure
       })
   )
   .use(async ({ ctx, input, next }) => {
+    // Flowko: this checks eventTypeId ?? id while a handler may act on the other key, so both must name the
+    // same event type
+    if (input.id !== undefined && input.eventTypeId !== undefined && input.id !== input.eventTypeId) {
+      throw new TRPCError({ code: "BAD_REQUEST" });
+    }
     const id = input.eventTypeId ?? input.id;
     // Prevent non-owners to update/delete a team event
     const event = await ctx.prisma.eventType.findUnique({
@@ -118,6 +123,11 @@ export const createEventPbacProcedure = (
         })
     )
     .use(async ({ ctx, input, next }) => {
+      // Flowko: this checks eventTypeId ?? id while a handler may act on the other key (ET-1: delete read
+      // id), so both must name the same event type
+      if (input.id !== undefined && input.eventTypeId !== undefined && input.id !== input.eventTypeId) {
+        throw new TRPCError({ code: "BAD_REQUEST" });
+      }
       const id = input.eventTypeId ?? input.id;
 
       const event = await ctx.prisma.eventType.findUnique({

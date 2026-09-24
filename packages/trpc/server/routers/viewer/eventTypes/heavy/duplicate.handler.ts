@@ -87,6 +87,10 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
         if (!isMember) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
+      } else if (!eventType.users.some((user) => user.id === ctx.user.id)) {
+        // Flowko: this copies input.id, so refuse another tenant's personal event type here too rather than
+        // rely only on the procedure middleware
+        throw new TRPCError({ code: "FORBIDDEN" });
       }
     }
 
@@ -123,6 +127,9 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       instantMeetingScheduleId: _instantMeetingScheduleId,
       restrictionScheduleId: _restrictionScheduleId,
       calVideoSettings,
+      // Flowko: a copy is never a managed child. There are no managed event types here, and a parentId would
+      // pull the parent's webhooks into the copy's bookings
+      parentId: _parentId,
       ...rest
     } = eventType;
 
@@ -232,10 +239,12 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       eventType: newEventType,
     };
   } catch (error) {
-    // Keep the seated or recurring and the disabled app refusals above a 400 instead of wrapping them in a 500
+    // Keep the seated or recurring and the disabled app refusals above a 400, and the ownership refusals a
+    // 403 (the dialog shows error_event_type_unauthorized_create for it), instead of wrapping them in a 500
     if (
       error instanceof TRPCError &&
-      (error.message === ErrorCode.SeatsAndRecurringNotAvailable ||
+      (error.code === "FORBIDDEN" ||
+        error.message === ErrorCode.SeatsAndRecurringNotAvailable ||
         error.message === ErrorCode.AppNotAvailable)
     )
       throw error;

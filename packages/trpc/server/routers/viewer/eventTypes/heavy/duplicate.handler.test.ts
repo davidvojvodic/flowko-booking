@@ -78,6 +78,39 @@ describe("duplicateHandler", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  // The handler copies input.id, so it refuses another tenant's personal event type itself (ET-1 class)
+  it("should refuse to duplicate another tenant's personal event type", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn();
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, userId: 2, users: [{ id: 2 }] });
+
+    await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  // A parentId would make the copy a managed child of that event type and pull in the parent's webhooks
+  it("should not copy the parentId", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn().mockResolvedValue({ id: 456, teamId: null });
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, parentId: 99, hashedLink: [] });
+
+    await expect(duplicateHandler({ ctx, input })).resolves.toMatchObject({ eventType: { id: 456 } });
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0]).not.toHaveProperty("parentId");
+    expect(create.mock.calls[0][0]).not.toHaveProperty("parent");
+  });
+
   // An app the admin switched off (App.enabled = false) stays off for event types, the copy included
   it.each([
     ["a disabled app turned on", { metadata: { apps: { ga4: { enabled: true, trackingId: "G-TEST" } } } }],
