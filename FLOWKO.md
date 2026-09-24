@@ -79,6 +79,7 @@ Lines marked *planned* are not on `flowko` yet; each is updated when its change 
   - `oAuth.updateClient`, `/auth/setup` and `/settings/license-key/new` use the active-admin helper.
   - tRPC's `errorConversionMiddleware` now really converts errors; it was dead code. A 4xx `HttpError` becomes its tRPC code, so a rate-limit denial is `TOO_MANY_REQUESTS`, and `ErrorWithCode` becomes its code. Only 5xx errors are reported, and the client does not retry `TOO_MANY_REQUESTS`.
   - A rate-limit refusal shows `rate_limit_exceeded` in the user's language on the booking form, the login, forgot-password and new-password views, and the host no-show toast. Report is offered only to the booking's host. Onboarding says a disabled conferencing app is not available.
+  - The `/apps/installation` page no longer selects the App row's `keys`, which for google-calendar hold the platform's OAuth client_secret and reached any signed-in tenant through the page props (found by the U8 re-attack). The public email-code check passes its request, so its per-IP limit runs, and a limit refusal stays a 429. A missing or non-string email or password gets the unknown-email answer before any lookup, and `authorizeCredentials` no longer logs the credentials.
   - A hidden event type's private link (`/d/<hash>/...`) is a convenience, not access control: in this code anyone who knows the slug can still book it. Don't promise a client that a private link keeps an event type private.
 
 ## API v2 must not be deployed
