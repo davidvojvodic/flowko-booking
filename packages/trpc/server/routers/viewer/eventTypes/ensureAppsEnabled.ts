@@ -7,6 +7,8 @@ type EventTypeAppsData = {
   /** The event type's metadata, whose `apps` holds each app's settings */
   metadata?: unknown;
   locations?: unknown;
+  /** The event type's price column, which getEventTypeAppData reads as legacy stripe data */
+  price?: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -22,6 +24,21 @@ function getTurnedOnAppKeys(metadata: unknown): string[] {
   });
 }
 
+/**
+ * Flowko: app data outside metadata.apps that booking still reads (getEventTypeAppData's legacy data):
+ * metadata.giphyThankYouPage turns giphy on and a non-zero price column turns stripe on. Only a value the
+ * write sets new or changes counts, so an event type that already holds one can still be saved.
+ */
+function getLegacyTurnedOnAppKeys({ metadata, price }: EventTypeAppsData, current?: EventTypeAppsData) {
+  const appKeys: string[] = [];
+  const currentMetadata = current?.metadata;
+  const giphyThankYouPage = isRecord(metadata) ? metadata.giphyThankYouPage : undefined;
+  const currentGiphyThankYouPage = isRecord(currentMetadata) ? currentMetadata.giphyThankYouPage : undefined;
+  if (giphyThankYouPage && giphyThankYouPage !== currentGiphyThankYouPage) appKeys.push("giphy");
+  if (typeof price === "number" && price !== 0 && price !== current?.price) appKeys.push("stripe");
+  return appKeys;
+}
+
 function getLocationTypes(locations: unknown): string[] {
   if (!Array.isArray(locations)) return [];
   return locations.flatMap((location) =>
@@ -32,20 +49,26 @@ function getLocationTypes(locations: unknown): string[] {
 /**
  * Flowko: an app switched off under Settings → Admin → Apps (App.enabled = false) stays off for event types,
  * whatever a request sends. An event type write may not turn on a disabled app in metadata.apps (an
- * analytics tag, for instance) or add a location of a disabled app (Google Meet, Cal Video, ...).
+ * analytics tag, for instance), turn one on through its legacy data (giphy's thank-you page, stripe's price
+ * column) or add a location of a disabled app (Google Meet, Cal Video, ...).
  * What the event type already had before the write (`current`) stays allowed, so its owner can still save
  * it; the public booking page leaves a disabled app out anyway.
  */
 export async function ensureAppsEnabled(
   prisma: Pick<PrismaClient, "app">,
-  { metadata, locations }: EventTypeAppsData,
+  { metadata, locations, price }: EventTypeAppsData,
   current?: EventTypeAppsData
 ) {
   const currentAppKeys = new Set(getTurnedOnAppKeys(current?.metadata));
   const currentLocationTypes = new Set(getLocationTypes(current?.locations));
+  const turnedOnAppKeys = getTurnedOnAppKeys(metadata).filter((appKey) => !currentAppKeys.has(appKey));
+  // Flowko: legacy app data turns an app on as much as metadata.apps does (N2)
+  const legacyAppKeys = getLegacyTurnedOnAppKeys({ metadata, price }, current).filter(
+    (appKey) => !turnedOnAppKeys.includes(appKey)
+  );
 
   const disabled = await findDisabledApps(prisma, {
-    appKeys: getTurnedOnAppKeys(metadata).filter((appKey) => !currentAppKeys.has(appKey)),
+    appKeys: turnedOnAppKeys.concat(legacyAppKeys),
     locationTypes: getLocationTypes(locations).filter((type) => !currentLocationTypes.has(type)),
   });
   if (disabled.appKeys.length || disabled.locationTypes.length) {
