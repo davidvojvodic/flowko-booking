@@ -43,14 +43,9 @@ export const slotsRouter = router({
       });
     }),
   // This endpoint has no dependencies, it doesn't need its own file
-  removeSelectedSlotMark: publicProcedure
-    .input(ZRemoveSelectedSlotInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const { req, prisma } = ctx;
-      const uid = req?.cookies?.uid || input.uid;
-      if (uid) {
-        await prisma.selectedSlots.deleteMany({ where: { uid: { equals: uid } } });
-      }
-      return;
-    }),
+  // Flowko: slot reservation is switched off (U8c, AV-2), so there is no reservation to release.
+  // It deletes nothing: an anonymous caller could otherwise delete rows by any uid it names.
+  removeSelectedSlotMark: publicProcedure.input(ZRemoveSelectedSlotInputSchema).mutation(async () => {
+    return;
+  }),
 });
