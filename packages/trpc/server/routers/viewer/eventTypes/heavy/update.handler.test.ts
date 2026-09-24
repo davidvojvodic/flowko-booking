@@ -189,6 +189,102 @@ describe("update.handler", () => {
     });
   });
 
+  // getEventTypeAppData reads a non-zero price column as legacy stripe data, so writing one turns stripe on
+  // as much as metadata.apps.stripe does (N2)
+  describe("with the legacy stripe price", () => {
+    const ctx = {
+      user: {
+        id: 1,
+        username: "owner",
+        profile: { id: 1 },
+        userLevelSelectedCalendars: [],
+        organizationId: null,
+        email: "owner@example.com",
+        locale: "en",
+      },
+      prisma: prismaMock,
+    } as unknown as Parameters<typeof updateHandler>[0]["ctx"];
+
+    // Returns only the columns the handler selects, as Prisma does, so a price left out of the select is
+    // undefined here too
+    function storedEventType(stored: { price: number }) {
+      const row: Record<string, unknown> = {
+        title: "Haircut",
+        description: null,
+        metadata: null,
+        locations: [],
+        team: null,
+        hosts: [],
+        children: [],
+        hostGroups: [],
+        fieldTranslations: [],
+        calVideoSettings: null,
+        ...stored,
+      };
+      prismaMock.eventType.findUniqueOrThrow.mockImplementation((async (args: {
+        select: Record<string, unknown>;
+      }) => Object.fromEntries(Object.keys(args.select).map((key) => [key, row[key]]))) as never);
+      prismaMock.hashedLink.findMany.mockResolvedValue([]);
+      prismaMock.eventType.update.mockRejectedValue(new Error("reached the update"));
+    }
+
+    it("refuses a price while stripe is disabled", async () => {
+      storedEventType({ price: 0 });
+      prismaMock.app.findMany.mockResolvedValue([]);
+
+      await expect(updateHandler({ ctx, input: { id: 1, price: 5000 } })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: ErrorCode.AppNotAvailable,
+      });
+
+      expect(prismaMock.app.findMany).toHaveBeenCalledWith({
+        where: { enabled: true, OR: [{ dirName: { in: ["stripepayment"] } }, { slug: { in: [] } }] },
+        select: { slug: true, dirName: true },
+      });
+      expect(prismaMock.eventType.update).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner save an event type that already holds a price without touching it", async () => {
+      storedEventType({ price: 5000 });
+
+      await expect(updateHandler({ ctx, input: { id: 1, hidden: true } })).rejects.toThrow(
+        "reached the update"
+      );
+
+      expect(prismaMock.app.findMany).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner send back the price the event type already holds", async () => {
+      storedEventType({ price: 5000 });
+
+      await expect(updateHandler({ ctx, input: { id: 1, price: 5000 } })).rejects.toThrow(
+        "reached the update"
+      );
+
+      expect(prismaMock.app.findMany).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner take the price off", async () => {
+      storedEventType({ price: 5000 });
+
+      await expect(updateHandler({ ctx, input: { id: 1, price: 0 } })).rejects.toThrow("reached the update");
+
+      expect(prismaMock.app.findMany).not.toHaveBeenCalled();
+      expect(prismaMock.eventType.update.mock.calls[0][0].data).toMatchObject({ price: 0 });
+    });
+
+    it("lets the owner set a price once stripe is enabled", async () => {
+      storedEventType({ price: 0 });
+      prismaMock.app.findMany.mockResolvedValue([{ slug: "stripe", dirName: "stripepayment" }] as never);
+
+      await expect(updateHandler({ ctx, input: { id: 1, price: 5000 } })).rejects.toThrow(
+        "reached the update"
+      );
+
+      expect(prismaMock.eventType.update.mock.calls[0][0].data).toMatchObject({ price: 5000 });
+    });
+  });
+
   // There are no teams or managed event types on this instance. A parentId naming another tenant's event type
   // made this one its managed child, so that tenant's webhooks fired for bookings here
   describe("with foreign keys the request must not write", () => {
