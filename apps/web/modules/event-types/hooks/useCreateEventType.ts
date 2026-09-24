@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { z } from "zod";
 
 import { createEventTypeInput } from "@calcom/features/eventtypes/lib/types";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import { useDebounce } from "@calcom/lib/hooks/useDebounce";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { HttpError } from "@calcom/lib/http-error";
@@ -37,7 +38,13 @@ export const useCreateEventType = (
         error = `${err.statusCode}: ${err.message}`;
       }
 
-      if (err.data?.code === "BAD_REQUEST") {
+      // Flowko: a disabled app or seats and recurring being off is not a duplicate URL, so say what it is
+      if (
+        err.message === ErrorCode.AppNotAvailable ||
+        err.message === ErrorCode.SeatsAndRecurringNotAvailable
+      ) {
+        error = t(err.message);
+      } else if (err.data?.code === "BAD_REQUEST") {
         error = `${err.data.code}: ${t("error_event_type_url_duplicate")}`;
       }
 
