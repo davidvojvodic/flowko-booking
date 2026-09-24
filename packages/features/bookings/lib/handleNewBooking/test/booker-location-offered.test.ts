@@ -277,6 +277,30 @@ describe("handleNewBooking with a booker-picked location", () => {
       expectNoMeet(calendar);
     });
 
+    // The owner saves an in-person address, a link or a phone number as free text, so it can read as an app's
+    // location type: booking uses that value, and EventManager ran the app it names
+    describe.each([
+      ["in-person address", { type: "inPerson", address: BookingLocations.GoogleMeet }],
+      ["link", { type: "link", link: BookingLocations.GoogleMeet }],
+      ["organizer phone number", { type: "userPhone", hostPhoneNumber: BookingLocations.GoogleMeet }],
+    ])("an offered location whose saved %s names a switched-off app", (_, location) => {
+      test.each([
+        ["picked", location.type],
+        ["by default", undefined],
+      ])("books no video location (%s)", async (_, value) => {
+        const { booking, calendar, calVideo } = await book({
+          locations: [location],
+          value,
+          isGoogleMeetEnabled: false,
+        });
+        const created = await booking;
+        expect(created.location).toBe("");
+        expect((await prismaMock.booking.findUnique({ where: { uid: created.uid! } }))?.location).toBe("");
+        expectNoMeet(calendar);
+        expect(calVideo.createMeetingCalls).toHaveLength(0);
+      });
+    });
+
     test("still refuses a switched-off app the event type doesn't offer", async () => {
       await expectRefused(
         await book({

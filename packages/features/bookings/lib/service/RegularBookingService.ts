@@ -1405,9 +1405,12 @@ async function handler(
   const isCalVideoUnavailable =
     resolvedBookingLocation === DailyLocationType && !(await isCalVideoEnabled());
   // Flowko: the same for every other app the admin switched off (App.enabled = false): the organizer's default
-  // app, or an app location the event type still holds from before, books no location instead of running it
+  // app, or an app location the event type still holds from before, books no location instead of running it.
+  // Both the type and the value booking uses are checked: an offered location's own value (an in-person
+  // address, a link, a phone number is free text the owner saves) can itself read as an app's location type,
+  // and EventManager runs the app the value names, whatever type it came from.
   const { locationTypes: disabledLocationTypes } = await findDisabledApps(deps.prismaClient, {
-    locationTypes: [locationBodyString],
+    locationTypes: [locationBodyString, resolvedBookingLocation],
   });
   const isLocationUnavailable = isCalVideoUnavailable || disabledLocationTypes.length > 0;
   const bookingLocation = isLocationUnavailable ? "" : resolvedBookingLocation;
