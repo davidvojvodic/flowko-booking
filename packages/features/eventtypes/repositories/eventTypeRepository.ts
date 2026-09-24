@@ -11,7 +11,7 @@ import { eventTypeSelect } from "@calcom/lib/server/eventTypeSelect";
 import type { PrismaClient } from "@calcom/prisma";
 import { availabilityUserSelect, userSelect as userSelectWithSelectedCalendars } from "@calcom/prisma";
 import type { Prisma, EventType as PrismaEventType } from "@calcom/prisma/client";
-import { MembershipRole } from "@calcom/prisma/enums";
+import { MembershipRole, SchedulingType } from "@calcom/prisma/enums";
 import { credentialForCalendarServiceSelect } from "@calcom/prisma/selects/credential";
 import { EventTypeMetaDataSchema, rrSegmentQueryValueSchema } from "@calcom/prisma/zod-utils";
 import type { Ensure } from "@calcom/types/utils";
@@ -87,6 +87,14 @@ export class EventTypeRepository implements IEventTypesRepository {
         id: eventTypeId,
         parentId: {
           not: null,
+        },
+        // Flowko: follow the parent only when it is a managed team event type (never, on this instance). A
+        // parentId naming another tenant's personal event type must not pull in that tenant's webhooks
+        parent: {
+          teamId: {
+            not: null,
+          },
+          schedulingType: SchedulingType.MANAGED,
         },
       },
       select: {
