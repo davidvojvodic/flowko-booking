@@ -1,4 +1,5 @@
 import { ErrorWithCode } from "@calcom/lib/errors";
+import { HttpError } from "@calcom/lib/http-error";
 import { getHttpStatusCode } from "@calcom/lib/server/getServerErrorFromUnknown";
 
 import { TRPCError } from "@trpc/server";
@@ -55,7 +56,8 @@ export function httpStatusToTrpcCode(status: number): TRPCErrorCode {
 }
 
 /**
- * Converts only ErrorWithCode instances to TRPC errors to limit impact.
+ * Converts only ErrorWithCode instances, and HttpErrors with a 4xx status tRPC has a code for, to TRPC
+ * errors to limit impact.
  *
  * TODO: Consider converting any unknown error into TRPC error in the future.
  */
@@ -67,6 +69,17 @@ export function convertErrorWithCodeToTRPCError(cause: unknown) {
       message: cause.message ?? "",
       cause: cause,
     });
+  }
+
+  // Flowko: checkRateLimitAndThrowError throws HttpError 429. Unconverted, a rate-limited procedure answered
+  // INTERNAL_SERVER_ERROR, so every denial was reported as an exception and retried by the client, which
+  // tripled the load and spent the caller's own budget. A 4xx HttpError keeps its status now; a 5xx, or a
+  // status tRPC has no code for, stays INTERNAL_SERVER_ERROR (still reported).
+  if (cause instanceof HttpError && cause.statusCode >= 400 && cause.statusCode < 500) {
+    const code = httpStatusToTrpcCode(cause.statusCode);
+    if (code !== "INTERNAL_SERVER_ERROR") {
+      return new TRPCError({ code, message: cause.message ?? "", cause });
+    }
   }
 
   return cause;
