@@ -34,7 +34,7 @@ export async function findDisabledApps(
       enabled: true,
       OR: [
         { dirName: { in: appKeys.map(getDirNameFromAppKey) } },
-        { slug: { in: [...appSlugByLocationType.values()] } },
+        { slug: { in: Array.from(appSlugByLocationType.values()) } },
       ],
     },
     select: { slug: true, dirName: true },
@@ -44,7 +44,7 @@ export async function findDisabledApps(
 
   return {
     appKeys: appKeys.filter((appKey) => !enabledDirNames.has(getDirNameFromAppKey(appKey))),
-    locationTypes: [...appSlugByLocationType]
+    locationTypes: Array.from(appSlugByLocationType)
       .filter(([, appSlug]) => !enabledSlugs.has(appSlug))
       .map(([type]) => type),
   };
