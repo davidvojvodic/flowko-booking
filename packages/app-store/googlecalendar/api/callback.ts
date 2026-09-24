@@ -12,6 +12,7 @@ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
 import { HttpError } from "@calcom/lib/http-error";
 import { defaultHandler } from "@calcom/lib/server/defaultHandler";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
+import prisma from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
 
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
@@ -168,8 +169,14 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     await replaceEarlierGoogleCalendarCredentials(earlierCredentialsToReplace);
   }
 
+  // Flowko: install Google Meet alongside only while the admin has it switched on (App.enabled), like
+  // the refused routes of every other disabled app
+  const installGoogleVideo =
+    state.installGoogleVideo &&
+    (await prisma.app.findUnique({ where: { slug: "google-meet" }, select: { enabled: true } }))?.enabled;
+
   // No need to install? Redirect to the returnTo URL
-  if (!state?.installGoogleVideo) {
+  if (!installGoogleVideo) {
     res.redirect(
       getSafeRedirectUrl(state?.returnTo) ??
         getInstalledAppPath({ variant: "calendar", slug: "google-calendar" })

@@ -214,3 +214,63 @@ describe("googlecalendar callback: OAuth state", () => {
     expect(res._getRedirectUrl()).toContain("/apps/installed/calendar?hl=google-calendar");
   });
 });
+
+describe("googlecalendar callback: Google Meet install", () => {
+  function connectWithMeet() {
+    const state = stateFromAdd(VICTIM_ID, {
+      fromApp: true,
+      onErrorReturnTo: `${WEBAPP_URL}/apps/installed`,
+      installGoogleVideo: true,
+    });
+    return callCallback({ userId: VICTIM_ID, query: { code: "own-code", state } });
+  }
+
+  it("creates no Meet credential while the admin has Google Meet switched off", async () => {
+    mocks.appFindUnique.mockResolvedValue({ enabled: false });
+
+    const res = await connectWithMeet();
+
+    expect(mocks.appFindUnique).toHaveBeenCalledWith({
+      where: { slug: "google-meet" },
+      select: { enabled: true },
+    });
+    expect(mocks.credentialCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.credentialCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "google-calendar" })
+    );
+    expect(mocks.credentialCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "google-meet" })
+    );
+    expect(res._getRedirectUrl()).toContain("/apps/installed/calendar?hl=google-calendar");
+  });
+
+  it("creates no Meet credential when Google Meet has no App row", async () => {
+    mocks.appFindUnique.mockResolvedValue(null);
+
+    await connectWithMeet();
+
+    expect(mocks.credentialCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "google-meet" })
+    );
+  });
+
+  it("creates no Meet credential through an empty code either", async () => {
+    mocks.appFindUnique.mockResolvedValue({ enabled: false });
+    const state = stateFromAdd(VICTIM_ID, { fromApp: true, installGoogleVideo: true });
+
+    await callCallback({ userId: VICTIM_ID, query: { code: "", state } });
+
+    expect(mocks.credentialCreate).not.toHaveBeenCalled();
+  });
+
+  it("installs Google Meet with the calendar once the admin switches it on", async () => {
+    mocks.appFindUnique.mockResolvedValue({ enabled: true });
+
+    const res = await connectWithMeet();
+
+    expect(mocks.credentialCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: VICTIM_ID, appId: "google-meet", type: "google_video" })
+    );
+    expect(res._getRedirectUrl()).toContain("/apps/installed/conferencing?hl=google-meet");
+  });
+});
