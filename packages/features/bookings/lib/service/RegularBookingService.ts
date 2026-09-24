@@ -1269,7 +1269,9 @@ async function handler(
       location,
       response: reqBody.responses?.location,
       eventTypeLocations: eventType.locations,
-      translators: [tAttendees, tGuests],
+      // The form builds its labels in the language of whoever fills it in: the booker's, or the organizer's
+      // when they reschedule (tAttendees then follows the attendee's saved locale)
+      translators: [tAttendees, tGuests, await getTranslation(language ?? "en", "common")],
     });
   // Flowko: a reschedule sends back the booking's saved answer (useInitialFormValues), which the owner may have
   // stopped offering since, and the form then may not even show another choice (a single location that asks

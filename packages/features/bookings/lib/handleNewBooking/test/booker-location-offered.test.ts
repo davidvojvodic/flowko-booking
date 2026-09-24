@@ -4,6 +4,7 @@
  * and booking ran that app: EventManager asked Google Calendar for a Meet link. The booker now picks one of
  * the event type's own locations, or gives the address, phone number or text one of them asks for.
  */
+import i18nMock from "@calcom/testing/lib/__mocks__/libServerI18n";
 import prismaMock from "@calcom/testing/lib/__mocks__/prisma";
 
 import {
@@ -24,6 +25,7 @@ import {
 import { getMockRequestDataForBooking } from "@calcom/testing/lib/bookingScenario/getMockRequestDataForBooking";
 import { setupAndTeardown } from "@calcom/testing/lib/bookingScenario/setupAndTeardown";
 
+import type { TFunction } from "i18next";
 import { describe, expect, test } from "vitest";
 
 import { ErrorCode } from "@calcom/lib/errorCodes";
@@ -45,6 +47,8 @@ describe("handleNewBooking with a booker-picked location", () => {
     rescheduleUid,
     fromHostCalendar = false,
     isGoogleMeetEnabled = true,
+    language,
+    userId,
   }: {
     /** The event type's locations (none when undefined) */
     locations?: Record<string, unknown>[];
@@ -59,6 +63,10 @@ describe("handleNewBooking with a booker-picked location", () => {
     fromHostCalendar?: boolean;
     /** Google Meet's App row; every other app is enabled */
     isGoogleMeetEnabled?: boolean;
+    /** The language the form was filled in */
+    language?: string;
+    /** The signed-in user who books (the organizer, when they reschedule) */
+    userId?: number;
   }) {
     const handleNewBooking = getNewBookingHandler();
     const booker = getBooker({ email: "booker@example.com", name: "Booker" });
@@ -101,6 +109,7 @@ describe("handleNewBooking with a booker-picked location", () => {
         data: {
           eventTypeId: 1,
           rescheduleUid,
+          ...(language && { language }),
           responses: {
             email: booker.email,
             name: booker.name,
@@ -110,6 +119,7 @@ describe("handleNewBooking with a booker-picked location", () => {
           },
         },
       }),
+      ...(userId && { userId }),
       ...(fromHostCalendar && {
         skipCalendarSyncTaskCreation: true,
         skipAvailabilityCheck: true,
@@ -254,7 +264,15 @@ describe("handleNewBooking with a booker-picked location", () => {
               credentialId: 1,
             }),
           ],
-          attendees: [getMockBookingAttendee({ id: 1, name: "Booker", email: "booker@example.com" })],
+          attendees: [
+            getMockBookingAttendee({
+              id: 1,
+              name: "Booker",
+              email: "booker@example.com",
+              timeZone: "Europe/Ljubljana",
+              locale: "en",
+            }),
+          ],
         },
       ];
     };
@@ -313,6 +331,27 @@ describe("handleNewBooking with a booker-picked location", () => {
       });
       expect((await booking).location).toBe(BookingLocations.CalVideo);
       expect(calVideo.createMeetingCalls).toHaveLength(1);
+    });
+
+    test("books the location the organizer picks by its label in their own language", async () => {
+      // Labels in the language asked for, so the organizer's (sl) and the attendee's (en) differ
+      i18nMock.getTranslation.mockImplementation(
+        async (locale: string) => ((key: string) => `${locale}:${key}`) as TFunction
+      );
+      const { booking } = await book({
+        // The same organizer-input type twice: the form sends the private one's label
+        locations: [
+          { type: "inPerson", address: "Slovenska 1, Ljubljana", displayLocationPublicly: true },
+          { type: "inPerson", address: "Trubarjeva 5, Maribor" },
+        ],
+        value: "sl:in_person",
+        language: "sl",
+        userId: 101,
+        bookings: previousBooking("Slovenska 1, Ljubljana"),
+        rescheduleUid: "booking-to-move",
+      });
+      // What booking keeps for a label the form sends (upstream), not the event type's default location
+      expect((await booking).location).toBe("sl:in_person");
     });
 
     test("still books the saved answer while the event type offers it", async () => {
