@@ -2,6 +2,7 @@ import { withReporting } from "@calcom/lib/sentryWrapper";
 import defaultPrisma from "@calcom/prisma";
 import type { PrismaClient } from "@calcom/prisma";
 import type { WebhookTriggerEvents } from "@calcom/prisma/enums";
+import { SchedulingType } from "@calcom/prisma/enums";
 
 import type { WebhookSubscriber } from "./dto/types";
 import { WebhookOutputMapper } from "./infrastructure/mappers/WebhookOutputMapper";
@@ -31,6 +32,14 @@ const getWebhooks = async (
       id: eventTypeId,
       parentId: {
         not: null,
+      },
+      // Flowko: follow the parent only when it is a managed team event type (never, on this instance). A
+      // parentId naming another tenant's personal event type must not fire that tenant's webhooks
+      parent: {
+        teamId: {
+          not: null,
+        },
+        schedulingType: SchedulingType.MANAGED,
       },
     },
     select: {
