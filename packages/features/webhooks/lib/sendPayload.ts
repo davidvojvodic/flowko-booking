@@ -5,6 +5,7 @@ import type { TGetTranscriptAccessLink } from "@calcom/app-store/dailyvideo/zod"
 import { getHumanReadableLocationValue } from "@calcom/app-store/locations";
 import type { WebhookSubscriber, PaymentData } from "@calcom/features/webhooks/lib/dto/types";
 import { getUTCOffsetByTimezone } from "@calcom/lib/dayjs";
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
 // Minimal webhook shape for sending payloads (subset of WebhookSubscriber)
@@ -214,12 +215,18 @@ export function isEventPayload(data: WebhookPayloadType): data is EventPayloadTy
   return !isNoShowPayload(data) && !isOOOEntryPayload(data);
 }
 
+type SendPayloadOptions = {
+  // Flowko: lets the test trigger bound how long it waits for the subscriber
+  timeoutMs?: number;
+};
+
 const sendPayload = async (
   secretKey: string | null,
   triggerEvent: string,
   createdAt: string,
   webhook: WebhookForPayload,
-  data: WebhookPayloadType
+  data: WebhookPayloadType,
+  options?: SendPayloadOptions
 ) => {
   const { appId, payloadTemplate: template } = webhook;
 
@@ -252,7 +259,7 @@ const sendPayload = async (
     }
   }
 
-  return _sendPayload(secretKey, webhook, body, contentType);
+  return _sendPayload(secretKey, webhook, body, contentType, options);
 };
 
 export const sendGenericWebhookPayload = async ({
@@ -302,11 +309,23 @@ const _sendPayload = async (
   secretKey: string | null,
   webhook: WebhookForPayload,
   body: string,
-  contentType: "application/json" | "application/x-www-form-urlencoded"
+  contentType: "application/json" | "application/x-www-form-urlencoded",
+  options?: SendPayloadOptions
 ) => {
   const { subscriberUrl, version } = webhook;
   if (!subscriberUrl || !body) {
     throw new Error("Missing required elements to send webhook payload.");
+  }
+
+  // Flowko: re-check the URL (with DNS) right before every delivery that goes through sendPayload or
+  // sendGenericWebhookPayload: booking flows, the sendWebhook tasker task, no-show tasks, OOO and the
+  // test trigger, including webhooks stored before the guard. handleWebhookScheduledTriggers and
+  // service/WebhookService.sendWebhookDirectly do their own fetch and need the same check there.
+  // Loopback, private and metadata targets are refused whatever the scheme; https-only is enforced
+  // when the URL is saved. The error names no URL (U7b keeps webhook URLs out of logs).
+  const ssrfValidation = await validateUrlForSSRF(subscriberUrl, { allowHttp: true });
+  if (!ssrfValidation.isValid) {
+    throw new Error(`Webhook URL is not allowed: ${ssrfValidation.error}`);
   }
 
   const response = await fetch(subscriberUrl, {
@@ -316,8 +335,10 @@ const _sendPayload = async (
       "X-Cal-Signature-256": createWebhookSignature({ secret: secretKey, body }),
       "X-Cal-Webhook-Version": version,
     },
+    // Flowko: never follow a redirect, which could point the request at a private address
     redirect: "manual",
     body,
+    ...(options?.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
   });
 
   return {

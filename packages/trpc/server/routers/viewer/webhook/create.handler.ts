@@ -1,7 +1,7 @@
 import { v4 } from "uuid";
 
 import { updateTriggerForExistingBookings } from "@calcom/features/webhooks/lib/scheduleTrigger";
-import { validateUrlForSSRFSync } from "@calcom/lib/ssrfProtection";
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import { prisma } from "@calcom/prisma";
 import type { Webhook } from "@calcom/prisma/client";
 import type { Prisma } from "@calcom/prisma/client";
@@ -22,7 +22,9 @@ type CreateOptions = {
 export const createHandler = async ({ ctx, input }: CreateOptions) => {
   const { user } = ctx;
 
-  const validation = validateUrlForSSRFSync(input.subscriberUrl);
+  // Flowko: the async check also resolves the hostname, so a DNS name pointing at a private or
+  // metadata address is refused, not only a literal IP.
+  const validation = await validateUrlForSSRF(input.subscriberUrl);
   if (!validation.isValid) {
     throw new TRPCError({
       code: "BAD_REQUEST",

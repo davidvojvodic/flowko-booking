@@ -166,9 +166,12 @@ describe("HTTP webhook exceptions", () => {
 });
 
 // Test self-hosted behavior with separate describe block using vi.doMock
+// Flowko: upstream's self-hosted allowances now need FLOWKO_ALLOW_PRIVATE_WEBHOOK_URLS=true
+// (flag off: see ssrfProtection.flowko.test.ts)
 describe("Self-hosted environment behavior", () => {
   beforeEach(async () => {
     vi.resetModules();
+    vi.stubEnv("FLOWKO_ALLOW_PRIVATE_WEBHOOK_URLS", "true");
     vi.doMock("@calcom/lib/constants", () => ({
       IS_SELF_HOSTED: true,
       IS_PRODUCTION: false,
@@ -176,6 +179,7 @@ describe("Self-hosted environment behavior", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.doUnmock("@calcom/lib/constants");
   });
 

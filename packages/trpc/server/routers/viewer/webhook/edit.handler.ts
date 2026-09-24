@@ -3,7 +3,7 @@ import {
   deleteWebhookScheduledTriggers,
   cancelNoShowTasksForBooking,
 } from "@calcom/features/webhooks/lib/scheduleTrigger";
-import { validateUrlForSSRFSync } from "@calcom/lib/ssrfProtection";
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import { prisma } from "@calcom/prisma";
 import type { TrpcSessionUser } from "@calcom/trpc/server/types";
 
@@ -33,7 +33,8 @@ export const editHandler = async ({ input, ctx }: EditOptions) => {
 
   // SSRF validation: only validate if URL is being changed
   if (data.subscriberUrl && data.subscriberUrl !== webhook.subscriberUrl) {
-    const validation = validateUrlForSSRFSync(data.subscriberUrl);
+    // Flowko: DNS-resolving check, as in create (a hostname that resolves to a private address is refused)
+    const validation = await validateUrlForSSRF(data.subscriberUrl);
     if (!validation.isValid) {
       throw new TRPCError({
         code: "BAD_REQUEST",
