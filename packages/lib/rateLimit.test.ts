@@ -128,6 +128,16 @@ describe("createInMemoryRateLimiter", () => {
     expect((await limiter({ rateLimitingType: "common", identifier: "203.0.113.9" })).success).toBe(false);
   });
 
+  it("ignores a malformed IP_BANLIST instead of failing every limited call", async () => {
+    vi.stubEnv("IP_BANLIST", "203.0.113.9");
+    const limiter = createInMemoryRateLimiter({ now: fakeClock().now });
+
+    for (let i = 0; i < 10; i++) {
+      expect((await limiter({ identifier: "203.0.113.9" })).success).toBe(true);
+    }
+    expect((await limiter({ identifier: "203.0.113.9" })).success).toBe(false);
+  });
+
   it("counts every identifier and every type separately", async () => {
     const limiter = createInMemoryRateLimiter({ now: fakeClock().now });
     for (let i = 0; i < 10; i++) await limiter({ rateLimitingType: "core", identifier: "a" });

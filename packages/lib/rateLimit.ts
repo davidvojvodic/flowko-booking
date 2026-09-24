@@ -88,6 +88,7 @@ export function createInMemoryRateLimiter({
   // At most one per namespace + limit + duration, all of which are fixed in code, so this stays tiny.
   const overflowWindows = new Map<string, Window>();
   let size = 0;
+  let banListWarned = false;
 
   function pruneExpired(t: number) {
     windowsByDuration.forEach((windows) => {
@@ -151,6 +152,22 @@ export function createInMemoryRateLimiter({
     return take(window, limit, cost);
   }
 
+  function isBanned(identifier: string) {
+    try {
+      return isIpInBanListString(identifier);
+    } catch (error) {
+      // Flowko: without Unkey a malformed IP_BANLIST used to be harmless (it was never read). It must not
+      // turn every limited endpoint into a 500 now; the limits themselves still apply.
+      if (!banListWarned) {
+        log.error("IP_BANLIST is not a JSON array of strings, so it is ignored.", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        banListWarned = true;
+      }
+      return false;
+    }
+  }
+
   async function rateLimit({ rateLimitingType = "core", identifier, opts }: RateLimitHelper) {
     // Flowko: SMS is a stub in Cal.diy (sms-manager runs this check and sends nothing). A denial would make
     // checkSMSRateLimit lock the user's SMS, or throw from prisma.team.findUnique for sms-manager's
@@ -158,7 +175,7 @@ export function createInMemoryRateLimiter({
     if (rateLimitingType === "sms" || rateLimitingType === "smsMonth") {
       return { success: true, limit: 10, remaining: 999, reset: 0 } as RatelimitResponse;
     }
-    if (isIpInBanListString(identifier)) {
+    if (isBanned(identifier)) {
       return limitWindow("forcedSlowMode", identifier, opts);
     }
     return limitWindow(rateLimitingType, identifier, opts);
