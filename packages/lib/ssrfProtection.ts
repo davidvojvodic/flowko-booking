@@ -141,7 +141,10 @@ function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL }
 
   // Self-hosted: allow HTTP and private IPs (for internal webhooks)
   // Still restrict to HTTP/HTTPS protocols only (no file://, ftp://, etc.)
-  if (IS_SELF_HOSTED) {
+  // Flowko: booking.flowko.si is multi-tenant, so IS_SELF_HOSTED alone must not open the private
+  // network (loopback, RFC1918, *.railway.internal, metadata via IPv4-mapped IPv6 or DNS). The
+  // upstream self-hosted behaviour needs an explicit operator opt-in; default off = SaaS checks.
+  if (IS_SELF_HOSTED && process.env.FLOWKO_ALLOW_PRIVATE_WEBHOOK_URLS === "true") {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return { isValid: false, error: ERRORS.INVALID_PROTOCOL };
     }
