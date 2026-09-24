@@ -6,6 +6,7 @@ import type { UseFormReturn } from "react-hook-form";
 import { useForm } from "react-hook-form";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import type { inferSSRProps } from "@calcom/types/inferSSRProps";
 import { Button } from "@calcom/ui/components/button";
 import { Form } from "@calcom/ui/components/form";
@@ -103,7 +104,9 @@ function PasswordResetForm({
     if (!res.ok) {
       // if the request fails, we want to force refresh of the CSRF token - this allows resubmit
       forceRefresh();
-      return setError("newPassword", { type: "server", message: json.message });
+      // Flowko: the rate limiter answers in English; say it in the user's language
+      const message = res.status === 429 || isRateLimitError(json) ? t("rate_limit_exceeded") : json.message;
+      return setError("newPassword", { type: "server", message });
     }
   };
 

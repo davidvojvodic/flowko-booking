@@ -8,6 +8,8 @@ import {
   getVideoOptionsActions,
   getEditEventActions,
   getAfterEventActions,
+  getReportAction,
+  shouldShowIndividualReportButton,
   shouldShowPendingActions,
   shouldShowEditActions,
   shouldShowRecurringCancelAction,
@@ -477,6 +479,69 @@ describe("Booking Actions", () => {
       const noShowAction = actions.find((a) => a.id === "no_show");
       expect(noShowAction?.label).toBe("unmark_as_no_show");
       expect(noShowAction?.icon).toBe("eye");
+    });
+  });
+
+  describe("Report (Flowko: host only)", () => {
+    // U8c's booker view: a row the caller only attends has no organizer id and no report
+    function createBookerRowContext(overrides: Partial<BookingActionContext> = {}): BookingActionContext {
+      const context = createMockContext(overrides);
+      return {
+        ...context,
+        booking: {
+          ...context.booking,
+          user: { name: "Organizer", email: null },
+          report: null,
+          loggedInUser: { ...context.booking.loggedInUser, userId: 2, userEmail: "john@example.com" },
+        } as unknown as BookingActionContext["booking"],
+      };
+    }
+
+    it("offers Report to the booking's host", () => {
+      expect(getReportAction(createMockContext()).disabled).toBe(false);
+      expect(shouldShowIndividualReportButton(createMockContext({ isCancelled: true }))).toBe(true);
+    });
+
+    it("does not offer Report on a row the viewer only attends", () => {
+      expect(getReportAction(createBookerRowContext()).disabled).toBe(true);
+      expect(shouldShowIndividualReportButton(createBookerRowContext({ isCancelled: true }))).toBe(false);
+      expect(shouldShowIndividualReportButton(createBookerRowContext({ isRejected: true }))).toBe(false);
+      expect(
+        shouldShowIndividualReportButton(createBookerRowContext({ isPending: true, isUpcoming: true }))
+      ).toBe(false);
+    });
+
+    it("does not offer Report to a viewer whose id is another user's", () => {
+      const base = createMockContext({ isCancelled: true });
+      const context = {
+        ...base,
+        booking: { ...base.booking, loggedInUser: { ...base.booking.loggedInUser, userId: 2 } },
+      } as BookingActionContext;
+
+      expect(getReportAction(context).disabled).toBe(true);
+      expect(shouldShowIndividualReportButton(context)).toBe(false);
+    });
+
+    it("fails closed when the viewer's id is unknown", () => {
+      const base = createMockContext({ isCancelled: true });
+      const context = {
+        ...base,
+        booking: { ...base.booking, loggedInUser: { ...base.booking.loggedInUser, userId: undefined } },
+      } as BookingActionContext;
+
+      expect(getReportAction(context).disabled).toBe(true);
+      expect(shouldShowIndividualReportButton(context)).toBe(false);
+    });
+
+    it("keeps Report disabled for the host once the booking is reported", () => {
+      const base = createMockContext({ isCancelled: true });
+      const context = {
+        ...base,
+        booking: { ...base.booking, report: { id: 1, reason: "SPAM", description: null } },
+      } as unknown as BookingActionContext;
+
+      expect(getReportAction(context).disabled).toBe(true);
+      expect(shouldShowIndividualReportButton(context)).toBe(false);
     });
   });
 

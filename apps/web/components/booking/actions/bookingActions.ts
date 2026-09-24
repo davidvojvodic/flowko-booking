@@ -168,6 +168,16 @@ export function getEditEventActions(context: BookingActionContext): ActionType[]
   return actions.filter(Boolean) as ActionType[];
 }
 
+// Flowko: without teams the organizer is a booking's only host. U8c's booker view drops user.id (and the
+// host's report) from a row the caller only attends (get.handler.ts toBookingForBooker), and reportBooking
+// refuses anyone without host access, so Report on such a row only ever got FORBIDDEN. A missing id on either
+// side reads as "not the host".
+function isViewerTheHost(booking: BookingItemProps): boolean {
+  const viewerId = booking.loggedInUser?.userId;
+  const hostId = booking.user?.id;
+  return viewerId != null && hostId != null && viewerId === hostId;
+}
+
 export function getReportAction(context: BookingActionContext): ActionType {
   const { booking, t } = context;
 
@@ -176,7 +186,8 @@ export function getReportAction(context: BookingActionContext): ActionType {
     label: t("report_booking"),
     icon: "flag",
     color: "destructive",
-    disabled: !!booking.report,
+    // Flowko: only the host may report (see isViewerTheHost)
+    disabled: !!booking.report || !isViewerTheHost(booking),
   };
 }
 
@@ -223,6 +234,8 @@ export function shouldShowRecurringCancelAction(context: BookingActionContext): 
 export function shouldShowIndividualReportButton(context: BookingActionContext): boolean {
   const { booking, isPending, isUpcoming, isCancelled, isRejected } = context;
   const hasDropdown = shouldShowEditActions(context);
+  // Flowko: only the host may report (see isViewerTheHost)
+  if (!isViewerTheHost(booking)) return false;
   return !booking.report && !hasDropdown && (isCancelled || isRejected || (isPending && isUpcoming));
 }
 

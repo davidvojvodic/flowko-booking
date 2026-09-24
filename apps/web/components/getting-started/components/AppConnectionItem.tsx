@@ -5,6 +5,7 @@ import posthog from "posthog-js";
 import { InstallAppButtonWithoutPlanCheck } from "@calcom/app-store/InstallAppButtonWithoutPlanCheck";
 import type { TDependencyData } from "@calcom/app-store/_appRegistry";
 import { WEBAPP_URL } from "@calcom/lib/constants";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import type { App } from "@calcom/types/App";
@@ -34,7 +35,12 @@ const AppConnectionItem = (props: IAppConnectionItem) => {
       await utils.viewer.me.invalidate();
     },
     onError: (error) => {
-      showToast(t("something_went_wrong"), "error");
+      // Flowko: the server refuses a disabled app with app_not_available_error; say that, not "something went
+      // wrong". Any other message stays hidden behind the generic one.
+      showToast(
+        error.message === ErrorCode.AppNotAvailable ? t(error.message) : t("something_went_wrong"),
+        "error"
+      );
       console.error(error);
     },
   });

@@ -47,6 +47,7 @@ import { AssignmentReasonEnum, BookingStatus, SchedulingType } from "@calcom/pri
 import assignmentReasonBadgeTitleMap from "@calcom/web/lib/booking/assignmentReasonBadgeTitleMap";
 import { bookingMetadataSchema } from "@calcom/prisma/zod-utils";
 import { trpc } from "@calcom/trpc/react";
+import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import { Alert } from "@calcom/ui/components/alert";
 import { Avatar } from "@calcom/ui/components/avatar";
 import { Badge } from "@calcom/ui/components/badge";
@@ -226,7 +227,9 @@ export default function Success(props: PageProps) {
       showToast("Thank you, feedback submitted", "success");
     },
     onError: (err) => {
-      showToast(err.message, "error");
+      // Flowko: the server's message is English ("Failed to update no-show status", the rate limiter's "Rate
+      // limit exceeded. Try again in N seconds."); say it in the booker's language
+      showToast(isRateLimitError(err) ? t("rate_limit_exceeded") : t("something_went_wrong"), "error");
     },
   });
 
