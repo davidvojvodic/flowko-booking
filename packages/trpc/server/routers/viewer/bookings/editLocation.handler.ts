@@ -1,3 +1,4 @@
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getUsersCredentialsIncludeServiceAccountKey } from "@calcom/app-store/delegationCredential";
 import { getLocationByType, OrganizerDefaultConferencingAppType } from "@calcom/app-store/locations";
 import { getAppFromSlug } from "@calcom/app-store/utils";
@@ -9,6 +10,7 @@ import { CredentialAccessService } from "@calcom/features/credentials/services/C
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { buildCalEventFromBooking } from "@calcom/lib/buildCalEventFromBooking";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import logger from "@calcom/lib/logger";
 import { getPiiFreeEventResult } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
@@ -282,6 +284,15 @@ export async function editLocationHandler({ ctx, input, actionSource }: EditLoca
     organizer,
     loggedInUserTranslate: await getTranslation(loggedInUser.locale ?? "en", "common"),
   });
+
+  // Flowko: an app the admin switched off (App.enabled = false) can't become a booking's location either;
+  // EventManager.updateLocation would run it (a Meet link, a Cal Video room). An empty one means Cal Video.
+  const { locationTypes: disabledLocationTypes } = await findDisabledApps(prisma, {
+    locationTypes: [newLocationInEvtFormat],
+  });
+  if (disabledLocationTypes.length > 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: ErrorCode.AppNotAvailable });
+  }
 
   const evt = await buildCalEventFromBooking({
     booking,
