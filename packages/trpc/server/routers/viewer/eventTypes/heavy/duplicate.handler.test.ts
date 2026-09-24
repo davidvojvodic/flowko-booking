@@ -93,6 +93,24 @@ describe("duplicateHandler", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  // A parentId would make the copy a managed child of that event type and pull in the parent's webhooks
+  it("should not copy the parentId", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn().mockResolvedValue({ id: 456, teamId: null });
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, parentId: 99, hashedLink: [] });
+
+    await expect(duplicateHandler({ ctx, input })).resolves.toMatchObject({ eventType: { id: 456 } });
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0]).not.toHaveProperty("parentId");
+    expect(create.mock.calls[0][0]).not.toHaveProperty("parent");
+  });
+
   // An app the admin switched off (App.enabled = false) stays off for event types, the copy included
   it.each([
     ["a disabled app turned on", { metadata: { apps: { ga4: { enabled: true, trackingId: "G-TEST" } } } }],

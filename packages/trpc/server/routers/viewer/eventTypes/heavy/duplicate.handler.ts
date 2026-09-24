@@ -127,6 +127,9 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       instantMeetingScheduleId: _instantMeetingScheduleId,
       restrictionScheduleId: _restrictionScheduleId,
       calVideoSettings,
+      // Flowko: a copy is never a managed child. There are no managed event types here, and a parentId would
+      // pull the parent's webhooks into the copy's bookings
+      parentId: _parentId,
       ...rest
     } = eventType;
 
