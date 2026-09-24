@@ -187,8 +187,13 @@ export function createInMemoryRateLimiter({
 // One store per process, shared by every bundle that imports this module (the pages and app routers).
 const globalForRateLimit = globalThis as unknown as { flowkoInMemoryRateLimiter?: InMemoryRateLimiter };
 
+// Flowko: NEXT_PUBLIC_IS_E2E is set only by the Playwright web server (playwright.config.ts), where every
+// worker books from 127.0.0.1 and would share one IP bucket. It already skips the admin password/2FA rule
+// and Turnstile, so it is never set on Railway (the Dockerfile and build-image.yml do not set it).
 function isTestEnvironment() {
-  return Boolean(process.env.VITEST) || process.env.NODE_ENV === "test";
+  return (
+    Boolean(process.env.VITEST) || process.env.NODE_ENV === "test" || Boolean(process.env.NEXT_PUBLIC_IS_E2E)
+  );
 }
 
 let warned = false;
@@ -197,8 +202,8 @@ export function rateLimiter() {
   const { UNKEY_ROOT_KEY } = process.env;
 
   if (!UNKEY_ROOT_KEY) {
-    // Flowko: suites that book or send codes many times in a row keep the old always-success limiter;
-    // rateLimit.test.ts drives the in-memory one through createInMemoryRateLimiter().
+    // Flowko: unit and e2e suites that book or send codes many times in a row keep the old always-success
+    // limiter; rateLimit.test.ts drives the in-memory one through createInMemoryRateLimiter().
     if (isTestEnvironment()) {
       return () => ({ success: true, limit: 10, remaining: 999, reset: 0 }) as RatelimitResponse;
     }

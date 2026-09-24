@@ -56,6 +56,7 @@ function runAsProductionWithoutUnkey() {
   vi.stubEnv("UNKEY_ROOT_KEY", "");
   vi.stubEnv("VITEST", "");
   vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("NEXT_PUBLIC_IS_E2E", "");
 }
 
 beforeEach(() => {
@@ -334,6 +335,16 @@ describe("rateLimiter", () => {
         limit: 10,
         remaining: 999,
         reset: 0,
+      });
+    }
+  });
+
+  it("keeps the always-success limiter for the Playwright server (NEXT_PUBLIC_IS_E2E)", async () => {
+    runAsProductionWithoutUnkey();
+    vi.stubEnv("NEXT_PUBLIC_IS_E2E", "1");
+    for (let i = 0; i < 20; i++) {
+      await expect(checkRateLimitAndThrowError({ identifier: "createBooking:127.0.0.1" })).resolves.toMatchObject({
+        success: true,
       });
     }
   });
