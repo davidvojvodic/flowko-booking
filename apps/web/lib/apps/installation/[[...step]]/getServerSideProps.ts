@@ -175,12 +175,14 @@ const getOrgSubTeams = async (
   });
 };
 
+// Flowko: never select the App row's keys here. This page's props reach the browser, and for an OAuth app like
+// google-calendar the keys hold the platform's OAuth client_secret. Nothing on this page reads them.
 const getAppBySlug = async (
   appSlug: string
-): Promise<{ slug: string; keys: Prisma.JsonValue; enabled: boolean; dirName: string } | null> => {
+): Promise<{ slug: string; enabled: boolean; dirName: string } | null> => {
   const app = await prisma.app.findUnique({
     where: { slug: appSlug, enabled: true },
-    select: { slug: true, keys: true, enabled: true, dirName: true },
+    select: { slug: true, enabled: true, dirName: true },
   });
   return app;
 };
@@ -380,10 +382,10 @@ const getInitialStep = (
   return { step };
 };
 
-const getAppAndMetadata = async (
+export const getAppAndMetadata = async (
   parsedAppSlug: string
 ): Promise<{
-  app: { slug: string; keys: Prisma.JsonValue; enabled: boolean; dirName: string } | null;
+  app: { slug: string; enabled: boolean; dirName: string } | null;
   appMetadata: import("@calcom/types/App").AppMeta | null;
   redirect?: RedirectResult;
 }> => {
