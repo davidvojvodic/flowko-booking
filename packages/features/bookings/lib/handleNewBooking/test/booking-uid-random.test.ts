@@ -48,7 +48,15 @@ describe("handleNewBooking booking uid", () => {
 
     await createBookingScenario(
       getScenarioData({
-        eventTypes: [{ id: 1, slotInterval: 30, length: 30, users: [{ id: 101 }] }],
+        eventTypes: [
+          {
+            id: 1,
+            slotInterval: 30,
+            length: 30,
+            locations: [{ type: "inPerson", address: "New York" }],
+            users: [{ id: 101 }],
+          },
+        ],
         organizer,
         apps: [TestData.apps["google-calendar"]],
       })
@@ -64,7 +72,7 @@ describe("handleNewBooking booking uid", () => {
         responses: {
           email: booker.email,
           name: booker.name,
-          location: { optionValue: "", value: "New York" },
+          location: { optionValue: "", value: "inPerson" },
         },
       },
     });

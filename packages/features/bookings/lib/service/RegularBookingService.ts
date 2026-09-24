@@ -107,6 +107,7 @@ import { getRequiresConfirmationFlags } from "../handleNewBooking/getRequiresCon
 import { getSeatedBooking } from "../handleNewBooking/getSeatedBooking";
 import { getVideoCallDetails } from "../handleNewBooking/getVideoCallDetails";
 import { handleAppsStatus } from "../handleNewBooking/handleAppsStatus";
+import { isBookerLocationOffered } from "../handleNewBooking/isBookerLocationOffered";
 import { loadAndValidateUsers } from "../handleNewBooking/loadAndValidateUsers";
 import type { BookingType } from "../handleNewBooking/originalRescheduledBookingUtils";
 import { getOriginalRescheduledBooking } from "../handleNewBooking/originalRescheduledBookingUtils";
@@ -1256,6 +1257,27 @@ async function handler(
 
   const isManagedEventType = !!eventType.parentId;
 
+  // Flowko: the booker picks one of the event type's own locations (or gives the address, phone number or
+  // text one of them asks for), never another app's: booking would otherwise run whatever app location an
+  // anonymous booker sends (Google Meet, Cal Video, ...) on, say, an in-person event type. A move made in the
+  // host's own calendar (calendar sync, the only caller of skipCalendarSyncTaskCreation) brings that
+  // calendar's location, not a booker's.
+  const isBookerLocationAllowed =
+    skipCalendarSyncTaskCreation ||
+    isBookerLocationOffered({
+      location,
+      response: reqBody.responses?.location,
+      eventTypeLocations: eventType.locations,
+      translators: [tAttendees, tGuests],
+    });
+  if (!isBookerLocationAllowed) {
+    if (eventType.locations.length > 0) {
+      throw new HttpError({ statusCode: 400, message: ErrorCode.RequestBodyInvalid });
+    }
+    // An event type without locations offers only the organizer's default; checked once it is resolved below
+    locationBodyString = "";
+  }
+
   // If location passed is empty , use default location of event
   // If location of event is not set , use host default
   if (locationBodyString.trim().length === 0) {
@@ -1287,6 +1309,15 @@ async function handler(
     } else {
       locationBodyString = "integrations:daily";
     }
+  }
+
+  // Flowko: a client may name the organizer's default explicitly, as "conferencing" or as what it resolves to
+  if (
+    !isBookerLocationAllowed &&
+    location !== OrganizerDefaultConferencingAppType &&
+    location !== locationBodyString
+  ) {
+    throw new HttpError({ statusCode: 400, message: ErrorCode.RequestBodyInvalid });
   }
 
   const invitee: Invitee = [

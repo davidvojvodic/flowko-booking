@@ -3342,7 +3342,8 @@ describe("handleNewBooking", () => {
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "+15551234567", value: "+15551234567" },
+              // What the booker form sends for the attendee phone location (a number it accepts as valid)
+              location: { optionValue: "+14155552671", value: "phone" },
             },
           },
         });
@@ -3364,7 +3365,7 @@ describe("handleNewBooking", () => {
             eventTypeId: 1,
             // Only recurring event can have recurringEventId
             recurringEventId: null,
-            location: "+15551234567",
+            location: "+14155552671",
             status: BookingStatus.ACCEPTED,
             responses: expect.objectContaining({
               email: booker.email,

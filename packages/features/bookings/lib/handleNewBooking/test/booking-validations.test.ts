@@ -103,6 +103,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -125,7 +126,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -181,6 +182,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -203,7 +205,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -244,6 +246,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               // Two bookings allowed for the booker
@@ -285,7 +288,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -347,6 +350,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               maxActiveBookingsPerBooker: 2,
@@ -402,7 +406,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -461,6 +465,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               maxActiveBookingsPerBooker: 1,
@@ -524,7 +529,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: bookerA.email,
             name: bookerA.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
           verificationCode: "valid-code-123",
         },
@@ -580,6 +585,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               maxActiveBookingsPerBooker: 1,
@@ -632,7 +638,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: victim.email,
             name: "Attacker",
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -692,6 +698,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -715,7 +722,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -761,6 +768,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -784,7 +792,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -840,6 +848,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -863,7 +872,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
           verificationCode: "valid-code-123",
         },
@@ -917,6 +926,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -940,7 +950,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -986,6 +996,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -1017,7 +1028,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
             guests: ["guest-with-verification@example.com", "regular-guest@example.com"],
           },
         },
@@ -1078,6 +1089,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -1109,7 +1121,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
             guests: ["secondary@example.com", "regular-guest@example.com"],
           },
         },
@@ -1169,6 +1181,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -1192,7 +1205,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -1245,6 +1258,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -1281,7 +1295,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
             guests: [
               "guest1-verify@example.com",
               "guest2-no-verify@example.com",
@@ -1355,6 +1369,7 @@ describe("Booking Validation Specifications", () => {
           eventTypes: [
             {
               id: 1,
+              locations: [{ type: "inPerson", address: "New York" }],
               slotInterval: 30,
               length: 30,
               users: [
@@ -1378,7 +1393,7 @@ describe("Booking Validation Specifications", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
           verificationCode: "invalid-code",
         },

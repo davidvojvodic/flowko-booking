@@ -136,7 +136,7 @@ describe("handleNewBooking without a usable location", () => {
   });
 
   // Flowko (B4 review): getLocationValueForDB turns any blank location value into Cal Video, and a booker
-  // can send an explicit one; neither may book Cal Video while it is disabled.
+  // can pick an offered one; neither may book Cal Video while it is disabled.
   test("books no video location for a blank location value while Cal Video is disabled, and sends the emails", async ({
     emails,
   }) => {
@@ -158,12 +158,12 @@ describe("handleNewBooking without a usable location", () => {
     });
   });
 
-  test("books no video location for a booker-sent Cal Video location while Cal Video is disabled, and sends the emails", async ({
+  test("books no video location for a booker-picked Cal Video location while Cal Video is disabled, and sends the emails", async ({
     emails,
   }) => {
     const { booker, organizer, createdBooking, bookingInDb, calVideo } = await bookEventTypeWithoutLocation({
       calVideoEnabled: false,
-      locations: [{ type: "inPerson", address: "Ljubljana" }],
+      locations: [{ type: "inPerson", address: "Ljubljana" }, { type: BookingLocations.CalVideo }],
       bookerLocation: BookingLocations.CalVideo,
     });
 
