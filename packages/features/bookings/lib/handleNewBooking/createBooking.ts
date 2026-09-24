@@ -1,3 +1,4 @@
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import dayjs from "@calcom/dayjs";
 import { isPrismaObjOrUndefined } from "@calcom/lib/isPrismaObj";
 import { withReporting } from "@calcom/lib/sentryWrapper";
@@ -47,13 +48,22 @@ type CreateBookingParams = {
   tracking?: Tracking;
 };
 
-function updateEventDetails(
+async function updateEventDetails(
   evt: CalendarEvent,
   originalRescheduledBooking: OriginalRescheduledBooking | null
 ) {
   if (originalRescheduledBooking) {
     evt.description = originalRescheduledBooking?.description || evt.description;
-    evt.location = evt.location || originalRescheduledBooking?.location;
+    // Flowko: a moved booking without a location keeps its old one, but not a switched-off app's
+    // (App.enabled = false): the booking service has just left that app out for the new booking
+    const originalLocation = originalRescheduledBooking?.location;
+    const isOriginalLocationOfDisabledApp =
+      !evt.location &&
+      !!originalLocation &&
+      (await findDisabledApps(prisma, { locationTypes: [originalLocation] })).locationTypes.length > 0;
+    if (!isOriginalLocationOfDisabledApp) {
+      evt.location = evt.location || originalLocation;
+    }
   }
 }
 
@@ -69,7 +79,7 @@ const _createBooking = async ({
   creationSource,
   tracking,
 }: CreateBookingParams & { rescheduledBy: string | undefined }) => {
-  updateEventDetails(evt, originalRescheduledBooking);
+  await updateEventDetails(evt, originalRescheduledBooking);
 
   const bookingAndAssociatedData = buildNewBookingData({
     uid,

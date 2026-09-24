@@ -14,6 +14,7 @@ import {
   getGoogleCalendarCredential,
   getGoogleMeetCredential,
   getMockBookingAttendee,
+  getMockBookingReference,
   getOrganizer,
   getScenarioData,
   mockCalendarToHaveNoBusySlots,
@@ -312,6 +313,50 @@ describe("handleNewBooking with a booker-picked location", () => {
       expect((await booking).location).toBe("Slovenska 1, Ljubljana");
       // calendar sync moves the booking without writing back to the host's calendar
       expect(calendar.createEventCalls).toHaveLength(0);
+    });
+
+    test("doesn't bring a switched-off app back from the booking a booker moves", async () => {
+      const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+      const { booking, calendar } = await book({
+        // Booked with Meet while Meet was on; the admin has switched it off since
+        locations: [...inPersonOnly, { type: BookingLocations.GoogleMeet }],
+        value: BookingLocations.GoogleMeet,
+        isGoogleMeetEnabled: false,
+        bookings: [
+          {
+            uid: "booking-with-meet",
+            eventTypeId: 1,
+            userId: 101,
+            status: BookingStatus.ACCEPTED,
+            startTime: `${plus1DateString}T05:00:00.000Z`,
+            endTime: `${plus1DateString}T05:30:00.000Z`,
+            location: BookingLocations.GoogleMeet,
+            references: [
+              getMockBookingReference({
+                type: "google_calendar",
+                uid: "MOCK_ID",
+                meetingUrl: "https://GOOGLE_MEET_URL_IN_CALENDAR_EVENT",
+                externalCalendarId: "organizer@google-calendar.com",
+                credentialId: 1,
+              }),
+            ],
+            attendees: [getMockBookingAttendee({ id: 1, name: "Booker", email: "booker@example.com" })],
+          },
+        ],
+        rescheduleUid: "booking-with-meet",
+      });
+      const created = await booking;
+      expect(created.location).toBe("");
+      expect((await prismaMock.booking.findUnique({ where: { uid: created.uid! } }))?.location).toBe("");
+      const calendarEvents = [
+        ...calendar.createEventCalls.map((call) => call.args.calEvent),
+        ...calendar.updateEventCalls.map((call) => call.args.event),
+      ];
+      expect(calendarEvents.length).toBeGreaterThan(0);
+      for (const calEvent of calendarEvents) {
+        expect(calEvent.location).not.toBe(BookingLocations.GoogleMeet);
+        expect(calEvent.conferenceData).toBeUndefined();
+      }
     });
   });
 });
