@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { HttpError } from "@calcom/lib/http-error";
+import { TimeFormat } from "@calcom/lib/timeFormat";
 
 import { getError } from "./BookEventForm";
 
@@ -17,7 +18,7 @@ const renderError = (dataError: unknown) => {
         dataError,
         t,
         responseVercelIdHeader: null,
-        timeFormat: 24,
+        timeFormat: TimeFormat.TWENTY_FOUR_HOUR,
         timezone: "Europe/Ljubljana",
         language: "sl",
       })}
