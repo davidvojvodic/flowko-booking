@@ -78,6 +78,21 @@ describe("duplicateHandler", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  // The handler copies input.id, so it refuses another tenant's personal event type itself (ET-1 class)
+  it("should refuse to duplicate another tenant's personal event type", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn();
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, userId: 2, users: [{ id: 2 }] });
+
+    await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   // An app the admin switched off (App.enabled = false) stays off for event types, the copy included
   it.each([
     ["a disabled app turned on", { metadata: { apps: { ga4: { enabled: true, trackingId: "G-TEST" } } } }],
