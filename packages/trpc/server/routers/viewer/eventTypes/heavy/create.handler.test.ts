@@ -4,14 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { Prisma } from "@calcom/prisma/client";
+import type { NextApiRequest } from "next";
 
 import { createHandler } from "./create.handler";
 import type { TCreateInputSchema } from "./create.schema";
 
-const { mockCreate, mockGetDefaultLocations } = vi.hoisted(() => ({
+const { mockCreate, mockGetDefaultLocations, getToken } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockGetDefaultLocations: vi.fn(),
+  getToken: vi.fn(),
 }));
+
+// The session's JWT, which carries the role validateRole gave it at sign-in
+vi.mock("next-auth/jwt", () => ({ getToken }));
 
 vi.mock("@calcom/features/eventtypes/repositories/eventTypeRepository", () => ({
   EventTypeRepository: vi.fn(function () {
@@ -173,13 +178,46 @@ describe("createHandler with a team", () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ team: { connect: { id: 7 } } }));
   });
 
-  it("lets the system admin create a team event type", async () => {
-    prismaMock.membership.findFirst.mockResolvedValue(null);
-    const adminCtx = { ...ctx, user: { ...ctx.user, role: "ADMIN" } } as unknown as CreateOptions["ctx"];
+  function adminCtx(twoFactorEnabled: boolean, signInRole: string) {
+    getToken.mockResolvedValue({ role: signInRole });
+    return {
+      ...ctx,
+      user: { ...ctx.user, role: "ADMIN", twoFactorEnabled, identityProvider: "CAL" },
+      req: {} as NextApiRequest,
+    } as unknown as CreateOptions["ctx"];
+  }
 
-    await createHandler({ ctx: adminCtx, input: teamInput });
+  it("lets an active system admin create a team event type", async () => {
+    prismaMock.membership.findFirst.mockResolvedValue(null);
+
+    await createHandler({ ctx: adminCtx(true, "ADMIN"), input: teamInput });
 
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ team: { connect: { id: 7 } } }));
+  });
+
+  // An ADMIN without 2FA or a strong password is an INACTIVE_ADMIN at sign-in, but the database still says ADMIN
+  it.each([
+    ["with two-factor authentication off", false, "INACTIVE_ADMIN"],
+    ["whose session signed in as INACTIVE_ADMIN", true, "INACTIVE_ADMIN"],
+  ])("refuses a team event type to an admin %s", async (_kind, twoFactorEnabled, signInRole) => {
+    prismaMock.membership.findFirst.mockResolvedValue(null);
+
+    await expect(
+      createHandler({ ctx: adminCtx(twoFactorEnabled, signInRole), input: teamInput })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a team event type to an admin without a session request", async () => {
+    prismaMock.membership.findFirst.mockResolvedValue(null);
+    const { req: _req, ...ctxWithoutReq } = adminCtx(true, "ADMIN") as CreateOptions["ctx"] & { req: unknown };
+
+    await expect(
+      createHandler({ ctx: ctxWithoutReq as CreateOptions["ctx"], input: teamInput })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 
