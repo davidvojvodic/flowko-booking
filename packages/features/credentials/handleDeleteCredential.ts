@@ -1,6 +1,7 @@
 import { OAuth2Client } from "googleapis-common";
 import z from "zod";
 
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getCalendar } from "@calcom/app-store/_utils/getCalendar";
 import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
 import { lookUpGoogleAccount } from "@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount";
@@ -254,6 +255,12 @@ const handleDeleteCredential = async ({
     },
   });
 
+  // Flowko: Cal Video replaces a removed video app only while the admin has it switched on (App.enabled).
+  // Otherwise the removed app's location is dropped rather than swapped for a disabled app's location.
+  const canReplaceWithDailyVideo =
+    isVideoOrConferencingApp(credential.app) &&
+    !(await findDisabledApps(prisma, { locationTypes: [DailyLocationType] })).locationTypes.length;
+
   // TODO: Improve this uninstallation cleanup per event by keeping a relation of EventType to App which has the data.
   for (const eventType of eventTypes) {
     // If it's a video, replace the location with Cal video
@@ -273,7 +280,7 @@ const handleDeleteCredential = async ({
 
       const updatedLocations: TlocationsSchema = locations.reduce((acc: TlocationsSchema, location) => {
         if (location.type.includes(integrationQuery)) {
-          if (!doesDailyVideoAlreadyExists) acc.push({ type: DailyLocationType });
+          if (!doesDailyVideoAlreadyExists && canReplaceWithDailyVideo) acc.push({ type: DailyLocationType });
         } else {
           acc.push(location);
         }

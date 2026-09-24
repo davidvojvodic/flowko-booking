@@ -16,6 +16,11 @@ const testUser = {
   organizationId: null,
 };
 
+const seedDailyVideoApp = ({ enabled }: { enabled: boolean }) =>
+  prisma.app.create({
+    data: { slug: "daily-video", dirName: "dailyvideo", categories: ["conferencing"], enabled },
+  });
+
 const setupCredential = async (credentialInput) => {
   const exampleCredential = {
     id: 123,
@@ -59,6 +64,7 @@ describe("deleteCredential", () => {
       ]);
 
       await PrismaAppRepository.seedApp("zoomvideo");
+      await seedDailyVideoApp({ enabled: true });
 
       await setupCredential({ userId: user.id, type: "zoom_video", appId: "zoom" });
 
@@ -74,6 +80,33 @@ describe("deleteCredential", () => {
       const nonChangedEventType = eventTypeQuery.find((eventType) => eventType.id === 2)?.locations;
       expect(nonChangedEventType).toBeDefined();
       expect(nonChangedEventType![0]).toEqual({ type: "integrations:msteams" });
+    });
+    test("Delete video credential drops the location while Cal Video is switched off", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+
+      const user = await new UserRepository(prisma).create({
+        ...testUser,
+      });
+
+      await addEventTypesToDb([
+        {
+          id: 1,
+          userId: user.id,
+          locations: [{ type: "integrations:zoom" }, { type: "inPerson" }],
+        },
+      ]);
+
+      await PrismaAppRepository.seedApp("zoomvideo");
+      await seedDailyVideoApp({ enabled: false });
+
+      await setupCredential({ userId: user.id, type: "zoom_video", appId: "zoom" });
+
+      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
+      const eventTypeQuery = await new EventTypeRepository(prisma).findAllByUserId({ userId: user.id });
+
+      expect(eventTypeQuery.find((eventType) => eventType.id === 1)?.locations).toEqual([
+        { type: "inPerson" },
+      ]);
     });
     test("Delete calendar credential", async () => {
       const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
@@ -307,7 +340,10 @@ describe("deleteCredential", () => {
           credentialId: 124,
         },
       });
-      mockPrimaryCalendars({ "salon-refresh": "salon@gmail.com", "colleague-refresh": "colleague@gmail.com" });
+      mockPrimaryCalendars({
+        "salon-refresh": "salon@gmail.com",
+        "colleague-refresh": "colleague@gmail.com",
+      });
 
       await revokeGoogleCalendarTokensOfUser(user.id);
 
