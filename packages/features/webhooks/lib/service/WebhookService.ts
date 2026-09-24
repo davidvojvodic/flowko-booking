@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import { WebhookTriggerEvents } from "@calcom/prisma/enums";
 
 import type { WebhookSubscriber, WebhookDeliveryResult } from "../dto/types";
@@ -80,6 +81,16 @@ export class WebhookService implements IWebhookService {
     const { subscriberUrl, payloadTemplate } = subscriber;
     if (!subscriberUrl) throw new Error("Missing subscriber URL");
 
+    // Flowko: re-check the URL (with DNS) right before delivery, as sendPayload does. BOOKING_REQUESTED
+    // (anonymous booking -> sync tasker -> WebhookTaskConsumer) and OOO webhooks reach this fetch, including
+    // webhooks stored before the guard and hostnames that now resolve to a private or metadata address.
+    // http: is allowed here (https-only is enforced when the URL is saved). The error names no URL (U7b);
+    // sendWebhook's catch turns it into { ok: false }.
+    const ssrfValidation = await validateUrlForSSRF(subscriberUrl, { allowHttp: true });
+    if (!ssrfValidation.isValid) {
+      throw new Error(`Webhook URL is not allowed: ${ssrfValidation.error}`);
+    }
+
     const contentType =
       !payloadTemplate || this.isJsonTemplate(payloadTemplate)
         ? "application/json"
@@ -106,12 +117,14 @@ export class WebhookService implements IWebhookService {
       body,
     });
 
-    const responseText = await response.text();
+    // Flowko: drain the body but never copy the subscriber's reply into the result, which processWebhooks
+    // logs on failure: a receiver that echoes the request would put booker details in the error logs (U7b)
+    await response.text().catch(() => undefined);
 
     return {
       ok: response.ok,
       status: response.status,
-      message: responseText || undefined,
+      message: undefined,
       duration: 0,
       subscriberUrl: subscriberUrl,
       webhookId: subscriber.id,
