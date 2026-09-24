@@ -1,4 +1,9 @@
 import dayjs from "@calcom/dayjs";
+import {
+  normaliseEmail,
+  toOrganizerForViewer,
+  withoutAppCredentialIds,
+} from "@calcom/features/bookings/lib/bookingPageForViewer";
 import getAllUserBookings from "@calcom/features/bookings/lib/getAllUserBookings";
 import { isTextFilterValue } from "@calcom/features/data-table/lib/utils";
 import type { DB } from "@calcom/kysely";
@@ -150,15 +155,12 @@ export async function getBookings({
     }
   }
 
-  const [
-    eventTypeIdsFromTeamIdsFilter,
-    attendeeEmailsFromUserIdsFilter,
-    eventTypeIdsFromEventTypeIdsFilter,
-  ] = await Promise.all([
-    getEventTypeIdsFromTeamIdsFilter(prisma, filters?.teamIds),
-    getAttendeeEmailsFromUserIdsFilter(prisma, user.email, filters?.userIds),
-    getEventTypeIdsFromEventTypeIdsFilter(prisma, filters?.eventTypeIds),
-  ]);
+  const [eventTypeIdsFromTeamIdsFilter, attendeeEmailsFromUserIdsFilter, eventTypeIdsFromEventTypeIdsFilter] =
+    await Promise.all([
+      getEventTypeIdsFromTeamIdsFilter(prisma, filters?.teamIds),
+      getAttendeeEmailsFromUserIdsFilter(prisma, user.email, filters?.userIds),
+      getEventTypeIdsFromEventTypeIdsFilter(prisma, filters?.eventTypeIds),
+    ]);
 
   const bookingQueries: { query: BookingsUnionQuery; tables: (keyof DB)[] }[] = [];
 
@@ -745,19 +747,68 @@ export async function getBookings({
     });
   };
 
+  // Flowko: a row where the caller is neither the organizer nor a host is a booking they made on another
+  // tenant's page with their own account email. It gets what the booking page gives a booker (U7a,
+  // bookingPageForViewer.ts), not the host-side record: no organizer id, no organizer email when the event
+  // type hides it, no calendar references beyond the meeting link (externalCalendarId is the host's Google
+  // calendar id), no host report or assignment reasons, no host ids or emails, no app credential ids, only
+  // the caller's own seats and no phone number but the caller's own. The list UI reads user.id only to tell
+  // whether the caller is the host, so its absence reads as "not the host". The row keeps the organizer
+  // view's type, hence the casts on user and references.
+  const viewerEmail = normaliseEmail(user.email);
+  const isViewerEmail = (email: string | null | undefined): boolean =>
+    !!email && normaliseEmail(email) === viewerEmail;
+  const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
+    const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
+    const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
+    return {
+      ...booking,
+      user: organizer as (typeof booking)["user"],
+      userPrimaryEmail: hideOrganizerEmail ? null : booking.userPrimaryEmail,
+      cancelledBy: hideOrganizerEmail ? null : booking.cancelledBy,
+      rescheduledBy: hideOrganizerEmail ? null : booking.rescheduledBy,
+      references: booking.references
+        .filter((reference) => !reference.deleted)
+        .map(({ type, meetingUrl, meetingPassword }) => ({
+          type,
+          meetingUrl,
+          meetingPassword,
+        })) as (typeof booking)["references"],
+      report: null,
+      assignmentReasonSortedByCreatedAt: [],
+      eventType: booking.eventType && {
+        ...booking.eventType,
+        // Without teams a booker's row has no hosts to show; dropping them drops their ids and emails
+        hosts: [],
+        metadata: withoutAppCredentialIds(booking.eventType.metadata),
+      },
+      attendees: booking.attendees.map((attendee) => ({
+        ...attendee,
+        phoneNumber: isViewerEmail(attendee.email) ? attendee.phoneNumber : null,
+      })),
+      // A seat's referenceUid cancels or reschedules that seat without a login
+      seatsReferences: booking.seatsReferences.filter((seat) => isViewerEmail(seat.attendee?.email)),
+    };
+  };
+
   const bookings = await Promise.all(
-    plainBookings.map(async (booking) => {
+    plainBookings.map(async (bookingFromDb) => {
+      const isHostRow = checkIfUserIsHost(user.id, bookingFromDb);
       // If seats are enabled, the event is not set to show attendees, and the current user is not the host, filter out attendees who are not the current user
       if (
-        booking.seatsReferences.length &&
-        !booking.eventType?.seatsShowAttendees &&
-        !checkIfUserIsHost(user.id, booking)
+        bookingFromDb.seatsReferences.length &&
+        !bookingFromDb.eventType?.seatsShowAttendees &&
+        !isHostRow
       ) {
-        booking.attendees = booking.attendees.filter((attendee) => attendee.email === user.email);
+        bookingFromDb.attendees = bookingFromDb.attendees.filter((attendee) => attendee.email === user.email);
       }
+      // Flowko: see toBookingForBooker
+      const booking = isHostRow ? bookingFromDb : toBookingForBooker(bookingFromDb);
 
       let rescheduler = null;
-      if (booking.fromReschedule) {
+      // Flowko: who rescheduled is the host's email when the host did it, so a booker's row hides it along
+      // with the organizer's email
+      if (booking.fromReschedule && (isHostRow || !booking.eventType?.hideOrganizerEmail)) {
         const rescheduledBooking = await prisma.booking.findUnique({
           where: {
             uid: booking.fromReschedule,

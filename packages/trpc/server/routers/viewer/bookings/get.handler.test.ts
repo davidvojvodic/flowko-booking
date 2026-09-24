@@ -304,3 +304,286 @@ describe("getBookings - stub PermissionCheckService behavior", () => {
     expect(mockKysely._mockQueryBuilder.distinct).toHaveBeenCalled();
   });
 });
+
+// Flowko: a row where the caller is only an attendee (they booked another tenant's page with their own
+// account email) gets the booker's view, not the host-side record (BK-2)
+describe("getBookings - booker view of rows the caller only attends", () => {
+  const caller = { id: 1, email: "user@example.com", orgId: null };
+  const hostEmail = "host@victim.si";
+
+  const bookingRow = ({
+    organizerId,
+    hideOrganizerEmail,
+  }: {
+    organizerId: number;
+    hideOrganizerEmail: boolean;
+  }) => ({
+    id: 10,
+    title: "Consultation",
+    userPrimaryEmail: "host-calendar@victim.si",
+    description: null,
+    customInputs: null,
+    startTime: new Date("2030-01-01T10:00:00.000Z"),
+    endTime: new Date("2030-01-01T10:30:00.000Z"),
+    createdAt: new Date("2029-12-01T10:00:00.000Z"),
+    updatedAt: new Date("2029-12-01T10:00:00.000Z"),
+    metadata: {},
+    uid: "booking-uid",
+    responses: {},
+    recurringEventId: null,
+    location: "integrations:google:meet",
+    status: "ACCEPTED",
+    paid: false,
+    fromReschedule: "previous-booking-uid",
+    rescheduled: null,
+    rescheduledBy: hostEmail,
+    cancelledBy: hostEmail,
+    isRecorded: false,
+    cancellationReason: null,
+    rejectionReason: null,
+    eventType: {
+      slug: "consultation",
+      id: 5,
+      title: "Consultation",
+      eventName: null,
+      price: 0,
+      recurringEvent: null,
+      currency: "usd",
+      metadata: { apps: { giphy: { enabled: true, credentialId: 77, thankYouPage: "https://gif" } } },
+      disableGuests: false,
+      bookingFields: null,
+      seatsPerTimeSlot: null,
+      seatsShowAttendees: false,
+      seatsShowAvailabilityCount: false,
+      eventTypeColor: null,
+      customReplyToEmail: null,
+      allowReschedulingPastBookings: false,
+      hideOrganizerEmail,
+      disableCancelling: false,
+      disableRescheduling: false,
+      minimumRescheduleNotice: null,
+      teamId: null,
+      parentId: null,
+      schedulingType: null,
+      hosts: [{ userId: organizerId, user: { id: organizerId, email: hostEmail } }],
+      length: 30,
+      team: null,
+      hostGroups: [],
+    },
+    references: [
+      {
+        id: 1,
+        type: "google_calendar",
+        uid: "google-event-id",
+        meetingId: "meeting-id",
+        thirdPartyRecurringEventId: null,
+        meetingPassword: "meeting-password",
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        bookingId: 10,
+        externalCalendarId: "host.private@gmail.com",
+        deleted: null,
+        credentialId: 42,
+        delegationCredentialId: null,
+      },
+      {
+        id: 2,
+        type: "google_calendar",
+        uid: "old-google-event-id",
+        meetingId: null,
+        thirdPartyRecurringEventId: null,
+        meetingPassword: null,
+        meetingUrl: "https://meet.google.com/old",
+        bookingId: 10,
+        externalCalendarId: "host.private@gmail.com",
+        deleted: true,
+        credentialId: 42,
+        delegationCredentialId: null,
+      },
+    ],
+    payment: [],
+    user: {
+      id: organizerId,
+      name: "Victim Host",
+      email: hostEmail,
+      avatarUrl: null,
+      username: "victim",
+      timeZone: "Europe/Ljubljana",
+    },
+    attendees: [
+      {
+        id: 100,
+        email: "User@Example.com",
+        name: "Booker",
+        timeZone: "Europe/Ljubljana",
+        phoneNumber: "+38640111111",
+        locale: "sl",
+        bookingId: 10,
+        noShow: false,
+      },
+      {
+        id: 101,
+        email: "guest@example.org",
+        name: "Guest",
+        timeZone: "Europe/Ljubljana",
+        phoneNumber: "+38640222222",
+        locale: "sl",
+        bookingId: 10,
+        noShow: false,
+      },
+    ],
+    seatsReferences: [],
+    assignmentReasonSortedByCreatedAt: [{ id: 1, bookingId: 10, reasonEnum: "ROUTING_FORM_ROUTING" }],
+    report: {
+      id: "report-1",
+      reportedById: organizerId,
+      reason: "SPAM",
+      description: "host's private note about the booker",
+      createdAt: new Date("2029-12-02T10:00:00.000Z"),
+    },
+  });
+
+  const createKyselyReturning = (rows: unknown[]) => {
+    const builder: Record<string, ReturnType<typeof vi.fn>> = {};
+    for (const method of [
+      "select",
+      "selectAll",
+      "where",
+      "innerJoin",
+      "leftJoin",
+      "unionAll",
+      "distinct",
+      "as",
+      "$if",
+      "orderBy",
+      "limit",
+      "offset",
+    ]) {
+      builder[method] = vi.fn(() => builder);
+    }
+    builder.compile = vi.fn(() => ({ sql: "SELECT 1" }));
+    builder.executeTakeFirst = vi.fn().mockResolvedValue({ bookingCount: rows.length });
+    // First the booking rows, then the attendees' user data (none of them has an account here)
+    builder.execute = vi.fn().mockResolvedValueOnce(rows).mockResolvedValueOnce([]);
+    return {
+      selectFrom: vi.fn(() => builder),
+      executeQuery: vi.fn().mockResolvedValue({ rows: rows.map(() => ({ id: 10 })) }),
+    } as unknown as Kysely<DB>;
+  };
+
+  const createPrisma = () =>
+    ({
+      user: { findMany: vi.fn().mockResolvedValue([]) },
+      eventType: { findMany: vi.fn().mockResolvedValue([]) },
+      booking: {
+        findUnique: vi.fn().mockResolvedValue({ rescheduledBy: hostEmail }),
+        groupBy: vi.fn().mockResolvedValue([]),
+      },
+      $queryRaw: vi.fn().mockResolvedValue([]),
+    }) as unknown as PrismaClient & { booking: { findUnique: ReturnType<typeof vi.fn> } };
+
+  const listFor = async (row: ReturnType<typeof bookingRow>, prisma = createPrisma()) => {
+    const { bookings } = await getBookings({
+      user: caller,
+      prisma,
+      kysely: createKyselyReturning([row]),
+      bookingListingByStatus: ["upcoming"],
+      filters: {},
+      take: 10,
+      skip: 0,
+    });
+    expect(bookings).toHaveLength(1);
+    return bookings[0];
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("hides the organizer's identity, calendar references, report and other people's phone numbers", async () => {
+    const prisma = createPrisma();
+    const booking = await listFor(bookingRow({ organizerId: 2, hideOrganizerEmail: true }), prisma);
+
+    expect(booking.user).toEqual({
+      name: "Victim Host",
+      email: null,
+      avatarUrl: null,
+      username: "victim",
+      timeZone: "Europe/Ljubljana",
+    });
+    expect(booking.user).not.toHaveProperty("id");
+    expect(booking.userPrimaryEmail).toBeNull();
+    expect(booking.cancelledBy).toBeNull();
+    expect(booking.rescheduledBy).toBeNull();
+    expect(booking.rescheduler).toBeNull();
+    expect(prisma.booking.findUnique).not.toHaveBeenCalled();
+    expect(booking.references).toEqual([
+      {
+        type: "google_calendar",
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        meetingPassword: "meeting-password",
+      },
+    ]);
+    expect(booking.report).toBeNull();
+    expect(booking.assignmentReasonSortedByCreatedAt).toEqual([]);
+    expect(booking.eventType.hosts).toEqual([]);
+    expect(booking.eventType.metadata?.apps).toEqual({
+      giphy: { enabled: true, thankYouPage: "https://gif" },
+    });
+    // The caller's own attendee row keeps its phone number, matched case-insensitively
+    expect(booking.attendees.map(({ email, phoneNumber }) => ({ email, phoneNumber }))).toEqual([
+      { email: "User@Example.com", phoneNumber: "+38640111111" },
+      { email: "guest@example.org", phoneNumber: null },
+    ]);
+
+    const serialised = JSON.stringify(booking);
+    for (const secret of [
+      hostEmail,
+      "host-calendar@victim.si",
+      "host.private@gmail.com",
+      "google-event-id",
+      "credentialId",
+      "host's private note",
+      "+38640222222",
+    ]) {
+      expect(serialised).not.toContain(secret);
+    }
+  });
+
+  it("keeps the organizer's email for a booker when the event type doesn't hide it", async () => {
+    const prisma = createPrisma();
+    const booking = await listFor(bookingRow({ organizerId: 2, hideOrganizerEmail: false }), prisma);
+
+    expect(booking.user).not.toHaveProperty("id");
+    expect(booking.user?.email).toBe(hostEmail);
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+    expect(booking.cancelledBy).toBe(hostEmail);
+    expect(booking.rescheduledBy).toBe(hostEmail);
+    expect(booking.rescheduler).toBe(hostEmail);
+    expect(prisma.booking.findUnique).toHaveBeenCalledWith({
+      where: { uid: "previous-booking-uid" },
+      select: { rescheduledBy: true },
+    });
+    // Still a booker: no calendar ids, report, host ids or other people's phone numbers
+    expect(booking.references).toHaveLength(1);
+    expect(JSON.stringify(booking.references)).not.toContain("host.private@gmail.com");
+    expect(booking.report).toBeNull();
+    expect(booking.eventType.hosts).toEqual([]);
+    expect(booking.attendees[1].phoneNumber).toBeNull();
+  });
+
+  it("returns the full record on a row the caller organizes", async () => {
+    const row = bookingRow({ organizerId: caller.id, hideOrganizerEmail: true });
+    const booking = await listFor(row);
+
+    expect(booking.user).toEqual(row.user);
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+    expect(booking.cancelledBy).toBe(hostEmail);
+    expect(booking.rescheduler).toBe(hostEmail);
+    expect(booking.references).toEqual(row.references);
+    expect(booking.report).toEqual(row.report);
+    expect(booking.assignmentReasonSortedByCreatedAt).toEqual(row.assignmentReasonSortedByCreatedAt);
+    expect(booking.eventType.hosts).toEqual(row.eventType.hosts);
+    expect(booking.eventType.metadata?.apps).toEqual(row.eventType.metadata.apps);
+    expect(booking.attendees.map(({ phoneNumber }) => phoneNumber)).toEqual(["+38640111111", "+38640222222"]);
+  });
+});
