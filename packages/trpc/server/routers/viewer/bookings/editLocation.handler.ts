@@ -288,8 +288,17 @@ export async function editLocationHandler({ ctx, input, actionSource }: EditLoca
 
   // Flowko: an app the admin switched off (App.enabled = false) can't become a booking's location either;
   // EventManager.updateLocation would run it (a Meet link, a Cal Video room). An empty one means Cal Video.
+  // "conferencing" is checked as the organizer's default app too: a static-link app resolves to the saved
+  // link, a URL no app claims, while booking checks that app's own location type.
+  const defaultConferencingAppLocationType =
+    newLocation === OrganizerDefaultConferencingAppType
+      ? getAppFromSlug(organizer.metadata?.defaultConferencingApp?.appSlug)?.appData?.location?.type
+      : undefined;
   const { locationTypes: disabledLocationTypes } = await findDisabledApps(prisma, {
-    locationTypes: [newLocationInEvtFormat],
+    locationTypes: [
+      newLocationInEvtFormat,
+      ...(defaultConferencingAppLocationType ? [defaultConferencingAppLocationType] : []),
+    ],
   });
   if (disabledLocationTypes.length > 0) {
     // The dialog shows the message as sent, like the translated UserErrors above
