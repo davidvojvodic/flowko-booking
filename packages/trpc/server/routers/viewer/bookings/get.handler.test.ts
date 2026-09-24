@@ -665,6 +665,45 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     });
   });
 
+  it("drops an attendee row under a host's email when the event type hides the organizer's email", async () => {
+    const base = bookingRow({ organizerId: 2, hideOrganizerEmail: true });
+    const hostAsGuest = { ...base.attendees[1], id: 103, email: "Host@Victim.si", phoneNumber: null };
+    const booking = await listFor({ ...base, attendees: [...base.attendees, hostAsGuest] });
+
+    expect(booking.attendees.map(({ email }) => email)).toEqual(["User@Example.com", "guest@example.org"]);
+    expect(JSON.stringify(booking)).not.toContain("Host@Victim.si");
+
+    const shown = bookingRow({ organizerId: 2, hideOrganizerEmail: false });
+    const bookingShown = await listFor({ ...shown, attendees: [...shown.attendees, hostAsGuest] });
+    expect(bookingShown.attendees.map(({ email }) => email)).toEqual([
+      "User@Example.com",
+      "guest@example.org",
+      "Host@Victim.si",
+    ]);
+  });
+
+  it("gives the booker's view to a Host row's user who doesn't organize the booking", async () => {
+    const base = bookingRow({ organizerId: 2, hideOrganizerEmail: true });
+    const row = {
+      ...base,
+      eventType: {
+        ...base.eventType,
+        // The caller is among the attendees under this exact email, as checkIfUserIsHost requires
+        hosts: [
+          ...base.eventType.hosts,
+          { userId: caller.id, user: { id: caller.id, email: "User@Example.com" } },
+        ],
+      },
+    };
+    const booking = await listFor(row);
+
+    expect(booking.user).not.toHaveProperty("id");
+    expect(booking.references).toHaveLength(1);
+    expect(booking.report).toBeNull();
+    expect(booking.eventType.hosts).toEqual([]);
+    expect(JSON.stringify(booking)).not.toContain("host.private@gmail.com");
+  });
+
   it("returns every answer on a row the caller organizes", async () => {
     const responses = bookerResponses("booker@example.org");
     const row = withResponses(bookingRow({ organizerId: caller.id, hideOrganizerEmail: true }), responses, [

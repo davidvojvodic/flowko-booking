@@ -793,6 +793,17 @@ export async function getBookings({
   const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
     const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
     const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
+    // Flowko: a host added as a guest is an attendee under their own email, which the event type may hide
+    // (U7a nulls it on the booking page). The row is dropped rather than nulled, so Attendee.email stays a string
+    const hostEmails = new Set(
+      [
+        booking.user?.email,
+        booking.userPrimaryEmail,
+        ...(booking.eventType?.hosts ?? []).map((host) => host.user?.email),
+      ].flatMap((email) => (email ? [normaliseEmail(email)] : []))
+    );
+    const isHiddenHostAttendee = (email: string) =>
+      hideOrganizerEmail && !isViewerEmail(email) && hostEmails.has(normaliseEmail(email));
     return {
       ...booking,
       user: organizer as (typeof booking)["user"],
@@ -815,10 +826,12 @@ export async function getBookings({
         hosts: [],
         metadata: withoutAppCredentialIds(booking.eventType.metadata),
       },
-      attendees: booking.attendees.map((attendee) => ({
-        ...attendee,
-        phoneNumber: isViewerEmail(attendee.email) ? attendee.phoneNumber : null,
-      })),
+      attendees: booking.attendees
+        .filter((attendee) => !isHiddenHostAttendee(attendee.email))
+        .map((attendee) => ({
+          ...attendee,
+          phoneNumber: isViewerEmail(attendee.email) ? attendee.phoneNumber : null,
+        })),
       // A seat's referenceUid cancels or reschedules that seat without a login
       seatsReferences: booking.seatsReferences.filter((seat) => isViewerEmail(seat.attendee?.email)),
     };
@@ -826,12 +839,14 @@ export async function getBookings({
 
   const bookings = await Promise.all(
     plainBookings.map(async (bookingFromDb) => {
-      const isHostRow = checkIfUserIsHost(user.id, bookingFromDb);
+      // Flowko: without teams the organizer is the only host (Host rows are written for team event types only),
+      // so the host-side record goes to the organizer alone and never on the strength of a Host row
+      const isHostRow = bookingFromDb.user?.id === user.id;
       // If seats are enabled, the event is not set to show attendees, and the current user is not the host, filter out attendees who are not the current user
       if (
         bookingFromDb.seatsReferences.length &&
         !bookingFromDb.eventType?.seatsShowAttendees &&
-        !isHostRow
+        !checkIfUserIsHost(user.id, bookingFromDb)
       ) {
         bookingFromDb.attendees = bookingFromDb.attendees.filter((attendee) => attendee.email === user.email);
       }
