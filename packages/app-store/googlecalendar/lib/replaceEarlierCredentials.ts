@@ -23,6 +23,14 @@ export type EarlierGoogleCalendarCredential = {
 type NewConnectionCalendar = Pick<IntegrationCalendar, "externalId" | "readOnly">;
 
 /**
+ * Flowko: every client business is its own user on this instance. Only the user's own SelectedCalendar
+ * rows (filtered by userId) and these DestinationCalendar rows, the user's and their event types', decide
+ * or move with a replace. Another tenant could point a row at this user's credential, and such a row must
+ * neither veto the replace nor end up on the new credential.
+ */
+const ownDestinationCalendarsOf = (userId: number) => ({ OR: [{ userId }, { eventType: { userId } }] });
+
+/**
  * Flowko: the callback adds a credential on every connect and kept the earlier ones, so reconnecting the same
  * Google account left the old refresh token in the database, and disconnecting skipped the revoke because the
  * grant looked shared. This lists the user's other google_calendar credentials. Call it before the callback
@@ -45,11 +53,14 @@ export const findEarlierGoogleCalendarCredentials = async ({
     if (!credentials.length) return [];
 
     // Every row a replace would move, whatever calendar it points at
-    const where = { credentialId: { in: credentials.map(({ id }) => id) } };
+    const byCredential = { credentialId: { in: credentials.map(({ id }) => id) } };
     const select = { credentialId: true, externalId: true };
     const [selectedCalendars, destinationCalendars] = await Promise.all([
-      prisma.selectedCalendar.findMany({ where, select }),
-      prisma.destinationCalendar.findMany({ where, select }),
+      prisma.selectedCalendar.findMany({ where: { ...byCredential, userId }, select }),
+      prisma.destinationCalendar.findMany({
+        where: { ...byCredential, ...ownDestinationCalendarsOf(userId) },
+        select,
+      }),
     ]);
     const externalIdsOf = (
       calendars: { credentialId: number | null; externalId: string }[],
@@ -182,8 +193,11 @@ export const replaceEarlierGoogleCalendarCredentials = async ({
 
     const replaced = { credentialId: { in: sameAccountCredentialIds } };
     await prisma.$transaction([
-      prisma.selectedCalendar.updateMany({ where: replaced, data: { credentialId } }),
-      prisma.destinationCalendar.updateMany({ where: replaced, data: { credentialId } }),
+      prisma.selectedCalendar.updateMany({ where: { ...replaced, userId }, data: { credentialId } }),
+      prisma.destinationCalendar.updateMany({
+        where: { ...replaced, ...ownDestinationCalendarsOf(userId) },
+        data: { credentialId },
+      }),
       prisma.bookingReference.updateMany({ where: replaced, data: { credentialId } }),
       prisma.credential.deleteMany({
         where: { id: { in: sameAccountCredentialIds }, userId, type: "google_calendar" },
