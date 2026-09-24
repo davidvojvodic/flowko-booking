@@ -13,3 +13,16 @@ export const generateHashedLink = (_id?: number | string) => {
   const translator = short();
   return translator.generate();
 };
+
+const SHORT_UUID_FORMAT = /^[1-9a-km-zA-HJ-NP-Z]{22}$/;
+const UUID_V4_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+// Flowko: true only for a link generateHashedLink makes, for a server that stores a link the client sent.
+// A tab still running the old bundle sends uuidv5(id:ms) links, which have the same alphabet and length,
+// so the check decodes the link: it must be the canonical short form of a version 4 (random) uuid.
+export const isGeneratedHashedLink = (link: unknown): link is string => {
+  if (typeof link !== "string" || !SHORT_UUID_FORMAT.test(link)) return false;
+  const translator = short();
+  const uuid = translator.toUUID(link);
+  return UUID_V4_FORMAT.test(uuid) && translator.fromUUID(uuid) === link;
+};

@@ -2,7 +2,7 @@ import short from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { generateHashedLink } from "./generateHashedLink";
+import { generateHashedLink, isGeneratedHashedLink } from "./generateHashedLink";
 
 // The format every private link has had: short-uuid's flickrBase58, padded to 22 characters.
 const FLICKR_BASE58 = /^[1-9a-km-zA-HJ-NP-Z]{22}$/;
@@ -60,5 +60,31 @@ describe("generateHashedLink", () => {
     const links = new Set(Array.from({ length: 1000 }, () => generateHashedLink(42)));
 
     expect(links.size).toBe(1000);
+  });
+});
+
+describe("isGeneratedHashedLink", () => {
+  it("accepts a link generateHashedLink made", () => {
+    expect(isGeneratedHashedLink(generateHashedLink(42))).toBe(true);
+  });
+
+  it("refuses a link the old code derived from the id and the time", () => {
+    const legacy = legacyHashedLink(42, FROZEN_NOW.getTime());
+
+    expect(legacy).toMatch(FLICKR_BASE58);
+    expect(isGeneratedHashedLink(legacy)).toBe(false);
+  });
+
+  it("refuses anything that is not the canonical short form of a v4 uuid", () => {
+    expect(isGeneratedHashedLink("a")).toBe(false);
+    expect(isGeneratedHashedLink("")).toBe(false);
+    expect(isGeneratedHashedLink(undefined)).toBe(false);
+    expect(isGeneratedHashedLink(42)).toBe(false);
+    // 22 alphabet characters that decode past 128 bits (the decoder would truncate them).
+    expect(isGeneratedHashedLink("zzzzzzzzzzzzzzzzzzzzzz")).toBe(false);
+    // The nil uuid.
+    expect(isGeneratedHashedLink("1111111111111111111111")).toBe(false);
+    // A v4 uuid's short form with a character outside the alphabet.
+    expect(isGeneratedHashedLink(`${generateHashedLink().slice(0, 21)}0`)).toBe(false);
   });
 });
