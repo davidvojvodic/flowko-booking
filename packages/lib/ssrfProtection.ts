@@ -101,11 +101,20 @@ export interface SSRFValidationResult {
   error?: string;
 }
 
+// Flowko: allowHttp is for re-checking a URL that was already validated when it was saved (webhook
+// delivery). It lets plain http: through, but every loopback, private and metadata check still runs.
+export interface SSRFValidationOptions {
+  allowHttp?: boolean;
+}
+
 /**
  * Core validation logic shared by sync and async versions
  * Returns SSRFValidationResult if validation completes, or { url } if DNS check is needed
  */
-function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL } {
+function validateUrlCore(
+  urlString: string,
+  options?: SSRFValidationOptions
+): SSRFValidationResult | { url: URL } {
   // Data URLs with image/* are safe (no network fetch)
   if (urlString.startsWith("data:image/")) {
     return { isValid: true };
@@ -151,7 +160,7 @@ function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL }
     return { isValid: true };
   }
 
-  if (url.protocol !== "https:") {
+  if (url.protocol !== "https:" && !(options?.allowHttp && url.protocol === "http:")) {
     return { isValid: false, error: ERRORS.HTTPS_ONLY };
   }
 
@@ -172,8 +181,11 @@ function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL }
  * Async SSRF validation with DNS rebinding protection
  * Resolves hostname and checks all IPs against private ranges
  */
-export async function validateUrlForSSRF(urlString: string): Promise<SSRFValidationResult> {
-  const result = validateUrlCore(urlString);
+export async function validateUrlForSSRF(
+  urlString: string,
+  options?: SSRFValidationOptions
+): Promise<SSRFValidationResult> {
+  const result = validateUrlCore(urlString, options);
 
   if ("isValid" in result) {
     return result;

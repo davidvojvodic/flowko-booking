@@ -66,6 +66,24 @@ describe("Flowko: self-hosted SSRF guard without FLOWKO_ALLOW_PRIVATE_WEBHOOK_UR
     expect(await validateUrlForSSRF("https://hooks.example.com/cal")).toEqual({ isValid: true });
   });
 
+  it("allowHttp (delivery re-check) lets public http through but keeps every address check", async () => {
+    const opts = { allowHttp: true };
+    expect(await validateUrlForSSRF("http://hooks.example.com/cal", opts)).toEqual({ isValid: true });
+    expect(await validateUrlForSSRF("http://127.0.0.1:3000/", opts)).toEqual({ isValid: false, error: "Blocked hostname" });
+    expect(await validateUrlForSSRF("http://localhost/", opts)).toEqual({ isValid: false, error: "Blocked hostname" });
+    expect(await validateUrlForSSRF("http://10.0.0.1/", opts)).toEqual({ isValid: false, error: "Private IP address" });
+    expect(await validateUrlForSSRF("http://[::ffff:a9fe:a9fe]/", opts)).toEqual({
+      isValid: false,
+      error: "Private IP address",
+    });
+    expect((await validateUrlForSSRF("ftp://hooks.example.com/", opts)).isValid).toBe(false);
+    lookupMock.mockResolvedValue([{ address: "fd12:3456::1", family: 6 }]);
+    expect(await validateUrlForSSRF("http://postgres.railway.internal/", opts)).toEqual({
+      isValid: false,
+      error: "Hostname resolves to private IP",
+    });
+  });
+
   it("only the exact value 'true' opens the private network", async () => {
     vi.stubEnv("FLOWKO_ALLOW_PRIVATE_WEBHOOK_URLS", "1");
     expect(validateUrlForSSRFSync("http://10.0.0.1/").isValid).toBe(false);

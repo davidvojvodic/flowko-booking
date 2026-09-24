@@ -115,6 +115,8 @@ describe("Flowko: webhook handlers refuse private and metadata targets", () => {
       const result = await testTriggerHandler({ ctx: {}, input: { url: PUBLIC_URL, type: "PING" } });
       expect(result).toEqual({ ok: true, status: 200 });
       expect(mocks.sendPayload).toHaveBeenCalledTimes(1);
+      // Flowko: the test request is bounded by a 10 s timeout
+      expect(mocks.sendPayload.mock.calls[0][5]).toEqual({ timeoutMs: 10_000 });
     });
 
     it("FLOWKO_ALLOW_PRIVATE_WEBHOOK_URLS=true restores the upstream self-hosted behaviour", async () => {

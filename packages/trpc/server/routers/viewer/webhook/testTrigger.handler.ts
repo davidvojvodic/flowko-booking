@@ -6,6 +6,8 @@ import { getTranslation } from "@calcom/i18n/server";
 
 import type { TTestTriggerInputSchema } from "./testTrigger.schema";
 
+const TEST_TRIGGER_TIMEOUT_MS = 10_000;
+
 type TestTriggerOptions = {
   ctx: Record<string, unknown>;
   input: TTestTriggerInputSchema;
@@ -55,7 +57,10 @@ export const testTriggerHandler = async ({ ctx: _ctx, input }: TestTriggerOption
 
   try {
     const webhook = { subscriberUrl: url, appId: null, payloadTemplate, version: DEFAULT_WEBHOOK_VERSION };
-    return await sendPayload(secret, type, new Date().toISOString(), webhook, data);
+    // Flowko: bound the wait, so a slow or silent target cannot hold the request open
+    return await sendPayload(secret, type, new Date().toISOString(), webhook, data, {
+      timeoutMs: TEST_TRIGGER_TIMEOUT_MS,
+    });
   } catch {
     return {
       ok: false,
