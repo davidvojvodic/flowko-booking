@@ -314,7 +314,9 @@ test.describe("pro user", () => {
     await Promise.all(promises);
   });
 
-  test("Time slots should be reserved when selected", async ({ page, browser }) => {
+  // Flowko: slot reservation is switched off (U8c, AV-2). An anonymous reserveSlot used to hide the
+  // host's overlapping slots from every other visitor, so a second visitor must still see the slot.
+  test("Time slots stay available when selected by another visitor", async ({ page, browser }) => {
     const initialUrl = page.url();
     await page.locator('[data-testid="event-type-link"]').first().click();
     await selectFirstAvailableTimeSlotNextMonth(page);
@@ -329,12 +331,12 @@ test.describe("pro user", () => {
     await pageTwoInNewContext.locator('[data-testid="day"][data-disabled="false"]').nth(0).waitFor();
     await pageTwoInNewContext.locator('[data-testid="day"][data-disabled="false"]').nth(0).click();
 
-    // 9:30 should be the first available time slot
+    // 9:00, the slot page one selected, is still the first available time slot
     await pageTwoInNewContext.locator('[data-testid="time"]').nth(0).waitFor();
     const firstSlotAvailable = pageTwoInNewContext.locator('[data-testid="time"]').nth(0);
     // Find text inside the element
     const firstSlotAvailableText = await firstSlotAvailable.innerText();
-    expect(firstSlotAvailableText).toContain("9:30");
+    expect(firstSlotAvailableText).toContain("9:00");
   });
 
   test("Time slots are not reserved when going back via Cancel button on Event Form", async ({
