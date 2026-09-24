@@ -1985,7 +1985,9 @@ async function handler(
   if (!eventType.seatsPerTimeSlot && originalRescheduledBooking?.uid) {
     tracingLogger.silly("Rescheduling booking", originalRescheduledBooking.uid);
     evt = CalendarEventBuilder.fromEvent(evt)
-      .withVideoCallDataFromReferences(originalRescheduledBooking.references)
+      // Flowko: a booking that books no location because its app is off (Cal Video or another disabled app)
+      // doesn't carry the old meeting's link into the calendar event and the emails either
+      .withVideoCallDataFromReferences(isLocationUnavailable ? [] : originalRescheduledBooking.references)
       .build();
     evt.rescheduledBy = reqBody.rescheduledBy;
 

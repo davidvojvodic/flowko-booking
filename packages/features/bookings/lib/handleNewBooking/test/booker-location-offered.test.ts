@@ -434,6 +434,51 @@ describe("handleNewBooking with a booker-picked location", () => {
       expect(calendar.createEventCalls).toHaveLength(0);
     });
 
+    test("doesn't carry a switched-off app's old meeting link into the booking a booker moves", async () => {
+      const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+      const oldMeetUrl = "https://meet.google.com/old-meeting";
+      const { booking, calendar } = await book({
+        locations: [...inPersonOnly, { type: BookingLocations.GoogleMeet }],
+        value: BookingLocations.GoogleMeet,
+        isGoogleMeetEnabled: false,
+        bookings: [
+          {
+            uid: "booking-with-meet",
+            eventTypeId: 1,
+            userId: 101,
+            status: BookingStatus.ACCEPTED,
+            startTime: `${plus1DateString}T05:00:00.000Z`,
+            endTime: `${plus1DateString}T05:30:00.000Z`,
+            location: BookingLocations.GoogleMeet,
+            references: [
+              getMockBookingReference({
+                type: "google_calendar",
+                uid: "MOCK_ID",
+                meetingUrl: oldMeetUrl,
+                externalCalendarId: "organizer@google-calendar.com",
+                credentialId: 1,
+              }),
+              getMockBookingReference({
+                type: "google_meet_video",
+                uid: "MOCK_ID",
+                meetingUrl: oldMeetUrl,
+                credentialId: 1,
+              }),
+            ],
+            attendees: [getMockBookingAttendee({ id: 1, name: "Booker", email: "booker@example.com" })],
+          },
+        ],
+        rescheduleUid: "booking-with-meet",
+      });
+      expect((await booking).location).toBe("");
+      const calendarEvents = [
+        ...calendar.createEventCalls.map((call) => call.args.calEvent),
+        ...calendar.updateEventCalls.map((call) => call.args.event),
+      ];
+      expect(calendarEvents.length).toBeGreaterThan(0);
+      for (const calEvent of calendarEvents) expect(calEvent.videoCallData).toBeUndefined();
+    });
+
     test("doesn't bring a switched-off app back from the booking a booker moves", async () => {
       const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
       const { booking, calendar } = await book({
