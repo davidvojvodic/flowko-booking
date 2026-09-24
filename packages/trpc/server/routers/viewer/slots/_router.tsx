@@ -18,9 +18,20 @@ export const slotsRouter = router({
   getSchedule: publicProcedure.input(ZGetScheduleInputSchema).query(async ({ input, ctx }) => {
     const { getScheduleHandler } = await import("./getSchedule.handler");
 
+    // Flowko: internal/debug flags are never honoured from this public procedure (U8c, AV-5).
+    // _bypassCalendarBusyTimes let any visitor diff a tenant's slots with and without their
+    // Google Calendar busy times, and _silentCalendarFailures showed whose calendar is broken.
+    // The web booker never sends them (only the undeployed API v2 atoms do).
+    const {
+      _enableTroubleshooter: _ignoredEnableTroubleshooter,
+      _bypassCalendarBusyTimes: _ignoredBypassCalendarBusyTimes,
+      _silentCalendarFailures: _ignoredSilentCalendarFailures,
+      ...publicInput
+    } = input;
+
     return getScheduleHandler({
       ctx,
-      input,
+      input: publicInput,
     });
   }),
   reserveSlot: publicProcedure.input(ZReserveSlotInputSchema).mutation(async ({ input, ctx }) => {
