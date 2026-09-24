@@ -189,30 +189,103 @@ describe("createInMemoryRateLimiter", () => {
     expect((await limiter({ identifier: "o", opts })).success).toBe(false);
   });
 
-  it("drops the oldest window once the entry cap is reached", async () => {
+  it("never evicts a live window: a denying identifier stays denied however many new ones arrive", async () => {
     const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntries: 3 });
-    for (let i = 0; i < 10; i++) await limiter({ identifier: "oldest" });
-    expect((await limiter({ identifier: "oldest" })).success).toBe(false);
-
+    for (let i = 0; i < 10; i++) await limiter({ identifier: "target" });
+    expect((await limiter({ identifier: "target" })).success).toBe(false);
     await limiter({ identifier: "b" });
     await limiter({ identifier: "c" });
     expect(limiter.size()).toBe(3);
 
-    await limiter({ identifier: "d" });
+    for (let i = 0; i < 3 + 20; i++) await limiter({ identifier: `flood-${i}` });
+
     expect(limiter.size()).toBe(3);
-    // "oldest" was evicted, so it starts over (evicting "b" in turn); "d" keeps its count.
-    expect(await limiter({ identifier: "oldest" })).toMatchObject({ success: true, remaining: 9 });
-    expect(limiter.size()).toBe(3);
-    expect(await limiter({ identifier: "d" })).toMatchObject({ success: true, remaining: 8 });
+    expect((await limiter({ identifier: "target" })).success).toBe(false);
+    // The windows that were there keep their own counts.
+    expect(await limiter({ identifier: "b" })).toMatchObject({ success: true, remaining: 8 });
   });
 
-  it("never holds more than 50k windows by default", async () => {
+  it("counts identifiers that are new while the store is full in one overflow window per namespace", async () => {
+    const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntries: 2 });
+    await limiter({ identifier: "a" });
+    await limiter({ identifier: "b" });
+
+    for (let i = 1; i <= 10; i++) {
+      await expect(limiter({ identifier: `new-${i % 3}` })).resolves.toEqual({
+        success: true,
+        limit: 10,
+        remaining: 10 - i,
+        reset: T0 + 60_000,
+      });
+    }
+    // Fail closed: an eleventh new identifier is denied, even one never seen before.
+    await expect(limiter({ identifier: "never-seen" })).resolves.toEqual({
+      success: false,
+      limit: 10,
+      remaining: 0,
+      reset: T0 + 60_000,
+    });
+    expect(limiter.size()).toBe(2);
+
+    // Other namespaces and overrides overflow separately, with their own limits.
+    expect(await limiter({ rateLimitingType: "common", identifier: "eventTypes:list:7" })).toMatchObject({
+      success: true,
+      limit: 200,
+      remaining: 199,
+    });
+    const opts = { limit: { limit: 3, duration: "60s" as const } };
+    expect(await limiter({ identifier: "override", opts })).toMatchObject({ success: true, limit: 3, remaining: 2 });
+    // Identifiers that already had a window are unaffected.
+    expect(await limiter({ identifier: "a" })).toMatchObject({ success: true, remaining: 8 });
+  });
+
+  it("gives new identifiers their own window again as soon as expired ones are pruned", async () => {
+    const clock = fakeClock();
+    const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntries: 2 });
+    await limiter({ identifier: "a" });
+    clock.advance(30_000);
+    await limiter({ identifier: "b" });
+    for (let i = 0; i < 10; i++) await limiter({ identifier: `flood-${i}` });
+    expect((await limiter({ identifier: "late" })).success).toBe(false);
+
+    // "a" expires first and frees exactly one slot, with no once-a-minute delay.
+    clock.advance(30_000);
+    expect(await limiter({ identifier: "late" })).toMatchObject({
+      success: true,
+      remaining: 9,
+      reset: T0 + 120_000,
+    });
+    expect(limiter.size()).toBe(2);
+    expect((await limiter({ identifier: "later" })).success).toBe(false);
+  });
+
+  it("resets the overflow window after its duration while the store stays full", async () => {
+    const clock = fakeClock();
+    const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntries: 1 });
+    await limiter({ rateLimitingType: "ai", identifier: "long-lived" });
+    for (let i = 0; i < 10; i++) await limiter({ identifier: `flood-${i}` });
+    expect((await limiter({ identifier: "flood-x" })).success).toBe(false);
+
+    clock.advance(60_000);
+    expect(await limiter({ identifier: "flood-y" })).toMatchObject({
+      success: true,
+      remaining: 9,
+      reset: T0 + 120_000,
+    });
+    expect(limiter.size()).toBe(1);
+  });
+
+  it("never holds more than 50k windows by default, and a flood past the cap resets no counter", async () => {
     expect(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES).toBe(50_000);
     const limiter = createInMemoryRateLimiter({ now: fakeClock().now });
+    for (let i = 0; i < 10; i++) await limiter({ identifier: "admin-login" });
+    expect((await limiter({ identifier: "admin-login" })).success).toBe(false);
+
     for (let i = 0; i < IN_MEMORY_RATE_LIMIT_MAX_ENTRIES + 500; i++) {
-      await limiter({ identifier: `createBooking:ip-${i}` });
+      await limiter({ identifier: `emailVerifyCode.${i}` });
     }
     expect(limiter.size()).toBe(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES);
+    expect((await limiter({ identifier: "admin-login" })).success).toBe(false);
   });
 
   it("prunes expired windows", async () => {
