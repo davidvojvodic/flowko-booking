@@ -181,8 +181,13 @@ describe("getBookings - stub PermissionCheckService behavior", () => {
     ).resolves.not.toThrow();
   });
 
-  it("should throw BAD_REQUEST when filtering by non-existent userIds", async () => {
-    mockPrisma.user.findMany = vi.fn().mockResolvedValue([]);
+  // Flowko: the userIds filter is authorised before any user lookup, so a foreign id gets the same
+  // FORBIDDEN whether or not a user has it (it used to be BAD_REQUEST for a missing id: an existence oracle)
+  it.each([
+    ["an id no user has", [] as { id: number; email: string }[]],
+    ["another tenant's existing id", [{ id: 4, email: "other-tenant@example.com" }]],
+  ])("should throw FORBIDDEN without looking up users when filtering by %s", async (_label, users) => {
+    mockPrisma.user.findMany = vi.fn().mockResolvedValue(users);
     mockPrisma.eventType.findMany = vi.fn().mockResolvedValue([]);
     mockPrisma.booking.groupBy = vi.fn().mockResolvedValue([]);
 
@@ -199,9 +204,34 @@ describe("getBookings - stub PermissionCheckService behavior", () => {
         skip: 0,
       })
     ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "The requested users do not exist.",
+      code: "FORBIDDEN",
+      message: "You do not have permissions to fetch bookings for specified userIds",
     });
+    expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
+    expect(mockKysely.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("should throw FORBIDDEN when the userIds filter mixes the caller's own id with another", async () => {
+    mockPrisma.user.findMany = vi.fn().mockResolvedValue([
+      { id: 1, email: "user@example.com" },
+      { id: 4, email: "other-tenant@example.com" },
+    ]);
+    mockPrisma.booking.groupBy = vi.fn().mockResolvedValue([]);
+
+    await expect(
+      getBookings({
+        user: mockUser,
+        prisma: mockPrisma,
+        kysely: mockKysely as unknown as Kysely<DB>,
+        bookingListingByStatus: ["upcoming"],
+        filters: {
+          userIds: [1, 4],
+        },
+        take: 10,
+        skip: 0,
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
   });
 
   it("should execute query via kysely when no userIds filter is provided", async () => {

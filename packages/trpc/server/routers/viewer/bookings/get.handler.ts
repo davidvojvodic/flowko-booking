@@ -128,25 +128,11 @@ export async function getBookings({
   // PERFORMANCE: We no longer need to fetch all emails/IDs for the main query since we use subqueries
   const needsUserIdsValidation = !!filters?.userIds && filters.userIds.length > 0;
 
-  const [
-    eventTypeIdsFromTeamIdsFilter,
-    attendeeEmailsFromUserIdsFilter,
-    eventTypeIdsFromEventTypeIdsFilter,
-    allAccessibleUserIds,
-  ] = await Promise.all([
-    getEventTypeIdsFromTeamIdsFilter(prisma, filters?.teamIds),
-    getAttendeeEmailsFromUserIdsFilter(prisma, user.email, filters?.userIds),
-    getEventTypeIdsFromEventTypeIdsFilter(prisma, filters?.eventTypeIds),
-    // Only fetch accessible user IDs when we need to validate the userIds filter
-    needsUserIdsValidation
-      ? getUserIdsFromTeamIds(prisma, teamIdsWithBookingPermission)
-      : Promise.resolve([]),
-  ]);
-
-  const bookingQueries: { query: BookingsUnionQuery; tables: (keyof DB)[] }[] = [];
-
-  // If userIds filter is provided
-  if (!!filters?.userIds && filters.userIds.length > 0) {
+  // Flowko: authorise the userIds filter before any user lookup. getAttendeeEmailsFromUserIdsFilter answers
+  // BAD_REQUEST for an id no user has, so checking afterwards told a caller which foreign ids exist. Without
+  // teams allAccessibleUserIds is [] and the caller's own id is the only one allowed.
+  if (needsUserIdsValidation && filters.userIds) {
+    const allAccessibleUserIds = await getUserIdsFromTeamIds(prisma, teamIdsWithBookingPermission);
     const areUserIdsWithinUserOrgOrTeam = filters.userIds.every((userId) =>
       allAccessibleUserIds.includes(userId)
     );
@@ -162,7 +148,22 @@ export async function getBookings({
         message: "You do not have permissions to fetch bookings for specified userIds",
       });
     }
+  }
 
+  const [
+    eventTypeIdsFromTeamIdsFilter,
+    attendeeEmailsFromUserIdsFilter,
+    eventTypeIdsFromEventTypeIdsFilter,
+  ] = await Promise.all([
+    getEventTypeIdsFromTeamIdsFilter(prisma, filters?.teamIds),
+    getAttendeeEmailsFromUserIdsFilter(prisma, user.email, filters?.userIds),
+    getEventTypeIdsFromEventTypeIdsFilter(prisma, filters?.eventTypeIds),
+  ]);
+
+  const bookingQueries: { query: BookingsUnionQuery; tables: (keyof DB)[] }[] = [];
+
+  // If userIds filter is provided (authorised above)
+  if (!!filters?.userIds && filters.userIds.length > 0) {
     // 1. Booking created by one of the filtered users
     bookingQueries.push({
       query: kysely
