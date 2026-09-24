@@ -178,7 +178,20 @@ describe("crypto", () => {
       const token = symmetricEncryptAuthenticated(payload, testKey, label);
       expect(() => symmetricDecryptAuthenticated(` ${token}`, testKey, label)).toThrow();
       expect(() => symmetricDecryptAuthenticated(`${token}=`, testKey, label)).toThrow();
-      expect(() => symmetricDecryptAuthenticated(token.replace(/_/g, "/"), testKey, label)).toThrow();
+      // standard-base64 alphabet instead of base64url
+      expect(() => symmetricDecryptAuthenticated(`+${token.slice(1)}`, testKey, label)).toThrow();
+      expect(() => symmetricDecryptAuthenticated(`${token.slice(0, -1)}/`, testKey, label)).toThrow();
+
+      // The payload encrypts to 12 + 37 + 16 = 65 bytes, so the last base64url character carries two
+      // unused low bits. Flipping one gives a different string that Node decodes to the same bytes.
+      const raw = Buffer.from(token, "base64url");
+      expect(raw.length % 3).not.toBe(0);
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+      const sibling = alphabet[alphabet.indexOf(token[token.length - 1]) ^ 1];
+      const nonCanonical = `${token.slice(0, -1)}${sibling}`;
+      expect(nonCanonical).not.toBe(token);
+      expect(Buffer.from(nonCanonical, "base64url").equals(raw)).toBe(true);
+      expect(() => symmetricDecryptAuthenticated(nonCanonical, testKey, label)).toThrow();
     });
 
     it("rejects a token under a different key or a different label", () => {
