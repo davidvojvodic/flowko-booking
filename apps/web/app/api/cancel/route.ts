@@ -13,6 +13,9 @@ import { validateCsrfToken } from "@calcom/web/lib/validateCsrfToken";
 
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
 
+// Flowko: not exported, because a route file may export only route handlers and route config.
+const SIGNED_IN_CANCEL_RATE_LIMIT = { limit: 60, duration: "60s" } as const;
+
 async function handler(req: NextRequest) {
   let appDirRequestBody;
   try {
@@ -37,13 +40,16 @@ async function handler(req: NextRequest) {
 
   const session = await getServerSession({ req: buildLegacyRequest(await headers(), await cookies()) });
 
-  // Rate limit: 10 booking cancellations per 60 seconds per user (or IP if not authenticated)
+  // Rate limit: 60 booking cancellations per 60 seconds per user (or 10 per IP if not authenticated)
   const identifier = session?.user?.id
     ? `api:cancel-user:${session.user.id}`
     : `api:cancel-ip:${piiHasher.hash(getIP(req))}`;
   await checkRateLimitAndThrowError({
     rateLimitingType: "core",
     identifier,
+    // Flowko: a signed-in host may cancel 60 bookings a minute (David's decision), so clearing a busy day
+    // does not hit the limit. Anonymous callers keep the core default, 10 a minute per IP.
+    opts: session?.user?.id ? { limit: SIGNED_IN_CANCEL_RATE_LIMIT } : undefined,
   });
 
   // Strip integer id to ensure lookup is always by uid
