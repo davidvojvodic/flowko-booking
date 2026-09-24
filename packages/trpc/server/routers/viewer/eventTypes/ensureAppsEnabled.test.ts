@@ -32,6 +32,27 @@ const GIF = "https://media.giphy.com/media/x/giphy.gif";
 const refused = { code: "BAD_REQUEST", message: ErrorCode.AppNotAvailable };
 
 describe("ensureAppsEnabled", () => {
+  describe("an app turned on in metadata.apps with a truthy non-boolean enabled", () => {
+    // getEventTypeAppData reads any truthy enabled as on, and metadata.apps is z.record(z.any())
+    it("is refused while the app is switched off", async () => {
+      const { prisma } = withEnabledApps("google-calendar");
+
+      await expect(
+        ensureAppsEnabled(prisma, { metadata: { apps: { giphy: { enabled: 1, thankYouPage: GIF } } } })
+      ).rejects.toMatchObject(refused);
+      await expect(
+        ensureAppsEnabled(prisma, { metadata: { apps: { ga4: { enabled: "1", TRACKING_ID: "G-X" } } } })
+      ).rejects.toMatchObject(refused);
+    });
+
+    it("stays allowed on an event type that already has it", async () => {
+      const { prisma } = withEnabledApps("google-calendar");
+      const metadata = { apps: { giphy: { enabled: 1, thankYouPage: GIF } } };
+
+      await expect(ensureAppsEnabled(prisma, { metadata }, { metadata })).resolves.toBeUndefined();
+    });
+  });
+
   describe("an integrations:* location no app claims (B4)", () => {
     it("is refused, since booking would send it to Cal Video", async () => {
       const { prisma } = withEnabledApps("google-calendar");

@@ -20,7 +20,9 @@ function getTurnedOnAppKeys(metadata: unknown): string[] {
   const apps = metadata.apps;
   return Object.keys(apps).filter((appKey) => {
     const app = apps[appKey];
-    return isRecord(app) && app.enabled === true;
+    // Flowko: truthy, as getEventTypeAppData reads it (metadata.apps is z.record(z.any()), so enabled: 1 is
+    // stored as is and turns the app on at booking time)
+    return isRecord(app) && !!app.enabled;
   });
 }
 
