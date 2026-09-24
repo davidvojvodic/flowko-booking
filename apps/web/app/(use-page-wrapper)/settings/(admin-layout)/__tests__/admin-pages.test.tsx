@@ -43,6 +43,8 @@ vi.mock("@calcom/web/modules/users/views/users-listing-view", () => ({ default: 
 vi.mock("@calcom/web/modules/users/views/users-add-view", () => ({ default: () => null }));
 vi.mock("@calcom/ui/components/button", () => ({ Button: () => null }));
 vi.mock("@calcom/ui/components/icon", () => ({ Icon: () => null }));
+vi.mock("../admin/playground/date-range-filter/DateRangeFilterPlayground", () => ({ default: () => null }));
+vi.mock("../admin/playground/PlaygroundLayoutClient", () => ({ default: () => null }));
 
 type ServerComponent = (props: never) => Promise<unknown>;
 
@@ -54,13 +56,16 @@ const pages: [string, () => Promise<{ default: unknown }>][] = [
   ["admin/lockedSMS", () => import("../admin/lockedSMS/page")],
   ["admin/oauth", () => import("../admin/oauth/page")],
   ["admin/playground", () => import("../admin/playground/page")],
+  ["admin/playground/date-range-filter", () => import("../admin/playground/date-range-filter/page")],
+  // The playground layout is a server layout now, so it checks too
+  ["admin/playground layout", () => import("../admin/playground/layout")],
   ["admin/users", () => import("../admin/users/page")],
   ["admin/users/add", () => import("../admin/users/add/page")],
 ];
 
 async function render(load: () => Promise<{ default: unknown }>) {
   const Page = (await load()).default as ServerComponent;
-  return Page({ params: Promise.resolve({ category: "calendar" }) } as never);
+  return Page({ params: Promise.resolve({ category: "calendar" }), children: null } as never);
 }
 
 function signIn({
