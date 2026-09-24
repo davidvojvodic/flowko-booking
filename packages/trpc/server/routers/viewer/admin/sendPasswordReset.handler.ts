@@ -1,6 +1,9 @@
 import dayjs from "@calcom/dayjs";
 import { sendPasswordResetEmail } from "@calcom/emails/auth-email-service";
-import { PASSWORD_RESET_EXPIRY_HOURS } from "@calcom/features/auth/lib/passwordResetRequest";
+import {
+  generatePasswordResetRequestId,
+  PASSWORD_RESET_EXPIRY_HOURS,
+} from "@calcom/features/auth/lib/passwordResetRequest";
 import { getTranslation } from "@calcom/i18n/server";
 import { prisma } from "@calcom/prisma";
 
@@ -38,6 +41,8 @@ const sendPasswordResetHandler = async ({ input }: GetOptions) => {
 
   const passwordResetToken = await prisma.resetPasswordRequest.create({
     data: {
+      // Flowko: a random id, not Prisma's Math.random-based cuid (see generatePasswordResetRequestId)
+      id: generatePasswordResetRequestId(),
       email: user.email,
       expires: expiry,
     },
