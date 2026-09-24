@@ -8,6 +8,8 @@ import getWebhooks from "@calcom/features/webhooks/lib/getWebhooks";
 import type { OOOEntryPayloadType } from "@calcom/features/webhooks/lib/sendPayload";
 import sendPayload from "@calcom/features/webhooks/lib/sendPayload";
 import { getTranslation } from "@calcom/i18n/server";
+import logger from "@calcom/lib/logger";
+import { safeStringify } from "@calcom/lib/safeStringify";
 import prisma from "@calcom/prisma";
 import { WebhookTriggerEvents } from "@calcom/prisma/enums";
 import type { TrpcSessionUser } from "@calcom/trpc/server/types";
@@ -16,6 +18,8 @@ import { TRPCError } from "@trpc/server";
 
 import { isAdminForUser } from "./outOfOffice.utils";
 import { type TOutOfOfficeInputSchema } from "./outOfOfficeCreateOrUpdate.schema";
+
+const log = logger.getSubLogger({ prefix: ["outOfOfficeCreateOrUpdate"] });
 
 type TBookingRedirect = {
   ctx: {
@@ -389,7 +393,14 @@ export const outOfOfficeCreateOrUpdate = async ({ ctx, input }: TBookingRedirect
           version: subscriber.version,
         },
         payload
-      );
+      ).catch((e) => {
+        // Flowko: sendPayload rejects a subscriber URL that fails its delivery-time SSRF check. This call
+        // is not awaited, so catch it rather than leave an unhandled rejection; the error names no URL (U7b).
+        log.error(
+          `Error executing webhook for event: ${WebhookTriggerEvents.OOO_CREATED}, webhookId: ${subscriber.id}`,
+          safeStringify(e)
+        );
+      });
     })
   );
 
