@@ -1280,7 +1280,7 @@ async function handler(
   const isStaleRescheduleLocation = !isBookerLocationAllowed && !!originalRescheduledBooking;
   if (!isBookerLocationAllowed) {
     if (eventType.locations.length > 0 && !isStaleRescheduleLocation) {
-      throw new HttpError({ statusCode: 400, message: ErrorCode.RequestBodyInvalid });
+      throw new HttpError({ statusCode: 400, message: ErrorCode.LocationNotOffered });
     }
     // An event type without locations offers only the organizer's default; checked once it is resolved below
     locationBodyString = "";
@@ -1326,7 +1326,7 @@ async function handler(
     location !== OrganizerDefaultConferencingAppType &&
     location !== locationBodyString
   ) {
-    throw new HttpError({ statusCode: 400, message: ErrorCode.RequestBodyInvalid });
+    throw new HttpError({ statusCode: 400, message: ErrorCode.LocationNotOffered });
   }
 
   const invitee: Invitee = [
