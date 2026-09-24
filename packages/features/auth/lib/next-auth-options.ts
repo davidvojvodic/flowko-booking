@@ -194,7 +194,8 @@ export async function authorizeCredentials(
   credentials: Record<"email" | "password" | "totpCode" | "backupCode", string> | undefined,
   req?: Pick<RequestInternal, "headers">
 ): Promise<User | null> {
-  log.debug("CredentialsProvider:credentials:authorize", safeStringify({ credentials }));
+  // Flowko: never log the credentials: at debug level this wrote the password and the TOTP or backup code
+  log.debug("CredentialsProvider:credentials:authorize");
   if (!credentials) {
     console.error(`For some reason credentials are missing`);
     throw new Error(ErrorCode.InternalServerError);
@@ -210,6 +211,17 @@ export async function authorizeCredentials(
   await checkRateLimitAndThrowError({
     identifier: `login:${hashEmail(loginEmail)}:${piiHasher.hash(clientIp)}`,
   });
+
+  // Flowko: a missing or non-string email or password gets the answer an unknown email gets, before any lookup.
+  // Otherwise bcrypt rejects a missing password with its own message for an account that has one, which tells
+  // in one request whether the account exists.
+  if (
+    typeof credentials.email !== "string" ||
+    typeof credentials.password !== "string" ||
+    !credentials.password
+  ) {
+    throw new Error(ErrorCode.IncorrectEmailPassword);
+  }
 
   const userRepo = new UserRepository(prisma);
   const user = await userRepo.findByEmailAndIncludeProfilesAndPassword({

@@ -1,4 +1,5 @@
 import { createInMemoryRateLimiter } from "@calcom/lib/rateLimit";
+import { safeStringify } from "@calcom/lib/safeStringify";
 import { hashEmail, piiHasher } from "@calcom/lib/server/PiiHasher";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -248,6 +249,39 @@ describe("CredentialsProvider authorize", () => {
     ],
     teams: [],
     ...overrides,
+  });
+
+  // Flowko: a malformed request must get the answer an unknown email gets, before any lookup, or bcrypt's own
+  // "Illegal arguments" message for a missing password reveals that an account with a password exists
+  describe("Flowko: malformed credentials", () => {
+    const malformed = [
+      ["no password", { email: "test@example.com" }],
+      ["an empty password", { email: "test@example.com", password: "" }],
+      ["a password array", { email: "test@example.com", password: ["a", "b"] }],
+      ["an email array", { email: ["test@example.com"], password: "password123" }],
+    ] as const;
+
+    it.each(malformed)("answers %s like an unknown email, for an account with a password", async (_, credentials) => {
+      mockFindByEmailAndIncludeProfilesAndPassword.mockResolvedValue(createMockUser());
+      await expect(authorizeCredentials(credentials as any)).rejects.toThrow(ErrorCode.IncorrectEmailPassword);
+      expect(mockFindByEmailAndIncludeProfilesAndPassword).not.toHaveBeenCalled();
+      expect(verifyPassword).not.toHaveBeenCalled();
+    });
+
+    it.each(malformed)("answers %s the same way for an unknown email", async (_, credentials) => {
+      mockFindByEmailAndIncludeProfilesAndPassword.mockResolvedValue(null);
+      await expect(authorizeCredentials(credentials as any)).rejects.toThrow(ErrorCode.IncorrectEmailPassword);
+    });
+
+    it("never logs the credentials", async () => {
+      mockFindByEmailAndIncludeProfilesAndPassword.mockResolvedValue(null);
+      await authorizeCredentials({ email: "test@example.com", password: "s3cret-password", totpCode: "654321" } as any).catch(
+        () => undefined
+      );
+      const logged = JSON.stringify(vi.mocked(safeStringify).mock.calls);
+      expect(logged).not.toContain("s3cret-password");
+      expect(logged).not.toContain("654321");
+    });
   });
 
   describe("Password validation", () => {
