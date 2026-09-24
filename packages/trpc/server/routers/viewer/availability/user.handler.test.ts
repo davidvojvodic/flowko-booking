@@ -156,6 +156,32 @@ describe("availability.user", () => {
     );
   });
 
+  it("refuses a date range longer than 90 days, also to an admin", async () => {
+    const tooLong = { dateFrom: dayjs("2026-01-01T00:00:00Z"), dateTo: dayjs("2026-04-01T00:00:01Z") };
+
+    await expect(
+      userHandler({ ctx: { user: owner }, input: { username: "salon", ...tooLong } })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      userHandler({ ctx: { user: admin, req }, input: { username: "agency", ...tooLong } })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(getAvailability).not.toHaveBeenCalled();
+  });
+
+  it("allows a 90-day range and the week the troubleshooter and onboarding ask for", async () => {
+    const ninetyDays = { dateFrom: dayjs("2026-01-01T00:00:00Z"), dateTo: dayjs("2026-04-01T00:00:00Z") };
+    const week = {
+      dateFrom: dayjs("2026-09-24T00:00:00Z"),
+      dateTo: dayjs("2026-09-24T00:00:00Z").endOf("day").add(6, "day"),
+    };
+
+    await userHandler({ ctx: { user: owner }, input: { username: "salon", ...ninetyDays } });
+    await userHandler({ ctx: { user: owner }, input: { username: "salon", ...week } });
+
+    expect(getAvailability).toHaveBeenCalledTimes(2);
+  });
+
   it("strips options the input schema does not declare", () => {
     const parsed = ZUserInputSchema.parse({
       username: "salon",

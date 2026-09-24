@@ -17,6 +17,10 @@ type UserOptions = {
   input: TUserInputSchema;
 };
 
+// Flowko: the troubleshooter and onboarding ask for about a week. A longer window would walk a tenant's whole
+// booking history in one call and make one Google freebusy request per 90 days with their credential.
+const MAX_RANGE_DAYS = 90;
+
 function getUser(where: Prisma.UserWhereInput) {
   return findUsersForAvailabilityCheck({
     where,
@@ -39,6 +43,10 @@ export const userHandler = async ({ ctx, input }: UserOptions) => {
       userId: ctx.user.id,
     });
     if (!eventType) throw new TRPCError({ code: "FORBIDDEN" });
+  }
+
+  if (input.dateTo.diff(input.dateFrom, "day", true) > MAX_RANGE_DAYS) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `The date range can be at most ${MAX_RANGE_DAYS} days` });
   }
 
   const userAvailabilityService = getUserAvailabilityService();
