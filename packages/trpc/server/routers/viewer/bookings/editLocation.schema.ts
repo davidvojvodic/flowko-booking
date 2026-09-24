@@ -5,6 +5,7 @@ import { DailyLocationType } from "@calcom/app-store/constants";
 import { commonBookingSchema } from "./types";
 
 export const ZEditLocationInputSchema = commonBookingSchema.extend({
+  // Flowko: an empty value means Cal Video, which editLocation.handler refuses while Cal Video is switched off
   newLocation: z.string().transform((val) => val || DailyLocationType),
   credentialId: z.number().nullable(),
 });

@@ -21,6 +21,22 @@ const log = logger.getSubLogger({ prefix: ["[features/conferencing/lib] videoCli
 
 const translator = short();
 
+/**
+ * Flowko: whether the admin keeps a video app (its App row, by slug = a credential's appId) enabled under
+ * Settings → Admin → Apps. No slug or no App row counts as disabled.
+ */
+export const isVideoAppEnabled = async (appSlug: string | null | undefined): Promise<boolean> => {
+  if (!appSlug) return false;
+  const app = await prisma.app.findUnique({ where: { slug: appSlug }, select: { enabled: true } });
+  return !!app?.enabled;
+};
+
+/**
+ * Flowko: Cal Video (the daily-video App row) stands in for a missing or failing video app only while the
+ * admin keeps it enabled under Settings → Admin → Apps. Every booking-time Cal Video fallback asks this.
+ */
+export const isCalVideoEnabled = (): Promise<boolean> => isVideoAppEnabled(CAL_VIDEO);
+
 const getBusyVideoTimes = async (withCredentials: CredentialPayload[]) =>
   Promise.all((await getVideoAdapters(withCredentials)).map((c) => c?.getAvailability())).then((results) =>
     results.reduce((acc, availability) => acc.concat(availability), [] as (EventBusyDate | undefined)[])
@@ -110,7 +126,12 @@ const updateMeeting = async (
   const uid = translator.fromUUID(uuidv5(JSON.stringify(calEvent), uuidv5.URL));
   let success = true;
   const [firstVideoAdapter] = await getVideoAdapters([credential]);
-  const canCallUpdateMeeting = !!(credential && bookingRef);
+  // Flowko: like createMeeting, never reach an app the admin switched off (a Daily room on reschedule while
+  // Cal Video is disabled). An empty uid means the meeting was never made (a failed create stores uid ""),
+  // so there is nothing to update; the Daily adapter would POST /rooms/ and make a new room.
+  const isAppEnabled = await isVideoAppEnabled(credential?.appId);
+  if (!isAppEnabled) success = false;
+  const canCallUpdateMeeting = !!(credential && bookingRef?.uid && isAppEnabled);
   const updatedMeeting = canCallUpdateMeeting
     ? await firstVideoAdapter?.updateMeeting(bookingRef, calEvent).catch(async (e) => {
         await sendBrokenIntegrationEmail(calEvent, "video");
@@ -133,6 +154,7 @@ const updateMeeting = async (
       safeStringify({
         bookingRef: bookingRef ? { id: bookingRef.id, type: bookingRef.type } : null,
         canCallUpdateMeeting,
+        isAppEnabled,
         calEvent: getPiiFreeCalendarEvent(calEvent),
         credential: getPiiFreeCredential(credential),
       })
@@ -177,6 +199,8 @@ const deleteMeeting = async (
 
 // @TODO: This is a temporary solution to create a meeting with cal.com video as fallback url
 const createMeetingWithCalVideo = async (calEvent: CalendarEvent) => {
+  // Flowko: no Daily room in place of a failed (or switched-off) video app while Cal Video is switched off
+  if (!(await isCalVideoEnabled())) return;
   let dailyAppKeys: Awaited<ReturnType<typeof getDailyAppKeys>>;
   try {
     dailyAppKeys = await getDailyAppKeys();
@@ -201,6 +225,8 @@ const createMeetingWithCalVideo = async (calEvent: CalendarEvent) => {
 };
 
 export const createInstantMeetingWithCalVideo = async (endTime: string) => {
+  // Flowko: no Daily room while Cal Video is switched off
+  if (!(await isCalVideoEnabled())) return;
   let dailyAppKeys: Awaited<ReturnType<typeof getDailyAppKeys>>;
   try {
     dailyAppKeys = await getDailyAppKeys();

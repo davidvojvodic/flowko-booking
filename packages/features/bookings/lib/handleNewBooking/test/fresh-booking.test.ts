@@ -622,6 +622,7 @@ describe("handleNewBooking", () => {
               eventTypes: [
                 {
                   id: 1,
+                  locations: [{ type: "inPerson", address: "New York" }],
                   slotInterval: 30,
                   length: 30,
                   users: [
@@ -644,7 +645,7 @@ describe("handleNewBooking", () => {
               responses: {
                 email: booker.email,
                 name: booker.name,
-                location: { optionValue: "", value: "New York" },
+                location: { optionValue: "", value: "inPerson" },
               },
             },
           });
@@ -1492,6 +1493,7 @@ describe("handleNewBooking", () => {
               eventTypes: [
                 {
                   id: 1,
+                  locations: [{ type: BookingLocations.ZoomVideo }],
                   slotInterval: 30,
                   length: 30,
                   users: [
@@ -1581,6 +1583,7 @@ describe("handleNewBooking", () => {
               eventTypes: [
                 {
                   id: 1,
+                  locations: [{ type: BookingLocations.ZoomVideo }],
                   slotInterval: 30,
                   length: 30,
                   users: [
@@ -2063,6 +2066,7 @@ describe("handleNewBooking", () => {
                 eventTypes: [
                   {
                     id: eventTypeId,
+                    locations: [{ type: "inPerson", address: "New York" }],
                     slotInterval: 30,
                     length: 30,
                     useEventLevelSelectedCalendars,
@@ -2099,7 +2103,7 @@ describe("handleNewBooking", () => {
                 responses: {
                   email: booker.email,
                   name: booker.name,
-                  location: { optionValue: "", value: "New York" },
+                  location: { optionValue: "", value: "inPerson" },
                 },
               },
             });
@@ -2232,6 +2236,7 @@ describe("handleNewBooking", () => {
                   eventTypes: [
                     {
                       id: eventTypeId,
+                      locations: [{ type: "inPerson", address: "New York" }],
                       slotInterval: 30,
                       length: 30,
                       useEventLevelSelectedCalendars,
@@ -2268,7 +2273,7 @@ describe("handleNewBooking", () => {
                   responses: {
                     email: booker.email,
                     name: booker.name,
-                    location: { optionValue: "", value: "New York" },
+                    location: { optionValue: "", value: "inPerson" },
                   },
                 },
               });
@@ -2872,6 +2877,11 @@ describe("handleNewBooking", () => {
           eventTypes: [
             {
               id: 1,
+              // Flowko (B1): the form sends an option's label when the event type has several organizer addresses
+              locations: [
+                { type: "inPerson", address: "New York", displayLocationPublicly: true },
+                { type: "inPerson", address: "Boston", displayLocationPublicly: true },
+              ],
               slotInterval: 30,
               length: 30,
               users: [
@@ -3402,6 +3412,7 @@ describe("handleNewBooking", () => {
             eventTypes: [
               {
                 id: 1,
+                locations: [{ type: "inPerson", address: "New York" }],
                 title: "Paid Event",
                 description: "It's a test Paid Event",
                 slotInterval: 30,
@@ -3443,7 +3454,7 @@ describe("handleNewBooking", () => {
               responses: {
                 email: booker.email,
                 name: booker.name,
-                location: { optionValue: "", value: "New York" },
+                location: { optionValue: "", value: "inPerson" },
               },
             },
           });
@@ -3532,7 +3543,7 @@ describe("handleNewBooking", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -3541,6 +3552,7 @@ describe("handleNewBooking", () => {
         eventTypes: [
           {
             id: 1,
+            locations: [{ type: "inPerson", address: "New York" }],
             slotInterval: 30,
             length: 30,
             requiresConfirmation: true,
@@ -3598,7 +3610,7 @@ describe("handleNewBooking", () => {
           responses: {
             email: booker.email,
             name: booker.name,
-            location: { optionValue: "", value: "New York" },
+            location: { optionValue: "", value: "inPerson" },
           },
         },
       });
@@ -3607,6 +3619,7 @@ describe("handleNewBooking", () => {
         eventTypes: [
           {
             id: 1,
+            locations: [{ type: "inPerson", address: "New York" }],
             slotInterval: 30,
             length: 30,
             requiresConfirmation: true,

@@ -1,3 +1,4 @@
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getUsersCredentialsIncludeServiceAccountKey } from "@calcom/app-store/delegationCredential";
 import { getLocationByType, OrganizerDefaultConferencingAppType } from "@calcom/app-store/locations";
 import { getAppFromSlug } from "@calcom/app-store/utils";
@@ -9,6 +10,7 @@ import { CredentialAccessService } from "@calcom/features/credentials/services/C
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { buildCalEventFromBooking } from "@calcom/lib/buildCalEventFromBooking";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import logger from "@calcom/lib/logger";
 import { getPiiFreeEventResult } from "@calcom/lib/piiFreeData";
 import { safeStringify } from "@calcom/lib/safeStringify";
@@ -277,11 +279,31 @@ export async function editLocationHandler({ ctx, input, actionSource }: EditLoca
   const organizer = await new UserRepository(prisma).findByIdOrThrow({ id: booking.userId || 0 });
   const organizationId = booking.user?.profiles?.[0]?.organizationId ?? null;
 
+  const loggedInUserTranslate = await getTranslation(loggedInUser.locale ?? "en", "common");
   const newLocationInEvtFormat = await getLocationInEvtFormatOrThrow({
     location: newLocation,
     organizer,
-    loggedInUserTranslate: await getTranslation(loggedInUser.locale ?? "en", "common"),
+    loggedInUserTranslate,
   });
+
+  // Flowko: an app the admin switched off (App.enabled = false) can't become a booking's location either;
+  // EventManager.updateLocation would run it (a Meet link, a Cal Video room). An empty one means Cal Video.
+  // "conferencing" is checked as the organizer's default app too: a static-link app resolves to the saved
+  // link, a URL no app claims, while booking checks that app's own location type.
+  const defaultConferencingAppLocationType =
+    newLocation === OrganizerDefaultConferencingAppType
+      ? getAppFromSlug(organizer.metadata?.defaultConferencingApp?.appSlug)?.appData?.location?.type
+      : undefined;
+  const { locationTypes: disabledLocationTypes } = await findDisabledApps(prisma, {
+    locationTypes: [
+      newLocationInEvtFormat,
+      ...(defaultConferencingAppLocationType ? [defaultConferencingAppLocationType] : []),
+    ],
+  });
+  if (disabledLocationTypes.length > 0) {
+    // The dialog shows the message as sent, like the translated UserErrors above
+    throw new TRPCError({ code: "BAD_REQUEST", message: loggedInUserTranslate(ErrorCode.AppNotAvailable) });
+  }
 
   const evt = await buildCalEventFromBooking({
     booking,

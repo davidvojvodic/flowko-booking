@@ -11,11 +11,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Booking treats every location type containing this as a video app's (EventManager.isDedicatedIntegration)
+const INTEGRATION_LOCATION_MARKER = "integrations:";
+
 /**
  * Flowko: an app switched off under Settings → Admin → Apps (App.enabled = false) stays off server-side.
  * Returns the app keys (keys of an event type's metadata.apps) and location types among the given ones
- * whose app has no enabled App row. A location type that belongs to no app (in person, a link, a phone
- * number, the organizer's default app) is never disabled.
+ * whose app has no enabled App row. A location type that belongs to no app (in person, the booker's
+ * address or phone, a link, a phone number, somewhere else, the organizer's default app "conferencing")
+ * is never disabled. An integrations:* type that maps to no app is always disabled: booking hands such a
+ * type to Cal Video, so it must not slip past a switched-off Cal Video.
  */
 export async function findDisabledApps(
   prisma: PrismaLike,
@@ -27,7 +32,14 @@ export async function findDisabledApps(
       return appSlug ? [[type, appSlug] as const] : [];
     })
   );
-  if (!appKeys.length && !appSlugByLocationType.size) return { appKeys: [], locationTypes: [] };
+  // Flowko: fail closed. An integrations:* type no app claims (a typo, "integrations:dailyx") gets a Cal Video
+  // room at booking time, so it counts as a disabled app's location, not as belonging to no app.
+  const unmappedIntegrationTypes = Array.from(new Set(locationTypes)).filter(
+    (type) => type.includes(INTEGRATION_LOCATION_MARKER) && !appSlugByLocationType.has(type)
+  );
+  if (!appKeys.length && !appSlugByLocationType.size) {
+    return { appKeys: [], locationTypes: unmappedIntegrationTypes };
+  }
 
   const enabledApps = await prisma.app.findMany({
     where: {
@@ -46,7 +58,8 @@ export async function findDisabledApps(
     appKeys: appKeys.filter((appKey) => !enabledDirNames.has(getDirNameFromAppKey(appKey))),
     locationTypes: Array.from(appSlugByLocationType)
       .filter(([, appSlug]) => !enabledSlugs.has(appSlug))
-      .map(([type]) => type),
+      .map(([type]) => type)
+      .concat(unmappedIntegrationTypes),
   };
 }
 

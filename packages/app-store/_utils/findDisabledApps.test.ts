@@ -80,6 +80,51 @@ describe("findDisabledApps", () => {
     });
   });
 
+  it("treats an integrations:* type that maps to no app as disabled, since booking sends it to Cal Video", async () => {
+    const { prisma, findMany } = withEnabledApps("google-calendar", "daily-video");
+
+    await expect(
+      findDisabledApps(prisma, {
+        locationTypes: ["integrations:dailyx", "integrations:", "inPerson", "integrations:dailyx"],
+      })
+    ).resolves.toEqual({ appKeys: [], locationTypes: ["integrations:dailyx", "integrations:"] });
+
+    // Nothing an admin could enable claims these types, so the App table is not asked
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it("reports an unmapped integrations:* type next to the disabled apps' location types", async () => {
+    const { prisma } = withEnabledApps("google-calendar", "google-meet");
+
+    await expect(
+      findDisabledApps(prisma, {
+        appKeys: ["ga4"],
+        locationTypes: ["integrations:google:meet", "integrations:daily", "link", "x integrations:daily"],
+      })
+    ).resolves.toEqual({
+      appKeys: ["ga4"],
+      locationTypes: ["integrations:daily", "x integrations:daily"],
+    });
+  });
+
+  it("allows every location type that belongs to no app", async () => {
+    const { prisma } = withEnabledApps("google-calendar");
+
+    await expect(
+      findDisabledApps(prisma, {
+        locationTypes: [
+          "inPerson",
+          "attendeeInPerson",
+          "phone",
+          "userPhone",
+          "link",
+          "somewhereElse",
+          "conferencing",
+        ],
+      })
+    ).resolves.toEqual({ appKeys: [], locationTypes: [] });
+  });
+
   it("allows the location of an enabled app", async () => {
     const { prisma } = withEnabledApps("google-calendar", "google-meet");
 
