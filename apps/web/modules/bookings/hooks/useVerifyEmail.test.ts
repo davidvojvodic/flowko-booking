@@ -47,4 +47,14 @@ describe("useVerifyEmail", () => {
 
     expect(mocks.useQuery).toHaveBeenCalledWith({ email: "info@salon.si" }, expect.anything());
   });
+
+  // The check is rate-limited per IP, so it must not refire on every tab switch
+  it("does not refetch the check on window focus", () => {
+    renderHook(() => useVerifyEmail({ email: "info@salon.si" }));
+
+    expect(mocks.useQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 })
+    );
+  });
 });

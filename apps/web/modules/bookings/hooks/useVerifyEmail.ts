@@ -46,6 +46,10 @@ export const useVerifyEmail = ({
       },
       {
         enabled: !!debouncedEmail && !isRescheduling,
+        // Flowko: the server limits this check to 10 a minute per IP, shared by every booker behind that IP,
+        // so ask once per email. Booking re-checks it on the server, so a cached answer is never trusted.
+        refetchOnWindowFocus: false,
+        staleTime: 5 * 60 * 1000,
       }
     );
 
