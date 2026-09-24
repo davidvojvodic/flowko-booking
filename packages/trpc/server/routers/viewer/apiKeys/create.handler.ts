@@ -1,8 +1,11 @@
 import { v4 } from "uuid";
 
 import { generateUniqueAPIKey } from "@calcom/features/api-keys-legacy/api-keys/lib/apiKeys";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import prisma from "@calcom/prisma";
 import { MembershipRole } from "@calcom/prisma/enums";
+
+import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../types";
 import { checkPermissions } from "./_auth-middleware";
@@ -24,6 +27,13 @@ export const createHandler = async ({ ctx, input }: CreateHandlerOptions) => {
 
   /** Only admin or owner can create apiKeys of team (if teamId is passed) */
   await checkPermissions({ userId, teamId, role: { in: [MembershipRole.OWNER, MembershipRole.ADMIN] } });
+
+  // Flowko: an app's key (Zapier's, Make's) signs in to that app's routes, so no key is made for an app the
+  // admin switched off (App.enabled = false) or for an appId without an App row
+  if (typeof rest.appId === "string") {
+    const app = await prisma.app.findUnique({ where: { slug: rest.appId }, select: { enabled: true } });
+    if (!app?.enabled) throw new TRPCError({ code: "FORBIDDEN", message: ErrorCode.AppNotAvailable });
+  }
 
   await prisma.apiKey.create({
     data: {

@@ -1,3 +1,5 @@
+import process from "node:process";
+
 import { OAuth2Client } from "googleapis-common";
 import type { NextApiRequest, NextApiResponse } from "next";
 
@@ -20,6 +22,15 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   // TODO: So, confirm and later fix the typings
   if (!loggedInUser.email) {
     throw new HttpError({ statusCode: 400, message: "Session user must have an email" });
+  }
+
+  // Flowko: the callback accepts only a state whose nonce is signed with NEXTAUTH_SECRET, so without it
+  // the flow could never finish; refuse before sending the user through Google's consent screen
+  if (!process.env.NEXTAUTH_SECRET) {
+    throw new HttpError({
+      statusCode: 500,
+      message: "NEXTAUTH_SECRET is not set, so the OAuth state can't be signed",
+    });
   }
 
   const { client_id, client_secret } = await getGoogleAppKeys();

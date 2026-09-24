@@ -2,14 +2,36 @@ import type { NextApiRequest, NextApiResponse } from "next";
 
 import { WEBAPP_URL } from "@calcom/lib/constants";
 
+// Flowko: a relative Cal link may only be slug-character path segments and an optional plain query.
+// Anything else (quotes, "<", backslashes, spaces, "." or ".." segments, also percent-encoded) is refused.
+const SAFE_RELATIVE_CAL_LINK = /^[a-zA-Z0-9_.%-]+(?:\/[a-zA-Z0-9_.%-]+)*(?:\?[a-zA-Z0-9_.%=&+-]*)?$/;
+
+const isSafeRelativeCalLink = (calLink: string) =>
+  SAFE_RELATIVE_CAL_LINK.test(calLink) &&
+  !calLink
+    .split("?")[0]
+    .split("/")
+    .some((segment) => /^(?:\.|%2e)+$/i.test(segment));
+
+// Flowko: serialise a value into an inline <script> as a JS string literal. JSON escapes quotes and
+// backslashes, and "<" (so "</script>" or "<!--" can't end the script element), U+2028 and U+2029 are
+// written as escapes.
+const toInlineScriptString = (value: string) =>
+  JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "POST") {
     // Set Content-Type header to text/html
     res.setHeader("Content-Type", "text/html");
 
-    const url = req.query.url as string;
+    const url = req.query.url;
 
-    if (!url) return res.status(400).json({ message: "Missing URL in query parameters" });
+    // Flowko: a repeated url parameter arrives as an array; only one string is accepted
+    if (typeof url !== "string" || !url)
+      return res.status(400).json({ message: "Missing URL in query parameters" });
 
     res.setHeader("Content-Type", "text/html");
 
@@ -35,6 +57,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     } else {
       calLink = url.replace(`${WEBAPP_URL}/`, "");
+      // Flowko: this branch took any input and reflected it into the page's script (AC-1, reflected XSS)
+      if (!isSafeRelativeCalLink(calLink)) return res.status(400).json({ message: "Invalid URL format" });
     }
 
     // Generate HTML with embedded Cal component
@@ -80,11 +104,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 };
             })(window, "https://app.cal.com/embed/embed.js", "init");
 
-            Cal("init", { origin: "${origin}" });
+            Cal("init", { origin: ${toInlineScriptString(origin)} });
 
             Cal("inline", {
               elementOrSelector: "#my-cal-inline",
-              calLink: "${calLink}",
+              calLink: ${toInlineScriptString(calLink)},
               config: {
                 theme: "light",
               },

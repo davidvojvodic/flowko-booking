@@ -1,6 +1,7 @@
 import { OAuth2Client } from "googleapis-common";
 import z from "zod";
 
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getCalendar } from "@calcom/app-store/_utils/getCalendar";
 import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
 import { lookUpGoogleAccount } from "@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount";
@@ -102,17 +103,29 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
   if (otherCredentialOfUser) return true;
   if (!primaryCalendarId) return false;
 
-  // Another user connected the same Google account
-  const where = {
-    integration: "google_calendar",
-    externalId: primaryCalendarId,
-    credentialId: { notIn: credentialIds },
-  };
-  const [selectedCalendar, destinationCalendar] = await Promise.all([
-    prisma.selectedCalendar.findFirst({ where, select: { id: true } }),
-    prisma.destinationCalendar.findFirst({ where, select: { id: true } }),
-  ]);
-  return !!selectedCalendar || !!destinationCalendar;
+  // Another user connected the same Google account.
+  // Flowko: a SelectedCalendar or DestinationCalendar row with this calendar id proves nothing on its own:
+  // a calendar shared from this account carries the same id, and another tenant could write such a row.
+  // Only another user's google_calendar credential whose token Google says belongs to this account shares
+  // the grant. The rows only pick which credentials to ask about. When Google does not answer, the
+  // credential does not count and the grant is revoked, which keeps the disconnect's privacy promise.
+  const calendarOfAccount = { integration: "google_calendar", externalId: primaryCalendarId };
+  const otherUsersCredentials = await prisma.credential.findMany({
+    where: {
+      type: "google_calendar",
+      id: { notIn: credentialIds },
+      userId: { not: userId },
+      OR: [
+        { selectedCalendars: { some: calendarOfAccount } },
+        { destinationCalendars: { some: calendarOfAccount } },
+      ],
+    },
+    select: { key: true },
+  });
+  const accounts = await Promise.all(otherUsersCredentials.map(({ key }) => lookUpGoogleAccount(key)));
+  return accounts.some(
+    (account) => account.status === "found" && account.primaryCalendarId === primaryCalendarId
+  );
 };
 
 // The callback never stores a token that lacks a required scope. Revoke its grant unless another
@@ -242,6 +255,12 @@ const handleDeleteCredential = async ({
     },
   });
 
+  // Flowko: Cal Video replaces a removed video app only while the admin has it switched on (App.enabled).
+  // Otherwise the removed app's location is dropped rather than swapped for a disabled app's location.
+  const canReplaceWithDailyVideo =
+    isVideoOrConferencingApp(credential.app) &&
+    !(await findDisabledApps(prisma, { locationTypes: [DailyLocationType] })).locationTypes.length;
+
   // TODO: Improve this uninstallation cleanup per event by keeping a relation of EventType to App which has the data.
   for (const eventType of eventTypes) {
     // If it's a video, replace the location with Cal video
@@ -261,7 +280,7 @@ const handleDeleteCredential = async ({
 
       const updatedLocations: TlocationsSchema = locations.reduce((acc: TlocationsSchema, location) => {
         if (location.type.includes(integrationQuery)) {
-          if (!doesDailyVideoAlreadyExists) acc.push({ type: DailyLocationType });
+          if (!doesDailyVideoAlreadyExists && canReplaceWithDailyVideo) acc.push({ type: DailyLocationType });
         } else {
           acc.push(location);
         }
