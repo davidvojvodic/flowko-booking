@@ -1,7 +1,5 @@
 import short from "short-uuid";
-import { v5 as uuidv5 } from "uuid";
 
-import dayjs from "@calcom/dayjs";
 import { getRescheduleLink } from "@calcom/lib/CalEventParser";
 import { getTranslation } from "@calcom/i18n/server";
 import prisma from "@calcom/prisma";
@@ -201,14 +199,10 @@ export class CalendarEventBuilder implements ICalendarEventBuilder {
     if (!this.users?.length) {
       throw new Error("call buildUsers before calling this function");
     }
-    const [mainOrganizer] = this.users;
-    if (!mainOrganizer?.username) {
-      throw new Error("Organizer username is required");
-    }
-    const seed = `${mainOrganizer.username}:${dayjs(this.calendarEvent.startTime)
-      .utc()
-      .format()}:${new Date().getTime()}`;
-    const uid = translator.fromUUID(uuidv5(seed, uuidv5.URL));
+    // Flowko: an event's uid is its booking's uid, the capability behind /booking/<uid> and anonymous cancel,
+    // so it must be random, not uuidv5 of the organizer's public username, the start and the current time
+    // (which an outsider can compute offline). Nothing calls this today; RegularBookingService makes the uid.
+    const uid = translator.generate();
     this.calendarEvent.uid = uid;
   }
 
