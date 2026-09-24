@@ -571,6 +571,111 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     expect(booking.attendees[1].phoneNumber).toBeNull();
   });
 
+  // Hidden answers are what the booking page drops for anyone who isn't a host; phone answers are the booker's
+  const bookerResponses = (bookerEmail: string) => ({
+    name: "Booker X",
+    email: bookerEmail,
+    attendeePhoneNumber: "+38640333333",
+    smsReminderNumber: "+38640444444",
+    mobile: "+38640555555",
+    secretField: "hidden-answer",
+    notes: "see you",
+    guests: ["user@example.com"],
+  });
+  const withResponses = (
+    row: ReturnType<typeof bookingRow>,
+    responses: Record<string, unknown>,
+    bookingFields: Record<string, unknown>[]
+  ) => ({ ...row, responses, eventType: { ...row.eventType, bookingFields } });
+
+  it("drops hidden and phone answers from the responses of a booking the caller is a guest on", async () => {
+    const base = bookingRow({ organizerId: 2, hideOrganizerEmail: false });
+    const row = withResponses(
+      {
+        ...base,
+        attendees: [
+          { ...base.attendees[1], id: 102, email: "booker@example.org", phoneNumber: "+38640333333" },
+          { ...base.attendees[0], phoneNumber: null },
+        ],
+      },
+      bookerResponses("booker@example.org"),
+      [
+        { name: "secretField", type: "text", hidden: true },
+        { name: "mobile", type: "phone" },
+        // A stored system field without its own hidden flag keeps the default, which hides the phone number
+        { name: "attendeePhoneNumber", type: "phone", required: false },
+        { name: "notes", type: "textarea" },
+      ]
+    );
+    const booking = await listFor(row);
+
+    expect(booking.responses).toEqual({
+      name: "Booker X",
+      email: "booker@example.org",
+      notes: "see you",
+      guests: ["user@example.com"],
+    });
+    expect(booking.attendees.map(({ phoneNumber }) => phoneNumber)).toEqual([null, null]);
+    const serialised = JSON.stringify(booking);
+    for (const secret of ["+38640333333", "+38640444444", "+38640555555", "hidden-answer"]) {
+      expect(serialised).not.toContain(secret);
+    }
+  });
+
+  it("keeps the booker's own answers but not hidden ones", async () => {
+    const row = withResponses(
+      bookingRow({ organizerId: 2, hideOrganizerEmail: false }),
+      bookerResponses("User@Example.com"),
+      [
+        { name: "secretField", type: "text", hidden: true },
+        { name: "mobile", type: "phone" },
+        { name: "attendeePhoneNumber", type: "phone", hidden: false },
+        { name: "smsReminderNumber", type: "phone", hidden: false },
+      ]
+    );
+    const booking = await listFor(row);
+
+    expect(booking.responses).toEqual({
+      name: "Booker X",
+      email: "User@Example.com",
+      attendeePhoneNumber: "+38640333333",
+      smsReminderNumber: "+38640444444",
+      mobile: "+38640555555",
+      notes: "see you",
+      guests: ["user@example.com"],
+    });
+  });
+
+  it("drops a system field's answer that its default hides when the event type never saved the field", async () => {
+    const base = bookingRow({ organizerId: 2, hideOrganizerEmail: false });
+    const row = withResponses(
+      { ...base, eventType: { ...base.eventType, disableGuests: true } },
+      { ...bookerResponses("User@Example.com"), title: "prefilled title" },
+      []
+    );
+    const booking = await listFor(row);
+
+    expect(booking.responses).toEqual({
+      name: "Booker X",
+      email: "User@Example.com",
+      smsReminderNumber: "+38640444444",
+      mobile: "+38640555555",
+      secretField: "hidden-answer",
+      notes: "see you",
+    });
+  });
+
+  it("returns every answer on a row the caller organizes", async () => {
+    const responses = bookerResponses("booker@example.org");
+    const row = withResponses(bookingRow({ organizerId: caller.id, hideOrganizerEmail: true }), responses, [
+      { name: "secretField", type: "text", hidden: true },
+      { name: "mobile", type: "phone" },
+    ]);
+    const booking = await listFor(row);
+
+    expect(booking.responses).toEqual(responses);
+  });
+
   it("returns the full record on a row the caller organizes", async () => {
     const row = bookingRow({ organizerId: caller.id, hideOrganizerEmail: true });
     const booking = await listFor(row);

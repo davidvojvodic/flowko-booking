@@ -758,12 +758,45 @@ export async function getBookings({
   const viewerEmail = normaliseEmail(user.email);
   const isViewerEmail = (email: string | null | undefined): boolean =>
     !!email && normaliseEmail(email) === viewerEmail;
+  // Flowko: the booking page drops hidden booking fields' answers for anyone who isn't a host
+  // (bookings-single-view.getServerSideProps.tsx) and attendee emails skip them (getLabelValueMapFromResponses).
+  // A system field keeps its default from getBookingFields.ts for any property the event type didn't save,
+  // and those defaults hide the phone number, the title and, with guests off, the guests. Phone answers are
+  // the booker's number (Attendee.phoneNumber is copied from attendeePhoneNumber), so an attendee who isn't
+  // the booker gets none of them.
+  const toResponsesForBooker = (booking: (typeof plainBookings)[number]): Prisma.JsonValue => {
+    const { responses, eventType } = booking;
+    if (!isJsonRecord(responses)) return {};
+    const bookingFields: unknown = eventType?.bookingFields;
+    const storedFields: unknown[] = Array.isArray(bookingFields) ? bookingFields : [];
+    const fields = new Map(
+      storedFields.flatMap((field) =>
+        isJsonRecord(field) && typeof field.name === "string" ? [[field.name, field] as const] : []
+      )
+    );
+    const hiddenByDefault = new Set([
+      "attendeePhoneNumber",
+      "title",
+      ...(eventType?.disableGuests ? ["guests"] : []),
+    ]);
+    const isHidden = (name: string) => {
+      const hidden = fields.get(name)?.hidden;
+      return hidden === undefined ? hiddenByDefault.has(name) : !!hidden;
+    };
+    const isPhone = (name: string) =>
+      name === "attendeePhoneNumber" || name === "smsReminderNumber" || fields.get(name)?.type === "phone";
+    const isBooker = typeof responses.email === "string" && isViewerEmail(responses.email);
+    return Object.fromEntries(
+      Object.entries(responses).filter(([name]) => !isHidden(name) && (isBooker || !isPhone(name)))
+    ) as Prisma.JsonObject;
+  };
   const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
     const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
     const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
     return {
       ...booking,
       user: organizer as (typeof booking)["user"],
+      responses: toResponsesForBooker(booking),
       userPrimaryEmail: hideOrganizerEmail ? null : booking.userPrimaryEmail,
       cancelledBy: hideOrganizerEmail ? null : booking.cancelledBy,
       rescheduledBy: hideOrganizerEmail ? null : booking.rescheduledBy,
@@ -843,6 +876,10 @@ export async function getBookings({
   const enrichedBookings = await enrichAttendeesWithUserData(bookings, kysely);
 
   return { bookings: enrichedBookings, recurringInfo, totalCount };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 type EnrichedUserData = {
