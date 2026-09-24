@@ -588,6 +588,8 @@ export const getPublicEvent = async (
     owner: eventWithUserProfiles.owner ? toPublicEventUser(eventWithUserProfiles.owner) : null,
     subsetOfHosts: publicHosts,
     hosts: fetchAllUsers ? publicHosts : undefined,
+    // Flowko: the booker reads only the schedule's time zone (EventMeta), not the schedule id
+    schedule: eventWithUserProfiles.schedule ? { timeZone: eventWithUserProfiles.schedule.timeZone } : null,
     bookerLayouts: bookerLayoutsSchema.parse(eventMetaData?.bookerLayouts || null),
     description: markdownToSafeHTML(eventWithUserProfiles.description),
     metadata: eventMetaData,

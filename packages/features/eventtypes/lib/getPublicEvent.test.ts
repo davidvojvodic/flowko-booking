@@ -138,7 +138,16 @@ describe("getPublicEvent owner and host data", () => {
     expect(prismaMock.schedule.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 7 } })
     );
-    expect(event?.schedule?.timeZone).toBe("Europe/Ljubljana");
+    expect(event?.schedule).toEqual({ timeZone: "Europe/Ljubljana" });
+  });
+
+  it("returns the event's own schedule as its time zone only", async () => {
+    prismaMock.eventType.findFirst.mockResolvedValue({ ...eventType, metadata: {} } as never);
+
+    const event = await getPublicEvent("salon", "haircut", false, null, prismaMock, false);
+
+    expect(event?.schedule).toEqual({ timeZone: "Europe/Ljubljana" });
+    expect(prismaMock.schedule.findUnique).not.toHaveBeenCalled();
   });
 
   it("returns the hosts without metadata or defaultScheduleId, and still applies the first host's layouts", async () => {
