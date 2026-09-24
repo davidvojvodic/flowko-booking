@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCallerFactory } from "../../../trpc";
 import { webhookRouter } from "./_router";
+import { ensureWebhookAccess } from "./util";
 
 const mocks = vi.hoisted(() => ({
   getUserSession: vi.fn(),
@@ -131,5 +132,178 @@ describe("webhookRouter", () => {
     await expect(callerFor("ADMIN").delete({ id: "webhook-1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     expect(mocks.deleteHandler).toHaveBeenCalledTimes(1);
+  });
+
+  // Every procedure that looks up one webhook by id, with an input its own schema accepts
+  const byIdCalls: [string, (caller: Caller) => Promise<unknown>, ReturnType<typeof vi.fn>][] = [
+    ["get", (caller) => caller.get({ webhookId: "webhook-1" }), mocks.getHandler],
+    [
+      "edit",
+      (caller) => caller.edit({ id: "webhook-1", payloadTemplate: null, active: false }),
+      mocks.editHandler,
+    ],
+    ["delete", (caller) => caller.delete({ id: "webhook-1" }), mocks.deleteHandler],
+    [
+      "testTrigger",
+      (caller) => caller.testTrigger({ id: "webhook-1", url: "https://example.com/hook", type: "PING" }),
+      mocks.testTriggerHandler,
+    ],
+  ];
+
+  // Platform webhooks are stored without a user or event type and receive every tenant's booking events
+  it.each(byIdCalls)("lets an admin %s a platform webhook", async (_name, call, handler) => {
+    prismaMock.webhook.findUnique.mockResolvedValue({
+      id: "webhook-1",
+      userId: null,
+      eventTypeId: null,
+      platform: true,
+    } as never);
+
+    await expect(call(callerFor("ADMIN"))).resolves.toBe("handled");
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  // A team or app webhook is stored with no user and no event type, so it is nobody's to act on
+  it.each(byIdCalls)("refuses %s of a non-platform webhook with no user or event type", async (_, call) => {
+    prismaMock.webhook.findUnique.mockResolvedValue({
+      id: "webhook-1",
+      userId: null,
+      eventTypeId: null,
+      platform: false,
+    } as never);
+
+    await expect(call(callerFor("ADMIN"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    for (const handler of handlers) expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each(byIdCalls)("checks the event type's owner on %s of its webhook", async (_, call, handler) => {
+    prismaMock.webhook.findUnique.mockResolvedValue({
+      id: "webhook-1",
+      userId: null,
+      eventTypeId: 5,
+      platform: false,
+    } as never);
+
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 9 } as never);
+    await expect(call(callerFor("ADMIN"))).resolves.toBe("handled");
+
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 1 } as never);
+    await expect(call(callerFor("ADMIN"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an event type other than the webhook's own", async () => {
+    prismaMock.webhook.findUnique.mockResolvedValue({
+      id: "webhook-1",
+      userId: 9,
+      eventTypeId: null,
+      platform: false,
+    } as never);
+
+    await expect(callerFor("ADMIN").delete({ id: "webhook-1", eventTypeId: 5 })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+
+    expect(mocks.deleteHandler).not.toHaveBeenCalled();
+    expect(prismaMock.eventType.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+// The ownership check on its own, for a caller who is not an instance admin: it has to hold even if the
+// admin-only rule in front of it ever changes
+describe("ensureWebhookAccess", () => {
+  const tenant = { userId: 1, isInstanceAdmin: false };
+
+  function storedWebhook(webhook: { userId: number | null; eventTypeId: number | null; platform: boolean }) {
+    prismaMock.webhook.findUnique.mockResolvedValue({ id: "webhook-1", ...webhook } as never);
+  }
+
+  it("refuses a platform webhook to a user who isn't an instance admin", async () => {
+    storedWebhook({ userId: null, eventTypeId: null, platform: true });
+
+    await expect(ensureWebhookAccess({ ...tenant, input: { id: "webhook-1" } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    const byWebhookId = ensureWebhookAccess({ ...tenant, input: { webhookId: "webhook-1" } });
+    await expect(byWebhookId).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("refuses a platform webhook even when it names an event type the user owns", async () => {
+    storedWebhook({ userId: null, eventTypeId: 5, platform: true });
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 1 } as never);
+
+    await expect(
+      ensureWebhookAccess({ ...tenant, input: { id: "webhook-1", eventTypeId: 5 } })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("lets an instance admin act on a platform webhook", async () => {
+    storedWebhook({ userId: null, eventTypeId: null, platform: true });
+
+    await expect(
+      ensureWebhookAccess({ userId: 9, isInstanceAdmin: true, input: { id: "webhook-1" } })
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a webhook with no user and no event type", async () => {
+    storedWebhook({ userId: null, eventTypeId: null, platform: false });
+
+    await expect(ensureWebhookAccess({ ...tenant, input: { id: "webhook-1" } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("refuses another user's webhook and lets the owner act on their own", async () => {
+    storedWebhook({ userId: 2, eventTypeId: null, platform: false });
+    await expect(ensureWebhookAccess({ ...tenant, input: { id: "webhook-1" } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    storedWebhook({ userId: 1, eventTypeId: null, platform: false });
+    await expect(ensureWebhookAccess({ ...tenant, input: { id: "webhook-1" } })).resolves.toBeUndefined();
+  });
+
+  it("checks the event type's owner for an event-type webhook", async () => {
+    storedWebhook({ userId: null, eventTypeId: 5, platform: false });
+
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 2 } as never);
+    await expect(ensureWebhookAccess({ ...tenant, input: { id: "webhook-1" } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 1 } as never);
+    await expect(
+      ensureWebhookAccess({ ...tenant, input: { id: "webhook-1", eventTypeId: 5 } })
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses an event type other than the webhook's own", async () => {
+    storedWebhook({ userId: 1, eventTypeId: null, platform: false });
+
+    await expect(
+      ensureWebhookAccess({ ...tenant, input: { id: "webhook-1", eventTypeId: 5 } })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("refuses an unknown webhook", async () => {
+    prismaMock.webhook.findUnique.mockResolvedValue(null);
+
+    await expect(ensureWebhookAccess({ ...tenant, input: { id: "webhook-1" } })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("checks the owner of an event type given without a webhook", async () => {
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 2 } as never);
+    await expect(ensureWebhookAccess({ ...tenant, input: { eventTypeId: 5 } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    prismaMock.eventType.findUnique.mockResolvedValue({ id: 5, userId: 1 } as never);
+    await expect(ensureWebhookAccess({ ...tenant, input: { eventTypeId: 5 } })).resolves.toBeUndefined();
+    expect(prismaMock.webhook.findUnique).not.toHaveBeenCalled();
   });
 });
