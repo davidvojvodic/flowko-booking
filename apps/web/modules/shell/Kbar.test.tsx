@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import type { ActionTree } from "kbar";
 import { useKBar } from "kbar";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +30,7 @@ vi.mock("@calcom/trpc/react", () => ({
   },
 }));
 
-let registeredActions: Record<string, { perform?: () => void }> = {};
+let registeredActions: ActionTree = {};
 function RegisteredActionIds(): JSX.Element {
   const { actions } = useKBar((state) => ({ actions: state.actions }));
   registeredActions = actions;
@@ -75,7 +76,7 @@ describe("Kbar webhooks action", () => {
     await waitFor(() => expect(registeredIds()).toContain("webhooks"));
     expect(registeredIds()).toContain("api-keys");
 
-    registeredActions.webhooks.perform?.();
+    registeredActions.webhooks.command?.perform();
     expect(mockPush).toHaveBeenCalledWith("/settings/developer/webhooks");
   });
 
