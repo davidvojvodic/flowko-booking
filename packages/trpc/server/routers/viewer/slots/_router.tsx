@@ -18,9 +18,20 @@ export const slotsRouter = router({
   getSchedule: publicProcedure.input(ZGetScheduleInputSchema).query(async ({ input, ctx }) => {
     const { getScheduleHandler } = await import("./getSchedule.handler");
 
+    // Flowko: internal/debug flags are never honoured from this public procedure (U8c, AV-5).
+    // _bypassCalendarBusyTimes let any visitor diff a tenant's slots with and without their
+    // Google Calendar busy times, and _silentCalendarFailures showed whose calendar is broken.
+    // The web booker never sends them (only the undeployed API v2 atoms do).
+    const {
+      _enableTroubleshooter: _ignoredEnableTroubleshooter,
+      _bypassCalendarBusyTimes: _ignoredBypassCalendarBusyTimes,
+      _silentCalendarFailures: _ignoredSilentCalendarFailures,
+      ...publicInput
+    } = input;
+
     return getScheduleHandler({
       ctx,
-      input,
+      input: publicInput,
     });
   }),
   reserveSlot: publicProcedure.input(ZReserveSlotInputSchema).mutation(async ({ input, ctx }) => {
@@ -43,14 +54,9 @@ export const slotsRouter = router({
       });
     }),
   // This endpoint has no dependencies, it doesn't need its own file
-  removeSelectedSlotMark: publicProcedure
-    .input(ZRemoveSelectedSlotInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const { req, prisma } = ctx;
-      const uid = req?.cookies?.uid || input.uid;
-      if (uid) {
-        await prisma.selectedSlots.deleteMany({ where: { uid: { equals: uid } } });
-      }
-      return;
-    }),
+  // Flowko: slot reservation is switched off (U8c, AV-2), so there is no reservation to release.
+  // It deletes nothing: an anonymous caller could otherwise delete rows by any uid it names.
+  removeSelectedSlotMark: publicProcedure.input(ZRemoveSelectedSlotInputSchema).mutation(async () => {
+    return;
+  }),
 });
