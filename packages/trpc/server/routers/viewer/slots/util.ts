@@ -144,30 +144,20 @@ export class AvailableSlotsService {
   constructor(public readonly dependencies: IAvailableSlotsService) {}
 
   private async _getReservedSlotsAndCleanupExpired({
-    bookerClientUid,
-    usersWithCredentials,
     eventTypeId,
   }: {
-    bookerClientUid: string | undefined;
-    usersWithCredentials: NonNullable<GetAvailabilityUser>[];
     eventTypeId: number;
-  }) {
+  }): Promise<Awaited<ReturnType<ISelectedSlotRepository["findManyUnexpiredSlots"]>>> {
     const currentTimeInUtc = dayjs.utc().format();
     const slotsRepo = this.dependencies.selectedSlotRepo;
 
-    const unexpiredSelectedSlots =
-      (await slotsRepo.findManyUnexpiredSlots({
-        userIds: usersWithCredentials.map((user) => user.id),
-        currentTimeInUtc,
-      })) || [];
-
-    const slotsSelectedByOtherUsers = unexpiredSelectedSlots.filter((slot) => slot.uid !== bookerClientUid);
-
     await _cleanupExpiredSlots({ eventTypeId });
 
-    const reservedSlots = slotsSelectedByOtherUsers;
-
-    return reservedSlots;
+    // Flowko: slot reservation is switched off (U8c, AV-2). Anyone could reserve any range
+    // anonymously and every overlapping slot of that host disappeared from all their booking
+    // pages, so reservations never hide a slot. Rows left on the database expire and are cleaned
+    // up above; handleNewBooking's own availability check stays the double-booking guard.
+    return [];
 
     async function _cleanupExpiredSlots({ eventTypeId }: { eventTypeId: number }) {
       await slotsRepo.deleteManyExpiredSlots({ eventTypeId, currentTimeInUtc });
@@ -896,7 +886,7 @@ export class AvailableSlotsService {
     return fn(options);
   }
 
-  async _getAvailableSlots({ input, ctx }: GetScheduleOptions): Promise<IGetAvailableSlots> {
+  async _getAvailableSlots({ input }: GetScheduleOptions): Promise<IGetAvailableSlots> {
     const {
       _enableTroubleshooter: enableTroubleshooter = false,
       _bypassCalendarBusyTimes: bypassBusyCalendarTimes = false,
@@ -1103,7 +1093,6 @@ export class AvailableSlotsService {
     });
 
     let availableTimeSlots: typeof timeSlots = [];
-    const bookerClientUid = ctx?.req?.cookies?.uid;
     const isRestrictionScheduleFeatureEnabled = await this.checkRestrictionScheduleEnabled(
       eventType.team?.id
     );
@@ -1166,9 +1155,7 @@ export class AvailableSlotsService {
     }
 
     const reservedSlots = await this._getReservedSlotsAndCleanupExpired({
-      bookerClientUid,
       eventTypeId: eventType.id,
-      usersWithCredentials,
     });
 
     const availabilityCheckProps = {
