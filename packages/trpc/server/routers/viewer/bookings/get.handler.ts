@@ -1075,11 +1075,11 @@ async function getEventTypeIdsFromEventTypeIdsFilter(prisma: PrismaClient, event
 
   const eventTypeIdsFromDb = Array.from(new Set([...directEventTypeIds, ...parentEventTypeIds]));
 
-  if (eventTypeIdsFromDb?.length === 0) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "The requested event-types do not exist.",
-    });
+  // Flowko: ids no event type has answered BAD_REQUEST, while another tenant's existing id just narrowed the
+  // list, which told a caller which event type ids exist. They now stay in the filter and match no booking
+  // (Booking.eventTypeId references EventType). An empty list here would drop the filter, so it's never returned
+  if (eventTypeIdsFromDb.length === 0) {
+    return eventTypeIds;
   }
 
   return eventTypeIdsFromDb;

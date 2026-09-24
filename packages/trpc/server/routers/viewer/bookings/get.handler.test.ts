@@ -234,6 +234,27 @@ describe("getBookings - stub PermissionCheckService behavior", () => {
     expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
   });
 
+  // Flowko: an id no event type has used to answer BAD_REQUEST, which told a caller which ids exist
+  it("should keep an eventTypeIds filter no event type matches, so it matches no booking", async () => {
+    mockPrisma.eventType.findMany = vi.fn().mockResolvedValue([]);
+    mockPrisma.booking.groupBy = vi.fn().mockResolvedValue([]);
+
+    await expect(
+      getBookings({
+        user: mockUser,
+        prisma: mockPrisma,
+        kysely: mockKysely as unknown as Kysely<DB>,
+        bookingListingByStatus: ["upcoming"],
+        filters: {
+          eventTypeIds: [999],
+        },
+        take: 10,
+        skip: 0,
+      })
+    ).resolves.toMatchObject({ bookings: [], totalCount: 0 });
+    expect(mockKysely._mockQueryBuilder.where).toHaveBeenCalledWith("Booking.eventTypeId", "in", [999]);
+  });
+
   it("should execute query via kysely when no userIds filter is provided", async () => {
     mockPrisma.user.findMany = vi.fn().mockResolvedValue([]);
     mockPrisma.eventType.findMany = vi.fn().mockResolvedValue([]);
