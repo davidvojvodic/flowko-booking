@@ -1271,8 +1271,13 @@ async function handler(
       eventTypeLocations: eventType.locations,
       translators: [tAttendees, tGuests],
     });
+  // Flowko: a reschedule sends back the booking's saved answer (useInitialFormValues), which the owner may have
+  // stopped offering since, and the form then may not even show another choice (a single location that asks
+  // nothing is hidden). Such an answer counts as none: the event type's own location applies, and it still
+  // goes through the disabled-app check below, so this opens no location the event type doesn't offer.
+  const isStaleRescheduleLocation = !isBookerLocationAllowed && !!originalRescheduledBooking;
   if (!isBookerLocationAllowed) {
-    if (eventType.locations.length > 0) {
+    if (eventType.locations.length > 0 && !isStaleRescheduleLocation) {
       throw new HttpError({ statusCode: 400, message: ErrorCode.RequestBodyInvalid });
     }
     // An event type without locations offers only the organizer's default; checked once it is resolved below
@@ -1315,6 +1320,7 @@ async function handler(
   // Flowko: a client may name the organizer's default explicitly, as "conferencing" or as what it resolves to
   if (
     !isBookerLocationAllowed &&
+    !isStaleRescheduleLocation &&
     location !== OrganizerDefaultConferencingAppType &&
     location !== locationBodyString
   ) {

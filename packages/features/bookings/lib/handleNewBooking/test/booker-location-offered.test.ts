@@ -231,6 +231,101 @@ describe("handleNewBooking with a booker-picked location", () => {
     expect((await booking).location).toBe("Kavarna Union, Ljubljana");
   });
 
+  // A reschedule sends back the booking's saved answer (useInitialFormValues), and the form may show no other
+  // choice (a single location that asks nothing is hidden), so an answer the event type no longer offers
+  // counts as none there instead of refusing every reschedule
+  describe("rescheduling a booking whose saved answer is no longer offered", () => {
+    const previousBooking = (location: string) => {
+      const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+      return [
+        {
+          uid: "booking-to-move",
+          eventTypeId: 1,
+          userId: 101,
+          status: BookingStatus.ACCEPTED,
+          startTime: `${plus1DateString}T05:00:00.000Z`,
+          endTime: `${plus1DateString}T05:30:00.000Z`,
+          location,
+          references: [
+            getMockBookingReference({
+              type: "google_calendar",
+              uid: "MOCK_ID",
+              externalCalendarId: "organizer@google-calendar.com",
+              credentialId: 1,
+            }),
+          ],
+          attendees: [getMockBookingAttendee({ id: 1, name: "Booker", email: "booker@example.com" })],
+        },
+      ];
+    };
+    const expectNoConference = (calendar: Awaited<ReturnType<typeof book>>["calendar"]) => {
+      const calendarEvents = [
+        ...calendar.createEventCalls.map((call) => call.args.calEvent),
+        ...calendar.updateEventCalls.map((call) => call.args.event),
+      ];
+      expect(calendarEvents.length).toBeGreaterThan(0);
+      for (const calEvent of calendarEvents) expect(calEvent.conferenceData).toBeUndefined();
+    };
+
+    test("books the event type's in-person location for a Cal Video booking, with no Cal Video room", async () => {
+      const { booking, calendar, calVideo } = await book({
+        locations: inPersonOnly,
+        value: BookingLocations.CalVideo,
+        bookings: previousBooking(BookingLocations.CalVideo),
+        rescheduleUid: "booking-to-move",
+      });
+      const created = await booking;
+      expect(created.location).toBe("Slovenska 1, Ljubljana");
+      expect(calVideo.createMeetingCalls).toHaveLength(0);
+      expect(calVideo.updateMeetingCalls).toHaveLength(0);
+      expectNoConference(calendar);
+    });
+
+    test("books the event type's in-person location, not Google Meet, when the reschedule sends Meet", async () => {
+      const { booking, calendar } = await book({
+        locations: inPersonOnly,
+        value: BookingLocations.GoogleMeet,
+        bookings: previousBooking("Slovenska 1, Ljubljana"),
+        rescheduleUid: "booking-to-move",
+      });
+      expect((await booking).location).toBe("Slovenska 1, Ljubljana");
+      expectNoConference(calendar);
+    });
+
+    test("books the event type's own location for an attendee-phone booking on an attendee-address event type", async () => {
+      const { booking } = await book({
+        locations: [{ type: "attendeeInPerson" }],
+        value: "phone",
+        optionValue: "+38640123456",
+        bookings: previousBooking("+38640123456"),
+        rescheduleUid: "booking-to-move",
+      });
+      const created = await booking;
+      expect(created.status).toBe(BookingStatus.ACCEPTED);
+      expect(created.location).toBe("attendeeInPerson");
+    });
+
+    test("books the organizer's default for an in-person answer on an event type without locations", async () => {
+      const { booking, calVideo } = await book({
+        value: "inPerson",
+        bookings: previousBooking("Slovenska 1, Ljubljana"),
+        rescheduleUid: "booking-to-move",
+      });
+      expect((await booking).location).toBe(BookingLocations.CalVideo);
+      expect(calVideo.createMeetingCalls).toHaveLength(1);
+    });
+
+    test("still books the saved answer while the event type offers it", async () => {
+      const { booking } = await book({
+        locations: [...inPersonOnly, { type: BookingLocations.GoogleMeet }],
+        value: "inPerson",
+        bookings: previousBooking("Slovenska 1, Ljubljana"),
+        rescheduleUid: "booking-to-move",
+      });
+      expect((await booking).location).toBe("Slovenska 1, Ljubljana");
+    });
+  });
+
   describe("with an app the admin switched off", () => {
     const meetDefault = { defaultConferencingApp: { appSlug: "google-meet" } };
     const expectNoMeet = (calendar: Awaited<ReturnType<typeof book>>["calendar"]) => {
