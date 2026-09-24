@@ -3,6 +3,7 @@ import processExternalId from "@calcom/app-store/_utils/calendars/processExterna
 import { getPaymentAppData } from "@calcom/app-store/_utils/payments/getPaymentAppData";
 import { metadata as GoogleMeetMetadata } from "@calcom/app-store/googlevideo/_metadata";
 import {
+  DailyLocationType,
   getLocationValueForDB,
   MeetLocationType,
   OrganizerDefaultConferencingAppType,
@@ -30,6 +31,7 @@ import { isEventTypeLoggingEnabled } from "@calcom/features/bookings/lib/isEvent
 import type { BookingEmailAndSmsTasker } from "@calcom/features/bookings/lib/tasker/BookingEmailAndSmsTasker";
 import type { BuiltCalendarEvent } from "@calcom/features/CalendarEventBuilder";
 import { CalendarEventBuilder } from "@calcom/features/CalendarEventBuilder";
+import { isCalVideoEnabled } from "@calcom/features/conferencing/lib/videoClient";
 import { getSpamCheckService } from "@calcom/features/di/watchlist/containers/SpamCheckService.container";
 import {
   type EventTypeBrandingData,
@@ -1266,6 +1268,10 @@ async function handler(
 
   // use host default
   if (locationBodyString === OrganizerDefaultConferencingAppType) {
+    // Flowko: Cal Video stands in for a missing or unusable default app only while the admin keeps it
+    // enabled; otherwise the booking has no video location. An event type without a usable location is an
+    // owner misconfiguration, not a reason to fail the booking (or, with no Daily keys, to lose its emails).
+    const calVideoOrNoLocation = async () => ((await isCalVideoEnabled()) ? DailyLocationType : "");
     const metadataParseResult = userMetadataSchema.safeParse(organizerUser.metadata);
     const organizerMetadata = metadataParseResult.success ? metadataParseResult.data : undefined;
     const defaultApp = organizerMetadata?.defaultConferencingApp;
@@ -1277,13 +1283,13 @@ async function handler(
       const mainHostCalendar = eventType.destinationCalendar || organizerUser.destinationCalendar;
 
       if (locationBodyString === MeetLocationType && mainHostCalendar?.integration !== "google_calendar") {
-        locationBodyString = "integrations:daily";
+        locationBodyString = await calVideoOrNoLocation();
         organizerOrFirstDynamicGroupMemberDefaultLocationUrl = undefined;
       } else if (isManagedEventType || isTeamEventType) {
         organizerOrFirstDynamicGroupMemberDefaultLocationUrl = defaultApp?.appLink;
       }
     } else {
-      locationBodyString = "integrations:daily";
+      locationBodyString = await calVideoOrNoLocation();
     }
   }
 
@@ -1361,7 +1367,10 @@ async function handler(
           bookingLocation: organizerOrFirstDynamicGroupMemberDefaultLocationUrl,
           conferenceCredentialId: undefined,
         }
-      : getLocationValueForDB(locationBodyString, eventType.locations);
+      : // Flowko: no location stays none (see calVideoOrNoLocation); getLocationValueForDB makes "" Cal Video
+        !locationBodyString
+        ? { bookingLocation: "", conferenceCredentialId: undefined }
+        : getLocationValueForDB(locationBodyString, eventType.locations);
 
   // Use per-host credential if available, otherwise fall back to event type credential
   const conferenceCredentialId = eventTypeCredentialId;
