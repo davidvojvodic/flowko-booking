@@ -512,10 +512,10 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     });
     expect(booking.user).not.toHaveProperty("id");
     expect(booking.userPrimaryEmail).toBeNull();
-    expect(booking.cancelledBy).toBeNull();
-    expect(booking.rescheduledBy).toBeNull();
-    expect(booking.rescheduler).toBeNull();
-    expect(prisma.booking.findUnique).not.toHaveBeenCalled();
+    // The host cancelled and rescheduled: the booker is shown their name, as the booking page does
+    expect(booking.cancelledBy).toBe("Victim Host");
+    expect(booking.rescheduledBy).toBe("Victim Host");
+    expect(booking.rescheduler).toBe("Victim Host");
     expect(booking.references).toEqual([
       {
         type: "google_calendar",
@@ -547,6 +547,21 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     ]) {
       expect(serialised).not.toContain(secret);
     }
+  });
+
+  it("keeps the caller's own email and drops a third party's as who cancelled or rescheduled", async () => {
+    const prisma = createPrisma();
+    prisma.booking.findUnique.mockResolvedValue({ rescheduledBy: "User@example.com" });
+    const row = {
+      ...bookingRow({ organizerId: 2, hideOrganizerEmail: true }),
+      cancelledBy: "user@example.com",
+      rescheduledBy: "someone@else.org",
+    };
+    const booking = await listFor(row, prisma);
+
+    expect(booking.cancelledBy).toBe("user@example.com");
+    expect(booking.rescheduledBy).toBeNull();
+    expect(booking.rescheduler).toBe("User@example.com");
   });
 
   it("keeps the organizer's email for a booker when the event type doesn't hide it", async () => {

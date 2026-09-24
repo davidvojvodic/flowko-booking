@@ -790,18 +790,28 @@ export async function getBookings({
       Object.entries(responses).filter(([name]) => !isHidden(name) && (isBooker || !isPhone(name)))
     ) as Prisma.JsonObject;
   };
-  const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
-    const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
-    const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
-    // Flowko: a host added as a guest is an attendee under their own email, which the event type may hide
-    // (U7a nulls it on the booking page). The row is dropped rather than nulled, so Attendee.email stays a string
-    const hostEmails = new Set(
+  // Every email under which a host of the row can appear (read before the booker view strips them)
+  const getHostEmailsOfRow = (booking: (typeof plainBookings)[number]) =>
+    new Set(
       [
         booking.user?.email,
         booking.userPrimaryEmail,
         ...(booking.eventType?.hosts ?? []).map((host) => host.user?.email),
       ].flatMap((email) => (email ? [normaliseEmail(email)] : []))
     );
+  // Flowko: who cancelled or rescheduled, on a booker's row whose event type hides the organizer's email: the
+  // caller's own email stays, a host's becomes the organizer's name (as the booking page shows the
+  // rescheduler) and anyone else's is dropped
+  const toActorForBooker = (booking: (typeof plainBookings)[number], email: string | null) => {
+    if (!booking.eventType?.hideOrganizerEmail || !email || isViewerEmail(email)) return email;
+    return getHostEmailsOfRow(booking).has(normaliseEmail(email)) ? (booking.user?.name ?? null) : null;
+  };
+  const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
+    const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
+    const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
+    // Flowko: a host added as a guest is an attendee under their own email, which the event type may hide
+    // (U7a nulls it on the booking page). The row is dropped rather than nulled, so Attendee.email stays a string
+    const hostEmails = getHostEmailsOfRow(booking);
     const isHiddenHostAttendee = (email: string) =>
       hideOrganizerEmail && !isViewerEmail(email) && hostEmails.has(normaliseEmail(email));
     return {
@@ -809,8 +819,8 @@ export async function getBookings({
       user: organizer as (typeof booking)["user"],
       responses: toResponsesForBooker(booking),
       userPrimaryEmail: hideOrganizerEmail ? null : booking.userPrimaryEmail,
-      cancelledBy: hideOrganizerEmail ? null : booking.cancelledBy,
-      rescheduledBy: hideOrganizerEmail ? null : booking.rescheduledBy,
+      cancelledBy: toActorForBooker(booking, booking.cancelledBy),
+      rescheduledBy: toActorForBooker(booking, booking.rescheduledBy),
       references: booking.references
         .filter((reference) => !reference.deleted)
         .map(({ type, meetingUrl, meetingPassword }) => ({
@@ -854,9 +864,7 @@ export async function getBookings({
       const booking = isHostRow ? bookingFromDb : toBookingForBooker(bookingFromDb);
 
       let rescheduler = null;
-      // Flowko: who rescheduled is the host's email when the host did it, so a booker's row hides it along
-      // with the organizer's email
-      if (booking.fromReschedule && (isHostRow || !booking.eventType?.hideOrganizerEmail)) {
+      if (booking.fromReschedule) {
         const rescheduledBooking = await prisma.booking.findUnique({
           where: {
             uid: booking.fromReschedule,
@@ -866,7 +874,10 @@ export async function getBookings({
           },
         });
         if (rescheduledBooking) {
-          rescheduler = rescheduledBooking.rescheduledBy;
+          // Flowko: see toActorForBooker
+          rescheduler = isHostRow
+            ? rescheduledBooking.rescheduledBy
+            : toActorForBooker(bookingFromDb, rescheduledBooking.rescheduledBy);
         }
       }
 
