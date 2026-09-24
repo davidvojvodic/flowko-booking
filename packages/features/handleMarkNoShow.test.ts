@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import handleMarkNoShow, { handleMarkHostNoShow } from "./handleMarkNoShow";
+import handleMarkNoShow, { handleMarkAttendeesAndHostNoShow, handleMarkHostNoShow } from "./handleMarkNoShow";
 
 const { mockPrismaBookingUpdate, mockPrismaAttendeeUpdate, mockPrismaAttendeeFindMany } = vi.hoisted(() => ({
   mockPrismaBookingUpdate: vi.fn(),
@@ -429,6 +429,7 @@ describe("handleMarkNoShow", () => {
       const result = await handleMarkNoShow({
         bookingUid,
         noShowHost: true,
+        userId: 123,
       });
 
       expect(result.noShowHost).toBe(true);
@@ -442,6 +443,7 @@ describe("handleMarkNoShow", () => {
       const result = await handleMarkNoShow({
         bookingUid,
         noShowHost: false,
+        userId: 123,
       });
 
       expect(result.noShowHost).toBe(false);
@@ -524,6 +526,132 @@ describe("handleMarkNoShow", () => {
     });
   });
 
+  // Flowko: the host flag goes through the same owner + meeting-started check as the attendee path, for every
+  // caller except the public attendee report.
+  describe("Host no-show access (signed-in path)", () => {
+    it.each([true, false])(
+      "refuses tenant B setting noShowHost=%s on tenant A's booking",
+      async (noShowHost) => {
+        const bookingUid = "tenant-a-booking";
+        createMockBooking({ uid: bookingUid, userId: 123, noShowHost: !noShowHost });
+        mockDoesUserIdHaveAccessToBooking.mockResolvedValue(false);
+
+        await expect(
+          handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost, userId: 999 })
+        ).rejects.toThrow(/Failed to update no-show status/);
+
+        expect(mockDoesUserIdHaveAccessToBooking).toHaveBeenCalledWith({ userId: 999, bookingUid });
+        expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
+        expectBookingNoShowHostState(bookingUid, !noShowHost);
+      }
+    );
+
+    it("refuses the foreign host write when attendees is an empty array", async () => {
+      const bookingUid = "tenant-a-booking-empty-attendees";
+      createMockBooking({ uid: bookingUid, userId: 123 });
+      mockDoesUserIdHaveAccessToBooking.mockResolvedValue(false);
+
+      await expect(
+        handleMarkAttendeesAndHostNoShow({ bookingUid, attendees: [], noShowHost: true, userId: 999 })
+      ).rejects.toThrow(/Failed to update no-show status/);
+      expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
+    });
+
+    it("lets the host set the flag on their own booking once it has started", async () => {
+      const bookingUid = "own-started-booking";
+      createMockBooking({ uid: bookingUid, userId: 123 });
+
+      const result = await handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost: true, userId: 123 });
+
+      expect(result.noShowHost).toBe(true);
+      expect(mockDoesUserIdHaveAccessToBooking).toHaveBeenCalledWith({ userId: 123, bookingUid });
+      expectBookingNoShowHostState(bookingUid, true);
+    });
+
+    it("lets the host clear the flag on their own ended booking", async () => {
+      const bookingUid = "own-ended-booking";
+      createMockBooking({
+        uid: bookingUid,
+        userId: 123,
+        noShowHost: true,
+        startTime: new Date(Date.now() - 7200000),
+        endTime: new Date(Date.now() - 3600000),
+      });
+
+      const result = await handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost: false, userId: 123 });
+
+      expect(result.noShowHost).toBe(false);
+      expectBookingNoShowHostState(bookingUid, false);
+    });
+
+    it("refuses the host flag on the host's own booking before it starts", async () => {
+      const bookingUid = "own-future-booking";
+      createMockBooking({
+        uid: bookingUid,
+        userId: 123,
+        startTime: new Date(Date.now() + 3600000),
+        endTime: new Date(Date.now() + 7200000),
+      });
+
+      await expect(
+        handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost: true, userId: 123 })
+      ).rejects.toThrow(/Failed to update no-show status/);
+      expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
+    });
+
+    it("gives a missing, a foreign and a future booking the same error", async () => {
+      createMockBooking({ uid: "foreign", userId: 123 });
+      createMockBooking({
+        uid: "future",
+        userId: 999,
+        startTime: new Date(Date.now() + 3600000),
+        endTime: new Date(Date.now() + 7200000),
+      });
+      mockDoesUserIdHaveAccessToBooking.mockImplementation(
+        async ({ bookingUid }: { bookingUid: string }) => bookingUid === "future"
+      );
+
+      const errors = await Promise.all(
+        ["missing", "foreign", "future"].map((bookingUid) =>
+          handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost: true, userId: 999 }).catch(
+            (e: { statusCode: number; message: string }) => ({ statusCode: e.statusCode, message: e.message })
+          )
+        )
+      );
+
+      expect(errors[0]).toEqual({ statusCode: 500, message: "Failed to update no-show status" });
+      expect(errors[1]).toEqual(errors[0]);
+      expect(errors[2]).toEqual(errors[0]);
+      expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the exported handler gets a host flag and no userId", async () => {
+      const bookingUid = "no-user-booking";
+      createMockBooking({ uid: bookingUid });
+
+      await expect(handleMarkNoShow({ bookingUid, noShowHost: true })).rejects.toThrow(
+        /Failed to update no-show status/
+      );
+      expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
+    });
+
+    it("runs the access check only once when attendees and the host flag come together", async () => {
+      const bookingUid = "own-both-booking";
+      createMockBooking({ uid: bookingUid, userId: 123 });
+      createMockAttendee({ bookingUid, email: "attendee@example.com", noShow: false });
+
+      await handleMarkAttendeesAndHostNoShow({
+        bookingUid,
+        attendees: [{ email: "attendee@example.com", noShow: true }],
+        noShowHost: true,
+        userId: 123,
+      });
+
+      expect(mockDoesUserIdHaveAccessToBooking).toHaveBeenCalledTimes(1);
+      expectBookingNoShowHostState(bookingUid, true);
+    });
+  });
+
   describe("Integrations", () => {
     it("should call WebhookService.sendPayload for attendee updates", async () => {
       const bookingUid = "test-booking-webhook";
@@ -553,6 +681,8 @@ describe("handleMarkNoShow", () => {
 
       expect(result.noShowHost).toBe(true);
       expectBookingNoShowHostState(bookingUid, true);
+      // Flowko: anonymous by design; its tRPC handler enforces the one-way, started, accepted rule.
+      expect(mockDoesUserIdHaveAccessToBooking).not.toHaveBeenCalled();
     });
   });
 
@@ -603,6 +733,7 @@ describe("handleMarkNoShow", () => {
       const result = await handleMarkNoShow({
         bookingUid,
         noShowHost: true,
+        userId: 123,
       });
 
       expect(result.noShowHost).toBe(true);

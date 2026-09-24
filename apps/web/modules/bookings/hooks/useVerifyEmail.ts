@@ -1,4 +1,3 @@
-import { useSession } from "next-auth/react";
 import { useState } from "react";
 
 import { useBookerStore } from "@calcom/features/bookings/Booker/store";
@@ -27,7 +26,6 @@ export const useVerifyEmail = ({
   const setVerifiedEmail = useBookerStore((state) => state.setVerifiedEmail);
   const isRescheduling = useBookerStore((state) => Boolean(state.rescheduleUid && state.bookingData));
   const debouncedEmail = useDebounce(email, 600);
-  const { data: session } = useSession();
 
   const { t, i18n } = useLocale();
   const sendEmailVerificationByCodeMutation = trpc.viewer.auth.sendVerifyEmailCode.useMutation({
@@ -42,12 +40,16 @@ export const useVerifyEmail = ({
 
   const { data: isEmailVerificationRequired } =
     trpc.viewer.public.checkIfUserEmailVerificationRequired.useQuery(
+      // Flowko: only the email. The server reads the signed-in booker's own email from the session.
       {
-        userSessionEmail: session?.user.email || "",
         email: debouncedEmail,
       },
       {
         enabled: !!debouncedEmail && !isRescheduling,
+        // Flowko: the server limits this check to 10 a minute per IP, shared by every booker behind that IP,
+        // so ask once per email. Booking re-checks it on the server, so a cached answer is never trusted.
+        refetchOnWindowFocus: false,
+        staleTime: 5 * 60 * 1000,
       }
     );
 

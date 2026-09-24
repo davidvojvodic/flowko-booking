@@ -164,19 +164,21 @@ const getBookingAttendeesFromEmails = async (
   return emailToAttendeeMap;
 };
 
-const handleMarkNoShow = async ({
+const markNoShow = async ({
   bookingUid,
   attendees,
   noShowHost,
   userId,
   locale,
   platformClientParams,
-}: HandleMarkNoShowArgs): Promise<ResponsePayloadResult> => {
+  isPublicHostReport,
+}: HandleMarkNoShowArgs & { isPublicHostReport: boolean }): Promise<ResponsePayloadResult> => {
   const responsePayload = new ResponsePayload();
   const t = await getTranslation(locale ?? "en", "common");
 
   try {
     const attendeeEmails = attendees?.map((attendee) => attendee.email) || [];
+    let hasCheckedAccess = false;
 
     const bookingRepository = new BookingRepository(prisma);
     const booking = await bookingRepository.findByUidIncludeEventTypeAttendeesAndUser({
@@ -191,6 +193,7 @@ const handleMarkNoShow = async ({
 
     if (attendees && attendeeEmails.length > 0) {
       await assertCanAccessBooking(bookingUid, userId);
+      hasCheckedAccess = true;
 
       const payload = await buildResultPayload({
         attendees,
@@ -217,6 +220,14 @@ const handleMarkNoShow = async ({
     }
 
     if (noShowHost !== undefined) {
+      // Flowko: the host flag is the booking owner's data too. Every caller but the public attendee report
+      // (handleMarkHostNoShow, whose tRPC handler allows only true, only on an accepted booking that has
+      // started) must own the booking, and the meeting must have started. Without this a signed-in tenant
+      // could set or clear the flag on any booking by uid. Inside the try, so a missing, foreign or future
+      // booking all get the same 500.
+      if (!isPublicHostReport && !hasCheckedAccess) {
+        await assertCanAccessBooking(bookingUid, userId);
+      }
       await bookingRepository.updateNoShowHost({ bookingUid, noShowHost });
       responsePayload.setNoShowHost(noShowHost);
       responsePayload.setMessage(t("booking_no_show_updated"));
@@ -231,6 +242,10 @@ const handleMarkNoShow = async ({
     throw new HttpError({ statusCode: 500, message: "Failed to update no-show status" });
   }
 };
+
+// Flowko: the exported entry point never skips the host access check; only handleMarkHostNoShow does.
+const handleMarkNoShow = async (args: HandleMarkNoShowArgs): Promise<ResponsePayloadResult> =>
+  markNoShow({ ...args, isPublicHostReport: false });
 
 const updateAttendees = async ({
   attendees,
@@ -303,11 +318,14 @@ export const handleMarkHostNoShow = async ({
   locale,
   platformClientParams,
 }: HandleMarkHostNoShowArgs): Promise<ResponsePayloadResult> => {
-  return handleMarkNoShow({
+  // Flowko: anonymous, so no owner check here. The caller (publicViewer markHostAsNoShow) must enforce
+  // noShowHost === true on an accepted booking that has started.
+  return markNoShow({
     bookingUid,
     noShowHost,
     locale,
     platformClientParams,
+    isPublicHostReport: true,
   });
 };
 
