@@ -43,6 +43,7 @@ describe("handleNewBooking with a booker-picked location", () => {
     bookings,
     rescheduleUid,
     fromHostCalendar = false,
+    isGoogleMeetEnabled = true,
   }: {
     /** The event type's locations (none when undefined) */
     locations?: Record<string, unknown>[];
@@ -55,6 +56,8 @@ describe("handleNewBooking with a booker-picked location", () => {
     rescheduleUid?: string;
     /** Called the way calendar sync moves a booking the host moved in their own calendar */
     fromHostCalendar?: boolean;
+    /** Google Meet's App row; every other app is enabled */
+    isGoogleMeetEnabled?: boolean;
   }) {
     const handleNewBooking = getNewBookingHandler();
     const booker = getBooker({ email: "booker@example.com", name: "Booker" });
@@ -76,8 +79,12 @@ describe("handleNewBooking with a booker-picked location", () => {
         ],
         organizer,
         bookings,
-        // Every app is enabled here: the refusals below come from the event type's locations alone
-        apps: [TestData.apps["google-calendar"], TestData.apps["google-meet"], TestData.apps["daily-video"]],
+        // Every app is enabled by default: the refusals come from the event type's locations alone
+        apps: [
+          TestData.apps["google-calendar"],
+          { ...TestData.apps["google-meet"], enabled: isGoogleMeetEnabled },
+          TestData.apps["daily-video"],
+        ],
       })
     );
     const calendar = await mockCalendarToHaveNoBusySlots("googlecalendar", {
@@ -221,5 +228,90 @@ describe("handleNewBooking with a booker-picked location", () => {
       fromHostCalendar: true,
     });
     expect((await booking).location).toBe("Kavarna Union, Ljubljana");
+  });
+
+  describe("with an app the admin switched off", () => {
+    const meetDefault = { defaultConferencingApp: { appSlug: "google-meet" } };
+    const expectNoMeet = (calendar: Awaited<ReturnType<typeof book>>["calendar"]) => {
+      expect(calendar.createEventCalls).toHaveLength(1);
+      const { calEvent } = calendar.createEventCalls[0].args;
+      expect(calEvent.location).toBe("");
+      expect(calEvent.conferenceData).toBeUndefined();
+    };
+
+    test("books the organizer's default app on a conferencing event type while it is enabled", async () => {
+      const { booking, calendar } = await book({
+        locations: [{ type: "conferencing" }],
+        value: "conferencing",
+        organizerMetadata: meetDefault,
+      });
+      expect((await booking).location).toBe(BookingLocations.GoogleMeet);
+      expect(calendar.createEventCalls[0].args.calEvent.location).toBe(BookingLocations.GoogleMeet);
+    });
+
+    test.each([
+      ["picked", "conferencing"],
+      ["by default", undefined],
+    ])("books no video location for a switched-off default app on a conferencing event type (%s)", async (_, value) => {
+      const { booking, calendar, calVideo } = await book({
+        locations: [{ type: "conferencing" }],
+        value,
+        organizerMetadata: meetDefault,
+        isGoogleMeetEnabled: false,
+      });
+      const created = await booking;
+      expect(created.location).toBe("");
+      expect(created.status).toBe(BookingStatus.ACCEPTED);
+      expectNoMeet(calendar);
+      expect(calVideo.createMeetingCalls).toHaveLength(0);
+    });
+
+    test("books no video location for a switched-off app the event type still offers", async () => {
+      const { booking, calendar } = await book({
+        locations: [...inPersonOnly, { type: BookingLocations.GoogleMeet }],
+        value: BookingLocations.GoogleMeet,
+        isGoogleMeetEnabled: false,
+      });
+      expect((await booking).location).toBe("");
+      expectNoMeet(calendar);
+    });
+
+    test("still refuses a switched-off app the event type doesn't offer", async () => {
+      await expectRefused(
+        await book({
+          locations: inPersonOnly,
+          value: BookingLocations.GoogleMeet,
+          isGoogleMeetEnabled: false,
+        })
+      );
+    });
+
+    test("keeps the old location instead of a switched-off app a move in the host's calendar brings", async () => {
+      const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+      const { booking, calendar } = await book({
+        locations: inPersonOnly,
+        value: BookingLocations.GoogleMeet,
+        optionValue: BookingLocations.GoogleMeet,
+        isGoogleMeetEnabled: false,
+        bookings: [
+          {
+            uid: "booking-moved-in-calendar",
+            eventTypeId: 1,
+            userId: 101,
+            status: BookingStatus.ACCEPTED,
+            startTime: `${plus1DateString}T05:00:00.000Z`,
+            endTime: `${plus1DateString}T05:30:00.000Z`,
+            location: "Slovenska 1, Ljubljana",
+            attendees: [getMockBookingAttendee({ id: 1, name: "Booker", email: "booker@example.com" })],
+          },
+        ],
+        rescheduleUid: "booking-moved-in-calendar",
+        fromHostCalendar: true,
+      });
+      // A rescheduled booking without a location keeps the one it had (createBooking)
+      expect((await booking).location).toBe("Slovenska 1, Ljubljana");
+      // calendar sync moves the booking without writing back to the host's calendar
+      expect(calendar.createEventCalls).toHaveLength(0);
+    });
   });
 });

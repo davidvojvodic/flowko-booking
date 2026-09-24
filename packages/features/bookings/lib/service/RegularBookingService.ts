@@ -1,5 +1,6 @@
 import process from "node:process";
 import processExternalId from "@calcom/app-store/_utils/calendars/processExternalId";
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getPaymentAppData } from "@calcom/app-store/_utils/payments/getPaymentAppData";
 import { metadata as GoogleMeetMetadata } from "@calcom/app-store/googlevideo/_metadata";
 import {
@@ -1403,10 +1404,16 @@ async function handler(
   // is an owner misconfiguration, not a reason to fail the booking or, with no Daily keys, to lose its emails.
   const isCalVideoUnavailable =
     resolvedBookingLocation === DailyLocationType && !(await isCalVideoEnabled());
-  const bookingLocation = isCalVideoUnavailable ? "" : resolvedBookingLocation;
+  // Flowko: the same for every other app the admin switched off (App.enabled = false): the organizer's default
+  // app, or an app location the event type still holds from before, books no location instead of running it
+  const { locationTypes: disabledLocationTypes } = await findDisabledApps(deps.prismaClient, {
+    locationTypes: [locationBodyString],
+  });
+  const isLocationUnavailable = isCalVideoUnavailable || disabledLocationTypes.length > 0;
+  const bookingLocation = isLocationUnavailable ? "" : resolvedBookingLocation;
 
   // Use per-host credential if available, otherwise fall back to event type credential
-  const conferenceCredentialId = isCalVideoUnavailable ? undefined : eventTypeCredentialId;
+  const conferenceCredentialId = isLocationUnavailable ? undefined : eventTypeCredentialId;
 
   tracingLogger.info("locationBodyString", locationBodyString);
   tracingLogger.info("event type locations", eventType.locations);
