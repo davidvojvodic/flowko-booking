@@ -1268,10 +1268,6 @@ async function handler(
 
   // use host default
   if (locationBodyString === OrganizerDefaultConferencingAppType) {
-    // Flowko: Cal Video stands in for a missing or unusable default app only while the admin keeps it
-    // enabled; otherwise the booking has no video location. An event type without a usable location is an
-    // owner misconfiguration, not a reason to fail the booking (or, with no Daily keys, to lose its emails).
-    const calVideoOrNoLocation = async () => ((await isCalVideoEnabled()) ? DailyLocationType : "");
     const metadataParseResult = userMetadataSchema.safeParse(organizerUser.metadata);
     const organizerMetadata = metadataParseResult.success ? metadataParseResult.data : undefined;
     const defaultApp = organizerMetadata?.defaultConferencingApp;
@@ -1283,13 +1279,13 @@ async function handler(
       const mainHostCalendar = eventType.destinationCalendar || organizerUser.destinationCalendar;
 
       if (locationBodyString === MeetLocationType && mainHostCalendar?.integration !== "google_calendar") {
-        locationBodyString = await calVideoOrNoLocation();
+        locationBodyString = "integrations:daily";
         organizerOrFirstDynamicGroupMemberDefaultLocationUrl = undefined;
       } else if (isManagedEventType || isTeamEventType) {
         organizerOrFirstDynamicGroupMemberDefaultLocationUrl = defaultApp?.appLink;
       }
     } else {
-      locationBodyString = await calVideoOrNoLocation();
+      locationBodyString = "integrations:daily";
     }
   }
 
@@ -1361,19 +1357,25 @@ async function handler(
 
   // For static link based video apps, it would have the static URL value instead of it's type(e.g. integrations:campfire_video)
   // This ensures that createMeeting isn't called for static video apps as bookingLocation becomes just a regular value for them.
-  const { bookingLocation, conferenceCredentialId: eventTypeCredentialId } =
+  const { bookingLocation: resolvedBookingLocation, conferenceCredentialId: eventTypeCredentialId } =
     organizerOrFirstDynamicGroupMemberDefaultLocationUrl
       ? {
           bookingLocation: organizerOrFirstDynamicGroupMemberDefaultLocationUrl,
           conferenceCredentialId: undefined,
         }
-      : // Flowko: no location stays none (see calVideoOrNoLocation); getLocationValueForDB makes "" Cal Video
-        !locationBodyString
-        ? { bookingLocation: "", conferenceCredentialId: undefined }
-        : getLocationValueForDB(locationBodyString, eventType.locations);
+      : getLocationValueForDB(locationBodyString, eventType.locations);
+
+  // Flowko: Cal Video is the booking's location only while the admin keeps it enabled; otherwise the booking
+  // has no location. This covers every way in: an event type with no location, "conferencing" with no usable
+  // default app, a blank location value (getLocationValueForDB turns " " into Cal Video), an explicit one
+  // (the booker can send "integrations:daily" on any event type). An event type without a usable location
+  // is an owner misconfiguration, not a reason to fail the booking or, with no Daily keys, to lose its emails.
+  const isCalVideoUnavailable =
+    resolvedBookingLocation === DailyLocationType && !(await isCalVideoEnabled());
+  const bookingLocation = isCalVideoUnavailable ? "" : resolvedBookingLocation;
 
   // Use per-host credential if available, otherwise fall back to event type credential
-  const conferenceCredentialId = eventTypeCredentialId;
+  const conferenceCredentialId = isCalVideoUnavailable ? undefined : eventTypeCredentialId;
 
   tracingLogger.info("locationBodyString", locationBodyString);
   tracingLogger.info("event type locations", eventType.locations);

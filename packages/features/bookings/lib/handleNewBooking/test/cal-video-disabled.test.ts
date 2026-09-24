@@ -41,12 +41,18 @@ describe("handleNewBooking without a usable location", () => {
     credentials = [],
     destinationCalendar,
     apps = [],
+    locations,
+    bookerLocation,
   }: {
     calVideoEnabled: boolean;
     organizerMetadata?: Record<string, unknown>;
     credentials?: ReturnType<typeof getGoogleMeetCredential>[];
     destinationCalendar?: { integration: string; externalId: string };
     apps?: unknown[];
+    /** The event type's locations (none by default) */
+    locations?: Record<string, unknown>[];
+    /** The location value the booker sends (none by default) */
+    bookerLocation?: string;
   }) {
     const handleNewBooking = getNewBookingHandler();
     const booker = getBooker({ email: "booker@example.com", name: "Booker" });
@@ -63,7 +69,7 @@ describe("handleNewBooking without a usable location", () => {
 
     await createBookingScenario(
       getScenarioData({
-        eventTypes: [{ id: 1, slotInterval: 30, length: 30, users: [{ id: 101 }] }],
+        eventTypes: [{ id: 1, slotInterval: 30, length: 30, users: [{ id: 101 }], ...(locations && { locations }) }],
         organizer,
         apps: [...apps, calVideoApp(calVideoEnabled)],
       })
@@ -75,7 +81,14 @@ describe("handleNewBooking without a usable location", () => {
 
     const createdBooking = await handleNewBooking({
       bookingData: getMockRequestDataForBooking({
-        data: { eventTypeId: 1, responses: { email: booker.email, name: booker.name } },
+        data: {
+          eventTypeId: 1,
+          responses: {
+            email: booker.email,
+            name: booker.name,
+            ...(bookerLocation !== undefined && { location: { optionValue: "", value: bookerLocation } }),
+          },
+        },
       }),
     });
     const bookingInDb = await prismaMock.booking.findUnique({ where: { uid: createdBooking.uid! } });
@@ -120,5 +133,70 @@ describe("handleNewBooking without a usable location", () => {
 
     expect(calVideo.createMeetingCalls).toHaveLength(0);
     expect(createdBooking.location).toBe("");
+  });
+
+  // Flowko (B4 review): getLocationValueForDB turns any blank location value into Cal Video, and a booker
+  // can send an explicit one; neither may book Cal Video while it is disabled.
+  test("books no video location for a blank location value while Cal Video is disabled, and sends the emails", async ({
+    emails,
+  }) => {
+    const { booker, organizer, createdBooking, bookingInDb, calVideo } = await bookEventTypeWithoutLocation({
+      calVideoEnabled: false,
+      locations: [{ type: "inPerson", address: " " }],
+    });
+
+    expect(calVideo.createMeetingCalls).toHaveLength(0);
+    expect(createdBooking.location).toBe("");
+    expect(bookingInDb?.location).toBe("");
+    expect(bookingInDb?.status).toBe("ACCEPTED");
+    expectSuccessfulBookingCreationEmails({
+      booking: { uid: createdBooking.uid! },
+      booker,
+      organizer,
+      emails,
+      iCalUID: expectICalUIDAsString(createdBooking.iCalUID),
+    });
+  });
+
+  test("books no video location for a booker-sent Cal Video location while Cal Video is disabled, and sends the emails", async ({
+    emails,
+  }) => {
+    const { booker, organizer, createdBooking, bookingInDb, calVideo } = await bookEventTypeWithoutLocation({
+      calVideoEnabled: false,
+      locations: [{ type: "inPerson", address: "Ljubljana" }],
+      bookerLocation: BookingLocations.CalVideo,
+    });
+
+    expect(calVideo.createMeetingCalls).toHaveLength(0);
+    expect(createdBooking.location).toBe("");
+    expect(bookingInDb?.location).toBe("");
+    expect(bookingInDb?.status).toBe("ACCEPTED");
+    expectSuccessfulBookingCreationEmails({
+      booking: { uid: createdBooking.uid! },
+      booker,
+      organizer,
+      emails,
+      iCalUID: expectICalUIDAsString(createdBooking.iCalUID),
+    });
+  });
+
+  test("books no video location for a Cal Video default app while Cal Video is disabled", async () => {
+    const { createdBooking, calVideo } = await bookEventTypeWithoutLocation({
+      calVideoEnabled: false,
+      organizerMetadata: { defaultConferencingApp: { appSlug: "daily-video" } },
+    });
+
+    expect(calVideo.createMeetingCalls).toHaveLength(0);
+    expect(createdBooking.location).toBe("");
+  });
+
+  test("still books a blank location value as Cal Video while Cal Video is enabled", async () => {
+    const { createdBooking, calVideo } = await bookEventTypeWithoutLocation({
+      calVideoEnabled: true,
+      locations: [{ type: "inPerson", address: " " }],
+    });
+
+    expect(calVideo.createMeetingCalls).toHaveLength(1);
+    expect(createdBooking.location).toBe(BookingLocations.CalVideo);
   });
 });
