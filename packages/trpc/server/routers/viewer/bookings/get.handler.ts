@@ -747,14 +747,16 @@ export async function getBookings({
     });
   };
 
-  // Flowko: a row where the caller is neither the organizer nor a host is a booking they made on another
-  // tenant's page with their own account email. It gets what the booking page gives a booker (U7a,
+  // Flowko: a row the caller doesn't organize is a booking they made, or are a guest on, on another tenant's
+  // page under their own account email. It gets what the booking page gives a booker (U7a,
   // bookingPageForViewer.ts), not the host-side record: no organizer id, no organizer email when the event
   // type hides it, no calendar references beyond the meeting link (externalCalendarId is the host's Google
   // calendar id), no host report or assignment reasons, no host ids or emails, no app credential ids, only
-  // the caller's own seats and no phone number but the caller's own. The list UI reads user.id only to tell
-  // whether the caller is the host, so its absence reads as "not the host". The row keeps the organizer
-  // view's type, hence the casts on user and references.
+  // the caller's own seats, no phone number but the caller's own and no hidden booking-field answers. The
+  // list UI reads user.id only to tell whether the caller is the host, so its absence reads as "not the
+  // host". The row keeps the organizer view's type, hence the casts on user and references. Unlike the
+  // booking page it keeps recurringEventId: it is the series of a booking the caller is on, and the list
+  // reads it to mark the row recurring and act on that series.
   const viewerEmail = normaliseEmail(user.email);
   const isViewerEmail = (email: string | null | undefined): boolean =>
     !!email && normaliseEmail(email) === viewerEmail;
