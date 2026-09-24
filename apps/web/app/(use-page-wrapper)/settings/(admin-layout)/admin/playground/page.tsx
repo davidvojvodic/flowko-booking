@@ -3,6 +3,8 @@ import { Icon } from "@calcom/ui/components/icon";
 import { _generateMetadata, getTranslate } from "app/_utils";
 import Link from "next/link";
 
+import { requireActiveAdmin } from "../../requireActiveAdmin";
+
 const LINKS = [
   {
     title: "Date Range Filter",
@@ -22,6 +24,8 @@ export const generateMetadata = async () =>
   );
 
 const Page = async () => {
+  // Flowko: the layout's admin check can be skipped on a partial render, so the page checks itself
+  await requireActiveAdmin();
   const t = await getTranslate();
   return (
     <SettingsHeader title={t("playground")} description={t("admin_playground_description")}>
