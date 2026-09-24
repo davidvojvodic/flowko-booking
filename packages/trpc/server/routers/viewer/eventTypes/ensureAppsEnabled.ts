@@ -1,4 +1,5 @@
 import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
+import { getLocationByType } from "@calcom/app-store/locations";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import type { PrismaClient } from "@calcom/prisma";
 import { TRPCError } from "@trpc/server";
@@ -43,16 +44,21 @@ function getLegacyTurnedOnAppKeys({ metadata, price }: EventTypeAppsData, curren
 
 function getLocationTypes(locations: unknown): string[] {
   if (!Array.isArray(locations)) return [];
-  return locations.flatMap((location) =>
-    isRecord(location) && typeof location.type === "string" ? [location.type] : []
-  );
+  return locations.flatMap((location) => {
+    if (!isRecord(location) || typeof location.type !== "string") return [];
+    // Flowko: booking uses a location's saved value (an address, a link, a phone number) in place of its type
+    // (getLocationValueForDB), and that value is free text that can name an app's location type too
+    const valueKey = getLocationByType(location.type)?.defaultValueVariable;
+    const value = valueKey ? location[valueKey] : undefined;
+    return typeof value === "string" && value ? [location.type, value] : [location.type];
+  });
 }
 
 /**
  * Flowko: an app switched off under Settings → Admin → Apps (App.enabled = false) stays off for event types,
  * whatever a request sends. An event type write may not turn on a disabled app in metadata.apps (an
  * analytics tag, for instance), turn one on through its legacy data (giphy's thank-you page, stripe's price
- * column) or add a location of a disabled app (Google Meet, Cal Video, ...).
+ * column) or add a location of a disabled app (Google Meet, Cal Video, ...), as its type or as its value.
  * What the event type already had before the write (`current`) stays allowed, so its owner can still save
  * it; the public booking page leaves a disabled app out anyway.
  */

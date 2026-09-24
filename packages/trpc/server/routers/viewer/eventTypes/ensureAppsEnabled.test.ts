@@ -53,6 +53,40 @@ describe("ensureAppsEnabled", () => {
     });
   });
 
+  describe("a location whose saved value names a switched-off app (B1)", () => {
+    const MEET = "integrations:google:meet";
+    const namingMeet = [
+      { type: "inPerson", address: MEET },
+      { type: "link", link: MEET },
+      { type: "userPhone", hostPhoneNumber: MEET },
+    ];
+
+    it.each(namingMeet)("is refused, since booking uses the value ($type)", async (location) => {
+      const { prisma } = withEnabledApps("google-calendar");
+
+      await expect(ensureAppsEnabled(prisma, { locations: [location] })).rejects.toMatchObject(refused);
+    });
+
+    it("is allowed with a plain address, link or phone number", async () => {
+      const { prisma } = withEnabledApps("google-calendar");
+      const locations = [
+        { type: "inPerson", address: "Slovenska 1, Ljubljana" },
+        { type: "link", link: "https://example.com/meet" },
+        { type: "userPhone", hostPhoneNumber: "+38640123456" },
+      ];
+
+      await expect(ensureAppsEnabled(prisma, { locations })).resolves.toBeUndefined();
+    });
+
+    it("stays allowed on an event type that already has it", async () => {
+      const { prisma } = withEnabledApps("google-calendar");
+
+      await expect(
+        ensureAppsEnabled(prisma, { locations: namingMeet }, { locations: namingMeet })
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe("an integrations:* location no app claims (B4)", () => {
     it("is refused, since booking would send it to Cal Video", async () => {
       const { prisma } = withEnabledApps("google-calendar");
