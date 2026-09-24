@@ -35,7 +35,9 @@ vi.mock("@calcom/lib/buildCalEventFromBooking", () => ({
   buildCalEventFromBooking: vi.fn(async ({ location }: { location: string }) => ({ location })),
 }));
 vi.mock("@calcom/emails/email-manager", () => ({ sendLocationChangeEmailsAndSMS: vi.fn() }));
-vi.mock("@calcom/i18n/server", () => ({ getTranslation: vi.fn(async () => (key: string) => key) }));
+vi.mock("@calcom/i18n/server", () => ({
+  getTranslation: vi.fn(async (locale: string) => (key: string) => `${locale}:${key}`),
+}));
 
 import { editLocationHandler } from "./editLocation.handler";
 
@@ -74,7 +76,8 @@ describe("editLocationHandler with a switched-off app", () => {
 
     await expect(editLocation(newLocation)).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: ErrorCode.AppNotAvailable,
+      // Translated in the organizer's language: the dialog shows the message as sent
+      message: `en:${ErrorCode.AppNotAvailable}`,
     });
     expect(updateLocation).not.toHaveBeenCalled();
     expect(updateLocationById).not.toHaveBeenCalled();
