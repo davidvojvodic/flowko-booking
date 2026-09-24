@@ -13,6 +13,7 @@ import {
   updateMeeting,
   deleteMeeting,
   isCalVideoEnabled,
+  isVideoAppEnabled,
 } from "@calcom/features/conferencing/lib/videoClient";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import CrmManager from "@calcom/features/crmManager/crmManager";
@@ -313,8 +314,10 @@ export default class EventManager {
 
       const calVideoKeys = calVideoKeysSchema.safeParse(calVideo?.keys);
 
-      if (calVideo?.enabled && calVideoKeys.success) evt["location"] = "integrations:daily";
-      log.warn("Falling back to cal video as no location is set");
+      if (calVideo?.enabled && calVideoKeys.success) {
+        evt["location"] = "integrations:daily";
+        log.warn("Falling back to cal video as no location is set");
+      }
     }
 
     const [mainHostDestinationCalendar] =
@@ -1071,6 +1074,14 @@ export default class EventManager {
       log.warn(
         `Could not find conferenceCredentialId for event with location: ${event.location}, trying to use last added video credential`
       );
+    }
+
+    // Flowko: a credential of an app the admin switched off is as good as none. The global Cal Video
+    // credential is always among videoCredentials, so an explicit Cal Video location (which a booker can
+    // send) found it, skipped the check below and got a failed result, or a Daily room on reschedule.
+    if (videoCredential && !(await isVideoAppEnabled(videoCredential.appId))) {
+      log.warn(`Video app ${videoCredential.appId} for event with location: ${event.location} is disabled`);
+      videoCredential = undefined;
     }
 
     /**
