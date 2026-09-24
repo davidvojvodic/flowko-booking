@@ -1,5 +1,6 @@
 import dayjs from "@calcom/dayjs";
 import logger from "@calcom/lib/logger";
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import type { PrismaClient } from "@calcom/prisma";
 
 import { DEFAULT_WEBHOOK_VERSION } from "./interface/IWebhookRepository";
@@ -63,17 +64,25 @@ export async function handleWebhookScheduledTriggers(prisma: PrismaClient) {
     if (webhook) {
       headers["X-Cal-Signature-256"] = createWebhookSignature({ secret: webhook.secret, body: job.payload });
     }
-    fetchPromises.push(
-      fetch(job.subscriberUrl, {
-        method: "POST",
-        body: job.payload,
-        headers,
-        // Avoid following redirect
-        redirect: "manual",
-      }).catch((error) => {
-        console.error(`Webhook trigger ${job.id} failed with error: ${error}`);
-      })
-    );
+    // Flowko: re-check the URL (with DNS) right before delivery, as sendPayload does: this cron does its
+    // own fetch. A refused job is skipped but still deleted below. http: is allowed here (https-only is
+    // enforced when the URL is saved). The log names no URL (U7b).
+    const ssrfValidation = await validateUrlForSSRF(job.subscriberUrl, { allowHttp: true });
+    if (!ssrfValidation.isValid) {
+      logger.warn(`Webhook trigger ${job.id} skipped: Webhook URL is not allowed: ${ssrfValidation.error}`);
+    } else {
+      fetchPromises.push(
+        fetch(job.subscriberUrl, {
+          method: "POST",
+          body: job.payload,
+          headers,
+          // Avoid following redirect
+          redirect: "manual",
+        }).catch((error) => {
+          console.error(`Webhook trigger ${job.id} failed with error: ${error}`);
+        })
+      );
+    }
 
     // clean finished job
     await prisma.webhookScheduledTriggers.delete({

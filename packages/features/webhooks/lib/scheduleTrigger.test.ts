@@ -1,6 +1,6 @@
 import prismaMock from "@calcom/testing/lib/__mocks__/prismaMock";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiKey } from "@calcom/prisma/client";
 import { WebhookTriggerEvents } from "@calcom/prisma/enums";
@@ -8,6 +8,24 @@ import { WebhookTriggerEvents } from "@calcom/prisma/enums";
 import { addSubscription, deleteSubscription } from "./scheduleTrigger";
 
 vi.mock("@calcom/features/tasker", () => ({ default: { create: vi.fn() } }));
+
+// Flowko (WH-2): the subscriber URL is checked (with DNS) before it is stored. booking.flowko.si is
+// self-hosted (IS_SELF_HOSTED is true).
+const { lookupMock } = vi.hoisted(() => ({ lookupMock: vi.fn() }));
+vi.mock("node:dns/promises", () => ({ default: { lookup: lookupMock } }));
+vi.mock("@calcom/lib/constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@calcom/lib/constants")>()),
+  IS_SELF_HOSTED: true,
+}));
+
+beforeEach(() => {
+  lookupMock.mockReset();
+  lookupMock.mockImplementation(async (hostname: string) =>
+    hostname === "metadata.attacker.example"
+      ? [{ address: "169.254.169.254", family: 4 }]
+      : [{ address: "93.184.215.14", family: 4 }]
+  );
+});
 
 const apiKey = (userId: number, teamId: number | null = null) =>
   ({ id: "key-1", userId, teamId, appId: "zapier" }) as ApiKey;
@@ -99,5 +117,51 @@ describe("Zapier and Make subscriptions", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
 
     expect(prismaMock.webhook.delete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "http://127.0.0.1:3000/api/auth/setup",
+    "https://localhost/",
+    "https://10.0.0.1/",
+    "https://[::ffff:a9fe:a9fe]/latest/meta-data/",
+    "https://metadata.attacker.example/latest/meta-data/",
+    "http://hooks.example.com/catch",
+  ])("refuses to create one for an admin's key with the URL %s", async (subscriberUrl) => {
+    prismaMock.user.findUnique.mockResolvedValue(activeAdmin as never);
+
+    await expect(
+      addSubscription({ appApiKey: apiKey(9), ...subscription, subscriberUrl })
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/^Webhook URL is not allowed: /),
+    });
+
+    expect(prismaMock.webhook.create).not.toHaveBeenCalled();
+  });
+
+  it("checks the admin before the URL, so a non-admin's key triggers no DNS lookup", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ role: "USER" } as never);
+
+    await expect(
+      addSubscription({
+        appApiKey: apiKey(1),
+        ...subscription,
+        subscriberUrl: "https://internal.attacker.example/",
+      })
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+
+  it("the URL refusal names no URL (U7b keeps webhook URLs out of logs)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(activeAdmin as never);
+
+    await expect(
+      addSubscription({
+        appApiKey: apiKey(9),
+        ...subscription,
+        subscriberUrl: "https://metadata.attacker.example/latest/meta-data/",
+      })
+    ).rejects.toThrow(/^Webhook URL is not allowed: Hostname resolves to private IP$/);
   });
 });

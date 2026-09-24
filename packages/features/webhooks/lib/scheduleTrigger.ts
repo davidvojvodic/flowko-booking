@@ -10,6 +10,7 @@ import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { withReporting } from "@calcom/lib/sentryWrapper";
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import { getTranslation } from "@calcom/i18n/server";
 import { prisma } from "@calcom/prisma";
 import type { Prisma, Webhook, Booking, ApiKey } from "@calcom/prisma/client";
@@ -73,6 +74,12 @@ export async function addSubscription({
   const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
   const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
   await ensureSubscriptionOwnerIsAdmin({ userId, teamId });
+  // Flowko: refuse a loopback, private or metadata URL (DNS-checked, https only) before it is stored, as
+  // the webhook create and edit handlers do; its deliveries are re-checked as well. Names no URL (U7b).
+  const ssrfValidation = await validateUrlForSSRF(subscriberUrl);
+  if (!ssrfValidation.isValid) {
+    throw new HttpError({ statusCode: 400, message: `Webhook URL is not allowed: ${ssrfValidation.error}` });
+  }
   try {
     const createSubscription = await prisma.webhook.create({
       data: {
