@@ -182,3 +182,52 @@ describe("createHandler with a team", () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ team: { connect: { id: 7 } } }));
   });
 });
+
+// Schedule ids are sequential. A new event type bound to another tenant's schedule showed that tenant's working
+// hours, date overrides and timezone in its public slots
+describe("createHandler with a schedule", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({ id: 10, slug: "haircut" });
+    prismaMock.app.findMany.mockResolvedValue([]);
+  });
+
+  it("refuses another tenant's schedule", async () => {
+    prismaMock.schedule.findMany.mockResolvedValue([{ id: 50, userId: 2 }] as never);
+
+    await expect(createHandler({ ctx, input: { ...input, scheduleId: 50 } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    expect(prismaMock.schedule.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [50] } },
+      select: { id: true, userId: true },
+    });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a schedule id that does not exist the same way", async () => {
+    prismaMock.schedule.findMany.mockResolvedValue([]);
+
+    await expect(createHandler({ ctx, input: { ...input, scheduleId: 999 } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("connects the owner's own schedule", async () => {
+    prismaMock.schedule.findMany.mockResolvedValue([{ id: 10, userId: 1 }] as never);
+
+    await createHandler({ ctx, input: { ...input, scheduleId: 10 } });
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ schedule: { connect: { id: 10 } } }));
+  });
+
+  it("creates an event type without a schedule with no schedule lookup", async () => {
+    await createHandler({ ctx, input });
+
+    expect(prismaMock.schedule.findMany).not.toHaveBeenCalled();
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ schedule: undefined }));
+  });
+});

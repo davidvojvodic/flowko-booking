@@ -11,6 +11,7 @@ import type { z } from "zod";
 import type { TrpcSessionUser } from "../../../../types";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
+import { ensureSchedulesBelongTo } from "../ensureSchedulesBelongTo";
 import type { TCreateInputSchema } from "./create.schema";
 
 class PermissionCheckService {
@@ -84,6 +85,12 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
   }
 
   await ensureAppsEnabled(ctx.prisma, { metadata, locations: inputLocations });
+
+  // Flowko: scheduleId was connected with no check, so a new event type could publish another tenant's
+  // working hours, date overrides and timezone in its slots
+  if (scheduleId) {
+    await ensureSchedulesBelongTo(ctx.prisma, [{ scheduleId, userId }]);
+  }
 
   const locations: EventTypeLocation[] =
     inputLocations && inputLocations.length !== 0
