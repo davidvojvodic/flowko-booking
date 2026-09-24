@@ -1,4 +1,3 @@
-import { useSession } from "next-auth/react";
 import { useState } from "react";
 
 import { useBookerStore } from "@calcom/features/bookings/Booker/store";
@@ -27,7 +26,6 @@ export const useVerifyEmail = ({
   const setVerifiedEmail = useBookerStore((state) => state.setVerifiedEmail);
   const isRescheduling = useBookerStore((state) => Boolean(state.rescheduleUid && state.bookingData));
   const debouncedEmail = useDebounce(email, 600);
-  const { data: session } = useSession();
 
   const { t, i18n } = useLocale();
   const sendEmailVerificationByCodeMutation = trpc.viewer.auth.sendVerifyEmailCode.useMutation({
@@ -42,8 +40,8 @@ export const useVerifyEmail = ({
 
   const { data: isEmailVerificationRequired } =
     trpc.viewer.public.checkIfUserEmailVerificationRequired.useQuery(
+      // Flowko: only the email. The server reads the signed-in booker's own email from the session.
       {
-        userSessionEmail: session?.user.email || "",
         email: debouncedEmail,
       },
       {
