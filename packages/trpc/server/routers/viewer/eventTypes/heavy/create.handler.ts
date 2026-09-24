@@ -1,12 +1,14 @@
 import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getDefaultLocations } from "@calcom/app-store/_utils/getDefaultLocations";
 import { DailyLocationType } from "@calcom/app-store/constants";
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import type { PrismaClient } from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
 import { MembershipRole, SchedulingType } from "@calcom/prisma/enums";
 import type { eventTypeLocations } from "@calcom/prisma/zod-utils";
 import { TRPCError } from "@trpc/server";
+import type { GetTokenParams } from "next-auth/jwt";
 import type { z } from "zod";
 import type { TrpcSessionUser } from "../../../../types";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
@@ -27,6 +29,9 @@ type SessionUser = NonNullable<TrpcSessionUser>;
 type User = {
   id: SessionUser["id"];
   role: SessionUser["role"];
+  // Flowko: read by isActiveInstanceAdminSession; a caller that leaves them out gets no admin rights
+  twoFactorEnabled?: SessionUser["twoFactorEnabled"];
+  identityProvider?: SessionUser["identityProvider"];
   organizationId: SessionUser["organizationId"];
   organization: {
     isOrgAdmin: SessionUser["organization"]["isOrgAdmin"];
@@ -42,6 +47,7 @@ type CreateOptions = {
   ctx: {
     user: User;
     prisma: PrismaClient;
+    req?: GetTokenParams["req"];
   };
   input: TCreateInputSchema;
 };
@@ -125,7 +131,9 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
   }
 
   if (teamId && schedulingType) {
-    const isSystemAdmin = ctx.user.role === "ADMIN";
+    // Flowko: an ADMIN without 2FA or a strong password is an INACTIVE_ADMIN at sign-in, but the database
+    // still says ADMIN, so only an active instance admin skips the membership check (fails closed without req)
+    const isSystemAdmin = await isActiveInstanceAdminSession(ctx.user, ctx.req);
 
     // Flowko: there are no teams or organizations on this instance and the PBAC service above is a stub that
     // allows everyone, so a team event type needs an accepted admin or owner membership of that team

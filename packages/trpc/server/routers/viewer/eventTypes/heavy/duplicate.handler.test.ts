@@ -132,4 +132,42 @@ describe("duplicateHandler", () => {
     });
     expect(create).not.toHaveBeenCalled();
   });
+
+  // A non-zero price column is legacy stripe data (getEventTypeAppData), and the copy is a new event type, so
+  // the price it takes over turns stripe on in it (N2)
+  it("should refuse to duplicate an event type with a price while stripe is disabled", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn();
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, price: 5000, currency: "eur" });
+    prismaMock.app.findMany.mockResolvedValue([]);
+
+    await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: ErrorCode.AppNotAvailable,
+    });
+    expect(prismaMock.app.findMany).toHaveBeenCalledWith({
+      where: { enabled: true, OR: [{ dirName: { in: ["stripepayment"] } }, { slug: { in: [] } }] },
+      select: { slug: true, dirName: true },
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("should still duplicate an event type without a price", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn().mockResolvedValue({ id: 456, teamId: null });
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, price: 0, hashedLink: [] });
+
+    await expect(duplicateHandler({ ctx, input })).resolves.toMatchObject({ eventType: { id: 456 } });
+    expect(prismaMock.app.findMany).not.toHaveBeenCalled();
+  });
 });

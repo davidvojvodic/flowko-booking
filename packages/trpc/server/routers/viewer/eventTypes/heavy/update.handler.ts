@@ -116,6 +116,9 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
       title: true,
       locations: true,
       metadata: true,
+      // Flowko: ensureAppsEnabled compares the price with this one, so a price the event type already holds
+      // stays allowed (without it, every non-zero price would count as changed)
+      price: true,
       description: true,
       seatsPerTimeSlot: true,
       recurringEvent: true,
@@ -196,7 +199,8 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
 
-  await ensureAppsEnabled(ctx.prisma, { metadata: rest.metadata, locations }, eventType);
+  // Flowko: a new or changed non-zero price turns the legacy stripe app on, so it is checked with the rest (N2)
+  await ensureAppsEnabled(ctx.prisma, { metadata: rest.metadata, locations, price: rest.price }, eventType);
 
   const finalSeatsPerTimeSlot =
     seatsPerTimeSlot === undefined ? eventType.seatsPerTimeSlot : seatsPerTimeSlot;

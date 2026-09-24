@@ -99,7 +99,12 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       recurringEvent: eventType.recurringEvent,
     });
     // The copy is a new event type, so an app the admin switched off is not turned on in it either
-    await ensureAppsEnabled(prisma, { metadata: eventType.metadata, locations: eventType.locations });
+    // Flowko: that includes stripe through the legacy price column the copy takes over (N2)
+    await ensureAppsEnabled(prisma, {
+      metadata: eventType.metadata,
+      locations: eventType.locations,
+      price: eventType.price,
+    });
 
     const {
       customInputs,
