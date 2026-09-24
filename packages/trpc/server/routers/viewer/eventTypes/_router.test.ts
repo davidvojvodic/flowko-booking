@@ -71,6 +71,18 @@ describe("eventTypesRouter", () => {
       expect(prismaMock.eventType.delete).not.toHaveBeenCalled();
     });
 
+    // Every caller sends only id, so the delete schema is strict
+    it("refuses a key besides id even when it names the same event type", async () => {
+      await expect(
+        callerFor(ATTACKER_ID).delete({
+          id: OWN_EVENT_TYPE_ID,
+          eventTypeId: OWN_EVENT_TYPE_ID,
+        } as unknown as { id: number })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(prismaMock.eventType.delete).not.toHaveBeenCalled();
+    });
+
     it("refuses another tenant's event type and deletes nothing", async () => {
       await expect(callerFor(ATTACKER_ID).delete({ id: VICTIM_EVENT_TYPE_ID })).rejects.toMatchObject({
         code: "FORBIDDEN",
@@ -95,6 +107,18 @@ describe("eventTypesRouter", () => {
       await expect(
         callerFor(ATTACKER_ID).get({
           id: VICTIM_EVENT_TYPE_ID,
+          eventTypeId: OWN_EVENT_TYPE_ID,
+        } as unknown as { id: number })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(mocks.getHandler).not.toHaveBeenCalled();
+    });
+
+    // Every caller sends only id, so the get schema is strict
+    it("refuses a key besides id even when it names the same event type", async () => {
+      await expect(
+        callerFor(ATTACKER_ID).get({
+          id: OWN_EVENT_TYPE_ID,
           eventTypeId: OWN_EVENT_TYPE_ID,
         } as unknown as { id: number })
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
