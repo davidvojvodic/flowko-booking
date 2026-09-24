@@ -1163,6 +1163,8 @@ export class AvailableSlotsService {
       currentSeats,
     };
 
+    // Flowko: unreachable while slot reservation is off (U8c, AV-2): reservedSlots is always [].
+    // Kept to keep the upstream diff small.
     if (reservedSlots?.length > 0) {
       let occupiedSeats: typeof reservedSlots = reservedSlots.filter(
         (item) => item.isSeat && item.eventTypeId === eventType.id
