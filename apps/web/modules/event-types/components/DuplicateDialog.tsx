@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { Dialog } from "@calcom/features/components/controlled-dialog";
 import { EventTypeDuplicateInput } from "@calcom/features/eventtypes/lib/types";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useDebounce } from "@calcom/lib/hooks/useDebounce";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -99,6 +100,15 @@ const DuplicateDialog = () => {
       if (err.data?.code === "CONFLICT") {
         const message = t("duplicate_event_slug_conflict");
         showToast(message, "error");
+        return;
+      }
+
+      // Flowko: say why the copy was refused (a disabled app, or seats and recurring off) instead of "try again"
+      if (
+        err.message === ErrorCode.AppNotAvailable ||
+        err.message === ErrorCode.SeatsAndRecurringNotAvailable
+      ) {
+        showToast(t(err.message), "error");
         return;
       }
 
