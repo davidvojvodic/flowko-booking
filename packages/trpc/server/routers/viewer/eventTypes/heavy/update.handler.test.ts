@@ -188,4 +188,71 @@ describe("update.handler", () => {
       expect(prismaMock.app.findMany).not.toHaveBeenCalled();
     });
   });
+
+  // There are no teams or managed event types on this instance. A parentId naming another tenant's event type
+  // made this one its managed child, so that tenant's webhooks fired for bookings here
+  describe("with foreign keys the request must not write", () => {
+    const ctx = {
+      user: {
+        id: 1,
+        username: "owner",
+        profile: { id: 1 },
+        userLevelSelectedCalendars: [],
+        organizationId: null,
+        email: "owner@example.com",
+        locale: "en",
+      },
+      prisma: prismaMock,
+    } as unknown as Parameters<typeof updateHandler>[0]["ctx"];
+
+    function storedPersonalEventType() {
+      prismaMock.eventType.findUniqueOrThrow.mockResolvedValue({
+        title: "Haircut",
+        description: null,
+        metadata: null,
+        locations: [],
+        team: null,
+        hosts: [],
+        children: [],
+        hostGroups: [],
+        fieldTranslations: [],
+        calVideoSettings: null,
+      } as never);
+    }
+
+    it("does not write parentId, teamId or profileId", async () => {
+      storedPersonalEventType();
+      prismaMock.hashedLink.findMany.mockResolvedValue([]);
+      prismaMock.eventType.update.mockRejectedValue(new Error("reached the update"));
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, hidden: true, parentId: 99, teamId: 7, profileId: 5 } })
+      ).rejects.toThrow("reached the update");
+
+      expect(prismaMock.eventType.update).toHaveBeenCalledTimes(1);
+      const { data } = prismaMock.eventType.update.mock.calls[0][0];
+      expect(data).toMatchObject({ hidden: true });
+      expect(data).not.toHaveProperty("parentId");
+      expect(data).not.toHaveProperty("parent");
+      expect(data).not.toHaveProperty("teamId");
+      expect(data).not.toHaveProperty("team");
+      expect(data).not.toHaveProperty("profileId");
+      expect(data).not.toHaveProperty("profile");
+    });
+
+    it("does not let a teamId in the request pass the restriction schedule check", async () => {
+      storedPersonalEventType();
+      // Another tenant's schedule, whose owner is an accepted member of the team the request names
+      prismaMock.schedule.findUnique.mockResolvedValue({ userId: 2 } as never);
+      prismaMock.membership.findFirst.mockResolvedValue({ id: 1 } as never);
+      prismaMock.hashedLink.findMany.mockResolvedValue([]);
+      prismaMock.eventType.update.mockRejectedValue(new Error("reached the update"));
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, teamId: 7, restrictionScheduleId: 50 } })
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+      expect(prismaMock.eventType.update).not.toHaveBeenCalled();
+    });
+  });
 });

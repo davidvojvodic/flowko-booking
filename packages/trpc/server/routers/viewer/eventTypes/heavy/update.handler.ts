@@ -94,6 +94,12 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     calVideoSettings,
     hostGroups,
     enablePerHostLocations,
+    // Flowko: never write these three from the request. There are no teams or managed event types here, and a
+    // parentId naming another tenant's event type made this one its "managed child", so that tenant's webhooks
+    // fired, signed with their secret, for every booking on this page
+    parentId: _parentId,
+    teamId: _teamId,
+    profileId: _profileId,
     ...rest
   } = input;
 
@@ -198,7 +204,9 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     });
   }
 
-  const teamId = input.teamId || eventType.team?.id;
+  // Flowko: the team comes from the stored event type only, so a request can't name a team to pass the
+  // restriction schedule and host membership checks below
+  const teamId = eventType.team?.id;
   const guestsField = bookingFields?.find((field) => field.name === "guests");
 
   ensureUniqueBookingFields(bookingFields);
