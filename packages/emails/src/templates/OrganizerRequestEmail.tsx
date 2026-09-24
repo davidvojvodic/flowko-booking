@@ -1,5 +1,5 @@
 import { WEBAPP_URL } from "@calcom/lib/constants";
-import { symmetricEncrypt } from "@calcom/lib/crypto";
+import { LINK_TOKEN_KEY_LABEL, symmetricEncryptAuthenticated } from "@calcom/lib/crypto";
 
 import { CallToAction, Separator, CallToActionTable } from "../components";
 import { OrganizerScheduledEmail } from "./OrganizerScheduledEmail";
@@ -12,8 +12,16 @@ export const OrganizerRequestEmail = (props: React.ComponentProps<typeof Organiz
     platformRescheduleUrl: props.calEvent.platformRescheduleUrl,
     platformCancelUrl: props.calEvent.platformCancelUrl,
     platformBookingUrl: props.calEvent.platformBookingUrl,
+    // Flowko: issued-at, so /api/link can expire old links.
+    iat: Math.floor(Date.now() / 1000),
   };
-  const token = symmetricEncrypt(JSON.stringify(seedData), process.env.CALENDSO_ENCRYPTION_KEY || "");
+  // Flowko: NAR-1. Authenticated (AES-256-GCM) token under a key derived for this purpose only; /api/link
+  // refuses anything that does not verify, including the old unauthenticated CBC tokens.
+  const token = symmetricEncryptAuthenticated(
+    JSON.stringify(seedData),
+    process.env.CALENDSO_ENCRYPTION_KEY || "",
+    LINK_TOKEN_KEY_LABEL
+  );
   //TODO: We should switch to using org domain if available
   const actionHref = `${WEBAPP_URL}/api/link/?token=${encodeURIComponent(token)}`;
   return (
