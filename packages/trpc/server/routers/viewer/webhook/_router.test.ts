@@ -29,8 +29,16 @@ const createCaller = createCallerFactory(webhookRouter);
 
 type Caller = ReturnType<typeof createCaller>;
 
-function callerFor(role: "USER" | "ADMIN") {
-  const user = { id: role === "ADMIN" ? 9 : 1, role, username: role === "ADMIN" ? "flowko" : "salon" };
+// INACTIVE_ADMIN: an ADMIN without 2FA, whom validateRole demotes only in the JWT, never in the database
+function callerFor(role: "USER" | "ADMIN" | "INACTIVE_ADMIN") {
+  const isAdmin = role !== "USER";
+  const user = {
+    id: isAdmin ? 9 : 1,
+    role: isAdmin ? "ADMIN" : role,
+    username: isAdmin ? "flowko" : "salon",
+    twoFactorEnabled: role === "ADMIN",
+    identityProvider: "CAL",
+  };
   mocks.getUserSession.mockResolvedValue({
     user,
     session: { user: { id: user.id }, upId: `usr-${user.id}` },
@@ -77,6 +85,13 @@ describe("webhookRouter", () => {
   // A webhook sends full booker data to any URL, and client businesses have no use for one
   it.each(calls)("refuses %s to a user who isn't an admin", async (_name, call) => {
     await expect(call(callerFor("USER"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    for (const handler of handlers) expect(handler).not.toHaveBeenCalled();
+    expect(prismaMock.webhook.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each(calls)("refuses %s to an admin with two-factor authentication off", async (_name, call) => {
+    await expect(call(callerFor("INACTIVE_ADMIN"))).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     for (const handler of handlers) expect(handler).not.toHaveBeenCalled();
     expect(prismaMock.webhook.findUnique).not.toHaveBeenCalled();

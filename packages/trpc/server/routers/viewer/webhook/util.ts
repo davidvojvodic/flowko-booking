@@ -1,5 +1,5 @@
+import { isActiveInstanceAdmin } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { prisma } from "@calcom/prisma";
-import { UserPermissionRole } from "@calcom/prisma/enums";
 
 import { TRPCError } from "@trpc/server";
 
@@ -9,8 +9,9 @@ import { webhookIdAndEventTypeIdSchema } from "./types";
 export const createWebhookProcedure = () => {
   return authedProcedure.input(webhookIdAndEventTypeIdSchema.optional()).use(async ({ ctx, input, next }) => {
     // Flowko: a webhook sends full booker data to any URL, and client businesses have no use for one, so
-    // only an instance admin may list, read, create, edit, test or delete webhooks
-    if (ctx.user.role !== UserPermissionRole.ADMIN) {
+    // only an instance admin may list, read, create, edit, test or delete webhooks. An ADMIN without 2FA is
+    // an INACTIVE_ADMIN at sign-in, but the database still says ADMIN, so the role alone is not enough.
+    if (!isActiveInstanceAdmin(ctx.user)) {
       throw new TRPCError({ code: "FORBIDDEN" });
     }
 

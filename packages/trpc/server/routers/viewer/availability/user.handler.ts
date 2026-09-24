@@ -1,9 +1,9 @@
+import { isActiveInstanceAdmin } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { findUsersForAvailabilityCheck } from "@calcom/features/availability/lib/findUsersForAvailabilityCheck";
 import { getUserAvailabilityService } from "@calcom/features/di/containers/GetUserAvailability";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { prisma } from "@calcom/prisma";
 import type { Prisma } from "@calcom/prisma/client";
-import { UserPermissionRole } from "@calcom/prisma/enums";
 import { TRPCError } from "@trpc/server";
 import type { TrpcSessionUser } from "../../../types";
 import type { TUserInputSchema } from "./user.schema";
@@ -23,8 +23,9 @@ function getUser(where: Prisma.UserWhereInput) {
 
 export const userHandler = async ({ ctx, input }: UserOptions) => {
   // Flowko: every client business is its own user on this instance, so a user reads only their own
-  // availability (busy times with calendar event titles, schedules, out of office). An admin may read anyone's.
-  const isAdmin = ctx.user.role === UserPermissionRole.ADMIN;
+  // availability (busy times with calendar event titles, schedules, out of office). An admin may read anyone's,
+  // but only an active one: an ADMIN without 2FA is an INACTIVE_ADMIN at sign-in, while the database says ADMIN.
+  const isAdmin = isActiveInstanceAdmin(ctx.user);
   if (!isAdmin && input.username !== ctx.user.username) {
     throw new TRPCError({ code: "FORBIDDEN" });
   }

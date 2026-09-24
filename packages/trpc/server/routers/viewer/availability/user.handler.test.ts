@@ -25,7 +25,15 @@ vi.mock("@calcom/features/di/containers/GetUserAvailability", () => ({
 }));
 
 const owner = { id: 1, username: "salon", role: "USER" } as unknown as NonNullable<TrpcSessionUser>;
-const admin = { id: 9, username: "flowko", role: "ADMIN" } as unknown as NonNullable<TrpcSessionUser>;
+const admin = {
+  id: 9,
+  username: "flowko",
+  role: "ADMIN",
+  twoFactorEnabled: true,
+  identityProvider: "CAL",
+} as unknown as NonNullable<TrpcSessionUser>;
+// An ADMIN without 2FA: validateRole makes them an INACTIVE_ADMIN in the JWT, but the database still says ADMIN
+const inactiveAdmin = { ...admin, twoFactorEnabled: false } as unknown as NonNullable<TrpcSessionUser>;
 
 const range = { dateFrom: dayjs("2026-09-24T00:00:00Z"), dateTo: dayjs("2026-09-24T23:59:59Z") };
 
@@ -92,6 +100,29 @@ describe("availability.user", () => {
 
     expect(prismaMock.eventType.findUnique).not.toHaveBeenCalled();
     expect(findUsersForAvailabilityCheck).toHaveBeenCalledWith({ where: { username: "agency" } });
+    expect(getAvailability).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses another user's availability to an admin with two-factor authentication off", async () => {
+    await expect(
+      userHandler({ ctx: { user: inactiveAdmin }, input: { username: "agency", ...range } })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(findUsersForAvailabilityCheck).not.toHaveBeenCalled();
+    expect(getAvailability).not.toHaveBeenCalled();
+  });
+
+  it("gives an admin with two-factor authentication off only their own availability and event types", async () => {
+    findUsersForAvailabilityCheck.mockResolvedValue({ id: 9, username: "flowko" });
+    prismaMock.eventType.findUnique.mockResolvedValue(null);
+
+    await expect(
+      userHandler({ ctx: { user: inactiveAdmin }, input: { username: "flowko", eventTypeId: 42, ...range } })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await userHandler({ ctx: { user: inactiveAdmin }, input: { username: "flowko", ...range } });
+
+    expect(findUsersForAvailabilityCheck).toHaveBeenCalledWith({ where: { id: 9 } });
     expect(getAvailability).toHaveBeenCalledTimes(1);
   });
 
