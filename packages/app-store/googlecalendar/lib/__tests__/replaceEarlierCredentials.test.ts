@@ -1,6 +1,11 @@
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
+import {
+  encryptedTestCredentialFields,
+  stubMissingCredentialKeyring,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { GoogleAccountLookup } from "../lookUpGoogleAccount";
 import { lookUpGoogleAccount } from "../lookUpGoogleAccount";
@@ -25,15 +30,24 @@ const tokenOf = (credentialId: number) => ({
 
 const mockGoogleAccounts = (accounts: Record<number, GoogleAccountLookup>) => {
   vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) => {
-    const credentialId = Number(String((key as { refresh_token: string }).refresh_token).split("-")[1]);
+    // Like the real lookup: a key without a token (null when it could not be decrypted) is "unknown"
+    const refreshToken = (key as { refresh_token?: unknown } | null)?.refresh_token;
+    if (typeof refreshToken !== "string") return { status: "unknown" };
+    const credentialId = Number(refreshToken.split("-")[1]);
     return accounts[credentialId] ?? { status: "unknown" };
   });
 };
 
+// Flowko U9: stored like production rows, with the token encrypted in encryptedKey and only a placeholder in key
+const encryptedFieldsOf = (id: number, userId: number) =>
+  encryptedTestCredentialFields({ type: "google_calendar", userId, teamId: null, key: tokenOf(id) });
+
 const createGoogleCredential = (id: number, userId: number) =>
   prismock.credential.create({
-    data: { id, type: "google_calendar", appId: "google-calendar", userId, key: tokenOf(id) },
+    data: { id, type: "google_calendar", appId: "google-calendar", userId, ...encryptedFieldsOf(id, userId) },
   });
+
+const PLACEHOLDER = { _enc: "keyring-v1" };
 
 /**
  * User 1 reconnected owner@gmail.com (credential 20 is the new one). Credential 10 is their earlier
@@ -124,9 +138,14 @@ const remainingCredentialIds = async () =>
 
 describe("replaceEarlierGoogleCalendarCredentials", () => {
   beforeEach(async () => {
+    stubTestCredentialKeyring();
     vi.mocked(lookUpGoogleAccount).mockReset();
     listNewConnectionCalendars.mockReset().mockResolvedValue(OWNER_CALENDARS);
     await seed();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   test("finds only the user's own other Google Calendar credentials", async () => {
@@ -136,9 +155,12 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
       primaryCalendarId: OWNER,
     });
 
-    expect(earlierCredentials.map(({ key: _key, ...credential }) => credential)).toEqual([
+    expect(earlierCredentials.map(({ encryptedKey: _encryptedKey, ...credential }) => credential)).toEqual([
       {
         id: 10,
+        type: "google_calendar",
+        userId: USER_ID,
+        teamId: null,
         invalid: false,
         usesPrimaryCalendar: true,
         selectedCalendarIds: [OWNER, WORK],
@@ -146,12 +168,98 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
       },
       {
         id: 11,
+        type: "google_calendar",
+        userId: USER_ID,
+        teamId: null,
         invalid: false,
         usesPrimaryCalendar: true,
         selectedCalendarIds: [],
         destinationCalendarIds: [OWNER],
       },
     ]);
+    // Flowko U9: only the ciphertext is carried to the replace, never a token
+    for (const credential of earlierCredentials) {
+      expect(credential).not.toHaveProperty("key");
+      expect(credential.encryptedKey).toEqual(expect.any(String));
+      expect(credential.encryptedKey).not.toContain("refresh-");
+    }
+  });
+
+  test("looks up earlier encrypted credentials with their decrypted tokens", async () => {
+    mockGoogleAccounts({
+      10: { status: "found", primaryCalendarId: OWNER },
+      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+    });
+
+    await findAndReplace();
+
+    // Flowko U9: Google gets each earlier credential's own token, never the placeholder in Credential.key
+    expect(vi.mocked(lookUpGoogleAccount)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(lookUpGoogleAccount)).toHaveBeenCalledWith(tokenOf(10));
+    expect(vi.mocked(lookUpGoogleAccount)).toHaveBeenCalledWith(tokenOf(11));
+    expect(vi.mocked(lookUpGoogleAccount)).not.toHaveBeenCalledWith(PLACEHOLDER);
+    // The same account's earlier credential is replaced
+    expect(await remainingCredentialIds()).toEqual([11, 12, NEW_CREDENTIAL_ID]);
+  });
+
+  test("keeps an earlier credential whose key cannot be decrypted, as if Google did not answer", async () => {
+    // Credential 10 is the same account, but its envelope is bound to another user (a row moved or an
+    // envelope copied), so it does not decrypt
+    await prismock.credential.update({
+      where: { id: 10 },
+      data: { encryptedKey: encryptedFieldsOf(10, OTHER_USER_ID).encryptedKey },
+    });
+    mockGoogleAccounts({
+      10: { status: "found", primaryCalendarId: OWNER },
+      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+    });
+
+    await findAndReplace();
+
+    expect(vi.mocked(lookUpGoogleAccount)).toHaveBeenCalledWith(null);
+    expect(vi.mocked(lookUpGoogleAccount)).not.toHaveBeenCalledWith(tokenOf(10));
+    expect(await remainingCredentialIds()).toEqual([10, 11, 12, NEW_CREDENTIAL_ID]);
+    expect(await prismock.selectedCalendar.findUnique({ where: { id: "work-of-10" } })).toMatchObject({
+      credentialId: 10,
+    });
+  });
+
+  test("never reads a plaintext key stored without an envelope", async () => {
+    // A legacy row: the token sits in key and there is no envelope. key is never a fallback
+    await prismock.credential.update({ where: { id: 10 }, data: { key: tokenOf(10), encryptedKey: null } });
+    mockGoogleAccounts({
+      10: { status: "found", primaryCalendarId: OWNER },
+      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+    });
+
+    await findAndReplace();
+
+    expect(vi.mocked(lookUpGoogleAccount)).not.toHaveBeenCalledWith(tokenOf(10));
+    expect(await remainingCredentialIds()).toEqual([10, 11, 12, NEW_CREDENTIAL_ID]);
+  });
+
+  test("keeps every earlier credential when the keyring is missing", async () => {
+    const earlierCredentials = await findEarlierGoogleCalendarCredentials({
+      userId: USER_ID,
+      credentialId: NEW_CREDENTIAL_ID,
+      primaryCalendarId: OWNER,
+    });
+    stubMissingCredentialKeyring();
+    mockGoogleAccounts({
+      10: { status: "found", primaryCalendarId: OWNER },
+      11: { status: "found", primaryCalendarId: OWNER },
+    });
+
+    await replaceEarlierGoogleCalendarCredentials({
+      userId: USER_ID,
+      credentialId: NEW_CREDENTIAL_ID,
+      primaryCalendarId: OWNER,
+      earlierCredentials,
+      listNewConnectionCalendars,
+    });
+
+    expect(vi.mocked(lookUpGoogleAccount).mock.calls).toEqual([[null], [null]]);
+    expect(await remainingCredentialIds()).toEqual([10, 11, 12, NEW_CREDENTIAL_ID]);
   });
 
   test("replaces the earlier credential of the same account and moves its calendars", async () => {
@@ -325,6 +433,27 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     expect((await prismock.destinationCalendar.findUnique({ where: { id: 3 } }))?.credentialId).not.toBe(
       NEW_CREDENTIAL_ID
     );
+    expect(await prismock.selectedCalendar.findUnique({ where: { id: "work-of-10" } })).toMatchObject({
+      credentialId: NEW_CREDENTIAL_ID,
+    });
+  });
+
+  test("replaces an invalid credential of the same account whose key cannot be decrypted", async () => {
+    // I-INVALID: Google already refused credential 10's grant, so an undecryptable key reads like a lookup
+    // Google did not answer, and the replace loses no calendar
+    await prismock.credential.update({
+      where: { id: 10 },
+      data: { invalid: true, encryptedKey: encryptedFieldsOf(10, OTHER_USER_ID).encryptedKey },
+    });
+    mockGoogleAccounts({
+      10: { status: "found", primaryCalendarId: "someone-else@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+    });
+
+    await findAndReplace();
+
+    expect(vi.mocked(lookUpGoogleAccount)).toHaveBeenCalledWith(null);
+    expect(await remainingCredentialIds()).toEqual([11, 12, NEW_CREDENTIAL_ID]);
     expect(await prismock.selectedCalendar.findUnique({ where: { id: "work-of-10" } })).toMatchObject({
       credentialId: NEW_CREDENTIAL_ID,
     });
