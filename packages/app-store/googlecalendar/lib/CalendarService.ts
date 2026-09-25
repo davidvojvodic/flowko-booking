@@ -674,8 +674,9 @@ class GoogleCalendarService implements Calendar {
 
     const getCalIdsWithTimeZone = async () => {
       const cals = await this.getAllCalendars(calendar, ["id", "timeZone"]);
-      if (!cals.length) return [];
 
+      // Flowko: the selected calendars are asked for even when Google lists no calendars, so one
+      // Google cannot read fails closed instead of the request going out empty and looking free
       if (selectedCalendarIds.length !== 0) {
         return selectedCalendarIds.map((selectedCalendarId) => {
           const calWithTz = cals.find((cal) => cal.id === selectedCalendarId);
@@ -685,7 +686,7 @@ class GoogleCalendarService implements Calendar {
           };
         });
       }
-      if (!fallbackToPrimary) return [];
+      if (!cals.length || !fallbackToPrimary) return [];
 
       const primaryCalendar = this.filterPrimaryCalendar(cals);
       if (!primaryCalendar) return [];

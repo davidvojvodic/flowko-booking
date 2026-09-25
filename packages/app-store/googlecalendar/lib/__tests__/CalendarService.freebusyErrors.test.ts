@@ -411,6 +411,25 @@ describe("getAvailabilityWithTimeZones fails closed on a calendar Google could n
     ).rejects.toBeInstanceOf(GoogleCalendarFreeBusyError);
   });
 
+  test("still asks Google for the selected calendars when Google lists no calendars", async () => {
+    const calendarService = buildService();
+    calendarListMock.mockResolvedValue({ data: { items: [] } });
+    mockFreeBusy({ [UNREADABLE_ID]: notFound });
+
+    await expect(
+      calendarService.getAvailabilityWithTimeZones!({
+        dateFrom: "2024-01-01T00:00:00Z",
+        dateTo: "2024-01-08T00:00:00Z",
+        selectedCalendars: [selectedCalendar(UNREADABLE_ID)],
+        mode: "slots",
+        fallbackToPrimary: false,
+      })
+    ).rejects.toBeInstanceOf(GoogleCalendarFreeBusyError);
+    expect(freebusyQueryMock).toHaveBeenCalledWith({
+      requestBody: expect.objectContaining({ items: [{ id: UNREADABLE_ID }] }),
+    });
+  });
+
   test("returns the busy times with their time zone when every calendar was read", async () => {
     const calendarService = buildService();
     calendarListMock.mockResolvedValue({
