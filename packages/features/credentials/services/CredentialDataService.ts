@@ -102,9 +102,10 @@ function logCredentialKeyFailure(
     const last = lastFailureLogAt.get(throttleKey);
     if (last !== undefined && now - last < FAILURE_LOG_INTERVAL_MS) return;
     if (lastFailureLogAt.size >= FAILURE_LOG_MAX_ENTRIES) {
-      for (const [key, at] of lastFailureLogAt) {
+      // forEach, not for...of: some consumers compile this file for an es5 target
+      lastFailureLogAt.forEach((at, key) => {
         if (now - at >= FAILURE_LOG_INTERVAL_MS) lastFailureLogAt.delete(key);
-      }
+      });
     }
     lastFailureLogAt.set(throttleKey, now);
     log.error(`Credential key unavailable (${reason}) for credential ${credentialId ?? "new"} (${type})`, {

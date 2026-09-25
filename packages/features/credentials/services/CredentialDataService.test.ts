@@ -449,6 +449,20 @@ describe("CredentialDataService", () => {
       decryptCredentialKeyResult(row);
       expect(serviceLogError).toHaveBeenCalledTimes(4);
     });
+
+    it("keeps logging after the throttle map fills up and prunes expired entries", () => {
+      const now = vi.spyOn(Date, "now").mockReturnValue(50_000_000);
+      const row = { type: "google_calendar", userId: 1, teamId: null, encryptedKey: null };
+      const firstId = newId();
+      decryptCredentialKeyResult({ ...row, id: firstId });
+      for (let i = 0; i < 10_000; i++) decryptCredentialKeyResult({ ...row, id: newId() });
+      expect(serviceLogError).toHaveBeenCalledTimes(10_001);
+
+      now.mockReturnValue(50_000_000 + 5 * 60 * 1000);
+      decryptCredentialKeyResult({ ...row, id: newId() });
+      decryptCredentialKeyResult({ ...row, id: firstId });
+      expect(serviceLogError).toHaveBeenCalledTimes(10_003);
+    });
   });
 
   describe("CredentialRepository encrypted-key writes (prismock)", () => {
