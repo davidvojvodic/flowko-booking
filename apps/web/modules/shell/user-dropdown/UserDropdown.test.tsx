@@ -46,7 +46,13 @@ vi.mock("@coss/ui/components/menu", () => ({
     return <div>{children}</div>;
   },
   MenuPopup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  MenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  // Flowko: render the `render` element (link) like MenuTrigger does, so the tests can see each item's href
+  MenuItem: ({ children, render }: { children: React.ReactNode; render?: React.ReactElement }) => {
+    if (render) {
+      return React.cloneElement(render, {}, children);
+    }
+    return <div>{children}</div>;
+  },
   MenuSeparator: () => <hr />,
   MenuSub: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   MenuSubTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -249,6 +255,41 @@ describe("UserDropdown", () => {
       const { getByTestId } = render(<UserDropdown />);
 
       expect(getByTestId("menu")).toBeInTheDocument();
+    });
+  });
+
+  // Flowko: clients must not be sent to cal.com from the account menu
+  describe("Flowko: menu items", () => {
+    it("has no roadmap item and no link to cal.com", async () => {
+      mockUseMeQuery.mockReturnValue({
+        data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
+        isPending: false,
+      });
+
+      const { UserDropdown } = await import("./UserDropdown");
+      const { container, queryByText } = render(<UserDropdown />);
+
+      expect(queryByText("visit_roadmap")).not.toBeInTheDocument();
+      expect(container.querySelector('a[href*="cal.com"]')).toBeNull();
+    });
+
+    it("keeps the account links, help and sign out", async () => {
+      mockUseMeQuery.mockReturnValue({
+        data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
+        isPending: false,
+      });
+
+      const { UserDropdown } = await import("./UserDropdown");
+      const { container, getByText } = render(<UserDropdown />);
+
+      const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+      expect(hrefs).toEqual([
+        "/settings/my-account/profile",
+        "/settings/my-account/general",
+        "/settings/my-account/out-of-office",
+      ]);
+      expect(getByText("help")).toBeInTheDocument();
+      expect(getByText("sign_out")).toBeInTheDocument();
     });
   });
 });
