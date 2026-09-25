@@ -65,8 +65,8 @@ const UNREADABLE_ID = "unreadable.calendar@example.com";
 const readableBusy = [{ start: "2024-01-01T10:00:00Z", end: "2024-01-01T11:00:00Z" }];
 const notFound = [{ domain: "global", reason: "notFound" }];
 
-const selectedCalendar = (externalId: string) =>
-  ({ externalId, integration: "google_calendar" }) as unknown as IntegrationCalendar;
+const selectedCalendar = (externalId: string, credentialId?: number | null) =>
+  ({ externalId, integration: "google_calendar", credentialId }) as unknown as IntegrationCalendar;
 
 /** Answers every requested calendar like Google does, with `errorsFor` naming the ones it could not read */
 const mockFreeBusy = (errorsFor: Record<string, { domain: string; reason: string }[]> = {}) => {
@@ -457,5 +457,222 @@ describe("busy calendar times of a host with an unreadable Google calendar", () 
     // getBusyTimes throws on success: false, so the host shows no slots and a booking is refused
     expect(result.success).toBe(false);
     expect(result.data).toEqual([expect.objectContaining({ source: "error-placeholder" })]);
+  });
+});
+
+describe("a host with more than one Google account connected", () => {
+  // Every Google connection of the host is asked for all of the host's selected Google calendars.
+  // Google answers a calendar of another account that is not shared with this one with notFound.
+  const OWN_ID = "own.calendar@gmail.com";
+  const OTHER_ACCOUNT_ID = "other.calendar@business.si";
+  const OTHER_CREDENTIAL_ID = 2;
+  const otherAccountBusy = [{ start: "2024-01-02T09:00:00Z", end: "2024-01-02T10:00:00Z" }];
+
+  const bothAccountsSelected = () => [
+    selectedCalendar(OWN_ID, mockCredential.id),
+    selectedCalendar(OTHER_ACCOUNT_ID, OTHER_CREDENTIAL_ID),
+  ];
+
+  test("getAvailability does not fail on a calendar selected under the other connection", async () => {
+    const calendarService = buildService();
+    mockFreeBusy({ [OTHER_ACCOUNT_ID]: notFound });
+
+    const result = await calendarService.getAvailability({
+      dateFrom: "2024-01-01T00:00:00Z",
+      dateTo: "2024-01-08T00:00:00Z",
+      selectedCalendars: bothAccountsSelected(),
+      mode: "slots",
+      fallbackToPrimary: false,
+    });
+
+    expect(result).toEqual(readableBusy);
+  });
+
+  test("getAvailability still fails on a calendar of its own that Google could not read", async () => {
+    const calendarService = buildService();
+    mockFreeBusy({ [OWN_ID]: notFound, [OTHER_ACCOUNT_ID]: notFound });
+
+    await expect(
+      calendarService.getAvailability({
+        dateFrom: "2024-01-01T00:00:00Z",
+        dateTo: "2024-01-08T00:00:00Z",
+        selectedCalendars: bothAccountsSelected(),
+        mode: "slots",
+        fallbackToPrimary: false,
+      })
+    ).rejects.toBeInstanceOf(GoogleCalendarFreeBusyError);
+  });
+
+  test("getAvailability fails on a selected calendar that belongs to no connection", async () => {
+    const calendarService = buildService();
+    mockFreeBusy({ [UNREADABLE_ID]: notFound, [OTHER_ACCOUNT_ID]: notFound });
+
+    await expect(
+      calendarService.getAvailability({
+        dateFrom: "2024-01-01T00:00:00Z",
+        dateTo: "2024-01-08T00:00:00Z",
+        selectedCalendars: [...bothAccountsSelected(), selectedCalendar(UNREADABLE_ID, null)],
+        mode: "slots",
+        fallbackToPrimary: false,
+      })
+    ).rejects.toBeInstanceOf(GoogleCalendarFreeBusyError);
+  });
+
+  test("getAvailability does not fail on the other connection's calendar in any chunk of a long range", async () => {
+    const calendarService = buildService();
+    mockFreeBusy({ [OTHER_ACCOUNT_ID]: notFound });
+
+    const result = await calendarService.getAvailability({
+      dateFrom: "2024-01-01T00:00:00Z",
+      dateTo: "2024-07-01T00:00:00Z",
+      selectedCalendars: bothAccountsSelected(),
+      mode: "slots",
+      fallbackToPrimary: false,
+    });
+
+    expect(freebusyQueryMock).toHaveBeenCalledTimes(3);
+    expect(result).toEqual([...readableBusy, ...readableBusy, ...readableBusy]);
+  });
+
+  test("getAvailabilityWithTimeZones does not fail on a calendar selected under the other connection", async () => {
+    const calendarService = buildService();
+    calendarListMock.mockResolvedValue({
+      data: { items: [{ id: OWN_ID, timeZone: "Europe/Ljubljana" }] },
+    });
+    mockFreeBusy({ [OTHER_ACCOUNT_ID]: notFound });
+
+    const result = await calendarService.getAvailabilityWithTimeZones!({
+      dateFrom: "2024-01-01T00:00:00Z",
+      dateTo: "2024-01-08T00:00:00Z",
+      selectedCalendars: bothAccountsSelected(),
+      mode: "slots",
+      fallbackToPrimary: false,
+    });
+
+    expect(result).toEqual([{ ...readableBusy[0], timeZone: "Europe/Ljubljana" }]);
+  });
+
+  test("getAvailabilityWithTimeZones still fails on a calendar of its own that Google could not read", async () => {
+    const calendarService = buildService();
+    calendarListMock.mockResolvedValue({
+      data: { items: [{ id: OWN_ID, timeZone: "Europe/Ljubljana" }] },
+    });
+    mockFreeBusy({ [OWN_ID]: notFound, [OTHER_ACCOUNT_ID]: notFound });
+
+    await expect(
+      calendarService.getAvailabilityWithTimeZones!({
+        dateFrom: "2024-01-01T00:00:00Z",
+        dateTo: "2024-01-08T00:00:00Z",
+        selectedCalendars: bothAccountsSelected(),
+        mode: "slots",
+        fallbackToPrimary: false,
+      })
+    ).rejects.toBeInstanceOf(GoogleCalendarFreeBusyError);
+  });
+
+  test("a delegation credential does not skip the error of any calendar", async () => {
+    const calendarService = BuildCalendarService({
+      ...mockCredential,
+      id: -1,
+      delegatedToId: "delegation-credential-1",
+    });
+    setFullMockOAuthManagerRequest();
+    mockFreeBusy({ [OTHER_ACCOUNT_ID]: notFound });
+
+    await expect(
+      calendarService.getAvailability({
+        dateFrom: "2024-01-01T00:00:00Z",
+        dateTo: "2024-01-08T00:00:00Z",
+        selectedCalendars: bothAccountsSelected(),
+        mode: "slots",
+        fallbackToPrimary: false,
+      })
+    ).rejects.toBeInstanceOf(GoogleCalendarFreeBusyError);
+  });
+
+  describe("getBusyCalendarTimes with both connections", () => {
+    const otherCredential: CredentialForCalendarServiceWithEmail = {
+      ...mockCredential,
+      id: OTHER_CREDENTIAL_ID,
+    };
+
+    const selectedCalendarRow = (externalId: string, credentialId: number) =>
+      ({
+        id: `selected-${credentialId}`,
+        userId: 1,
+        integration: "google_calendar",
+        externalId,
+        credentialId,
+        eventTypeId: null,
+      }) as any;
+
+    /** One service per connection; each account reads only its own calendar, like Google does */
+    const buildServicesPerConnection = (unreadableOwnCalendars: string[] = []) => {
+      const accounts = [
+        { credential: mockCredential, ownId: OWN_ID, busy: readableBusy },
+        { credential: otherCredential, ownId: OTHER_ACCOUNT_ID, busy: otherAccountBusy },
+      ];
+      const requested: Record<number, string[]> = {};
+      const services = new Map(
+        accounts.map(({ credential, ownId, busy }) => {
+          const service = BuildCalendarService(credential);
+          vi.spyOn(service as any, "getFreeBusyResult").mockImplementation(async (args: any) => {
+            const ids = (args as { items: { id: string }[] }).items.map(({ id }) => id);
+            requested[credential.id] = ids;
+            return {
+              calendars: Object.fromEntries(
+                ids.map((id) => [
+                  id,
+                  id === ownId && !unreadableOwnCalendars.includes(id)
+                    ? { busy }
+                    : { errors: notFound, busy: [] },
+                ])
+              ),
+            };
+          });
+          return [credential.id, service] as const;
+        })
+      );
+      setFullMockOAuthManagerRequest();
+      getCalendarMock.mockImplementation(async (credential: { id: number }) => services.get(credential.id));
+      return { requested };
+    };
+
+    const getBusyTimesOfBothConnections = async () => {
+      const { getBusyCalendarTimes } = await import("@calcom/features/calendars/lib/CalendarManager");
+      return getBusyCalendarTimes(
+        [mockCredential, otherCredential],
+        "2024-01-01T00:00:00Z",
+        "2024-01-08T00:00:00Z",
+        [
+          selectedCalendarRow(OWN_ID, mockCredential.id),
+          selectedCalendarRow(OTHER_ACCOUNT_ID, OTHER_CREDENTIAL_ID),
+        ],
+        "slots"
+      );
+    };
+
+    test("returns the busy times of both accounts", async () => {
+      buildServicesPerConnection();
+
+      const result = await getBusyTimesOfBothConnections();
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining(readableBusy[0]),
+          expect.objectContaining(otherAccountBusy[0]),
+        ])
+      );
+    });
+
+    test("reports a failure when a calendar cannot be read by its own connection", async () => {
+      buildServicesPerConnection([OTHER_ACCOUNT_ID]);
+
+      const result = await getBusyTimesOfBothConnections();
+
+      expect(result.success).toBe(false);
+      expect(result.data).toEqual([expect.objectContaining({ source: "error-placeholder" })]);
+    });
   });
 });
