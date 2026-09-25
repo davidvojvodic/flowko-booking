@@ -5,11 +5,15 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createGoogleCalendarServiceWithGoogleType } from "@calcom/app-store/googlecalendar/lib/CalendarService";
 import { revokeUnstoredGoogleCalendarToken } from "@calcom/features/credentials/handleDeleteCredential";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
-import { buildCredentialCreateData } from "@calcom/features/credentials/services/CredentialDataService";
+import {
+  buildCredentialCreateData,
+  isCredentialKeyringConfigured,
+} from "@calcom/features/credentials/services/CredentialDataService";
 import { renewSelectedCalendarCredentialId } from "@calcom/lib/connectedCalendar";
 import { GOOGLE_CALENDAR_SCOPES, WEBAPP_URL, WEBAPP_URL_FOR_OAUTH } from "@calcom/lib/constants";
 import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
 import { HttpError } from "@calcom/lib/http-error";
+import logger from "@calcom/lib/logger";
 import { defaultHandler } from "@calcom/lib/server/defaultHandler";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
 import prisma from "@calcom/prisma";
@@ -22,6 +26,9 @@ import {
   findEarlierGoogleCalendarCredentials,
   replaceEarlierGoogleCalendarCredentials,
 } from "../lib/replaceEarlierCredentials";
+import { calendarConnectionsUnavailableError } from "./add";
+
+const log = logger.getSubLogger({ prefix: ["googlecalendar/callback"] });
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
@@ -48,6 +55,13 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   // victim who opens an attacker's callback link can't get the attacker's Google account attached (login CSRF)
   if (!state) {
     throw new HttpError({ statusCode: 403, message: "Invalid OAuth state" });
+  }
+
+  // Flowko U9: tokens are stored only encrypted, so without the credential keyring the code must not be
+  // redeemed: no token is issued that could not be stored
+  if (!isCredentialKeyringConfigured()) {
+    log.error("Credential keyring is not configured: Google Calendar connect refused");
+    throw await calendarConnectionsUnavailableError(req);
   }
 
   const { client_id, client_secret } = await getGoogleAppKeys();
@@ -81,13 +95,24 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
 
     oAuth2Client.setCredentials(key);
 
-    const gcalCredentialData = buildCredentialCreateData({
-      userId: req.session.user.id,
-      key,
-      appId: "google-calendar",
-      type: "google_calendar",
-    });
-    const gcalCredential = await CredentialRepository.create(gcalCredentialData);
+    let gcalCredential: Awaited<ReturnType<typeof CredentialRepository.create>>;
+    try {
+      const gcalCredentialData = buildCredentialCreateData({
+        userId: req.session.user.id,
+        key,
+        appId: "google-calendar",
+        type: "google_calendar",
+      });
+      gcalCredential = await CredentialRepository.create(gcalCredentialData);
+    } catch {
+      // Flowko U9: the token could not be stored (encrypted), so end its grant at Google instead of leaving a
+      // live grant that no row can revoke, and answer without details
+      log.error("Google Calendar credential not stored: its fresh grant is revoked", {
+        userId: req.session.user.id,
+      });
+      await revokeUnstoredGoogleCalendarToken({ userId: req.session.user.id, key });
+      throw await calendarConnectionsUnavailableError(req);
+    }
 
     const gCalService = createGoogleCalendarServiceWithGoogleType({
       ...gcalCredential,
