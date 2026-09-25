@@ -19,7 +19,10 @@ import "vitest-fetch-mock";
 import process from "node:process";
 import { MeetLocationType } from "@calcom/app-store/constants";
 import logger from "@calcom/lib/logger";
-import { encryptedTestCredentialFields, stubTestCredentialKeyring } from "@calcom/testing/lib/credentialKeyring";
+import {
+  encryptedTestCredentialFields,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 import type { CredentialForCalendarServiceWithEmail } from "@calcom/types/Credential";
 import BuildCalendarService, { createGoogleCalendarServiceWithGoogleType } from "../CalendarService";
 import { createCredentialForCalendarService, createMockJWTInstance } from "./utils";

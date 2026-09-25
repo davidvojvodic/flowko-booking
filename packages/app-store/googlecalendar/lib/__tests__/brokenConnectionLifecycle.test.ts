@@ -10,7 +10,10 @@ import { FeaturesRepository } from "@calcom/features/flags/features.repository";
 import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository";
 import { getTestEmails, resetTestEmails } from "@calcom/lib/testEmails";
 import { credentialForCalendarServiceSelect } from "@calcom/prisma/selects/credential";
-import { encryptedTestCredentialFields, stubTestCredentialKeyring } from "@calcom/testing/lib/credentialKeyring";
+import {
+  encryptedTestCredentialFields,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 import type { SelectedCalendar } from "@calcom/types/Calendar";
 import type { CredentialForCalendarService } from "@calcom/types/Credential";
 

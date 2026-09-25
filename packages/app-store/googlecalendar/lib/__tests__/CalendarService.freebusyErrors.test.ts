@@ -16,7 +16,10 @@ import {
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "vitest-fetch-mock";
 
-import { encryptedTestCredentialFields, stubTestCredentialKeyring } from "@calcom/testing/lib/credentialKeyring";
+import {
+  encryptedTestCredentialFields,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 import type { IntegrationCalendar } from "@calcom/types/Calendar";
 import type { CredentialForCalendarServiceWithEmail } from "@calcom/types/Credential";
 import BuildCalendarService, { GoogleCalendarFreeBusyError } from "../CalendarService";
