@@ -6,7 +6,7 @@ import type { UseBookingFormReturnType } from "@calcom/features/bookings/Booker/
 import { formatEventFromTime } from "@calcom/features/bookings/Booker/utils/dates";
 import type { BookerEvent } from "@calcom/features/bookings/types";
 import ServerTrans from "@calcom/lib/components/ServerTrans";
-import { APP_NAME, WEBSITE_PRIVACY_POLICY_URL, WEBSITE_TERMS_URL } from "@calcom/lib/constants";
+import { WEBSITE_PRIVACY_POLICY_URL, WEBSITE_TERMS_URL } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { TimeFormat } from "@calcom/lib/timeFormat";
@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import type { FieldError } from "react-hook-form";
 import type { IUseBookingErrors, IUseBookingLoadingStates } from "../../hooks/useBookings";
 import { BookingFields } from "./BookingFields";
+import { BookingFormPrivacyNotice } from "./BookingFormPrivacyNotice";
 import { FormSkeleton } from "./Skeleton";
 
 type BookEventFormProps = {
@@ -177,27 +178,7 @@ export const BookEventForm = ({
 
         {!isPlatform && (
           <div className="my-3 w-full text-xs text-subtle">
-            <ServerTrans
-              t={t}
-              i18nKey="signing_up_terms"
-              values={{ appName: APP_NAME }}
-              components={[
-                <Link
-                  className="text-emphasis hover:underline"
-                  key="terms"
-                  href={`${WEBSITE_TERMS_URL}`}
-                  target="_blank">
-                  Terms
-                </Link>,
-                <Link
-                  className="text-emphasis hover:underline"
-                  key="privacy"
-                  href={`${WEBSITE_PRIVACY_POLICY_URL}`}
-                  target="_blank">
-                  Privacy Policy.
-                </Link>,
-              ]}
-            />
+            <BookingFormPrivacyNotice />
           </div>
         )}
 

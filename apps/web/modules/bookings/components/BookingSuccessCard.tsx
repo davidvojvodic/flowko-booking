@@ -83,7 +83,7 @@ export function BookingSuccessCard({
                         <div className="mb-3">
                           <div>
                             <span className="mr-2">{hostName}</span>
-                            <Badge variant="blue">{t("Host")}</Badge>
+                            <Badge variant="blue">{t("host")}</Badge>
                           </div>
                           {hostEmail && <p className="text-default">{hostEmail}</p>}
                         </div>

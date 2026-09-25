@@ -1,5 +1,6 @@
 "use client";
 
+import { APP_NAME } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
 import { Badge } from "@calcom/ui/components/badge";
@@ -28,6 +29,9 @@ export const OnboardingView = ({ userEmail }: OnboardingViewProps) => {
   const [isPending, startTransition] = useTransition();
   const hasTeamMembership = false;
   const isPendingMembership = false;
+  // Teams and organizations don't exist in this fork, so personal use is the only plan: the plan step is
+  // skipped and every user continues to personal onboarding, after the reset below.
+  const skipPlanSelection = true;
 
   // Reset onboarding data when visiting this page, but preserve the selected plan
   useEffect(() => {
@@ -38,13 +42,13 @@ export const OnboardingView = ({ userEmail }: OnboardingViewProps) => {
   // If user has any team membership (pending or accepted), redirect them directly to personal onboarding
   // This handles the case where users sign up with an invite token (membership is auto-accepted)
   useEffect(() => {
-    if (!isPendingMembership && hasTeamMembership) {
+    if (skipPlanSelection || (!isPendingMembership && hasTeamMembership)) {
       setSelectedPlan("personal");
       startTransition(() => {
-        router.push("/onboarding/personal/settings");
+        router.replace("/onboarding/personal/settings");
       });
     }
-  }, [isPendingMembership, hasTeamMembership, router, setSelectedPlan]);
+  }, [skipPlanSelection, isPendingMembership, hasTeamMembership, router, setSelectedPlan]);
 
   // Plan order mapping for determining direction
   const planOrder: Record<PlanType, number> = {
@@ -129,7 +133,7 @@ export const OnboardingView = ({ userEmail }: OnboardingViewProps) => {
   const selectedPlanData = plans.find((plan) => plan.id === selectedPlan);
 
   // Show loading state while checking for team membership or if redirecting
-  if (isPendingMembership || hasTeamMembership) {
+  if (skipPlanSelection || isPendingMembership || hasTeamMembership) {
     return (
       <OnboardingLayout userEmail={userEmail}>
         <OnboardingCard title={t("loading")} subtitle="" />
@@ -144,7 +148,7 @@ export const OnboardingView = ({ userEmail }: OnboardingViewProps) => {
         {/* Left column - Main content */}
         <OnboardingCard
           title={t("onboarding_select_plan")}
-          subtitle={t("onboarding_welcome_question")}
+          subtitle={t("onboarding_welcome_question", { appName: APP_NAME })}
           footer={
             <div className="flex w-full justify-end gap-2">
               <Button

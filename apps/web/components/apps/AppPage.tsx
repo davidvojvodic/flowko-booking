@@ -5,6 +5,10 @@ import React, { useEffect, useState } from "react";
 
 import { AppDependencyComponent } from "@calcom/app-store/AppDependencyComponent";
 import { InstallAppButton } from "@calcom/app-store/InstallAppButton";
+import {
+  GOOGLE_CALENDAR_APP_TYPE,
+  useGoogleCalendarConnectNotice,
+} from "@calcom/app-store/_components/GoogleCalendarConnectNotice";
 import { isRedirectApp } from "@calcom/app-store/_utils/redirectApps";
 import useAddAppMutation from "@calcom/app-store/_utils/useAddAppMutation";
 import { doesAppSupportTeamInstall, isConferencing } from "@calcom/app-store/utils";
@@ -200,9 +204,13 @@ export const AppPage = ({
   // Such apps, can only be installed once.
 
   const allowedMultipleInstalls = categories.indexOf("calendar") > -1 && variant !== "other";
+  const googleCalendarNotice = useGoogleCalendarConnectNotice();
   useEffect(() => {
     if (searchParams?.get("defaultInstall") === "true") {
-      mutation.mutate({ type, variant, slug, defaultInstall: true });
+      const install = () => mutation.mutate({ type, variant, slug, defaultInstall: true });
+      // Google Calendar shows its data-use notice before the redirect to Google's consent screen.
+      if (type === GOOGLE_CALENDAR_APP_TYPE) googleCalendarNotice.requestConsent(install);
+      else install();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only once on mount
   }, []);
@@ -510,6 +518,7 @@ export const AppPage = ({
           <FlagIcon className="inline h-3 w-3" /> {t("report_app")}
         </a>
       </div>
+      {googleCalendarNotice.dialog}
     </div>
   );
 };
