@@ -7,6 +7,12 @@ import { describe, expect, it } from "vitest";
 // /app-store/googlecalendar/, so an upstream merge that brings them back would publish them again.
 describe("googlecalendar static files", () => {
   it("serves only the app icon", () => {
-    expect(fs.readdirSync(path.join(__dirname, "static")).sort()).toEqual(["icon.svg"]);
+    // Dotfiles are skipped: Finder writes .DS_Store (gitignored) into any folder opened on a Mac,
+    // which would fail this pin locally for no real reason.
+    const files = fs
+      .readdirSync(path.join(__dirname, "static"))
+      .filter((file) => !file.startsWith("."))
+      .sort();
+    expect(files).toEqual(["icon.svg"]);
   });
 });
