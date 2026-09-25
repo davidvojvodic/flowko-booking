@@ -15,6 +15,79 @@ const log = logger.getSubLogger({ prefix: ["getCalendarsEvents"] });
 
 const CALENDSO_ENCRYPTION_KEY = process.env.CALENDSO_ENCRYPTION_KEY || "";
 
+/**
+ * Flowko: an invalid credential (its grant was revoked or expired at the provider, see invalidateCredential)
+ * can no longer be read. It used to be skipped, so its selected calendars looked free and a booker could
+ * book over the host's real appointments. Thrown instead, it makes getBusyCalendarTimes return
+ * success: false, so no slot is offered or booked until the host reconnects or removes the connection.
+ * It carries credential ids and a count, never calendar ids, which are e-mail addresses.
+ */
+export class InvalidCalendarCredentialError extends Error {
+  readonly credentialIds: number[];
+  /** Selected calendars that only the invalid credentials could have read */
+  readonly selectedCalendarCount: number;
+
+  constructor({
+    credentialIds,
+    selectedCalendarCount,
+  }: {
+    credentialIds: number[];
+    selectedCalendarCount: number;
+  }) {
+    super(
+      `Invalid calendar credential(s) ${credentialIds.join(", ")} still have ` +
+        `${selectedCalendarCount} selected calendar(s)`
+    );
+    this.name = "InvalidCalendarCredentialError";
+    this.credentialIds = credentialIds;
+    this.selectedCalendarCount = selectedCalendarCount;
+  }
+}
+
+/**
+ * Flowko: fail closed when a calendar the host checks for conflicts belongs to an invalid credential. A
+ * selected calendar belongs to it by credentialId. One without a credentialId (legacy rows) counts only
+ * when no valid credential of the same kind is asked for it. An invalid credential without selected
+ * calendars has nothing to check and stays skipped.
+ */
+const assertNoInvalidCredentialWithSelectedCalendars = (
+  calendarCredentials: CredentialForCalendarService[],
+  selectedCalendars: SelectedCalendar[]
+) => {
+  const invalidCredentials = calendarCredentials.filter((credential) => credential.invalid);
+  if (!invalidCredentials.length) return;
+  const validCredentials = calendarCredentials.filter((credential) => !credential.invalid);
+
+  const isReadByValidCredential = (selectedCalendar: SelectedCalendar) =>
+    validCredentials.some(
+      (credential) => filterSelectedCalendarsForCredential([selectedCalendar], credential).length > 0
+    );
+  const belongsTo = (credential: CredentialForCalendarService) => (selectedCalendar: SelectedCalendar) =>
+    selectedCalendar.credentialId != null
+      ? selectedCalendar.credentialId === credential.id
+      : selectedCalendar.integration === credential.type && !isReadByValidCredential(selectedCalendar);
+
+  const blockingCalendars = new Set<SelectedCalendar>();
+  const blockingCredentialIds: number[] = [];
+  for (const credential of invalidCredentials) {
+    const ownCalendars = selectedCalendars.filter(belongsTo(credential));
+    if (!ownCalendars.length) continue;
+    blockingCredentialIds.push(credential.id);
+    ownCalendars.forEach((calendar) => blockingCalendars.add(calendar));
+  }
+  if (!blockingCredentialIds.length) return;
+
+  const error = new InvalidCalendarCredentialError({
+    credentialIds: blockingCredentialIds,
+    selectedCalendarCount: blockingCalendars.size,
+  });
+  log.warn("Refusing availability: an invalid calendar credential still has selected calendars", {
+    credentialIds: error.credentialIds,
+    selectedCalendarCount: error.selectedCalendarCount,
+  });
+  throw error;
+};
+
 // only for Google Calendar for now
 export const getCalendarsEventsWithTimezones = async (
   withCredentials: CredentialForCalendarService[],
@@ -22,8 +95,10 @@ export const getCalendarsEventsWithTimezones = async (
   dateTo: string,
   selectedCalendars: SelectedCalendar[]
 ): Promise<(EventBusyDate & { timeZone: string })[][]> => {
-  const calendarCredentials = withCredentials
-    .filter((credential) => credential.type === "google_calendar")
+  const googleCredentials = withCredentials.filter((credential) => credential.type === "google_calendar");
+  // Flowko: an invalid credential is skipped below only when none of its calendars is checked
+  assertNoInvalidCredentialWithSelectedCalendars(googleCredentials, selectedCalendars);
+  const calendarCredentials = googleCredentials
     // filter out invalid credentials - these won't work.
     .filter((credential) => !credential.invalid);
 
@@ -95,8 +170,12 @@ const getCalendarsEvents = async (
   selectedCalendars: SelectedCalendar[],
   mode: CalendarFetchMode
 ): Promise<EventBusyDate[][]> => {
-  const calendarCredentials = withCredentials
-    .filter((credential) => credential.type.endsWith("_calendar"))
+  const allCalendarCredentials = withCredentials.filter((credential) =>
+    credential.type.endsWith("_calendar")
+  );
+  // Flowko: an invalid credential is skipped below only when none of its calendars is checked
+  assertNoInvalidCredentialWithSelectedCalendars(allCalendarCredentials, selectedCalendars);
+  const calendarCredentials = allCalendarCredentials
     // filter out invalid credentials - these won't work.
     .filter((credential) => !credential.invalid);
 
