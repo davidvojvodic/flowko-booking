@@ -345,8 +345,7 @@ describe("Date Optimization Benchmarks", () => {
     const shortRangeResult = await (calendarService as any).fetchAvailabilityData(
       ["test@calendar.com"],
       "2024-01-01T00:00:00Z",
-      "2024-01-31T00:00:00Z", // 30 days
-      false
+      "2024-01-31T00:00:00Z" // 30 days
     );
 
     expect(shortRangeResult).toEqual(mockBusyData);
@@ -358,8 +357,7 @@ describe("Date Optimization Benchmarks", () => {
     const longRangeResult = await (calendarService as any).fetchAvailabilityData(
       ["test@calendar.com"],
       "2024-01-01T00:00:00Z",
-      "2024-07-01T00:00:00Z", // 182 days - should require chunking
-      false
+      "2024-07-01T00:00:00Z" // 182 days - should require chunking
     );
 
     // Should return concatenated results from multiple chunks

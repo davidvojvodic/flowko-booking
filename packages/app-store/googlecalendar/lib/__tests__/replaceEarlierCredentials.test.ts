@@ -139,11 +139,18 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     expect(earlierCredentials.map(({ key: _key, ...credential }) => credential)).toEqual([
       {
         id: 10,
+        invalid: false,
         usesPrimaryCalendar: true,
         selectedCalendarIds: [OWNER, WORK],
         destinationCalendarIds: [WORK],
       },
-      { id: 11, usesPrimaryCalendar: true, selectedCalendarIds: [], destinationCalendarIds: [OWNER] },
+      {
+        id: 11,
+        invalid: false,
+        usesPrimaryCalendar: true,
+        selectedCalendarIds: [],
+        destinationCalendarIds: [OWNER],
+      },
     ]);
   });
 
@@ -321,6 +328,49 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     expect(await prismock.selectedCalendar.findUnique({ where: { id: "work-of-10" } })).toMatchObject({
       credentialId: NEW_CREDENTIAL_ID,
     });
+  });
+
+  test("replaces an invalid credential of the same account when Google does not answer its lookup", async () => {
+    // invalidateCredential marked credential 10 when Google refused its grant; the lookup now times out.
+    // Kept, its selected calendars would keep the booking page without slots (getCalendarsEvents fails
+    // closed on them)
+    await prismock.credential.update({ where: { id: 10 }, data: { invalid: true } });
+    mockGoogleAccounts({ 11: { status: "found", primaryCalendarId: "personal@gmail.com" } });
+
+    await findAndReplace();
+
+    expect(await remainingCredentialIds()).toEqual([11, 12, NEW_CREDENTIAL_ID]);
+    const invalidCredentialIds = (
+      await prismock.credential.findMany({ where: { invalid: true }, select: { id: true } })
+    ).map(({ id }) => id);
+    expect(
+      await prismock.selectedCalendar.count({ where: { credentialId: { in: invalidCredentialIds } } })
+    ).toBe(0);
+    expect(await prismock.selectedCalendar.findUnique({ where: { id: "work-of-10" } })).toMatchObject({
+      credentialId: NEW_CREDENTIAL_ID,
+    });
+    expect(await prismock.destinationCalendar.findUnique({ where: { id: 1 } })).toMatchObject({
+      credentialId: NEW_CREDENTIAL_ID,
+    });
+  });
+
+  test("keeps an invalid credential that Google cannot identify when replacing it would lose a calendar", async () => {
+    // Same fail-closed rule as a revoked grant: the new connection cannot read personal@gmail.com
+    await prismock.credential.update({ where: { id: 11 }, data: { invalid: true } });
+    await prismock.selectedCalendar.create({
+      data: {
+        id: "primary-of-11",
+        userId: USER_ID,
+        integration: "google_calendar",
+        externalId: "personal@gmail.com",
+        credentialId: 11,
+      },
+    });
+    mockGoogleAccounts({ 10: { status: "found", primaryCalendarId: OWNER } });
+
+    await findAndReplace();
+
+    expect(await remainingCredentialIds()).toEqual([11, 12, NEW_CREDENTIAL_ID]);
   });
 
   test("keeps every credential when Google cannot say which account a token belongs to", async () => {

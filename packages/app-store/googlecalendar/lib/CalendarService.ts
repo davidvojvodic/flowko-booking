@@ -3,8 +3,10 @@
 import { MeetLocationType } from "@calcom/app-store/constants";
 import { getDestinationCalendarRepository } from "@calcom/features/di/containers/DestinationCalendar";
 import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository";
+import { CalendarAppError } from "@calcom/lib/CalendarAppError";
 import { getLocation, getRichDescription } from "@calcom/lib/CalEventParser";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
+import { isDelegationCredential } from "@calcom/lib/delegationCredential";
 import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import logger from "@calcom/lib/logger";
 import { getPiiFreeCalendarEvent, getPiiFreeSelectedCalendar } from "@calcom/lib/piiFreeData";
@@ -29,6 +31,60 @@ import { AxiosLikeResponseToFetchResponse } from "../../_utils/oauth/AxiosLikeRe
 import { CalendarAuth } from "./CalendarAuth";
 
 type FreeBusyArgs = { timeMin: string; timeMax: string; items: { id: string }[] };
+
+/**
+ * Flowko: Google's freebusy.query answers a calendar it could not read (deleted, no longer shared, a
+ * Google backend failure) with an errors[] entry and an empty busy[], and a group it could not expand
+ * with an errors[] entry. Read as "no busy time", that calendar would look free and a booker could book
+ * over the host's real appointments. So the query fails instead, like any other failed calendar fetch:
+ * getBusyCalendarTimes returns success: false, getBusyTimes throws and no slot is offered or booked.
+ * The error carries Google's reasons and a count, never the calendar ids, which are e-mail addresses.
+ */
+export class GoogleCalendarFreeBusyError extends CalendarAppError {
+  readonly reasons: string[];
+  /** Calendars and groups Google could not read */
+  readonly calendarCount: number;
+
+  constructor({ reasons, calendarCount }: { reasons: string[]; calendarCount: number }) {
+    super(
+      `Google Calendar could not read the free/busy of ${calendarCount} calendar(s): ${reasons.join(", ")}`
+    );
+    this.name = "GoogleCalendarFreeBusyError";
+    this.reasons = reasons;
+    this.calendarCount = calendarCount;
+  }
+}
+
+// Google's reasons are camelCase words (notFound, backendError, groupTooBig ...); anything else is not
+// copied into logs, in case it carries an id
+const GOOGLE_ERROR_REASON = /^[A-Za-z]{1,64}$/;
+
+const assertFreeBusyReadable = (
+  freeBusyResult: calendar_v3.Schema$FreeBusyResponse,
+  /** Lowercased ids of calendars another connection reads (see getCalendarIdsOfOtherConnections) */
+  otherConnectionCalendarIds: ReadonlySet<string> = new Set()
+) => {
+  const unreadable = [
+    ...Object.entries(freeBusyResult.calendars ?? {})
+      // Flowko: that connection reads the calendar itself and fails closed on it
+      .filter(([id]) => !otherConnectionCalendarIds.has(id.toLowerCase()))
+      .map(([, calendar]) => calendar),
+    ...Object.values(freeBusyResult.groups ?? {}),
+  ].filter((entry) => !!entry?.errors?.length);
+  if (!unreadable.length) return;
+
+  const reasons = new Set(
+    unreadable.flatMap((entry) =>
+      (entry.errors ?? []).map(({ reason }) =>
+        reason && GOOGLE_ERROR_REASON.test(reason) ? reason : "unknown"
+      )
+    )
+  );
+  throw new GoogleCalendarFreeBusyError({
+    reasons: Array.from(reasons).sort(),
+    calendarCount: unreadable.length,
+  });
+};
 
 const log = logger.getSubLogger({ prefix: ["app-store/googlecalendar/lib/CalendarService"] });
 
@@ -553,8 +609,53 @@ class GoogleCalendarService implements Calendar {
     return validCals[0];
   }
 
-  async getFreeBusyData(args: FreeBusyArgs): Promise<(EventBusyDate & { id: string })[] | null> {
+  /**
+   * Flowko: a host can connect more than one Google account, and each connection is asked for all of
+   * the host's selected Google calendars (getCalendarsEvents picks them by integration only). Google
+   * answers a calendar of another account, not shared with this one, with notFound and no busy time.
+   * That calendar is its own connection's to read, and that connection fails closed on it, so its error
+   * here must not take the host offline. Returns the lowercased ids of calendars selected under another
+   * connection. An error for any other calendar (this connection's, one with no connection, the
+   * fallback primary) still fails. A delegation credential also reads the calendars of the regular
+   * credentials it replaced (deduplicateCredentialsBasedOnSelectedCalendars), so it skips none.
+   */
+  private getCalendarIdsOfOtherConnections(selectedCalendars: IntegrationCalendar[]): Set<string> {
+    if (isDelegationCredential({ credentialId: this.credential.id }) || this.credential.delegatedToId) {
+      return new Set();
+    }
+    const calendars = selectedCalendars.filter((cal) => cal.integration === this.integrationName);
+    const isOwn = (cal: IntegrationCalendar) =>
+      cal.credentialId == null || cal.credentialId === this.credential.id;
+    const ownIds = new Set(calendars.filter(isOwn).map((cal) => cal.externalId.toLowerCase()));
+    return new Set(
+      calendars
+        .filter((cal) => !isOwn(cal))
+        .map((cal) => cal.externalId.toLowerCase())
+        .filter((id) => !ownIds.has(id))
+    );
+  }
+
+  async getFreeBusyData(
+    args: FreeBusyArgs,
+    otherConnectionCalendarIds?: ReadonlySet<string>
+  ): Promise<(EventBusyDate & { id: string })[] | null> {
     const freeBusyResult = await this.getFreeBusyResult(args);
+    // Flowko: a calendar Google could not read is unknown, not free (see GoogleCalendarFreeBusyError)
+    assertFreeBusyReadable(freeBusyResult, otherConnectionCalendarIds);
+    // Flowko: a requested calendar missing from Google's answer would look free. Only observed for now
+    // (counts, never ids), to learn whether Google ever does this before failing closed on it
+    const answeredIds = new Set(
+      [...Object.keys(freeBusyResult.calendars ?? {}), ...Object.keys(freeBusyResult.groups ?? {})].map(
+        (id) => id.toLowerCase()
+      )
+    );
+    const unansweredCount = args.items.filter(({ id }) => !answeredIds.has(id.toLowerCase())).length;
+    if (unansweredCount) {
+      this.log.warn("Google freebusy did not answer every requested calendar", {
+        unansweredCount,
+        requestedCount: args.items.length,
+      });
+    }
     if (!freeBusyResult.calendars) return null;
 
     const result = Object.entries(freeBusyResult.calendars).reduce(
@@ -587,8 +688,9 @@ class GoogleCalendarService implements Calendar {
 
     const getCalIdsWithTimeZone = async () => {
       const cals = await this.getAllCalendars(calendar, ["id", "timeZone"]);
-      if (!cals.length) return [];
 
+      // Flowko: the selected calendars are asked for even when Google lists no calendars, so one
+      // Google cannot read fails closed instead of the request going out empty and looking free
       if (selectedCalendarIds.length !== 0) {
         return selectedCalendarIds.map((selectedCalendarId) => {
           const calWithTz = cals.find((cal) => cal.id === selectedCalendarId);
@@ -598,7 +700,7 @@ class GoogleCalendarService implements Calendar {
           };
         });
       }
-      if (!fallbackToPrimary) return [];
+      if (!cals.length || !fallbackToPrimary) return [];
 
       const primaryCalendar = this.filterPrimaryCalendar(cals);
       if (!primaryCalendar) return [];
@@ -613,11 +715,14 @@ class GoogleCalendarService implements Calendar {
     try {
       const calIdsWithTimeZone = await getCalIdsWithTimeZone();
       const calIds = calIdsWithTimeZone.map((calIdWithTimeZone) => ({ id: calIdWithTimeZone.id }));
-      const freeBusyData = await this.getFreeBusyData({
-        timeMin: dateFrom,
-        timeMax: dateTo,
-        items: calIds,
-      });
+      const freeBusyData = await this.getFreeBusyData(
+        {
+          timeMin: dateFrom,
+          timeMax: dateTo,
+          items: calIds,
+        },
+        this.getCalendarIdsOfOtherConnections(selectedCalendars)
+      );
       if (!freeBusyData) throw new Error("No response from google calendar");
 
       const timeZoneMap = new Map(calIdsWithTimeZone.map((cal) => [cal.id, cal.timeZone]));
@@ -646,6 +751,8 @@ class GoogleCalendarService implements Calendar {
   private convertFreeBusyToEventBusyDates(
     freeBusyResult: calendar_v3.Schema$FreeBusyResponse
   ): EventBusyDate[] {
+    // Flowko: a calendar Google could not read is unknown, not free (see GoogleCalendarFreeBusyError)
+    assertFreeBusyReadable(freeBusyResult);
     if (!freeBusyResult.calendars) return [];
 
     return Object.values(freeBusyResult.calendars).flatMap(
@@ -684,7 +791,8 @@ class GoogleCalendarService implements Calendar {
   private async fetchAvailabilityData(
     calendarIds: string[],
     dateFrom: string,
-    dateTo: string
+    dateTo: string,
+    otherConnectionCalendarIds?: ReadonlySet<string>
   ): Promise<EventBusyDate[]> {
     // More efficient date difference calculation using native Date objects
     // Use Math.floor to match dayjs diff behavior (truncates, doesn't round up)
@@ -695,11 +803,14 @@ class GoogleCalendarService implements Calendar {
 
     // Google API only allows a date range of 90 days for /freebusy
     if (diff <= 90) {
-      const freeBusyData = await this.getFreeBusyData({
-        timeMin: dateFrom,
-        timeMax: dateTo,
-        items: calendarIds.map((id) => ({ id })),
-      });
+      const freeBusyData = await this.getFreeBusyData(
+        {
+          timeMin: dateFrom,
+          timeMax: dateTo,
+          items: calendarIds.map((id) => ({ id })),
+        },
+        otherConnectionCalendarIds
+      );
 
       if (!freeBusyData) throw new Error("No response from google calendar");
       return freeBusyData.map((freeBusy) => ({ start: freeBusy.start, end: freeBusy.end }));
@@ -707,31 +818,33 @@ class GoogleCalendarService implements Calendar {
 
     // Handle longer periods by chunking into 90-day periods
     const busyData: EventBusyDate[] = [];
-    const loopsNumber = Math.ceil(diff / 90);
     let currentStartTime = fromDate.getTime();
     const originalEndTime = toDate.getTime();
     const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-    const oneMinuteMs = 60 * 1000;
 
-    for (let i = 0; i < loopsNumber; i++) {
-      let currentEndTime = currentStartTime + ninetyDaysMs;
-
+    // Flowko: chunk until the end of the range is reached, each chunk starting where the last one
+    // ended. A chunk count from the floored day count left the tail of the range unasked when that
+    // count was a multiple of 90, and a one-minute step left a gap at every boundary: that time
+    // looked free.
+    while (currentStartTime < originalEndTime) {
       // Don't go beyond the original end date
-      if (currentEndTime > originalEndTime) {
-        currentEndTime = originalEndTime;
-      }
+      const currentEndTime = Math.min(currentStartTime + ninetyDaysMs, originalEndTime);
 
-      const chunkData = await this.getFreeBusyData({
-        timeMin: new Date(currentStartTime).toISOString(),
-        timeMax: new Date(currentEndTime).toISOString(),
-        items: calendarIds.map((id) => ({ id })),
-      });
+      const chunkData = await this.getFreeBusyData(
+        {
+          timeMin: new Date(currentStartTime).toISOString(),
+          timeMax: new Date(currentEndTime).toISOString(),
+          items: calendarIds.map((id) => ({ id })),
+        },
+        otherConnectionCalendarIds
+      );
 
-      if (chunkData) {
-        busyData.push(...chunkData.map((freeBusy) => ({ start: freeBusy.start, end: freeBusy.end })));
-      }
+      // Flowko: a chunk Google answered without calendars fails like a range of 90 days or less does,
+      // instead of leaving up to 90 days looking free
+      if (!chunkData) throw new Error("No response from google calendar");
+      busyData.push(...chunkData.map((freeBusy) => ({ start: freeBusy.start, end: freeBusy.end })));
 
-      currentStartTime = currentEndTime + oneMinuteMs;
+      currentStartTime = currentEndTime;
     }
 
     return busyData;
@@ -752,7 +865,12 @@ class GoogleCalendarService implements Calendar {
 
     try {
       const calendarIds = await this.getCalendarIds(selectedCalendarIds, fallbackToPrimary);
-      return await this.fetchAvailabilityData(calendarIds, dateFrom, dateTo);
+      return await this.fetchAvailabilityData(
+        calendarIds,
+        dateFrom,
+        dateTo,
+        this.getCalendarIdsOfOtherConnections(selectedCalendars)
+      );
     } catch (error) {
       this.log.error(
         "There was an error getting availability from google calendar: ",

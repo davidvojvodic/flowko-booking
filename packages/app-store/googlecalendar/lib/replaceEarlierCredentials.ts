@@ -12,6 +12,8 @@ const LIST_NEW_CONNECTION_CALENDARS_TIMEOUT_MS = 5000;
 export type EarlierGoogleCalendarCredential = {
   id: number;
   key: Prisma.JsonValue;
+  /** invalidateCredential marked it: Google refused its grant when this instance last used it */
+  invalid: boolean;
   /** A SelectedCalendar or DestinationCalendar of it has the new connection's primary calendar id */
   usesPrimaryCalendar: boolean;
   /** externalIds of its SelectedCalendar rows, which move to the new credential if it is replaced */
@@ -48,7 +50,7 @@ export const findEarlierGoogleCalendarCredentials = async ({
   try {
     const credentials = await prisma.credential.findMany({
       where: { userId, type: "google_calendar", delegationCredentialId: null, id: { not: credentialId } },
-      select: { id: true, key: true },
+      select: { id: true, key: true, invalid: true },
     });
     if (!credentials.length) return [];
 
@@ -75,6 +77,7 @@ export const findEarlierGoogleCalendarCredentials = async ({
       const destinationCalendarIds = externalIdsOf(destinationCalendars, credential.id);
       return {
         ...credential,
+        invalid: !!credential.invalid,
         usesPrimaryCalendar: [...selectedCalendarIds, ...destinationCalendarIds].includes(primaryCalendarId),
         selectedCalendarIds,
         destinationCalendarIds,
@@ -149,6 +152,11 @@ const newConnectionKeepsEveryCalendar = (
  * write to every destination calendar it had, so replacing it loses nothing whichever account it
  * was. Otherwise it is kept, as upstream does, with its reconnect prompt.
  *
+ * Flowko: a credential already marked invalid (invalidateCredential saw Google refuse its grant) counts
+ * as revoked even when Google does not answer the lookup (a timeout, an outage). getCalendarsEvents
+ * fails closed on an invalid credential that still has selected calendars, so one that survives a
+ * reconnect of its own account would keep the host's booking page without slots.
+ *
  * Its selected and destination calendars and booking references move to the new credential first:
  * deleting it would otherwise cascade-delete the calendars the user chose and unlink the booking
  * references. Best effort: it never throws, so the connection itself always succeeds.
@@ -177,7 +185,8 @@ export const replaceEarlierGoogleCalendarCredentials = async ({
       }))
     );
     const isRevokedCandidate = ({ credential, account }: (typeof lookups)[number]) =>
-      account.status === "grant_revoked" && credential.usesPrimaryCalendar;
+      (account.status === "grant_revoked" || (account.status === "unknown" && credential.invalid)) &&
+      credential.usesPrimaryCalendar;
     const newConnectionCalendars = lookups.some(isRevokedCandidate)
       ? await listNewConnectionCalendars(listNewConnectionCalendarsFromGoogle)
       : [];

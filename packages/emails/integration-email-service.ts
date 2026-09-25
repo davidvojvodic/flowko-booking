@@ -4,6 +4,9 @@ import type BaseEmail from "@calcom/emails/templates/_base-email";
 import type { CalendarEvent } from "@calcom/types/Calendar";
 import { formatCalEvent } from "@calcom/lib/formatCalendarEvent";
 
+import BrokenCalendarConnectionEmail, {
+  type BrokenCalendarConnection,
+} from "./templates/broken-calendar-connection-email";
 import BrokenIntegrationEmail from "./templates/broken-integration-email";
 import DisabledAppEmail from "./templates/disabled-app-email";
 import SlugReplacementEmail from "./templates/slug-replacement-email";
@@ -22,6 +25,11 @@ const sendEmail = (prepare: () => BaseEmail) => {
 export const sendBrokenIntegrationEmail = async (evt: CalendarEvent, type: "video" | "calendar") => {
   const calendarEvent = formatCalEvent(evt);
   await sendEmail(() => new BrokenIntegrationEmail(calendarEvent, type));
+};
+
+// Flowko: a calendar connection of the host stopped working, outside any booking
+export const sendBrokenCalendarConnectionEmail = async (input: BrokenCalendarConnection) => {
+  await sendEmail(() => new BrokenCalendarConnectionEmail(input));
 };
 
 export const sendDisabledAppEmail = async ({
