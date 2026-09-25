@@ -1,10 +1,6 @@
 import process from "node:process";
 
-import {
-  buildCredentialKeyUpdateData,
-  credentialKeyAad,
-} from "@calcom/features/credentials/services/CredentialDataService";
-import { decryptSecret, parseSecretEnvelope } from "@calcom/lib/crypto/keyring";
+import { decryptSecret, encryptSecret, parseSecretEnvelope } from "@calcom/lib/crypto/keyring";
 import type { Prisma } from "@calcom/prisma/client";
 import { vi } from "vitest";
 
@@ -16,17 +12,26 @@ const TEST_KEY_B64URL = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const CURRENT_ENV = "CALCOM_KEYRING_CREDENTIALS_CURRENT";
 const TEST_KEY_ENV = `CALCOM_KEYRING_CREDENTIALS_${TEST_KID}`;
 
-/** Makes the test keyring the configured one. Undo with vi.unstubAllEnvs(). */
-export function stubTestCredentialKeyring() {
-  vi.stubEnv(CURRENT_ENV, TEST_KID);
-  vi.stubEnv(TEST_KEY_ENV, TEST_KEY_B64URL);
-}
+// Flowko U9: the placeholder and the AAD are spelled out here instead of imported from CredentialDataService,
+// because @calcom/testing must not import @calcom/features (biome noRestrictedImports; features depends on
+// testing). They mirror encryptedKeyPlaceholder() and credentialKeyAad(); CredentialDataService.test.ts
+// round-trips rows between these helpers and the production code, so any drift fails there.
+const encryptedKeyPlaceholder = (): { _enc: "keyring-v1" } => ({ _enc: "keyring-v1" });
 
-/** Simulates a missing keyring. Undo with vi.unstubAllEnvs(). */
-export function stubMissingCredentialKeyring() {
-  vi.stubEnv(CURRENT_ENV, "");
-  vi.stubEnv(TEST_KEY_ENV, "");
-}
+const credentialKeyAad = ({
+  type,
+  userId,
+  teamId,
+}: {
+  type: string;
+  userId?: number | null;
+  teamId?: number | null;
+}): { purpose: "Credential.key"; type: string; userId: number | null; teamId: number | null } => ({
+  purpose: "Credential.key",
+  type,
+  userId: userId ?? null,
+  teamId: teamId ?? null,
+});
 
 // Runs fn with the test keyring in place and restores the previous env exactly, so the helpers below work at
 // module scope (before a beforeEach stub) and while a test simulates a missing keyring.
@@ -44,6 +49,18 @@ function withTestKeyring<T>(fn: () => T): T {
   }
 }
 
+/** Makes the test keyring the configured one. Undo with vi.unstubAllEnvs(). */
+export function stubTestCredentialKeyring(): void {
+  vi.stubEnv(CURRENT_ENV, TEST_KID);
+  vi.stubEnv(TEST_KEY_ENV, TEST_KEY_B64URL);
+}
+
+/** Simulates a missing keyring. Undo with vi.unstubAllEnvs(). */
+export function stubMissingCredentialKeyring(): void {
+  vi.stubEnv(CURRENT_ENV, "");
+  vi.stubEnv(TEST_KEY_ENV, "");
+}
+
 /**
  * The `key` and `encryptedKey` a credential row holds in production for this token object, encrypted with the
  * test keyring and bound to the row's type, userId and teamId. Spread it into a fixture.
@@ -58,10 +75,15 @@ export function encryptedTestCredentialFields({
   userId?: number | null;
   teamId?: number | null;
   key: object;
-}) {
-  return withTestKeyring(() =>
-    buildCredentialKeyUpdateData({ type, userId: userId ?? null, teamId: teamId ?? null, key })
-  );
+}): { key: { _enc: "keyring-v1" }; encryptedKey: string } {
+  return withTestKeyring(() => {
+    const envelope = encryptSecret({
+      ring: "CREDENTIALS",
+      plaintext: JSON.stringify(key),
+      aad: credentialKeyAad({ type, userId, teamId }),
+    });
+    return { key: encryptedKeyPlaceholder(), encryptedKey: JSON.stringify(envelope) };
+  });
 }
 
 /** Decrypts a row's `encryptedKey` with the test keyring. Throws when it is missing or doesn't decrypt. */
