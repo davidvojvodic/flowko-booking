@@ -1,6 +1,7 @@
 import { calendar_v3 } from "@googleapis/calendar";
 import { OAuth2Client, JWT } from "googleapis-common";
 
+import { decryptCredentialKey } from "@calcom/features/credentials/services/CredentialDataService";
 import { triggerDelegationCredentialErrorWebhook } from "@calcom/features/webhooks/lib/triggerDelegationCredentialErrorWebhook";
 import {
   CalendarAppDelegationCredentialClientIdNotAuthorizedError,
@@ -54,6 +55,9 @@ export class CalendarAuth {
   private oAuthClient: MyGoogleOAuth2Client | null = null;
   public authManager!: OAuthManager;
   private authMechanism: ReturnType<CalendarAuth["initAuthMechanism"]>;
+  // Flowko U9: the decrypted OAuth token lives only here. The shared credential object keeps the placeholder
+  // key and the ciphertext, so no plaintext token rides along on it into other code or logs
+  private tokenKey: Prisma.JsonObject | null = null;
 
   constructor(credential: CredentialForCalendarServiceWithEmail) {
     this.credential = credential;
@@ -64,6 +68,19 @@ export class CalendarAuth {
     return this.credential.delegatedToId ? "jwt" : "oauth";
   }
 
+  /**
+   * Flowko U9: the OAuth token, decrypted from `credential.encryptedKey` on first use (never in the
+   * constructor). `credential.key` holds only a placeholder and is never read as a fallback.
+   *
+   * @throws CredentialKeyUnavailableError when the key can't be decrypted; a failure is not memoised
+   */
+  private getTokenKey(): Prisma.JsonValue {
+    // Delegation is stubbed on this instance; its in-memory key is unchanged
+    if (this.credential.delegatedToId) return this.credential.key;
+    if (!this.tokenKey) this.tokenKey = decryptCredentialKey(this.credential);
+    return this.tokenKey;
+  }
+
   private async getOAuthClientSingleton() {
     if (this.oAuthClient) {
       log.debug("Reusing existing oAuthClient");
@@ -71,7 +88,8 @@ export class CalendarAuth {
     }
     log.debug("Creating new oAuthClient");
     const { client_id, client_secret, redirect_uris } = await getGoogleAppKeys();
-    const googleCredentials = OAuth2UniversalSchema.parse(this.credential.key);
+    // Flowko U9: the decrypted token, not the placeholder in credential.key
+    const googleCredentials = OAuth2UniversalSchema.parse(this.getTokenKey());
     this.oAuthClient = new MyGoogleOAuth2Client(client_id, client_secret, redirect_uris[0]);
     this.oAuthClient.setCredentials(googleCredentials);
     return this.oAuthClient;
@@ -190,7 +208,11 @@ export class CalendarAuth {
       },
       appSlug: metadata.slug,
       getCurrentTokenObject: async () => {
-        return oAuthManagerHelper.getCurrentTokenObject(this.credential);
+        if (authStrategy === "jwt") {
+          return oAuthManagerHelper.getCurrentTokenObject(this.credential);
+        }
+        // Flowko U9: an oauth credential's token is decrypted; its credential.key is only a placeholder
+        return oAuthManagerHelper.getCurrentTokenObject({ ...this.credential, key: this.getTokenKey() });
       },
       fetchNewTokenObject: async ({ refreshToken }: { refreshToken: string | null }) => {
         let result;
@@ -240,7 +262,9 @@ export class CalendarAuth {
         await oAuthManagerHelper.markTokenAsExpired(this.credential);
       },
       updateTokenObject: async (token) => {
-        await oAuthManagerHelper.updateTokenObjectInDb({
+        // Flowko U9: stores the refreshed token encrypted. It throws when the keyring is unavailable, and then
+        // nothing was written and nothing below runs
+        const written = await oAuthManagerHelper.updateTokenObjectInDb({
           tokenObject: token,
           authStrategy: this.getAuthStrategy(),
           credentialId: this.credential.id,
@@ -253,8 +277,10 @@ export class CalendarAuth {
           this.oAuthClient.setCredentials(token);
         }
 
-        // Update cached credential as well
-        this.credential.key = token as Prisma.JsonValue;
+        // Flowko U9: keep the plaintext token private to this instance. The shared credential object gets only
+        // the new ciphertext; its key stays the placeholder (upstream copied the token into credential.key)
+        this.tokenKey = token as Prisma.JsonObject;
+        if (written?.encryptedKey) this.credential.encryptedKey = written.encryptedKey;
       },
     });
     this.authManager = authManager;

@@ -1,4 +1,5 @@
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
+import { encryptedTestCredentialFields, stubTestCredentialKeyring } from "@calcom/testing/lib/credentialKeyring";
 import { MOCK_JWT_TOKEN, setLastCreatedJWT } from "../__mocks__/googleapis";
 
 import { JWT } from "googleapis-common";
@@ -63,13 +64,21 @@ export async function createCredentialForCalendarService({
     },
   });
 
+  // Flowko U9: the row holds the token encrypted, as production stores it (key = placeholder); the in-memory
+  // delegation credential below is unchanged
+  stubTestCredentialKeyring();
   const credential = {
     ...getSampleCredential(),
     ...(delegationCredentialId ? { delegationCredential: { connect: { id: delegationCredentialId } } } : {}),
-    key: {
-      ...googleTestCredentialKey,
-      expiry_date: Date.now() - 1000,
-    },
+    ...encryptedTestCredentialFields({
+      type: "google_calendar",
+      userId: defaultUser.id,
+      teamId: null,
+      key: {
+        ...googleTestCredentialKey,
+        expiry_date: Date.now() - 1000,
+      },
+    }),
   };
 
   const credentialInDbOrInMemory = !delegatedTo
@@ -184,18 +193,18 @@ export const createMockJWTInstance = ({
   return mockJWTInstance;
 };
 
-const googleTestCredentialKey = {
+// Flowko U9: non-empty tokens, so tests can tell the stored token apart from a refreshed one
+export const googleTestCredentialKey = {
   scope: "https://www.googleapis.com/auth/calendar.events",
   token_type: "Bearer",
   expiry_date: 1625097600000,
-  access_token: "",
-  refresh_token: "",
+  access_token: "TEST_STORED_ACCESS_TOKEN",
+  refresh_token: "TEST_STORED_REFRESH_TOKEN",
 };
 
 const getSampleCredential = () => {
   return {
     invalid: false,
-    key: googleTestCredentialKey,
     type: "google_calendar",
   };
 };
