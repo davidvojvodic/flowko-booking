@@ -71,7 +71,10 @@ const assertFreeBusyReadable = (freeBusyResult: calendar_v3.Schema$FreeBusyRespo
       )
     )
   );
-  throw new GoogleCalendarFreeBusyError({ reasons: [...reasons].sort(), calendarCount: unreadable.length });
+  throw new GoogleCalendarFreeBusyError({
+    reasons: Array.from(reasons).sort(),
+    calendarCount: unreadable.length,
+  });
 };
 
 const log = logger.getSubLogger({ prefix: ["app-store/googlecalendar/lib/CalendarService"] });
