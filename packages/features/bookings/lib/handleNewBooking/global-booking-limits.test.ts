@@ -75,6 +75,7 @@ describe(
             eventTypes: [
               {
                 id: 1,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -92,6 +93,7 @@ describe(
               },
               {
                 id: 2,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -105,6 +107,7 @@ describe(
               },
               {
                 id: 3,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -117,6 +120,7 @@ describe(
               },
               {
                 id: 4,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 userId: 101,
@@ -169,7 +173,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -193,7 +197,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -214,6 +218,7 @@ describe(
             eventTypes: [
               {
                 id: 1,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -230,6 +235,7 @@ describe(
               },
               {
                 id: 2,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -256,7 +262,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -280,7 +286,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -301,6 +307,7 @@ describe(
             eventTypes: [
               {
                 id: 1,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -318,6 +325,7 @@ describe(
               },
               {
                 id: 2,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -331,6 +339,7 @@ describe(
               },
               {
                 id: 3,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -343,6 +352,7 @@ describe(
               },
               {
                 id: 4,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 userId: 101,
@@ -388,7 +398,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -412,7 +422,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -433,6 +443,7 @@ describe(
             eventTypes: [
               {
                 id: 1,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -450,6 +461,7 @@ describe(
               },
               {
                 id: 2,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -463,6 +475,7 @@ describe(
               },
               {
                 id: 3,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 hosts: [
@@ -475,6 +488,7 @@ describe(
               },
               {
                 id: 4,
+                locations: [{ type: "inPerson", address: "New York" }],
                 slotInterval: eventLength,
                 length: eventLength,
                 userId: 101,
@@ -512,7 +526,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });
@@ -536,7 +550,7 @@ describe(
             responses: {
               email: booker.email,
               name: booker.name,
-              location: { optionValue: "", value: "New York" },
+              location: { optionValue: "", value: "inPerson" },
             },
           },
         });

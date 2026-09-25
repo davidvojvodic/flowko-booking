@@ -16,6 +16,11 @@ const testUser = {
   organizationId: null,
 };
 
+const seedDailyVideoApp = ({ enabled }: { enabled: boolean }) =>
+  prisma.app.create({
+    data: { slug: "daily-video", dirName: "dailyvideo", categories: ["conferencing"], enabled },
+  });
+
 const setupCredential = async (credentialInput) => {
   const exampleCredential = {
     id: 123,
@@ -59,6 +64,7 @@ describe("deleteCredential", () => {
       ]);
 
       await PrismaAppRepository.seedApp("zoomvideo");
+      await seedDailyVideoApp({ enabled: true });
 
       await setupCredential({ userId: user.id, type: "zoom_video", appId: "zoom" });
 
@@ -74,6 +80,33 @@ describe("deleteCredential", () => {
       const nonChangedEventType = eventTypeQuery.find((eventType) => eventType.id === 2)?.locations;
       expect(nonChangedEventType).toBeDefined();
       expect(nonChangedEventType![0]).toEqual({ type: "integrations:msteams" });
+    });
+    test("Delete video credential drops the location while Cal Video is switched off", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+
+      const user = await new UserRepository(prisma).create({
+        ...testUser,
+      });
+
+      await addEventTypesToDb([
+        {
+          id: 1,
+          userId: user.id,
+          locations: [{ type: "integrations:zoom" }, { type: "inPerson" }],
+        },
+      ]);
+
+      await PrismaAppRepository.seedApp("zoomvideo");
+      await seedDailyVideoApp({ enabled: false });
+
+      await setupCredential({ userId: user.id, type: "zoom_video", appId: "zoom" });
+
+      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
+      const eventTypeQuery = await new EventTypeRepository(prisma).findAllByUserId({ userId: user.id });
+
+      expect(eventTypeQuery.find((eventType) => eventType.id === 1)?.locations).toEqual([
+        { type: "inPerson" },
+      ]);
     });
     test("Delete calendar credential", async () => {
       const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
@@ -282,11 +315,129 @@ describe("deleteCredential", () => {
           credentialId: 124,
         },
       });
-      mockPrimaryCalendars({ "shared-refresh": "salon@gmail.com" });
+      // The colleague connected the same Google account
+      mockPrimaryCalendars({ "shared-refresh": "salon@gmail.com", "colleague-refresh": "salon@gmail.com" });
 
       await revokeGoogleCalendarTokensOfUser(user.id);
 
       expect(revokeTokenSpy).not.toHaveBeenCalled();
+    });
+
+    test("Deleting an account revokes a grant when another user only sees a calendar shared from it", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "salon" }]);
+      const otherUser = await setupUserWithGoogleCredentials(
+        { email: "colleague@test.com", username: "colleague" },
+        [{ id: 124, name: "colleague" }]
+      );
+      // The salon shared its primary calendar with the colleague's own Google account
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: otherUser.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 124,
+        },
+      });
+      mockPrimaryCalendars({
+        "salon-refresh": "salon@gmail.com",
+        "colleague-refresh": "colleague@gmail.com",
+      });
+
+      await revokeGoogleCalendarTokensOfUser(user.id);
+
+      expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+      expect(revokeTokenSpy).toHaveBeenCalledWith("salon-refresh");
+    });
+
+    test("A row another tenant wrote with the account's calendar id does not keep the grant", async () => {
+      const { isGoogleGrantSharedWithAnotherCredential } = await import("./handleDeleteCredential");
+      const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "salon" }]);
+      const attacker = await setupUserWithGoogleCredentials(
+        { email: "attacker@test.com", username: "attacker" },
+        [{ id: 124, name: "attacker" }]
+      );
+      const bystander = await new UserRepository(prisma).create({
+        ...testUser,
+        email: "bystander@test.com",
+        username: "bystander",
+      });
+      // Rows naming the salon's address: under the attacker's own credential, under no credential,
+      // and a destination calendar on a credential Google no longer answers for
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: attacker.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 124,
+        },
+      });
+      await prisma.selectedCalendar.create({
+        data: { userId: bystander.id, integration: "google_calendar", externalId: "salon@gmail.com" },
+      });
+      await setupCredential({
+        id: 125,
+        userId: bystander.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: googleKey("bystander"),
+      });
+      await prisma.destinationCalendar.create({
+        data: {
+          userId: bystander.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 125,
+        },
+      });
+      mockPrimaryCalendars({
+        "salon-refresh": "salon@gmail.com",
+        "attacker-refresh": "attacker@gmail.com",
+        "bystander-refresh": "revoked",
+      });
+
+      await expect(
+        isGoogleGrantSharedWithAnotherCredential({
+          credentialIds: [123],
+          userId: user.id,
+          primaryCalendarId: "salon@gmail.com",
+        })
+      ).resolves.toBe(false);
+
+      // Once Google says the bystander's credential is the same account, it shares the grant
+      mockPrimaryCalendars({ "bystander-refresh": "salon@gmail.com" });
+      await expect(
+        isGoogleGrantSharedWithAnotherCredential({
+          credentialIds: [123],
+          userId: user.id,
+          primaryCalendarId: "salon@gmail.com",
+        })
+      ).resolves.toBe(true);
+    });
+
+    test("Another user's credential counts as sharing the grant only when Google confirms the account", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "salon" }]);
+      const otherUser = await setupUserWithGoogleCredentials(
+        { email: "colleague@test.com", username: "colleague" },
+        [{ id: 124, name: "colleague" }]
+      );
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: otherUser.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 124,
+        },
+      });
+      // Google does not answer for the colleague's token, so the grant is revoked
+      mockPrimaryCalendars({ "salon-refresh": "salon@gmail.com" });
+
+      await revokeGoogleCalendarTokensOfUser(user.id);
+
+      expect(revokeTokenSpy).toHaveBeenCalledWith("salon-refresh");
     });
 
     test("Deleting an account does not revoke a grant Google already revoked, and never throws", async () => {

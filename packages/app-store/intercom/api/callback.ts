@@ -23,6 +23,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ message: "You must be logged in to do this" });
   }
 
+  // Flowko: redeem the code only for the user who started this connect flow. decodeOAuthState returns
+  // undefined for a state that is missing, has no nonce, or whose nonce was signed for another user, so a
+  // victim who opens an attacker's callback link can't get the attacker's Intercom account attached
+  if (!decodeOAuthState(req)) {
+    return res.status(403).json({ message: "Invalid OAuth state" });
+  }
+
   let clientId = "";
   let clientSecret = "";
   const appKeys = await getAppKeysFromSlug("intercom");
@@ -72,6 +79,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Remove the previous credential if admin id was already linked
   await prisma.credential.deleteMany({
     where: {
+      // Flowko: only the caller's own; a substring match on the key could otherwise delete another tenant's
+      userId: req.session.user.id,
       type: "intercom_automation",
       key: {
         string_contains: adminId,
@@ -84,8 +93,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     JSON.stringify({ access_token: responseBody.access_token, admin_id: adminId }),
     req
   );
-
-  const state = decodeOAuthState(req);
 
   res.redirect(
     getSafeRedirectUrl(`${WEBAPP_URL}/apps/installed/automation?hl=intercom`) ??

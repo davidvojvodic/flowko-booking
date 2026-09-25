@@ -1085,6 +1085,26 @@ export class UserRepository {
       where: {
         id: userId,
       },
+      // Flowko: the admin edit page serializes this row to the client, so select only what UsersEditView and
+      // UserForm read: never twoFactorSecret, backupCodes, metadata or any other secret.
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        bio: true,
+        timeZone: true,
+        weekStart: true,
+        theme: true,
+        defaultScheduleId: true,
+        locale: true,
+        timeFormat: true,
+        allowDynamicBooking: true,
+        identityProvider: true,
+        role: true,
+        avatarUrl: true,
+        createdDate: true,
+      },
     });
   }
 

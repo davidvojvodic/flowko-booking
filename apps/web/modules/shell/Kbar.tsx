@@ -4,6 +4,7 @@ import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
 import dayjs from "@calcom/dayjs";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { isMac } from "@calcom/lib/isMac";
+import { UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
 import { Tooltip } from "@calcom/ui/components/tooltip";
 import {
@@ -186,14 +187,6 @@ const KBAR_ACTION_CONFIGS: ActionConfig[] = [
     href: "/auth/setup?step=1",
   },
   {
-    id: "webhooks",
-    name: "Webhooks",
-    section: "developer",
-    shortcut: ["w", "h"],
-    keywords: "webhook automation",
-    href: "/settings/developer/webhooks",
-  },
-  {
     id: "api-keys",
     name: "api_keys",
     section: "developer",
@@ -211,15 +204,31 @@ const KBAR_ACTION_CONFIGS: ActionConfig[] = [
   },
 ];
 
-function buildKbarActions(push: (href: string) => void): Action[] {
-  const staticActions: Action[] = KBAR_ACTION_CONFIGS.map((config) => ({
+// Flowko: only an instance admin may manage webhooks (U8a), so useAdminActions offers them to admins only
+const ADMIN_KBAR_ACTION_CONFIGS: ActionConfig[] = [
+  {
+    id: "webhooks",
+    name: "Webhooks",
+    section: "developer",
+    shortcut: ["w", "h"],
+    keywords: "webhook automation",
+    href: "/settings/developer/webhooks",
+  },
+];
+
+function configToAction(config: ActionConfig, push: (href: string) => void): Action {
+  return {
     id: config.id,
     name: config.name,
     section: config.section,
     shortcut: config.shortcut,
     keywords: config.keywords,
     perform: () => push(config.href),
-  }));
+  };
+}
+
+function buildKbarActions(push: (href: string) => void): Action[] {
+  const staticActions: Action[] = KBAR_ACTION_CONFIGS.map((config) => configToAction(config, push));
 
   const appStoreActions: Action[] = getApps.map((item) => ({
     ...item,
@@ -307,6 +316,20 @@ function useUpcomingBookingsAction(): void {
   useRegisterActions(bookingActions, [bookingActions]);
 }
 
+function useAdminActions(): void {
+  const router = useRouter();
+  const session = useSession();
+  // Flowko: the same check as SettingsLayoutAppDirClient; the session may still be loading, so it registers late
+  const isAdmin = session.data?.user.role === UserPermissionRole.ADMIN;
+
+  const adminActions: Action[] = useMemo(
+    () => (isAdmin ? ADMIN_KBAR_ACTION_CONFIGS.map((config) => configToAction(config, router.push)) : []),
+    [isAdmin, router.push]
+  );
+
+  useRegisterActions(adminActions, [adminActions]);
+}
+
 const KBarRoot = ({ children }: { children: ReactNode }): JSX.Element => {
   const router = useRouter();
   const actions = useMemo(() => buildKbarActions(router.push), [router.push]);
@@ -323,6 +346,8 @@ function CommandKey(): JSX.Element {
 
 const KBarContent = (): JSX.Element => {
   const { t } = useLocale();
+  // Flowko: registered here, outside the portal, so the admin shortcut works before the palette is opened
+  useAdminActions();
 
   return (
     <KBarPortal>

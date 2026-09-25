@@ -1,22 +1,12 @@
-"use client";
+import type React from "react";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { requireActiveAdmin } from "../../requireActiveAdmin";
+import PlaygroundLayoutClient from "./PlaygroundLayoutClient";
 
-export default function PlaygroundLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+export default async function PlaygroundLayout({ children }: { children: React.ReactNode }) {
+  // Flowko: a server layout, so it can check the admin itself. A partial render can skip it like the admin
+  // layout, so each playground page checks too.
+  await requireActiveAdmin();
 
-  const isPlaygroundRoot = pathname === "/settings/admin/playground";
-
-  return isPlaygroundRoot ? (
-    children
-  ) : (
-    <div>
-      <Link href="/settings/admin/playground" className="text-sm underline">
-        ← Playground
-      </Link>
-      <div className="h-8" />
-      <div>{children}</div>
-    </div>
-  );
+  return <PlaygroundLayoutClient>{children}</PlaygroundLayoutClient>;
 }

@@ -1,3 +1,4 @@
+import { withoutDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-utils";
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import {
@@ -146,7 +147,11 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
     ...eventTypeRaw,
     periodStartDate: eventTypeRaw.periodStartDate?.toString() ?? null,
     periodEndDate: eventTypeRaw.periodEndDate?.toString() ?? null,
-    metadata: eventTypeMetaDataSchemaWithTypedApps.parse(eventTypeRaw.metadata),
+    // Flowko: the page renders the tags of metadata.apps, so an app the admin switched off is left out
+    metadata: await withoutDisabledApps(
+      prisma,
+      eventTypeMetaDataSchemaWithTypedApps.parse(eventTypeRaw.metadata)
+    ),
     recurringEvent: parseRecurringEvent(eventTypeRaw.recurringEvent),
     customInputs: customInputSchema.array().parse(eventTypeRaw.customInputs),
     hideOrganizerEmail: eventTypeRaw.hideOrganizerEmail,

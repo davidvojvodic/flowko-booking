@@ -1,6 +1,7 @@
 import { sendEmailVerificationByCode } from "@calcom/features/auth/lib/verifyEmail";
 import { getEventTypeService } from "@calcom/features/eventtypes/di/EventTypeService.container";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
+import { extractBaseEmail } from "@calcom/lib/extract-base-email";
 import getIP from "@calcom/lib/getIP";
 import { hashEmail, piiHasher } from "@calcom/lib/server/PiiHasher";
 import { prisma } from "@calcom/prisma";
@@ -8,6 +9,22 @@ import type { NextApiRequest } from "next";
 import type { TRPCContext } from "../../../createContext";
 import { checkEmailVerificationRequired } from "../../publicViewer/checkIfUserEmailVerificationRequired.handler";
 import type { TSendVerifyEmailCodeSchema } from "./sendVerifyEmailCode.schema";
+
+/**
+ * Flowko: codes one mailbox may be sent, from all IPs together. Postmark's free tier allows 100 mails a
+ * month, and mail-bombing one address would hurt the sender's reputation.
+ */
+export const SEND_VERIFY_EMAIL_CODE_RECIPIENT_LIMIT = { limit: 5, duration: "10m" } as const;
+
+// Flowko: the per-recipient key must name the mailbox, not the typed spelling. Case, a "+tag" and (for
+// Gmail) dots in the local part all reach the same inbox, so each would otherwise get its own 5 mails.
+const recipientMailbox = (email: string) => {
+  const [localPart, domain] = extractBaseEmail(email.trim().toLowerCase()).split("@");
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    return `${localPart.replace(/\./g, "")}@gmail.com`;
+  }
+  return `${localPart}@${domain}`;
+};
 
 type SendVerifyEmailCode = {
   input: TSendVerifyEmailCodeSchema;
@@ -46,6 +63,15 @@ export const sendVerifyEmailCode = async ({
   if (!isVerificationRequired) {
     return { ok: true, skipped: true };
   }
+
+  // Flowko: the limit above is keyed by the caller's IP only, so many IPs could flood one inbox. This caps
+  // the codes one mailbox is sent. It runs only when a code would really be sent, so skipped requests
+  // do not use up the recipient's allowance.
+  await checkRateLimitAndThrowError({
+    rateLimitingType: "core",
+    identifier: `sendVerifyEmailCode:to:${hashEmail(recipientMailbox(input.email))}`,
+    opts: { limit: SEND_VERIFY_EMAIL_CODE_RECIPIENT_LIMIT },
+  });
 
   let hideBranding = false;
   if (input.eventTypeId) {

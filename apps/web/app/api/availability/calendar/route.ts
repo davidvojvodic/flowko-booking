@@ -44,6 +44,45 @@ async function authMiddleware() {
   return userWithCredentials;
 }
 
+type UserWithCredentials = Awaited<ReturnType<typeof authMiddleware>>;
+
+// Flowko: every client business is its own user on this instance. A SelectedCalendar row names a
+// credential, a calendar and an event type, and Flowko's Google patches trust those fields across users
+// (the grant-sharing check on disconnect), so a user may only name their own.
+async function findOwnCalendarCredential(
+  user: UserWithCredentials,
+  {
+    integration,
+    credentialId,
+    delegationCredentialId,
+    eventTypeId,
+  }: {
+    integration: string;
+    credentialId: number;
+    delegationCredentialId: string | null;
+    eventTypeId?: number | null;
+  }
+) {
+  // Flowko: Cal.diy has no delegation credentials, so none can be the caller's
+  if (delegationCredentialId) {
+    throw new HttpError({ statusCode: 403, message: "Forbidden" });
+  }
+  const credential = user.credentials.find(({ id, type }) => id === credentialId && type === integration);
+  if (!credential) {
+    throw new HttpError({ statusCode: 403, message: "Forbidden" });
+  }
+  if (eventTypeId != null) {
+    const eventType = await prisma.eventType.findFirst({
+      where: { id: eventTypeId, userId: user.id },
+      select: { id: true },
+    });
+    if (!eventType) {
+      throw new HttpError({ statusCode: 403, message: "Forbidden" });
+    }
+  }
+  return credential;
+}
+
 // TODO: It doesn't seem to be used from within the app. It is possible that someone outside Cal.diy is using this GET endpoint
 async function getHandler() {
   const user = await authMiddleware();
@@ -75,6 +114,25 @@ async function postHandler(req: NextRequest) {
   const { integration, externalId, credentialId, eventTypeId, delegationCredentialId } =
     selectedCalendarSelectSchema.parse(body);
 
+  const credential = await findOwnCalendarCredential(user, {
+    integration,
+    credentialId,
+    delegationCredentialId,
+    eventTypeId,
+  });
+  // Flowko: only a calendar this credential lists, like setDestinationCalendar, so a user cannot claim
+  // another Google account's calendar id
+  const { connectedCalendars } = await getConnectedCalendars(
+    getCalendarCredentials([credential]),
+    user.userLevelSelectedCalendars
+  );
+  const isListedCalendar = connectedCalendars
+    .flatMap((c) => c.calendars ?? [])
+    .some((cal) => cal.externalId === externalId && cal.credentialId === credential.id);
+  if (!isListedCalendar) {
+    throw new HttpError({ statusCode: 403, message: "Forbidden" });
+  }
+
   await SelectedCalendarRepository.upsert({
     userId: user.id,
     integration,
@@ -91,7 +149,12 @@ async function deleteHandler(req: NextRequest) {
   const user = await authMiddleware();
   const searchParams = Object.fromEntries(req.nextUrl.searchParams.entries());
 
-  const { integration, externalId, eventTypeId } = selectedCalendarSelectSchema.parse(searchParams);
+  const { integration, externalId, credentialId, eventTypeId, delegationCredentialId } =
+    selectedCalendarSelectSchema.parse(searchParams);
+  // Flowko: the delete only ever touches the caller's own rows, but it names a credential and an event
+  // type too, and those must be the caller's. It does not ask Google, so a calendar Google stopped listing
+  // can still be unselected.
+  await findOwnCalendarCredential(user, { integration, credentialId, delegationCredentialId, eventTypeId });
 
   await SelectedCalendarRepository.delete({
     where: {

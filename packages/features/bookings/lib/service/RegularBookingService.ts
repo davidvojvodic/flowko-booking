@@ -1,8 +1,10 @@
 import process from "node:process";
 import processExternalId from "@calcom/app-store/_utils/calendars/processExternalId";
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getPaymentAppData } from "@calcom/app-store/_utils/payments/getPaymentAppData";
 import { metadata as GoogleMeetMetadata } from "@calcom/app-store/googlevideo/_metadata";
 import {
+  DailyLocationType,
   getLocationValueForDB,
   MeetLocationType,
   OrganizerDefaultConferencingAppType,
@@ -30,6 +32,7 @@ import { isEventTypeLoggingEnabled } from "@calcom/features/bookings/lib/isEvent
 import type { BookingEmailAndSmsTasker } from "@calcom/features/bookings/lib/tasker/BookingEmailAndSmsTasker";
 import type { BuiltCalendarEvent } from "@calcom/features/CalendarEventBuilder";
 import { CalendarEventBuilder } from "@calcom/features/CalendarEventBuilder";
+import { isCalVideoEnabled } from "@calcom/features/conferencing/lib/videoClient";
 import { getSpamCheckService } from "@calcom/features/di/watchlist/containers/SpamCheckService.container";
 import {
   type EventTypeBrandingData,
@@ -85,7 +88,6 @@ import type {
 import type { CredentialForCalendarService } from "@calcom/types/Credential";
 import type { EventResult, PartialReference } from "@calcom/types/EventManager";
 import short, { uuid } from "short-uuid";
-import { v5 as uuidv5 } from "uuid";
 import type { BookingRepository } from "../../repositories/BookingRepository";
 import { BookingActionMap, type BookingActionType, BookingEmailSmsHandler } from "../BookingEmailSmsHandler";
 import { getAllCredentialsIncludeServiceAccountKey } from "../getAllCredentialsForUsersOnEvent/getAllCredentials";
@@ -106,6 +108,7 @@ import { getRequiresConfirmationFlags } from "../handleNewBooking/getRequiresCon
 import { getSeatedBooking } from "../handleNewBooking/getSeatedBooking";
 import { getVideoCallDetails } from "../handleNewBooking/getVideoCallDetails";
 import { handleAppsStatus } from "../handleNewBooking/handleAppsStatus";
+import { isBookerLocationOffered } from "../handleNewBooking/isBookerLocationOffered";
 import { loadAndValidateUsers } from "../handleNewBooking/loadAndValidateUsers";
 import type { BookingType } from "../handleNewBooking/originalRescheduledBookingUtils";
 import { getOriginalRescheduledBooking } from "../handleNewBooking/originalRescheduledBookingUtils";
@@ -1255,6 +1258,34 @@ async function handler(
 
   const isManagedEventType = !!eventType.parentId;
 
+  // Flowko: the booker picks one of the event type's own locations (or gives the address, phone number or
+  // text one of them asks for), never another app's: booking would otherwise run whatever app location an
+  // anonymous booker sends (Google Meet, Cal Video, ...) on, say, an in-person event type. A move made in the
+  // host's own calendar (calendar sync, the only caller of skipCalendarSyncTaskCreation) brings that
+  // calendar's location, not a booker's.
+  const isBookerLocationAllowed =
+    skipCalendarSyncTaskCreation ||
+    isBookerLocationOffered({
+      location,
+      response: reqBody.responses?.location,
+      eventTypeLocations: eventType.locations,
+      // The form builds its labels in the language of whoever fills it in: the booker's, or the organizer's
+      // when they reschedule (tAttendees then follows the attendee's saved locale)
+      translators: [tAttendees, tGuests, await getTranslation(language ?? "en", "common")],
+    });
+  // Flowko: a reschedule sends back the booking's saved answer (useInitialFormValues), which the owner may have
+  // stopped offering since, and the form then may not even show another choice (a single location that asks
+  // nothing is hidden). Such an answer counts as none: the event type's own location applies, and it still
+  // goes through the disabled-app check below, so this opens no location the event type doesn't offer.
+  const isStaleRescheduleLocation = !isBookerLocationAllowed && !!originalRescheduledBooking;
+  if (!isBookerLocationAllowed) {
+    if (eventType.locations.length > 0 && !isStaleRescheduleLocation) {
+      throw new HttpError({ statusCode: 400, message: ErrorCode.LocationNotOffered });
+    }
+    // An event type without locations offers only the organizer's default; checked once it is resolved below
+    locationBodyString = "";
+  }
+
   // If location passed is empty , use default location of event
   // If location of event is not set , use host default
   if (locationBodyString.trim().length === 0) {
@@ -1286,6 +1317,16 @@ async function handler(
     } else {
       locationBodyString = "integrations:daily";
     }
+  }
+
+  // Flowko: a client may name the organizer's default explicitly, as "conferencing" or as what it resolves to
+  if (
+    !isBookerLocationAllowed &&
+    !isStaleRescheduleLocation &&
+    location !== OrganizerDefaultConferencingAppType &&
+    location !== locationBodyString
+  ) {
+    throw new HttpError({ statusCode: 400, message: ErrorCode.LocationNotOffered });
   }
 
   const invitee: Invitee = [
@@ -1348,12 +1389,15 @@ async function handler(
     tracingLogger.info("Removed guests from the booking", guestsRemoved);
   }
 
-  const seed = `${organizerUser.username}:${dayjs(reqBody.start).utc().format()}:${Date.now()}`;
-  const uid = translator.fromUUID(uuidv5(seed, uuidv5.URL));
+  // Flowko: the uid alone opens /booking/<uid> (the booker's name, email and answers) and lets anyone cancel
+  // the booking, rate it or mark the host as a no-show, so it must be a secret. It was uuidv5 of the host's
+  // public username, the public slot start and Date.now(), which an outsider can compute offline; now it is
+  // a random v4 uuid (crypto RNG) in the same short-uuid format.
+  const uid = translator.generate();
 
   // For static link based video apps, it would have the static URL value instead of it's type(e.g. integrations:campfire_video)
   // This ensures that createMeeting isn't called for static video apps as bookingLocation becomes just a regular value for them.
-  const { bookingLocation, conferenceCredentialId: eventTypeCredentialId } =
+  const { bookingLocation: resolvedBookingLocation, conferenceCredentialId: eventTypeCredentialId } =
     organizerOrFirstDynamicGroupMemberDefaultLocationUrl
       ? {
           bookingLocation: organizerOrFirstDynamicGroupMemberDefaultLocationUrl,
@@ -1361,8 +1405,26 @@ async function handler(
         }
       : getLocationValueForDB(locationBodyString, eventType.locations);
 
+  // Flowko: Cal Video is the booking's location only while the admin keeps it enabled; otherwise the booking
+  // has no location. This covers every way in: an event type with no location, "conferencing" with no usable
+  // default app, a blank location value (getLocationValueForDB turns " " into Cal Video), an explicit one
+  // (the booker can send "integrations:daily" on any event type). An event type without a usable location
+  // is an owner misconfiguration, not a reason to fail the booking or, with no Daily keys, to lose its emails.
+  const isCalVideoUnavailable =
+    resolvedBookingLocation === DailyLocationType && !(await isCalVideoEnabled());
+  // Flowko: the same for every other app the admin switched off (App.enabled = false): the organizer's default
+  // app, or an app location the event type still holds from before, books no location instead of running it.
+  // Both the type and the value booking uses are checked: an offered location's own value (an in-person
+  // address, a link, a phone number is free text the owner saves) can itself read as an app's location type,
+  // and EventManager runs the app the value names, whatever type it came from.
+  const { locationTypes: disabledLocationTypes } = await findDisabledApps(deps.prismaClient, {
+    locationTypes: [locationBodyString, resolvedBookingLocation],
+  });
+  const isLocationUnavailable = isCalVideoUnavailable || disabledLocationTypes.length > 0;
+  const bookingLocation = isLocationUnavailable ? "" : resolvedBookingLocation;
+
   // Use per-host credential if available, otherwise fall back to event type credential
-  const conferenceCredentialId = eventTypeCredentialId;
+  const conferenceCredentialId = isLocationUnavailable ? undefined : eventTypeCredentialId;
 
   tracingLogger.info("locationBodyString", locationBodyString);
   tracingLogger.info("event type locations", eventType.locations);
@@ -1925,7 +1987,9 @@ async function handler(
   if (!eventType.seatsPerTimeSlot && originalRescheduledBooking?.uid) {
     tracingLogger.silly("Rescheduling booking", originalRescheduledBooking.uid);
     evt = CalendarEventBuilder.fromEvent(evt)
-      .withVideoCallDataFromReferences(originalRescheduledBooking.references)
+      // Flowko: a booking that books no location because its app is off (Cal Video or another disabled app)
+      // doesn't carry the old meeting's link into the calendar event and the emails either
+      .withVideoCallDataFromReferences(isLocationUnavailable ? [] : originalRescheduledBooking.references)
       .build();
     evt.rescheduledBy = reqBody.rescheduledBy;
 

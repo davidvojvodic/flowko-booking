@@ -1,13 +1,17 @@
+import type { InstanceAdminCandidate } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { OAuthClientRepository } from "@calcom/features/oauth/repositories/OAuthClientRepository";
 import type { PrismaClient } from "@calcom/prisma";
 import { OAuthClientStatus } from "@calcom/prisma/enums";
 import { TRPCError } from "@trpc/server";
+import type { GetTokenParams } from "next-auth/jwt";
 import type { TUpdateClientInputSchema } from "./updateClient.schema";
 
 type UpdateClientOptions = {
   ctx: {
-    user: { id: number; role: string };
+    user: { id: number; role: string } & InstanceAdminCandidate;
     prisma: PrismaClient;
+    req?: GetTokenParams["req"];
   };
   input: TUpdateClientInputSchema;
 };
@@ -23,7 +27,10 @@ export const updateClientHandler = async ({ ctx, input }: UpdateClientOptions) =
   }
 
   const isOwner = existingClient.userId != null && existingClient.userId === ctx.user.id;
-  const isAdmin = ctx.user.role === "ADMIN";
+  // Flowko: only an active instance admin may approve or reject a client, or edit another user's client (its
+  // redirect URI included). The role in ctx.user comes from the database, so it still says ADMIN for an admin
+  // whom validateRole signed in as INACTIVE_ADMIN (no 2FA, weak password).
+  const isAdmin = await isActiveInstanceAdminSession(ctx.user, ctx.req);
 
   // Status changes (approve/reject) require admin
   if (status !== undefined && !isAdmin) {

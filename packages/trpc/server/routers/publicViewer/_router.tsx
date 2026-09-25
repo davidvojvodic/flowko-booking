@@ -1,3 +1,5 @@
+import { getSession } from "@calcom/features/auth/lib/userFromSessionUtils";
+
 import publicProcedure from "../../procedures/publicProcedure";
 import { router } from "../../trpc";
 import { ZUserEmailVerificationRequiredSchema } from "./checkIfUserEmailVerificationRequired.schema";
@@ -24,7 +26,10 @@ export const publicViewerRouter = router({
   checkIfUserEmailVerificationRequired: publicProcedure
     .input(ZUserEmailVerificationRequiredSchema)
     .query(async (opts) => {
+      // Flowko: the signed-in booker's own email comes from the session, never from the input, where a
+      // caller could claim to be any user
+      const session = await getSession(opts.ctx);
       const { default: handler } = await import("./checkIfUserEmailVerificationRequired.handler");
-      return handler(opts);
+      return handler({ ctx: opts.ctx, input: opts.input, userSessionEmail: session?.user?.email ?? undefined });
     }),
 });

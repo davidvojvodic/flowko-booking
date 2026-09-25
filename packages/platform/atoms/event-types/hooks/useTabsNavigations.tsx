@@ -21,12 +21,15 @@ type Props = {
   eventType: EventTypeSetupProps["eventType"];
   team: EventTypeSetupProps["team"];
   eventTypeApps?: EventTypeApps;
+  /** Flowko: the web app shows the Webhooks tab only to an instance admin */
+  showWebhooksTab?: boolean;
 };
 export const useTabsNavigations = ({
   formMethods,
   eventType,
   team,
   eventTypeApps,
+  showWebhooksTab = true,
 }: Props) => {
   const { t } = useLocale();
 
@@ -125,13 +128,15 @@ export const useTabsNavigations = ({
         });
       }
     }
-    navigation.push({
-      name: t("webhooks"),
-      href: `/event-types/${eventTypeId}?tabName=webhooks`,
-      icon: "webhook",
-      info: `${activeWebhooksNumber} ${t("active")}`,
-      "data-testid": "webhooks",
-    });
+    if (showWebhooksTab) {
+      navigation.push({
+        name: t("webhooks"),
+        href: `/event-types/${eventTypeId}?tabName=webhooks`,
+        icon: "webhook",
+        info: `${activeWebhooksNumber} ${t("active")}`,
+        "data-testid": "webhooks",
+      });
+    }
     return navigation;
   }, [
     t,
@@ -148,6 +153,7 @@ export const useTabsNavigations = ({
     watchSchedulingType,
     watchChildrenCount,
     activeWebhooksNumber,
+    showWebhooksTab,
     eventType.id,
     formMethods,
   ]);

@@ -1,10 +1,13 @@
 import { createRouterCaller } from "app/_trpc/context";
 import { _generateMetadata } from "app/_utils";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
+import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { APP_NAME } from "@calcom/lib/constants";
+import prisma from "@calcom/prisma";
 import { webhookRouter } from "@calcom/trpc/server/routers/viewer/webhook/_router";
 
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
@@ -21,9 +24,16 @@ export const generateMetadata = async () =>
   );
 
 const WebhooksViewServerWrapper = async () => {
-  const session = await getServerSession({ req: buildLegacyRequest(await headers(), await cookies()) });
+  const req = buildLegacyRequest(await headers(), await cookies());
+  const session = await getServerSession({ req });
   if (!session?.user?.id) {
     redirect("/auth/login");
+  }
+  // Flowko: only an active instance admin may manage webhooks. The session role comes from the database, so
+  // it still says ADMIN for an admin whom validateRole signed in as INACTIVE_ADMIN (no 2FA, weak password).
+  const user = await new UserRepository(prisma).findUnlockedUserForSession({ userId: session.user.id });
+  if (!(await isActiveInstanceAdminSession(user, req))) {
+    notFound();
   }
 
   const caller = await createRouterCaller(webhookRouter);

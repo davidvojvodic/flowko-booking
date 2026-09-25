@@ -1,3 +1,4 @@
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { eventTypeAppMetadataOptionalSchema } from "@calcom/app-store/zod-utils";
 import { sendScheduledEmailsAndSMS } from "@calcom/emails/email-manager";
 import type { EventManagerUser } from "@calcom/features/bookings/lib/EventManager";
@@ -63,7 +64,6 @@ export async function handleConfirmation(args: {
 }) {
   const {
     user,
-    evt,
     recurringEventId,
     prisma,
     bookingId,
@@ -74,6 +74,19 @@ export async function handleConfirmation(args: {
     traceContext,
   } = args;
   const eventType = booking.eventType;
+  // Flowko: a booking that waited for confirmation (or payment) may hold a location whose app the admin has
+  // switched off since, or that an anonymous booker sent before the booker's location was checked (B1):
+  // Google Meet, Cal Video, ... Confirming it must not run that app, so, like a new booking, it then has no
+  // location and no conference credential. findDisabledApps (fail closed) also covers Cal Video: its location
+  // type belongs to the daily-video App row. Both the stored location and the one EventManager runs are checked.
+  const { locationTypes: disabledLocationTypes } = await findDisabledApps(prisma, {
+    locationTypes: [booking.location, args.evt.location].filter((type): type is string => !!type),
+  });
+  const isLocationUnavailable = disabledLocationTypes.length > 0;
+  const evt: CalendarEvent = isLocationUnavailable
+    ? { ...args.evt, location: "", conferenceCredentialId: undefined, videoCallData: undefined }
+    : args.evt;
+  const bookingLocation = isLocationUnavailable ? "" : booking.location;
   const eventTypeMetadata = EventTypeMetaDataSchema.parse(eventType?.metadata || {});
   const apps = eventTypeAppMetadataOptionalSchema.parse(eventTypeMetadata?.apps);
   const eventManager = new EventManager(user, apps);
@@ -196,6 +209,8 @@ export async function handleConfirmation(args: {
             ...(typeof recurringBooking.metadata === "object" ? recurringBooking.metadata : {}),
             videoCallUrl: meetingUrl,
           },
+          // Flowko: a switched-off app's location is not kept (see isLocationUnavailable)
+          ...(isLocationUnavailable && { location: bookingLocation }),
         },
         select: {
           eventType: {
@@ -260,6 +275,8 @@ export async function handleConfirmation(args: {
           ...(typeof booking.metadata === "object" ? booking.metadata : {}),
           videoCallUrl: meetingUrl,
         },
+        // Flowko: a switched-off app's location is not kept (see isLocationUnavailable)
+        ...(isLocationUnavailable && { location: bookingLocation }),
       },
       select: {
         eventType: {
@@ -385,7 +402,7 @@ export async function handleConfirmation(args: {
       booking: {
         startTime: booking.startTime,
         id: booking.id,
-        location: booking.location,
+        location: bookingLocation,
         uid: booking.uid,
       },
       triggerForUser,

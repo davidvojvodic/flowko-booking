@@ -1,4 +1,5 @@
 import process from "node:process";
+import { withoutDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import type { LocationObject } from "@calcom/app-store/locations";
 import { privacyFilteredLocations } from "@calcom/app-store/locations";
 import { getAppFromSlug } from "@calcom/app-store/utils";
@@ -67,6 +68,15 @@ const userSelect = {
   },
   defaultScheduleId: true,
 } satisfies Prisma.UserSelect;
+
+// Flowko: metadata (a pending new login email, stripeCustomerId, defaultConferencingApp.appLink) and
+// defaultScheduleId are only for the server. getPublicEvent's result goes to anonymous callers and into the
+// SSR props of every booking page, and the booker reads neither field, so they are dropped from owner and hosts.
+const toPublicEventUser = <T extends { metadata: unknown; defaultScheduleId: unknown }>({
+  metadata: _metadata,
+  defaultScheduleId: _defaultScheduleId,
+  ...user
+}: T) => user;
 
 export const getPublicEventSelect = (fetchAllUsers: boolean) => {
   return {
@@ -470,7 +480,11 @@ export const getPublicEvent = async (
 
   if (!event) return null;
 
-  const eventMetaData = eventTypeMetaDataSchemaWithTypedApps.parse(event.metadata || {});
+  // Flowko: the booker renders the tags of metadata.apps, so an app the admin switched off is left out
+  const eventMetaData = await withoutDisabledApps(
+    prisma,
+    eventTypeMetaDataSchemaWithTypedApps.parse(event.metadata || {})
+  );
   const teamMetadata = teamMetadataSchema.parse(event.team?.metadata || {});
   const usersAsHosts = event.hosts.map((host) => host.user);
 
@@ -565,8 +579,17 @@ export const getPublicEvent = async (
     users = [];
   }
 
+  const publicHosts = hosts.map((host) => ({ ...host, user: toPublicEventUser(host.user) }));
+
   return {
     ...eventWithUserProfiles,
+    // Flowko: the booker gets owner and hosts without metadata or defaultScheduleId. profile below is still
+    // built from the untrimmed eventWithUserProfiles, because it needs metadata.defaultBookerLayouts.
+    owner: eventWithUserProfiles.owner ? toPublicEventUser(eventWithUserProfiles.owner) : null,
+    subsetOfHosts: publicHosts,
+    hosts: fetchAllUsers ? publicHosts : undefined,
+    // Flowko: the booker reads only the schedule's time zone (EventMeta), not the schedule id
+    schedule: eventWithUserProfiles.schedule ? { timeZone: eventWithUserProfiles.schedule.timeZone } : null,
     bookerLayouts: bookerLayoutsSchema.parse(eventMetaData?.bookerLayouts || null),
     description: markdownToSafeHTML(eventWithUserProfiles.description),
     metadata: eventMetaData,

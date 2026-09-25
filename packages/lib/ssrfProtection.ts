@@ -12,16 +12,10 @@ const log: ReturnType<typeof logger.getSubLogger> = logger.getSubLogger({ prefix
  * access to internal networks and cloud metadata services
  */
 
-const BLOCKED_IP_RANGES: readonly string[] = [
-  "unspecified", // 0.0.0.0/8, ::/128
-  "loopback", // 127.0.0.0/8, ::1/128
-  "private", // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-  "linkLocal", // 169.254.0.0/16, fe80::/10
-  "uniqueLocal", // fc00::/7
-  "carrierGradeNat", // 100.64.0.0/10 (RFC 6598)
-  "reserved", // Documentation ranges (RFC 5737), etc.
-  "benchmarking", // 198.18.0.0/15 (RFC 2544)
-] as const;
+// Flowko: an address is allowed only when ipaddr.js labels it "unicast" (global unicast). This replaces
+// the upstream blocklist (unspecified, loopback, private, linkLocal, uniqueLocal, carrierGradeNat,
+// reserved, benchmarking), which let multicast, broadcast, discard, Teredo, NAT64 and 6to4 through.
+const ALLOWED_IP_RANGE = "unicast";
 
 // Cloud metadata endpoints (blocked even on self-hosted)
 const CLOUD_METADATA_ENDPOINTS: string[] = [
@@ -59,6 +53,30 @@ function stripIPv6Brackets(hostname: string): string {
   return hostname;
 }
 
+// Flowko: the IPv4 address an IPv6 translation/tunnel address carries (IPv4-mapped, SIIT, NAT64 well-known
+// prefix, 6to4), so the embedded address is what gets checked.
+function embeddedIPv4(ipv6: ipaddr.IPv6): ipaddr.IPv4 | null {
+  const p = ipv6.parts;
+  const fromWords = (hi: number, lo: number) => new ipaddr.IPv4([hi >> 8, hi & 0xff, lo >> 8, lo & 0xff]);
+  switch (ipv6.range()) {
+    case "ipv4Mapped": // ::ffff:a.b.c.d
+    case "rfc6145": // ::ffff:0:a.b.c.d
+    case "rfc6052": // 64:ff9b::a.b.c.d
+      return fromWords(p[6], p[7]);
+    case "6to4": // 2002:aabb:ccdd::/48
+      return fromWords(p[1], p[2]);
+    default:
+      return null;
+  }
+}
+
+// Flowko: IPv4-compatible ::a.b.c.d (deprecated) and the local-use NAT64 prefix 64:ff9b:1::/48 are not
+// globally reachable, but ipaddr.js labels both "unicast".
+const NON_GLOBAL_IPV6_CIDRS: ReadonlyArray<[ipaddr.IPv6, number]> = [
+  [ipaddr.IPv6.parse("::"), 96],
+  [ipaddr.IPv6.parse("64:ff9b:1::"), 48],
+];
+
 export function isPrivateIP(ip: string): boolean {
   const cleanIp = stripIPv6Brackets(ip);
 
@@ -69,15 +87,19 @@ export function isPrivateIP(ip: string): boolean {
   try {
     const addr = ipaddr.parse(cleanIp);
 
+    // Flowko: allowlist (see ALLOWED_IP_RANGE); an IPv6 address that embeds an IPv4 one is judged by it
     if (addr.kind() === "ipv6") {
       const ipv6 = addr as ipaddr.IPv6;
-      if (ipv6.isIPv4MappedAddress()) {
-        const ipv4 = ipv6.toIPv4Address();
-        return BLOCKED_IP_RANGES.includes(ipv4.range());
+      const ipv4 = embeddedIPv4(ipv6);
+      if (ipv4) {
+        return ipv4.range() !== ALLOWED_IP_RANGE;
+      }
+      if (NON_GLOBAL_IPV6_CIDRS.some((cidr) => ipv6.match(cidr))) {
+        return true;
       }
     }
 
-    return BLOCKED_IP_RANGES.includes(addr.range());
+    return addr.range() !== ALLOWED_IP_RANGE;
   } catch {
     // If parsing fails, treat as blocked for safety
     return true;
@@ -101,11 +123,20 @@ export interface SSRFValidationResult {
   error?: string;
 }
 
+// Flowko: allowHttp is for re-checking a URL that was already validated when it was saved (webhook
+// delivery). It lets plain http: through, but every loopback, private and metadata check still runs.
+export interface SSRFValidationOptions {
+  allowHttp?: boolean;
+}
+
 /**
  * Core validation logic shared by sync and async versions
  * Returns SSRFValidationResult if validation completes, or { url } if DNS check is needed
  */
-function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL } {
+function validateUrlCore(
+  urlString: string,
+  options?: SSRFValidationOptions
+): SSRFValidationResult | { url: URL } {
   // Data URLs with image/* are safe (no network fetch)
   if (urlString.startsWith("data:image/")) {
     return { isValid: true };
@@ -141,14 +172,17 @@ function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL }
 
   // Self-hosted: allow HTTP and private IPs (for internal webhooks)
   // Still restrict to HTTP/HTTPS protocols only (no file://, ftp://, etc.)
-  if (IS_SELF_HOSTED) {
+  // Flowko: booking.flowko.si is multi-tenant, so IS_SELF_HOSTED alone must not open the private
+  // network (loopback, RFC1918, *.railway.internal, metadata via IPv4-mapped IPv6 or DNS). The
+  // upstream self-hosted behaviour needs an explicit operator opt-in; default off = SaaS checks.
+  if (IS_SELF_HOSTED && process.env.FLOWKO_ALLOW_PRIVATE_WEBHOOK_URLS === "true") {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return { isValid: false, error: ERRORS.INVALID_PROTOCOL };
     }
     return { isValid: true };
   }
 
-  if (url.protocol !== "https:") {
+  if (url.protocol !== "https:" && !(options?.allowHttp && url.protocol === "http:")) {
     return { isValid: false, error: ERRORS.HTTPS_ONLY };
   }
 
@@ -169,8 +203,11 @@ function validateUrlCore(urlString: string): SSRFValidationResult | { url: URL }
  * Async SSRF validation with DNS rebinding protection
  * Resolves hostname and checks all IPs against private ranges
  */
-export async function validateUrlForSSRF(urlString: string): Promise<SSRFValidationResult> {
-  const result = validateUrlCore(urlString);
+export async function validateUrlForSSRF(
+  urlString: string,
+  options?: SSRFValidationOptions
+): Promise<SSRFValidationResult> {
+  const result = validateUrlCore(urlString, options);
 
   if ("isValid" in result) {
     return result;

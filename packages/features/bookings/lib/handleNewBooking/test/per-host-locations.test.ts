@@ -18,6 +18,7 @@ import { setupAndTeardown } from "@calcom/testing/lib/bookingScenario/setupAndTe
 
 import { describe, test, expect } from "vitest";
 
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import prisma from "@calcom/prisma";
 import { SchedulingType } from "@calcom/prisma/enums";
 
@@ -287,18 +288,11 @@ describe("Per-Host Locations - handleNewBooking", () => {
         },
       });
 
-      const createdBooking = await handleNewBooking({
-        bookingData: mockBookingData,
-      });
-
-      expect(createdBooking).toBeDefined();
-      // Per-host location resolution was removed during EE cleanup, so the location type name is stored as-is
-      expect(createdBooking.location).toBe("link");
-
-      await expectBookingToBeInDatabase({
-        uid: createdBooking.uid,
-        location: "link",
-      });
+      // Per-host location resolution was removed during EE cleanup, so the host's location is not offered.
+      // Flowko (B1): a location the event type itself doesn't offer is refused
+      await expect(handleNewBooking({ bookingData: mockBookingData })).rejects.toThrow(
+        ErrorCode.LocationNotOffered
+      );
     });
 
     test("should use stored address when host location type is inPerson", async () => {
@@ -375,18 +369,11 @@ describe("Per-Host Locations - handleNewBooking", () => {
         },
       });
 
-      const createdBooking = await handleNewBooking({
-        bookingData: mockBookingData,
-      });
-
-      expect(createdBooking).toBeDefined();
-      // Per-host location resolution was removed during EE cleanup, so the location type name is stored as-is
-      expect(createdBooking.location).toBe("inPerson");
-
-      await expectBookingToBeInDatabase({
-        uid: createdBooking.uid,
-        location: "inPerson",
-      });
+      // Per-host location resolution was removed during EE cleanup, so the host's location is not offered.
+      // Flowko (B1): a location the event type itself doesn't offer is refused
+      await expect(handleNewBooking({ bookingData: mockBookingData })).rejects.toThrow(
+        ErrorCode.LocationNotOffered
+      );
     });
 
     test("should auto-link credential when host has location type but no credential", async () => {

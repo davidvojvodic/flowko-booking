@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
+import { HttpError } from "@calcom/lib/http-error";
 
 import { convertErrorWithCodeToTRPCError } from "./toTRPCError";
 
@@ -50,6 +51,35 @@ describe("convertErrorWithCodeToTRPCError", () => {
     expect(result).toBeInstanceOf(TRPCError);
     expect((result as TRPCError).code).toBe("BAD_REQUEST");
     expect((result as TRPCError).message).toBe("Invalid input");
+  });
+
+  it("converts the HttpError 429 of checkRateLimitAndThrowError to TRPCError with TOO_MANY_REQUESTS", () => {
+    const error = new HttpError({ statusCode: 429, message: "Rate limit exceeded. Try again in 42 seconds." });
+
+    const result = convertErrorWithCodeToTRPCError(error);
+
+    expect(result).toBeInstanceOf(TRPCError);
+    expect((result as TRPCError).code).toBe("TOO_MANY_REQUESTS");
+    expect((result as TRPCError).message).toBe("Rate limit exceeded. Try again in 42 seconds.");
+    expect((result as TRPCError).cause).toBe(error);
+  });
+
+  it("converts an HttpError 403 to TRPCError with FORBIDDEN", () => {
+    const error = new HttpError({ statusCode: 403, message: "Not yours" });
+
+    const result = convertErrorWithCodeToTRPCError(error);
+
+    expect(result).toBeInstanceOf(TRPCError);
+    expect((result as TRPCError).code).toBe("FORBIDDEN");
+    expect((result as TRPCError).message).toBe("Not yours");
+  });
+
+  it.each([402, 500, 501, 503])("returns an HttpError %i unchanged", (statusCode) => {
+    const error = new HttpError({ statusCode, message: "Upstream failed" });
+
+    const result = convertErrorWithCodeToTRPCError(error);
+
+    expect(result).toBe(error);
   });
 
   it("returns generic Error unchanged", () => {

@@ -72,7 +72,9 @@ describe("getSchedule", () => {
       await prisma.selectedSlots.deleteMany({});
     });
 
-    test("should block slot from being available when reserved by another user", async () => {
+    // Flowko: slot reservation is switched off (U8c, AV-2). An anonymous reserveSlot could hide
+    // any range of a host's slots, so a reservation by another uid never hides a slot.
+    test("keeps a slot available when another uid has reserved it", async () => {
       // In IST timezone, it is 2024-05-31T07:00:00
       vi.setSystemTime("2024-05-31T01:30:00Z");
       const yesterdayDateString = "2024-05-30";
@@ -101,10 +103,26 @@ describe("getSchedule", () => {
         input: getTestScheduleInput({ yesterdayDateString, plus5DateString }),
       });
 
-      // The 4:00 slot should not be available as it's reserved by another user
-      expect(schedule).not.toHaveTimeSlots([`04:00:00.000Z`], {
-        dateString: plus2DateString,
-      });
+      // The 4:00 slot stays available although another uid reserved it
+      expect(schedule).toHaveTimeSlots(
+        [
+          "04:00:00.000Z",
+          "04:45:00.000Z",
+          "05:30:00.000Z",
+          "06:15:00.000Z",
+          "07:00:00.000Z",
+          "07:45:00.000Z",
+          "08:30:00.000Z",
+          "09:15:00.000Z",
+          "10:00:00.000Z",
+          "10:45:00.000Z",
+          "11:30:00.000Z",
+        ],
+        {
+          dateString: plus2DateString,
+          doExactMatch: true,
+        }
+      );
     });
 
     test("should keep all slots available when slot is reserved by the same user", async () => {
@@ -216,7 +234,7 @@ describe("getSchedule", () => {
       );
     });
 
-    test("should show correct attendee count as per reserved slots", async () => {
+    test("does not count a seat reserved by another uid as taken", async () => {
       // In IST timezone, it is 2024-05-31T07:00:00
       vi.setSystemTime("2024-05-31T01:30:00Z");
       const yesterdayDateString = "2024-05-30";
@@ -252,15 +270,15 @@ describe("getSchedule", () => {
         input: getTestScheduleInput({ yesterdayDateString, plus5DateString }),
       });
 
-      // The 4:00 slot should show 1 seat taken
+      // The 4:00 slot shows no seat taken: the reservation is ignored
       const slot = schedule.slots[plus2DateString].find(
         (slot) => slot.time === `${plus2DateString}T04:00:00.000Z`
       );
       expect(slot).toBeDefined();
-      expect(slot?.attendees).toBe(1);
+      expect(slot?.attendees ?? 0).toBe(0);
     });
 
-    test("should block slots even when reservation is for a different event type", async () => {
+    test("keeps a slot available when it is reserved on another event type of the same host", async () => {
       // In IST timezone, it is 2024-05-31T07:00:00
       vi.setSystemTime("2024-05-31T01:30:00Z");
       const yesterdayDateString = "2024-05-30";
@@ -303,10 +321,10 @@ describe("getSchedule", () => {
         input: getTestScheduleInput({ yesterdayDateString, plus5DateString }),
       });
 
-      // The 4:00 slot should still be unavailable even when the reservation is for a different event type
+      // The 4:00 slot stays available: a reservation on the host's other event type is ignored too
       expect(schedule).toHaveTimeSlots(
         [
-          // "04:00:00.000Z",
+          "04:00:00.000Z",
           "04:45:00.000Z",
           "05:30:00.000Z",
           "06:15:00.000Z",

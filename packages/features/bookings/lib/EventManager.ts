@@ -8,7 +8,13 @@ import { appKeysSchema as calVideoKeysSchema } from "@calcom/app-store/dailyvide
 import { getLocationFromApp, MeetLocationType, MSTeamsLocationType } from "@calcom/app-store/locations";
 import getApps from "@calcom/app-store/utils";
 import { createEvent, updateEvent, deleteEvent } from "@calcom/features/calendars/lib/CalendarManager";
-import { createMeeting, updateMeeting, deleteMeeting } from "@calcom/features/conferencing/lib/videoClient";
+import {
+  createMeeting,
+  updateMeeting,
+  deleteMeeting,
+  isCalVideoEnabled,
+  isVideoAppEnabled,
+} from "@calcom/features/conferencing/lib/videoClient";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import CrmManager from "@calcom/features/crmManager/crmManager";
 import CRMScheduler from "@calcom/features/crmManager/crmScheduler";
@@ -308,8 +314,10 @@ export default class EventManager {
 
       const calVideoKeys = calVideoKeysSchema.safeParse(calVideo?.keys);
 
-      if (calVideo?.enabled && calVideoKeys.success) evt["location"] = "integrations:daily";
-      log.warn("Falling back to cal video as no location is set");
+      if (calVideo?.enabled && calVideoKeys.success) {
+        evt["location"] = "integrations:daily";
+        log.warn("Falling back to cal video as no location is set");
+      }
     }
 
     const [mainHostDestinationCalendar] =
@@ -323,11 +331,19 @@ export default class EventManager {
       // Delegation Credential case won't normally have DestinationCalendar set and thus fallback of using Google Calendar credential would be used. Identify that case.
       // TODO: We could extend this logic to Regular Credentials also. Having a Google Calendar credential would cause fallback to use that credential to create calendar and thus we could have Google Meet link
       if (!isDelegationCredential({ credentialId: googleCalendarCredential?.id })) {
-        log.warn(
-          "Falling back to Cal Video integration for Regular Credential as Google Calendar is not set as destination calendar"
-        );
-        evt["location"] = "integrations:daily";
-        evt["conferenceCredentialId"] = undefined;
+        // Flowko: no Cal Video in place of Google Meet while the admin keeps Cal Video switched off; the
+        // booking keeps its Meet location and gets no video meeting
+        if (await isCalVideoEnabled()) {
+          log.warn(
+            "Falling back to Cal Video integration for Regular Credential as Google Calendar is not set as destination calendar"
+          );
+          evt["location"] = "integrations:daily";
+          evt["conferenceCredentialId"] = undefined;
+        } else {
+          log.warn(
+            "No Google Meet link as Google Calendar is not set as destination calendar, and Cal Video is disabled"
+          );
+        }
       }
     }
 
@@ -359,7 +375,8 @@ export default class EventManager {
         }
       }
 
-      results.push(result);
+      // Flowko: no result when there is no video app to use (see getVideoCredentialByCalendarEvent)
+      if (result) results.push(result);
     }
 
     // Some calendar libraries may edit the original event so let's clone it
@@ -424,7 +441,7 @@ export default class EventManager {
     // If and only if event type is a dedicated meeting, create a dedicated video meeting.
     if (isDedicated) {
       const result = await this.createVideoEvent(evt);
-      if (result.createdEvent) {
+      if (result?.createdEvent) {
         evt.videoCallData = result.createdEvent;
         evt.location = result.originalEvent.location;
         result.type = result.createdEvent.type;
@@ -440,7 +457,8 @@ export default class EventManager {
         }
       }
 
-      results.push(result);
+      // Flowko: no result when there is no video app to use (see getVideoCredentialByCalendarEvent)
+      if (result) results.push(result);
     }
 
     // Update the calendar event with the proper video call data
@@ -726,8 +744,9 @@ export default class EventManager {
         } else {
           const isDedicated = evt.location ? isDedicatedIntegration(evt.location) : null;
           // If and only if event type is a dedicated meeting, update the dedicated video meeting.
-          if (isDedicated) {
-            const result = await this.updateVideoEvent(evt, booking);
+          // Flowko: no result when there is no video app to use (see getVideoCredentialByCalendarEvent)
+          const result = isDedicated ? await this.updateVideoEvent(evt, booking) : undefined;
+          if (result) {
             const [updatedEvent] = Array.isArray(result.updatedEvent)
               ? result.updatedEvent
               : [result.updatedEvent];
@@ -1034,7 +1053,9 @@ export default class EventManager {
    * @private
    */
 
-  private getVideoCredentialByCalendarEvent(event: CalendarEvent): CredentialForCalendarService | undefined {
+  private async getVideoCredentialByCalendarEvent(
+    event: CalendarEvent
+  ): Promise<CredentialForCalendarService | undefined> {
     if (!event.location) {
       return undefined;
     }
@@ -1055,11 +1076,28 @@ export default class EventManager {
       );
     }
 
+    // Flowko: a credential of an app the admin switched off is as good as none. The global Cal Video
+    // credential is always among videoCredentials, so an explicit Cal Video location (which a booker can
+    // send) found it, skipped the check below and got a failed result, or a Daily room on reschedule.
+    if (videoCredential && !(await isVideoAppEnabled(videoCredential.appId))) {
+      log.warn(`Video app ${videoCredential.appId} for event with location: ${event.location} is disabled`);
+      videoCredential = undefined;
+    }
+
     /**
      * This might happen if someone tries to use a location with a missing credential, so we fallback to Cal Video.
      * @todo remove location from event types that has missing credentials
      * */
     if (!videoCredential) {
+      // Flowko: Cal Video stands in for the missing app (or for an integrations:* type no app claims) only
+      // while the admin keeps it enabled. Otherwise there is no video meeting and the booking goes ahead
+      // without one: a location nothing can serve is the owner's misconfiguration, not a reason to fail.
+      if (!(await isCalVideoEnabled())) {
+        log.warn(
+          `No video meeting for event with location: ${event.location}: no credential for its app and Cal Video is disabled`
+        );
+        return undefined;
+      }
       log.warn(
         `Falling back to "daily" video integration for event with location: ${event.location} because credential is missing for the app`
       );
@@ -1078,14 +1116,12 @@ export default class EventManager {
    * @private
    */
   private async createVideoEvent(event: CalendarEvent) {
-    const credential = this.getVideoCredentialByCalendarEvent(event);
+    const credential = await this.getVideoCredentialByCalendarEvent(event);
     if (credential) {
       return createMeeting(credential, event);
-    } else {
-      return Promise.reject(
-        `No suitable credentials given for the requested integration name:${event.location}`
-      );
     }
+    // Flowko: no video app to use (no credential, Cal Video disabled); the caller books without a meeting
+    return undefined;
   }
 
   /**
@@ -1239,16 +1275,14 @@ export default class EventManager {
    * @private
    */
   private async updateVideoEvent(event: CalendarEvent, booking: PartialBooking) {
-    const credential = this.getVideoCredentialByCalendarEvent(event);
+    const credential = await this.getVideoCredentialByCalendarEvent(event);
 
     if (credential) {
       const bookingRef = booking ? booking.references.filter((ref) => ref.type === credential.type)[0] : null;
       return updateMeeting(credential, event, bookingRef);
-    } else {
-      return Promise.reject(
-        `No suitable credentials given for the requested integration name:${event.location}`
-      );
     }
+    // Flowko: no video app to use (no credential, Cal Video disabled); the caller books without a meeting
+    return undefined;
   }
 
   private async createAllCRMEvents(event: CalendarEvent) {

@@ -4,10 +4,10 @@ import type { NextApiRequest } from "next";
 import type { IntegrationOAuthCallbackState } from "../../types";
 
 export function encodeOAuthState(req: NextApiRequest) {
-  if (typeof req.query.state !== "string") {
-    return undefined;
-  }
-  const state: IntegrationOAuthCallbackState = JSON.parse(req.query.state);
+  // Flowko: sign a nonce even when the client sent no state, so the callback, which refuses a state
+  // without a valid nonce, never gets one without it
+  const state: Partial<IntegrationOAuthCallbackState> =
+    typeof req.query.state === "string" ? JSON.parse(req.query.state) : {};
 
   const userId = req.session?.user?.id;
   if (userId && process.env.NEXTAUTH_SECRET) {

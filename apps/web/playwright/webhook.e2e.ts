@@ -22,13 +22,15 @@ test.afterEach(async ({ users }) => {
   await users.deleteAll();
 });
 
+// Only an instance admin may manage webhooks on this instance, so each test's user is an ADMIN
+
 test.describe("BOOKING_CREATED", async () => {
   test("add webhook & test that creating an event triggers a webhook call", async ({
     page,
     users,
     webhooks,
   }, _testInfo) => {
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
     const [eventType] = user.eventTypes;
     await user.apiLogin();
     const webhookReceiver = await webhooks.createReceiver();
@@ -133,7 +135,7 @@ test.describe("BOOKING_REJECTED", async () => {
     webhooks,
   }) => {
     // --- create a user
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
 
     // --- visit user page
     await page.goto(`/${user.username}`);
@@ -242,7 +244,7 @@ test.describe("BOOKING_REQUESTED", async () => {
     webhooks,
   }) => {
     // --- create a user
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
 
     // --- login as that user
     await user.apiLogin();
@@ -346,7 +348,7 @@ test.describe("BOOKING_RESCHEDULED", async () => {
     bookings,
     webhooks,
   }) => {
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
     const [eventType] = user.eventTypes;
 
     await user.apiLogin();
@@ -398,6 +400,7 @@ test.describe("BOOKING_RESCHEDULED", async () => {
       where: { id: eventType.id },
       data: { requiresConfirmation: false },
     });
+    await prisma.user.update({ where: { id: user.id }, data: { role: "ADMIN" } });
 
     await user.apiLogin();
 
@@ -487,7 +490,7 @@ test.describe("MEETING_ENDED, MEETING_STARTED", async () => {
     users,
     bookings,
   }, _testInfo) => {
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
     await user.apiLogin();
     const [eventType] = user.eventTypes;
     bookings.create(user.id, user.name, eventType.id);
@@ -607,7 +610,7 @@ test.describe("MEETING_ENDED, MEETING_STARTED", async () => {
 
 test.describe("OOO_CREATED", async () => {
   test("on creating an OOO, triggers OOO webhook", async ({ page, users, webhooks }) => {
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
     await user.apiLogin();
     const webhookReceiver = await webhooks.createReceiver();
 
@@ -675,7 +678,7 @@ test.describe("OOO_CREATED", async () => {
 
 test.describe("Webhook deletion", async () => {
   test("shows confirmation dialog and deletes webhook on confirm", async ({ page, users }) => {
-    const user = await users.create();
+    const user = await users.create({ role: "ADMIN" });
     await user.apiLogin();
 
     await page.goto("/settings/developer/webhooks");

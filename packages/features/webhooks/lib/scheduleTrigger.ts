@@ -3,11 +3,14 @@ import { v4 } from "uuid";
 import { DailyLocationType, getHumanReadableLocationValue } from "@calcom/app-store/locations";
 import { selectOOOEntries } from "@calcom/app-store/zapier/api/subscriptions/listOOOEntries";
 import dayjs from "@calcom/dayjs";
+import { isActiveInstanceAdmin } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import tasker from "@calcom/features/tasker";
+import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { withReporting } from "@calcom/lib/sentryWrapper";
+import { validateUrlForSSRF } from "@calcom/lib/ssrfProtection";
 import { getTranslation } from "@calcom/i18n/server";
 import { prisma } from "@calcom/prisma";
 import type { Prisma, Webhook, Booking, ApiKey } from "@calcom/prisma/client";
@@ -27,6 +30,30 @@ const NO_SHOW_TRIGGERS: WebhookTriggerEvents[] = [
 
 const log = logger.getSubLogger({ prefix: ["[node-scheduler]"] });
 
+/**
+ * Flowko: a Zapier or Make subscription is a webhook, which sends full booker data to its URL. As in the
+ * webhook settings, only an active instance admin may create or delete one (an ADMIN without 2FA is an
+ * INACTIVE_ADMIN, also when they use an API key); a team key or account never may.
+ */
+async function ensureSubscriptionOwnerIsAdmin({
+  userId,
+  teamId,
+}: {
+  userId: number | null;
+  teamId: number | null;
+}) {
+  const owner =
+    userId && !teamId
+      ? await prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: true, twoFactorEnabled: true, identityProvider: true },
+        })
+      : null;
+  if (!isActiveInstanceAdmin(owner)) {
+    throw new HttpError({ statusCode: 403, message: "Only an admin can manage webhooks" });
+  }
+}
+
 export async function addSubscription({
   appApiKey,
   triggerEvent,
@@ -44,10 +71,16 @@ export async function addSubscription({
     isTeam: boolean;
   } | null;
 }) {
+  const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
+  const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
+  await ensureSubscriptionOwnerIsAdmin({ userId, teamId });
+  // Flowko: refuse a loopback, private or metadata URL (DNS-checked, https only) before it is stored, as
+  // the webhook create and edit handlers do; its deliveries are re-checked as well. Names no URL (U7b).
+  const ssrfValidation = await validateUrlForSSRF(subscriberUrl);
+  if (!ssrfValidation.isValid) {
+    throw new HttpError({ statusCode: 400, message: `Webhook URL is not allowed: ${ssrfValidation.error}` });
+  }
   try {
-    const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
-    const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
-
     const createSubscription = await prisma.webhook.create({
       data: {
         id: v4(),
@@ -146,6 +179,7 @@ export async function deleteSubscription({
 }) {
   const userId = appApiKey ? appApiKey.userId : account && !account.isTeam ? account.id : null;
   const teamId = appApiKey ? appApiKey.teamId : account && account.isTeam ? account.id : null;
+  await ensureSubscriptionOwnerIsAdmin({ userId, teamId });
   try {
     let where: Prisma.WebhookWhereInput = {};
     if (teamId) {

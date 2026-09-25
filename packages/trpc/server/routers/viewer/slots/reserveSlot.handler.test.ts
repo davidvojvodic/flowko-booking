@@ -1,105 +1,84 @@
-import { vi, describe, it, expect, afterEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-// We want to test that the UID cookie set by reserveSlotHandler is configured with the correct
-// SameSite and Secure attributes depending on the environment (http vs https).
-// reserveSlotHandler relies on WEBAPP_URL being evaluated at import time, so we need to reset modules
-// between tests after tweaking process.env to simulate different deployment environments.
-//
-// The handler also calls into Prisma and the SelectedSlotRepository, so we stub those parts out.
+import { createCallerFactory } from "../../../trpc";
+import { slotsRouter } from "./_router";
+import { reserveSlotHandler } from "./reserveSlot.handler";
 
-// We alias the module path once we know WEBAPP_URL has been configured.
-const dynamicImportHandler = async () => await import("./reserveSlot.handler");
+// Flowko (U8c, AV-2): slot reservation is switched off. An anonymous reserveSlot used to write a
+// SelectedSlots row for any time range, and getSchedule then hid every overlapping slot of that host.
 
-// The repository instance method is used to check for an existing reservation by someone else.
-// To keep this unit test isolated from the database layer, we stub this to always resolve falsey.
-vi.mock("@calcom/features/selectedSlots/repositories/PrismaSelectedSlotRepository", () => ({
-  PrismaSelectedSlotRepository: vi.fn().mockImplementation(function () {
-    return {
-      findReservedByOthers: vi.fn().mockResolvedValue(null),
-    };
-  }),
-}));
+// Every Prisma method the old handler and removeSelectedSlotMark touched. None may be called now.
+const buildPrismaStub = () => ({
+  eventType: { findUnique: vi.fn().mockResolvedValue({ users: [{ id: 1 }], seatsPerTimeSlot: null }) },
+  booking: { findFirst: vi.fn().mockResolvedValue(null) },
+  selectedSlots: {
+    upsert: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue(null),
+    findFirst: vi.fn().mockResolvedValue(null),
+    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+  },
+});
 
-// A tiny helper to build a canned handler context with stubbed Prisma methods.
-const buildContext = () => {
-  const prismaStub = {
-    eventType: {
-      // Return a minimal event type that will exercise the happy path.
-      findUnique: vi.fn().mockResolvedValue({ users: [{ id: 1 }], seatsPerTimeSlot: null }),
-    },
-    booking: {
-      findFirst: vi.fn().mockResolvedValue(null),
-    },
-    selectedSlots: {
-      upsert: vi.fn().mockResolvedValue(null),
-    },
-  } as unknown as any;
-
-  // Capture header values to assert on.
-  let cookieHeaderValue: string | null = null;
-  const resStub = {
-    setHeader: vi.fn((_name: string, value: string) => {
-      cookieHeaderValue = value;
-    }),
-  };
-
-  const reqStub = {
-    cookies: {},
-  };
-
-  return { prismaStub, resStub, reqStub, getCookieHeader: () => cookieHeaderValue };
+const reserveInput = {
+  eventTypeId: 1,
+  // A whole year: the shape of the AV-2 attack
+  slotUtcStartDate: new Date().toISOString(),
+  slotUtcEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+  _isDryRun: false,
 };
 
-describe("reserveSlotHandler cookie settings", () => {
-  const originalWebappUrl = process.env.NEXT_PUBLIC_WEBAPP_URL;
+const expectNothingTouched = (prismaStub: ReturnType<typeof buildPrismaStub>) => {
+  expect(prismaStub.selectedSlots.upsert).not.toHaveBeenCalled();
+  expect(prismaStub.selectedSlots.create).not.toHaveBeenCalled();
+  expect(prismaStub.selectedSlots.deleteMany).not.toHaveBeenCalled();
+  expect(prismaStub.eventType.findUnique).not.toHaveBeenCalled();
+  expect(prismaStub.booking.findFirst).not.toHaveBeenCalled();
+};
 
-  afterEach(() => {
-    // Reset the module registry and restore the WEBAPP_URL between tests.
-    vi.resetModules();
-    if (originalWebappUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_WEBAPP_URL;
-    } else {
-      process.env.NEXT_PUBLIC_WEBAPP_URL = originalWebappUrl;
-    }
+describe("reserveSlotHandler (reservation switched off)", () => {
+  it("writes no SelectedSlots row and sets no cookie, but still returns a uid for the booker", async () => {
+    const prismaStub = buildPrismaStub();
+    const resStub = { setHeader: vi.fn() };
+
+    const result = await reserveSlotHandler({
+      ctx: { prisma: prismaStub as never, req: { cookies: {} } as never, res: resStub as never },
+      input: reserveInput,
+    });
+
+    expect(typeof result.uid).toBe("string");
+    expect(result.uid.length).toBeGreaterThan(0);
+    expectNothingTouched(prismaStub);
+    expect(resStub.setHeader).not.toHaveBeenCalled();
   });
 
-  it("sets SameSite=None and Secure when WEBAPP_URL is https", async () => {
-    process.env.NEXT_PUBLIC_WEBAPP_URL = "https://example.com";
-    vi.resetModules();
-    const { reserveSlotHandler } = await dynamicImportHandler();
-    const { prismaStub, reqStub, resStub, getCookieHeader } = buildContext();
-    await reserveSlotHandler({
-      ctx: { prisma: prismaStub, req: reqStub, res: resStub },
-      input: {
-        slotUtcStartDate: new Date().toISOString(),
-        slotUtcEndDate: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-        eventTypeId: 1,
-        bookingUid: undefined,
-        _isDryRun: false,
-      },
-    });
-    const cookie = getCookieHeader();
-    expect(cookie).toMatch(/SameSite=None/);
-    expect(cookie).toMatch(/Secure/);
-  });
+  it("writes nothing through the public tRPC procedure either", async () => {
+    const prismaStub = buildPrismaStub();
+    const resStub = { setHeader: vi.fn() };
+    const caller = createCallerFactory(slotsRouter)({
+      prisma: prismaStub,
+      req: { cookies: { uid: "attacker-uid" } },
+      res: resStub,
+    } as never);
 
-  it("falls back to SameSite=Lax and no Secure for http WEBAPP_URL", async () => {
-    process.env.NEXT_PUBLIC_WEBAPP_URL = "http://localhost:3000";
-    vi.resetModules();
-    const { reserveSlotHandler } = await dynamicImportHandler();
-    const { prismaStub, reqStub, resStub, getCookieHeader } = buildContext();
-    await reserveSlotHandler({
-      ctx: { prisma: prismaStub, req: reqStub, res: resStub },
-      input: {
-        slotUtcStartDate: new Date().toISOString(),
-        slotUtcEndDate: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-        eventTypeId: 1,
-        bookingUid: undefined,
-        _isDryRun: false,
-      },
-    });
-    const cookie = getCookieHeader();
-    expect(cookie).toMatch(/SameSite=Lax/);
-    expect(cookie).not.toMatch(/Secure/);
+    const result = await caller.reserveSlot(reserveInput);
+
+    expect(typeof result.uid).toBe("string");
+    expectNothingTouched(prismaStub);
+    expect(resStub.setHeader).not.toHaveBeenCalled();
+  });
+});
+
+describe("removeSelectedSlotMark (reservation switched off)", () => {
+  it("deletes nothing, whether the uid comes from the input or the cookie", async () => {
+    const prismaStub = buildPrismaStub();
+    const caller = createCallerFactory(slotsRouter)({
+      prisma: prismaStub,
+      req: { cookies: { uid: "someone-elses-uid" } },
+    } as never);
+
+    await expect(caller.removeSelectedSlotMark({ uid: "another-uid" })).resolves.toBeUndefined();
+    await expect(caller.removeSelectedSlotMark({ uid: null })).resolves.toBeUndefined();
+
+    expect(prismaStub.selectedSlots.deleteMany).not.toHaveBeenCalled();
   });
 });

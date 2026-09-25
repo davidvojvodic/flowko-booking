@@ -1,14 +1,19 @@
+import { findDisabledApps } from "@calcom/app-store/_utils/findDisabledApps";
 import { getDefaultLocations } from "@calcom/app-store/_utils/getDefaultLocations";
 import { DailyLocationType } from "@calcom/app-store/constants";
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import type { PrismaClient } from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
 import { MembershipRole, SchedulingType } from "@calcom/prisma/enums";
 import type { eventTypeLocations } from "@calcom/prisma/zod-utils";
 import { TRPCError } from "@trpc/server";
+import type { GetTokenParams } from "next-auth/jwt";
 import type { z } from "zod";
 import type { TrpcSessionUser } from "../../../../types";
+import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
+import { ensureSchedulesBelongTo } from "../ensureSchedulesBelongTo";
 import type { TCreateInputSchema } from "./create.schema";
 
 class PermissionCheckService {
@@ -24,6 +29,9 @@ type SessionUser = NonNullable<TrpcSessionUser>;
 type User = {
   id: SessionUser["id"];
   role: SessionUser["role"];
+  // Flowko: read by isActiveInstanceAdminSession; a caller that leaves them out gets no admin rights
+  twoFactorEnabled?: SessionUser["twoFactorEnabled"];
+  identityProvider?: SessionUser["identityProvider"];
   organizationId: SessionUser["organizationId"];
   organization: {
     isOrgAdmin: SessionUser["organization"]["isOrgAdmin"];
@@ -39,9 +47,20 @@ type CreateOptions = {
   ctx: {
     user: User;
     prisma: PrismaClient;
+    req?: GetTokenParams["req"];
   };
   input: TCreateInputSchema;
 };
+
+// Flowko: a default location of an app the admin switched off (the user's default conferencing app, or Cal
+// Video) is left out rather than refusing the new event type
+async function getDefaultLocationsOfEnabledApps(prisma: PrismaClient, user: User) {
+  const defaultLocations = await getDefaultLocations(user);
+  const disabled = await findDisabledApps(prisma, {
+    locationTypes: defaultLocations.map((location) => location.type),
+  });
+  return defaultLocations.filter((location) => !disabled.locationTypes.includes(location.type));
+}
 
 export const createHandler = async ({ ctx, input }: CreateOptions) => {
   const {
@@ -71,8 +90,18 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
     });
   }
 
+  await ensureAppsEnabled(ctx.prisma, { metadata, locations: inputLocations });
+
+  // Flowko: scheduleId was connected with no check, so a new event type could publish another tenant's
+  // working hours, date overrides and timezone in its slots
+  if (scheduleId) {
+    await ensureSchedulesBelongTo(ctx.prisma, [{ scheduleId, userId }]);
+  }
+
   const locations: EventTypeLocation[] =
-    inputLocations && inputLocations.length !== 0 ? inputLocations : await getDefaultLocations(ctx.user);
+    inputLocations && inputLocations.length !== 0
+      ? inputLocations
+      : await getDefaultLocationsOfEnabledApps(ctx.prisma, ctx.user);
 
   const isCalVideoLocationActive = locations.some((location) => location.type === DailyLocationType);
 
@@ -102,17 +131,23 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
   }
 
   if (teamId && schedulingType) {
-    const isSystemAdmin = ctx.user.role === "ADMIN";
+    // Flowko: an ADMIN without 2FA or a strong password is an INACTIVE_ADMIN at sign-in, but the database
+    // still says ADMIN, so only an active instance admin skips the membership check (fails closed without req)
+    const isSystemAdmin = await isActiveInstanceAdminSession(ctx.user, ctx.req);
 
-    // Only check for team-level permissions - this will also check for membership
-    const hasCreatePermission = await permissionService.checkPermission({
-      userId,
-      teamId,
-      permission: "eventType.create",
-      fallbackRoles: [MembershipRole.ADMIN, MembershipRole.OWNER],
-    });
+    // Flowko: there are no teams or organizations on this instance and the PBAC service above is a stub that
+    // allows everyone, so a team event type needs an accepted admin or owner membership of that team
+    const hasCreatePermission = !!(await ctx.prisma.membership.findFirst({
+      where: {
+        teamId,
+        userId,
+        accepted: true,
+        role: { in: [MembershipRole.ADMIN, MembershipRole.OWNER] },
+      },
+      select: { id: true },
+    }));
 
-    if (!isSystemAdmin && !hasOrgEventTypeCreatePermission && !hasCreatePermission) {
+    if (!isSystemAdmin && !hasCreatePermission) {
       // If none of the above conditions are met, the user is unauthorized.
       // which means the user is not admin of the team nor the org.
       console.warn(`User ${userId} does not have eventType.create permission for team ${teamId}`);

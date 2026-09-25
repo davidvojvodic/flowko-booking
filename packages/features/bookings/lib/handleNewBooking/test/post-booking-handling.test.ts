@@ -115,6 +115,9 @@ describe("Post-Booking Events - Hashed Link Usage", () => {
               },
             ],
             users: [organizer],
+            // Flowko: the bookings are made with a Cal Video location, which needs the daily-video App row
+            // enabled (a disabled or missing one books no location)
+            apps: [TestData.apps["daily-video"]],
           })
         );
 
@@ -214,6 +217,9 @@ describe("Post-Booking Events - Hashed Link Usage", () => {
               },
             ],
             users: [organizer],
+            // Flowko: the bookings are made with a Cal Video location, which needs the daily-video App row
+            // enabled (a disabled or missing one books no location)
+            apps: [TestData.apps["daily-video"]],
             bookings: [
               {
                 uid: existingBookingUid,
@@ -323,6 +329,9 @@ describe("Post-Booking Events - Hashed Link Usage", () => {
               },
             ],
             users: [organizer],
+            // Flowko: the bookings are made with a Cal Video location, which needs the daily-video App row
+            // enabled (a disabled or missing one books no location)
+            apps: [TestData.apps["daily-video"]],
           })
         );
 
@@ -408,6 +417,9 @@ describe("Post-Booking Events - Hashed Link Usage", () => {
               },
             ],
             users: [organizer],
+            // Flowko: the bookings are made with a Cal Video location, which needs the daily-video App row
+            // enabled (a disabled or missing one books no location)
+            apps: [TestData.apps["daily-video"]],
           })
         );
 

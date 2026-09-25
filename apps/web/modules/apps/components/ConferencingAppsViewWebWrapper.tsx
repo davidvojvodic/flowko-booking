@@ -86,7 +86,8 @@ export const InstalledConferencingApps = ({
           onSuccessCallback();
         },
         onError: (error) => {
-          showToast(`Error: ${error.message}`, "error");
+          // Flowko: the server answers with an i18n key (a disabled app is refused), so translate it
+          showToast(t(error.message), "error");
           onErrorCallback();
         },
       }
@@ -101,6 +102,11 @@ export const InstalledConferencingApps = ({
       {
         onSuccess: () => {
           utils.viewer.apps.getUsersDefaultConferencingApp.invalidate();
+          callback();
+        },
+        // Flowko: a refused bulk update (the default app is disabled) says why and closes the dialog
+        onError: (error) => {
+          showToast(t(error.message), "error");
           callback();
         },
       }

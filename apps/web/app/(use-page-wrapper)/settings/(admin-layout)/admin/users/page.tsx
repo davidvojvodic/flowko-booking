@@ -1,7 +1,9 @@
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import { Button } from "@calcom/ui/components/button";
 import { _generateMetadata, getTranslate } from "app/_utils";
-import UsersListingView from "~/users/views/users-listing-view";
+import UsersListingView from "@calcom/web/modules/users/views/users-listing-view";
+
+import { requireActiveAdmin } from "../../requireActiveAdmin";
 
 export const generateMetadata = async () =>
   await _generateMetadata(
@@ -13,6 +15,8 @@ export const generateMetadata = async () =>
   );
 
 const Page = async () => {
+  // Flowko: the layout's admin check can be skipped on a partial render, so the page checks itself
+  await requireActiveAdmin();
   const t = await getTranslate();
   return (
     <SettingsHeader

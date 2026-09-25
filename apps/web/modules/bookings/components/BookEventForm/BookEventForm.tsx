@@ -10,6 +10,7 @@ import { APP_NAME, WEBSITE_PRIVACY_POLICY_URL, WEBSITE_TERMS_URL } from "@calcom
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { TimeFormat } from "@calcom/lib/timeFormat";
+import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
@@ -260,7 +261,7 @@ export const BookEventForm = ({
   );
 };
 
-const getError = ({
+export const getError = ({
   globalError,
   dataError,
   t,
@@ -302,8 +303,14 @@ const getError = ({
     count = error.data.count;
   }
 
+  // Flowko: the rate limiter answers in English ("Rate limit exceeded. Try again in N seconds."), which is no
+  // i18n key, so t() showed it as is; say it in the booker's language
   const messageKey =
-    error.message === ErrorCode.BookerLimitExceeded ? "booker_upcoming_limit_reached" : error.message;
+    error.message === ErrorCode.BookerLimitExceeded
+      ? "booker_upcoming_limit_reached"
+      : isRateLimitError(error)
+        ? "rate_limit_exceeded"
+        : error.message;
 
   return error?.message ? (
     <>

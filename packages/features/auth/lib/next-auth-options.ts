@@ -27,10 +27,12 @@ import {
 import { symmetricDecrypt, symmetricEncrypt } from "@calcom/lib/crypto";
 import { defaultCookies } from "@calcom/lib/default-cookies";
 import { isENVDev } from "@calcom/lib/env";
+import getIP from "@calcom/lib/getIP";
+import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { randomString } from "@calcom/lib/random";
 import { safeStringify } from "@calcom/lib/safeStringify";
-import { hashEmail } from "@calcom/lib/server/PiiHasher";
+import { hashEmail, piiHasher } from "@calcom/lib/server/PiiHasher";
 import slugify from "@calcom/lib/slugify";
 import type { TrackingData } from "@calcom/lib/tracking";
 import prisma from "@calcom/prisma";
@@ -41,7 +43,8 @@ import type { UserProfile } from "@calcom/types/UserProfile";
 import { calendar_v3 } from "@googleapis/calendar";
 import { waitUntil } from "@vercel/functions";
 import { OAuth2Client } from "googleapis-common";
-import type { Account, AuthOptions, Profile, Session, User } from "next-auth";
+import type { NextApiRequest } from "next";
+import type { Account, AuthOptions, Profile, RequestInternal, Session, User } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import { encode } from "next-auth/jwt";
 import AzureADProvider from "next-auth/providers/azure-ad";
@@ -145,16 +148,79 @@ const checkIfUserShouldBelongToOrg = async (idP: IdentityProvider, email: string
 };
 
 /**
+ * Flowko: failed sign-ins allowed per account per hour, from all IPs together (David's decision). Only wrong
+ * passwords and wrong or missing 2FA/backup codes count (so a 2FA sign-in's code-less first step does); a
+ * successful sign-in does not.
+ */
+export const LOGIN_ACCOUNT_FAILURE_LIMIT = { limit: 100, duration: "1h" } as const;
+
+// Flowko: the error checkRateLimitAndThrowError throws, so a capped attempt looks like any rate-limited one.
+const loginRateLimitError = (reset: number) => {
+  const secondsToWait = Math.max(0, Math.floor((reset - Date.now()) / 1000));
+  return new HttpError({
+    statusCode: 429,
+    message: `Rate limit exceeded. Try again in ${secondsToWait} seconds.`,
+  });
+};
+
+/**
+ * Flowko: refuses the attempt once the account's failure window is full, correct password or not. cost 0
+ * reads the window without counting this attempt (the limiter has no peek); in memory and on Unkey it
+ * returns remaining = limit - failures so far.
+ */
+async function checkLoginFailureCap(identifier: string) {
+  const { remaining, reset } = await checkRateLimitAndThrowError({
+    identifier,
+    opts: { cost: 0, limit: LOGIN_ACCOUNT_FAILURE_LIMIT },
+  });
+  if (remaining <= 0) throw loginRateLimitError(reset);
+}
+
+/**
+ * Flowko: counts one failed attempt and returns the error to throw for it. If concurrent attempts filled the
+ * window after this one passed checkLoginFailureCap, the limiter refuses the count and the rate-limit error
+ * is thrown instead, so an attempt past the cap never learns whether its password or code was right.
+ */
+async function countLoginFailure(identifier: string, errorCode: ErrorCode) {
+  await checkRateLimitAndThrowError({ identifier, opts: { limit: LOGIN_ACCOUNT_FAILURE_LIMIT } });
+  return new Error(errorCode);
+}
+
+/**
  * Authorize function for credentials provider
  * Extracted for testability
  */
 export async function authorizeCredentials(
-  credentials: Record<"email" | "password" | "totpCode" | "backupCode", string> | undefined
+  credentials: Record<"email" | "password" | "totpCode" | "backupCode", string> | undefined,
+  req?: Pick<RequestInternal, "headers">
 ): Promise<User | null> {
-  log.debug("CredentialsProvider:credentials:authorize", safeStringify({ credentials }));
+  // Flowko: never log the credentials: at debug level this wrote the password and the TOTP or backup code
+  log.debug("CredentialsProvider:credentials:authorize");
   if (!credentials) {
     console.error(`For some reason credentials are missing`);
     throw new Error(ErrorCode.InternalServerError);
+  }
+
+  // Flowko: the login limit is keyed by the typed email (normalised like the lookup below) plus the client
+  // IP, and runs before the lookup, so it treats unknown emails exactly like accounts (the limit reveals
+  // nothing about whether one exists) and a stranger who knows an email can no longer lock its owner out
+  // from another IP. getIP ignores client-sent Cloudflare headers. NextAuth always passes req; a call
+  // without headers counts under one shared "unknown" IP.
+  const loginEmail = String(credentials.email ?? "").trim().toLowerCase();
+  const clientIp = req?.headers ? getIP(req as unknown as NextApiRequest) : "unknown";
+  await checkRateLimitAndThrowError({
+    identifier: `login:${hashEmail(loginEmail)}:${piiHasher.hash(clientIp)}`,
+  });
+
+  // Flowko: a missing or non-string email or password gets the answer an unknown email gets, before any lookup.
+  // Otherwise bcrypt rejects a missing password with its own message for an account that has one, which tells
+  // in one request whether the account exists.
+  if (
+    typeof credentials.email !== "string" ||
+    typeof credentials.password !== "string" ||
+    !credentials.password
+  ) {
+    throw new Error(ErrorCode.IncorrectEmailPassword);
   }
 
   const userRepo = new UserRepository(prisma);
@@ -171,19 +237,21 @@ export async function authorizeCredentials(
     throw new Error(ErrorCode.UserAccountLocked);
   }
 
-  await checkRateLimitAndThrowError({
-    identifier: hashEmail(user.email),
-  });
-
   // Users without a password must use their identity provider (Google/SAML) to login
   if (!user.password?.hash) {
     throw new Error(ErrorCode.IncorrectEmailPassword);
   }
 
+  // Flowko: per-account cap on failed attempts across all IPs. Keyed by user id and checked only for accounts
+  // with a password (there is nothing to guess otherwise), so its windows stay bounded by the number of
+  // accounts; typed emails that match no account would each add an hour-long window to the shared store.
+  const loginFailuresIdentifier = `login-failures:${user.id}`;
+  await checkLoginFailureCap(loginFailuresIdentifier);
+
   // Always verify password for users who have one
   const isCorrectPassword = await verifyPassword(credentials.password, user.password.hash);
   if (!isCorrectPassword) {
-    throw new Error(ErrorCode.IncorrectEmailPassword);
+    throw await countLoginFailure(loginFailuresIdentifier, ErrorCode.IncorrectEmailPassword);
   }
 
   if (user.twoFactorEnabled && credentials.backupCode) {
@@ -192,13 +260,16 @@ export async function authorizeCredentials(
       throw new Error(ErrorCode.InternalServerError);
     }
 
-    if (!user.backupCodes) throw new Error(ErrorCode.MissingBackupCodes);
+    // Flowko: a wrong or missing second factor counts towards the per-account cap like a wrong password.
+    if (!user.backupCodes) {
+      throw await countLoginFailure(loginFailuresIdentifier, ErrorCode.MissingBackupCodes);
+    }
 
     const backupCodes = JSON.parse(symmetricDecrypt(user.backupCodes, process.env.CALENDSO_ENCRYPTION_KEY));
 
     // check if user-supplied code matches one
     const index = backupCodes.indexOf(credentials.backupCode.replaceAll("-", ""));
-    if (index === -1) throw new Error(ErrorCode.IncorrectBackupCode);
+    if (index === -1) throw await countLoginFailure(loginFailuresIdentifier, ErrorCode.IncorrectBackupCode);
 
     // delete verified backup code and re-encrypt remaining
     backupCodes[index] = null;
@@ -212,7 +283,7 @@ export async function authorizeCredentials(
     });
   } else if (user.twoFactorEnabled) {
     if (!credentials.totpCode) {
-      throw new Error(ErrorCode.SecondFactorRequired);
+      throw await countLoginFailure(loginFailuresIdentifier, ErrorCode.SecondFactorRequired);
     }
 
     if (!user.twoFactorSecret) {
@@ -238,9 +309,12 @@ export async function authorizeCredentials(
       secret
     );
     if (!isValidToken) {
-      throw new Error(ErrorCode.IncorrectTwoFactorCode);
+      throw await countLoginFailure(loginFailuresIdentifier, ErrorCode.IncorrectTwoFactorCode);
     }
   }
+  // Flowko: failures from concurrent attempts may have filled the cap while this one was being verified.
+  // Refuse then too, so a correct guess past the cap is indistinguishable from a wrong one.
+  await checkLoginFailureCap(loginFailuresIdentifier);
   // Check if the user you are logging into has any active teams
   const hasActiveTeams = checkIfUserBelongsToActiveTeam(user);
 

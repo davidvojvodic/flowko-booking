@@ -37,11 +37,12 @@ export const authRouter = router({
     });
   }),
 
-  verifyCodeUnAuthenticated: publicProcedure.input(ZVerifyCodeInputSchema).mutation(async ({ input }) => {
+  verifyCodeUnAuthenticated: publicProcedure.input(ZVerifyCodeInputSchema).mutation(async ({ input, ctx }) => {
     const { verifyCodeUnAuthenticatedHandler } = await import("./verifyCodeUnAuthenticated.handler");
 
     return verifyCodeUnAuthenticatedHandler({
       input,
+      req: ctx.req,
     });
   }),
 

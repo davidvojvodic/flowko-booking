@@ -8,6 +8,7 @@ import type { TrpcSessionUser } from "@calcom/trpc/server/types";
 
 import { TRPCError } from "@trpc/server";
 
+import { ensureAppsEnabled } from "../eventTypes/ensureAppsEnabled";
 import type { TUpdateUserDefaultConferencingAppInputSchema } from "./updateUserDefaultConferencingApp.schema";
 
 type UpdateUserDefaultConferencingAppOptions = {
@@ -29,6 +30,8 @@ export const updateUserDefaultConferencingAppHandler = async ({
   const appLocation = foundApp?.appData?.location;
 
   if (!foundApp || !appLocation) throw new TRPCError({ code: "BAD_REQUEST", message: "App not installed" });
+  // Flowko: new event types and the organizer's default location use this app, so a disabled app is refused
+  await ensureAppsEnabled(prisma, { locations: [{ type: appLocation.type }] });
 
   if (appLocation.linkType === "static" && !input.appLink) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "App link is required" });

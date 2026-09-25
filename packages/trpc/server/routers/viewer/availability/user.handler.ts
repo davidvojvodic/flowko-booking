@@ -1,30 +1,60 @@
+import { isActiveInstanceAdminSession } from "@calcom/features/auth/lib/isActiveInstanceAdmin";
 import { findUsersForAvailabilityCheck } from "@calcom/features/availability/lib/findUsersForAvailabilityCheck";
 import { getUserAvailabilityService } from "@calcom/features/di/containers/GetUserAvailability";
+import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
+import { prisma } from "@calcom/prisma";
+import type { Prisma } from "@calcom/prisma/client";
 import { TRPCError } from "@trpc/server";
+import type { GetTokenParams } from "next-auth/jwt";
 import type { TrpcSessionUser } from "../../../types";
 import type { TUserInputSchema } from "./user.schema";
 
 type UserOptions = {
   ctx: {
     user: NonNullable<TrpcSessionUser>;
+    req?: GetTokenParams["req"];
   };
   input: TUserInputSchema;
 };
 
-function getUser(username: string) {
+// Flowko: the troubleshooter and onboarding ask for about a week. A longer window would walk a tenant's whole
+// booking history in one call and make one Google freebusy request per 90 days with their credential.
+const MAX_RANGE_DAYS = 90;
+
+function getUser(where: Prisma.UserWhereInput) {
   return findUsersForAvailabilityCheck({
-    where: {
-      username,
-    },
+    where,
   });
 }
 
-export const userHandler = async ({ input }: UserOptions) => {
+export const userHandler = async ({ ctx, input }: UserOptions) => {
+  // Flowko: every client business is its own user on this instance, so a user reads only their own
+  // availability (busy times with calendar event titles, schedules, out of office). An admin may read anyone's,
+  // but only an active one: an ADMIN without 2FA or a strong password is an INACTIVE_ADMIN at sign-in, while
+  // the database still says ADMIN.
+  const isAdmin = await isActiveInstanceAdminSession(ctx.user, ctx.req);
+  if (!isAdmin && input.username !== ctx.user.username) {
+    throw new TRPCError({ code: "FORBIDDEN" });
+  }
+  // The event type picks the schedule and the booking limits that are read, so it has to be the user's own too
+  if (!isAdmin && input.eventTypeId) {
+    const eventType = await new EventTypeRepository(prisma).findByIdWithUserAccess({
+      id: input.eventTypeId,
+      userId: ctx.user.id,
+    });
+    if (!eventType) throw new TRPCError({ code: "FORBIDDEN" });
+  }
+
+  if (input.dateTo.diff(input.dateFrom, "day", true) > MAX_RANGE_DAYS) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `The date range can be at most ${MAX_RANGE_DAYS} days` });
+  }
+
   const userAvailabilityService = getUserAvailabilityService();
-  const user = await getUser(input.username);
+  // A username is unique only per organization, so the caller's own record is looked up by id
+  const user = await getUser(isAdmin ? { username: input.username } : { id: ctx.user.id });
   if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
   return userAvailabilityService.getUserAvailabilityIncludingBusyTimesFromLimits(
-    { returnDateOverrides: true, bypassBusyCalendarTimes: false, ...input },
+    { ...input, returnDateOverrides: true, bypassBusyCalendarTimes: false },
     {
       user,
     }

@@ -16,6 +16,7 @@ const WORK = "work@group.calendar.google.com";
 const USER_ID = 1;
 const OTHER_USER_ID = 2;
 const NEW_CREDENTIAL_ID = 20;
+const EVENT_TYPE_ID = 30;
 
 const tokenOf = (credentialId: number) => ({
   access_token: `access-${credentialId}`,
@@ -37,7 +38,8 @@ const createGoogleCredential = (id: number, userId: number) =>
 /**
  * User 1 reconnected owner@gmail.com (credential 20 is the new one). Credential 10 is their earlier
  * connection of the same account; credential 11 is their personal account, which has owner@gmail.com
- * shared into it and uses it as a destination. User 2 connected owner@gmail.com too (credential 12).
+ * shared into it and uses it as the destination of their event type 30. User 2 connected
+ * owner@gmail.com too (credential 12).
  */
 const seed = async () => {
   await prismock.user.create({ data: { id: USER_ID, email: "user1@flowko.si", username: "user1" } });
@@ -70,8 +72,17 @@ const seed = async () => {
       credentialId: 10,
     },
   });
+  await prismock.eventType.create({
+    data: { id: EVENT_TYPE_ID, userId: USER_ID, title: "Haircut", slug: "haircut", length: 30 },
+  });
   await prismock.destinationCalendar.create({
-    data: { id: 2, integration: "google_calendar", externalId: OWNER, credentialId: 11 },
+    data: {
+      id: 2,
+      eventTypeId: EVENT_TYPE_ID,
+      integration: "google_calendar",
+      externalId: OWNER,
+      credentialId: 11,
+    },
   });
   await prismock.bookingReference.create({
     data: {
@@ -263,6 +274,53 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
 
     // Credential 11 is still replaced: Google said its token belongs to owner@gmail.com
     expect(await remainingCredentialIds()).toEqual([10, 12, NEW_CREDENTIAL_ID]);
+  });
+
+  test("ignores rows another tenant pointed at the user's earlier credential", async () => {
+    // Another tenant wrote rows that name user 1's dead credential 10 and a calendar the new
+    // connection cannot see, to make the replace keep it
+    const ATTACKER_ID = 3;
+    await prismock.user.create({ data: { id: ATTACKER_ID, email: "user3@flowko.si", username: "user3" } });
+    await prismock.selectedCalendar.create({
+      data: {
+        id: "planted",
+        userId: ATTACKER_ID,
+        integration: "google_calendar",
+        externalId: "not-visible@group.calendar.google.com",
+        credentialId: 10,
+      },
+    });
+    await prismock.destinationCalendar.create({
+      data: {
+        id: 3,
+        userId: ATTACKER_ID,
+        integration: "google_calendar",
+        externalId: "not-visible@group.calendar.google.com",
+        credentialId: 10,
+      },
+    });
+    mockGoogleAccounts({
+      10: { status: "grant_revoked" },
+      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+    });
+
+    const earlierCredentials = await findAndReplace();
+
+    expect(earlierCredentials.find(({ id }) => id === 10)).toMatchObject({
+      selectedCalendarIds: [OWNER, WORK],
+      destinationCalendarIds: [WORK],
+    });
+    expect(await remainingCredentialIds()).toEqual([11, 12, NEW_CREDENTIAL_ID]);
+    // The other tenant's rows never move onto the user's new credential
+    expect((await prismock.selectedCalendar.findUnique({ where: { id: "planted" } }))?.credentialId).not.toBe(
+      NEW_CREDENTIAL_ID
+    );
+    expect((await prismock.destinationCalendar.findUnique({ where: { id: 3 } }))?.credentialId).not.toBe(
+      NEW_CREDENTIAL_ID
+    );
+    expect(await prismock.selectedCalendar.findUnique({ where: { id: "work-of-10" } })).toMatchObject({
+      credentialId: NEW_CREDENTIAL_ID,
+    });
   });
 
   test("keeps every credential when Google cannot say which account a token belongs to", async () => {

@@ -4,15 +4,11 @@ import superjson from "superjson";
 import { httpBatchLink, httpLink, loggerLink, splitLink } from "@trpc/client";
 import type { CreateTRPCNext } from "@trpc/next";
 import { createTRPCNext } from "@trpc/next";
-// ℹ️ Type-only import:
-// https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-8.html#type-only-imports-and-export
-import type { TRPCClientErrorLike } from "@trpc/react-query";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 
 import type { AppRouter } from "../types/server/routers/_app";
+import { shouldRetryQuery } from "./queryRetry";
 import { ENDPOINTS } from "./shared";
-
-type Maybe<T> = T | null | undefined;
 
 /**
  * We deploy our tRPC router on multiple lambdas to keep number of imports as small as possible
@@ -108,16 +104,8 @@ export const trpc: CreateTRPCNext<AppRouter, NextPageContext, null> = createTRPC
             /**
              * Retry `useQuery()` calls depending on this function
              */
-            retry(failureCount, _err) {
-              const err = _err as never as Maybe<TRPCClientErrorLike<AppRouter>>;
-              const code = err?.data?.code;
-              if (code === "BAD_REQUEST" || code === "FORBIDDEN" || code === "UNAUTHORIZED") {
-                // if input data is wrong or you're not authorized there's no point retrying a query
-                return false;
-              }
-              const MAX_QUERY_RETRIES = 3;
-              return failureCount < MAX_QUERY_RETRIES;
-            },
+            // Flowko: it also skips TOO_MANY_REQUESTS now (see queryRetry.ts)
+            retry: shouldRetryQuery,
           },
         },
       },

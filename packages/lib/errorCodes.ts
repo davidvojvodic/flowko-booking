@@ -25,6 +25,8 @@ export enum ErrorCode {
   NotEnoughAvailableSeats = "not_enough_available_seats_error",
   // Seated and recurring event types and bookings are off on this instance (IS_SEATS_AND_RECURRING_ENABLED)
   SeatsAndRecurringNotAvailable = "seats_and_recurring_not_available_error",
+  // An app the admin switched off (App.enabled = false) can't be turned on for an event type
+  AppNotAvailable = "app_not_available_error",
   AvailabilityNotFoundInSchedule = "availability_not_found_in_schedule_error",
   CancelledBookingsCannotBeRescheduled = "cancelled_bookings_cannot_be_rescheduled",
   UnableToSubscribeToThePlatform = "unable_to_subscribe_to_the_platform",
@@ -40,6 +42,8 @@ export enum ErrorCode {
   RestrictionScheduleNotFound = "restriction_schedule_not_found_error",
   EventTypeNoHosts = "event_type_no_hosts",
   RequestBodyInvalid = "request_body_invalid_error",
+  // The booker picked a location the event type doesn't offer (see isBookerLocationOffered)
+  LocationNotOffered = "location_not_offered_error",
   PrivateLinkExpired = "private_link_expired",
   BookerEmailBlocked = "booker_email_blocked",
   BookerEmailRequiresLogin = "booker_email_requires_login",

@@ -39,7 +39,7 @@ const booker = getBooker({
 const bookerResponses = {
   email: booker.email,
   name: booker.name,
-  location: { optionValue: "" as const, value: "New York" },
+  location: { optionValue: "" as const, value: "inPerson" },
 };
 
 function getTestOrganizer() {
@@ -318,7 +318,15 @@ describe("handleNewBooking with seats and recurring events off", () => {
 
     await createBookingScenario(
       getScenarioData({
-        eventTypes: [{ id: 1, slotInterval: 30, length: 30, users: [{ id: 101 }] }],
+        eventTypes: [
+          {
+            id: 1,
+            slotInterval: 30,
+            length: 30,
+            locations: [{ type: "inPerson", address: "New York" }],
+            users: [{ id: 101 }],
+          },
+        ],
         organizer: getTestOrganizer(),
         apps: [TestData.apps["google-calendar"]],
       })
