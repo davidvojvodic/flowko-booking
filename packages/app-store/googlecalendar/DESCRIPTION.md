@@ -4,4 +4,6 @@ items:
   - GCal2.png
 ---
 
-Google Calendar is a time management and scheduling service developed by Google. Allows users to create and edit events, with options available for type and time. Available to anyone that has a Gmail account on both mobile and web versions.
+Povežite Google Calendar z aplikacijo Flowko Rezervacije. Aplikacija bo brala seznam vaših koledarjev in čase, ko ste zasedeni v koledarjih, ki jih izberete, da stranke ne morejo rezervirati terminov, ko ste zasedeni. Vsako rezervacijo doda v koledar, ki ga izberete, jo ob spremembi posodobi in ob odpovedi izbriše. Vsebine drugih dogodkov ne bere.
+
+Povezavo lahko kadar koli prekinete v razdelku Aplikacije → Nameščene aplikacije → Koledarji ali na strani https://myaccount.google.com/connections. Več v razdelku 3.3 pravilnika o zasebnosti: https://flowko.si/privacy
