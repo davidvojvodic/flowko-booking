@@ -9,8 +9,6 @@ import { metadata } from "./_metadata";
 // publisher and describe what the app does with the calendar, not Cal.diy's upstream copy.
 const UPSTREAM_BRAND = /cal\.diy|cal\.com/i;
 
-const DESCRIPTION_FRONTMATTER = "---\nitems:\n  - GCal1.png\n  - GCal2.png\n---\n\n";
-
 const DESCRIPTION_BODY =
   "Povežite Google Calendar z aplikacijo Flowko Rezervacije. Aplikacija bo brala seznam vaših koledarjev in čase, ko ste zasedeni v koledarjih, ki jih izberete, da stranke ne morejo rezervirati terminov, ko ste zasedeni. Vsako rezervacijo doda v koledar, ki ga izberete, jo ob spremembi posodobi in ob odpovedi izbriše. Vsebine drugih dogodkov ne bere.\n" +
   "\n" +
@@ -49,9 +47,13 @@ describe("Google Calendar app page", () => {
     expect(texts.filter((text) => UPSTREAM_BRAND.test(text))).toEqual([]);
   });
 
-  it("keeps the screenshots and replaces the page body with Flowko's description", () => {
+  // Flowko: the upstream front-matter listed GCal1.png and GCal2.png, screenshots of Cal.com's own
+  // calendar (Cal.com events and real people's calendar names) that the app page showed as a gallery.
+  // With no front-matter the page renders no gallery, so the page body is the whole file.
+  it("shows no upstream screenshots and uses Flowko's description as the page body", () => {
     const description = fs.readFileSync(path.join(__dirname, "DESCRIPTION.md"), "utf8");
-    expect(description).toBe(DESCRIPTION_FRONTMATTER + DESCRIPTION_BODY);
+    expect(description).toBe(DESCRIPTION_BODY);
+    expect(description).not.toMatch(/^---/);
     expect(description).not.toMatch(UPSTREAM_BRAND);
   });
 });
