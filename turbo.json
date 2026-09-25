@@ -316,6 +316,7 @@
     "B2_BUCKET_ID",
     "B2_BUCKET_NAME"
   ],
+  "globalPassThroughEnv": ["CALCOM_KEYRING_CREDENTIALS_*"],
   "tasks": {
     "@calcom/web#copy-app-store-static": {
       "inputs": ["../../packages/app-store/**/static/**/*"],
