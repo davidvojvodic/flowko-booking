@@ -1,6 +1,7 @@
 import type z from "zod";
 
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
+import { buildCredentialKeyUpdateData } from "@calcom/features/credentials/services/CredentialDataService";
 import logger from "@calcom/lib/logger";
 import { prisma } from "@calcom/prisma";
 import type { Prisma } from "@calcom/prisma/client";
@@ -83,11 +84,17 @@ export const updateTokenObjectInDb = async (
     }
   } else {
     const { credentialId } = args;
-    await CredentialRepository.updateWhereId({
-      id: credentialId,
-      data: {
-        key: tokenObject as Prisma.InputJsonValue,
-      },
-    });
+    // Flowko U9: the refreshed token is stored encrypted, bound to the row's own type, userId and teamId, and
+    // `key` gets the placeholder. The same row feeds the AAD and the write's where, so the envelope is stored
+    // only while the row still has the owner it was bound to
+    const row = await CredentialRepository.findKeyAadFieldsById({ id: credentialId });
+    if (!row) {
+      log.warn("Refreshed token not stored: credential not found", { credentialId });
+      return undefined;
+    }
+    // Throws CredentialKeyUnavailableError when the keyring is unavailable: then nothing is written
+    const data = buildCredentialKeyUpdateData({ ...row, key: tokenObject });
+    await CredentialRepository.updateEncryptedKeyWhereId({ ...row, data });
+    return { encryptedKey: data.encryptedKey };
   }
 };
