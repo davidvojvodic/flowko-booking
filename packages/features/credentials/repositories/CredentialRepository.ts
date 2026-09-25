@@ -75,7 +75,7 @@ export class CredentialRepository {
    * Flowko U9: stores a re-encrypted key, but only while the row still has the type, userId and teamId the
    * envelope was bound to. Build `data` with buildCredentialKeyUpdateData.
    *
-   * @throws Error when no row matched, so nothing was stored
+   * @throws Error when no row matched, or `data` is not a placeholder key plus an envelope; nothing was stored
    */
   static async updateEncryptedKeyWhereId({
     id,
@@ -90,6 +90,18 @@ export class CredentialRepository {
     teamId?: number | null;
     data: { key: CredentialKeyPlaceholder; encryptedKey: string };
   }) {
+    // Flowko U9: check at runtime too, so an untyped caller can never store a token in key. Spelled out
+    // rather than isCredentialKeyPlaceholder(), so a test that mocks CredentialDataService can't disable it
+    const { key, encryptedKey } = data as { key: unknown; encryptedKey: unknown };
+    const keyIsPlaceholder =
+      typeof key === "object" &&
+      key !== null &&
+      !Array.isArray(key) &&
+      Object.keys(key).length === 1 &&
+      (key as Record<string, unknown>)._enc === "keyring-v1";
+    if (!keyIsPlaceholder || typeof encryptedKey !== "string" || encryptedKey === "") {
+      throw new Error("credential changed; encrypted key not stored");
+    }
     const { count } = await prisma.credential.updateMany({
       // explicit nulls: disallowUndefinedDeleteUpdateManyExtension refuses undefined where values
       where: { id, type, userId: userId ?? null, teamId: teamId ?? null },

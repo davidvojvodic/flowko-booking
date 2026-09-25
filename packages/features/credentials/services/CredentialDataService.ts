@@ -50,7 +50,9 @@ export class CredentialKeyUnavailableError extends Error {
   public readonly credentialType: string;
 
   constructor(reason: CredentialKeyFailureReason, credentialId: number | null, credentialType: string) {
-    super(`Credential key unavailable (${reason}) for credential ${credentialId ?? "new"} (${credentialType})`);
+    super(
+      `Credential key unavailable (${reason}) for credential ${credentialId ?? "new"} (${credentialType})`
+    );
     Object.setPrototypeOf(this, CredentialKeyUnavailableError.prototype);
     this.name = "CredentialKeyUnavailableError";
     this.reason = reason;
@@ -106,6 +108,9 @@ function logCredentialKeyFailure(
       lastFailureLogAt.forEach((at, key) => {
         if (now - at >= FAILURE_LOG_INTERVAL_MS) lastFailureLogAt.delete(key);
       });
+      // Flowko: a burst of distinct failures inside one interval leaves nothing to prune; start over so the
+      // map stays bounded (the cost is one extra log line per key)
+      if (lastFailureLogAt.size >= FAILURE_LOG_MAX_ENTRIES) lastFailureLogAt.clear();
     }
     lastFailureLogAt.set(throttleKey, now);
     log.error(`Credential key unavailable (${reason}) for credential ${credentialId ?? "new"} (${type})`, {
@@ -131,9 +136,15 @@ function encryptCredentialKeyOrThrow({
   key: object;
 }): { key: CredentialKeyPlaceholder; encryptedKey: string } {
   try {
+    const plaintext = JSON.stringify(key);
+    // Flowko: refuse what decryptCredentialKeyResult would read back as malformed_envelope (an array, a Date,
+    // anything that doesn't serialise to a JSON object), so an unreadable row is never written
+    if (typeof plaintext !== "string" || !plaintext.startsWith("{")) {
+      throw new Error("credential key is not a JSON object");
+    }
     const envelope = encryptSecret({
       ring: "CREDENTIALS",
-      plaintext: JSON.stringify(key),
+      plaintext,
       aad: credentialKeyAad({ type, userId, teamId }),
     });
     return { key: encryptedKeyPlaceholder(), encryptedKey: JSON.stringify(envelope) };
@@ -229,7 +240,10 @@ export function decryptCredentialKeyResult(credential: CredentialKeyRow): Creden
     credentialId = id;
     type = credential.type;
 
-    if (encryptedKey === null || encryptedKey === undefined || encryptedKey === "") return fail("not_encrypted");
+    // Flowko: an absent field is a caller that didn't select encryptedKey, not a row without an envelope. It
+    // is transient, so the row is never deleted without a revoke on the strength of a missing select
+    if (encryptedKey === undefined) return fail("decrypt_failed");
+    if (encryptedKey === null || encryptedKey === "") return fail("not_encrypted");
     if (typeof encryptedKey !== "string") return fail("malformed_envelope");
 
     let envelope: ReturnType<typeof parseSecretEnvelope>;
@@ -275,7 +289,16 @@ export function decryptCredentialKeyResult(credential: CredentialKeyRow): Creden
 export function decryptCredentialKey(credential: CredentialKeyRow): Prisma.JsonObject {
   const result = decryptCredentialKeyResult(credential);
   if (!result.ok) {
-    throw new CredentialKeyUnavailableError(result.reason, credential.id, credential.type);
+    // Flowko: read the id and type defensively, so even an untyped caller's bad input gets the typed error
+    let credentialId: number | null = null;
+    let type = "unknown";
+    try {
+      credentialId = credential.id ?? null;
+      type = credential.type ?? "unknown";
+    } catch {
+      // keep the defaults
+    }
+    throw new CredentialKeyUnavailableError(result.reason, credentialId, type);
   }
   return result.key;
 }

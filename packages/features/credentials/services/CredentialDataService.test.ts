@@ -29,7 +29,14 @@ const { serviceLogError, serviceLogOther } = vi.hoisted(() => ({
 }));
 
 vi.mock("@calcom/lib/logger", () => {
-  const quiet = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), silly: vi.fn(), log: vi.fn() };
+  const quiet = {
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    silly: vi.fn(),
+    log: vi.fn(),
+  };
   const service = {
     error: serviceLogError,
     warn: serviceLogOther,
@@ -119,12 +126,18 @@ describe("CredentialDataService", () => {
       const error = new CredentialKeyUnavailableError("decrypt_failed", 7, "google_calendar");
       expect(error).toBeInstanceOf(Error);
       expect(error).toBeInstanceOf(CredentialKeyUnavailableError);
-      expect(error.message).toBe("Credential key unavailable (decrypt_failed) for credential 7 (google_calendar)");
-      expect(error).toMatchObject({ reason: "decrypt_failed", credentialId: 7, credentialType: "google_calendar" });
-      expect(error.cause).toBeUndefined();
-      expect(new CredentialKeyUnavailableError("keyring_not_configured", null, "google_calendar").message).toBe(
-        "Credential key unavailable (keyring_not_configured) for credential new (google_calendar)"
+      expect(error.message).toBe(
+        "Credential key unavailable (decrypt_failed) for credential 7 (google_calendar)"
       );
+      expect(error).toMatchObject({
+        reason: "decrypt_failed",
+        credentialId: 7,
+        credentialType: "google_calendar",
+      });
+      expect(error.cause).toBeUndefined();
+      expect(
+        new CredentialKeyUnavailableError("keyring_not_configured", null, "google_calendar").message
+      ).toBe("Credential key unavailable (keyring_not_configured) for credential new (google_calendar)");
     });
   });
 
@@ -152,7 +165,11 @@ describe("CredentialDataService", () => {
       expect(result).toMatchObject({ type: "google_calendar", userId: 1, appId: "google-calendar" });
       expect(result.encryptedKey).not.toContain(TOKEN.access_token);
       expect(result.encryptedKey).not.toContain(TOKEN.refresh_token);
-      expect(JSON.parse(result.encryptedKey)).toMatchObject({ v: 1, alg: "AES-256-GCM", ring: "CREDENTIALS" });
+      expect(JSON.parse(result.encryptedKey)).toMatchObject({
+        v: 1,
+        alg: "AES-256-GCM",
+        ring: "CREDENTIALS",
+      });
       expect(decryptTestCredentialKey({ ...result, teamId: null })).toEqual(TOKEN);
     });
 
@@ -202,16 +219,75 @@ describe("CredentialDataService", () => {
 
   describe("buildCredentialKeyUpdateData", () => {
     it("returns the placeholder and an envelope bound to the row's own type, userId and teamId", () => {
-      const data = buildCredentialKeyUpdateData({ type: "google_calendar", userId: 4, teamId: 5, key: TOKEN });
+      const data = buildCredentialKeyUpdateData({
+        type: "google_calendar",
+        userId: 4,
+        teamId: 5,
+        key: TOKEN,
+      });
       expect(Object.keys(data).sort()).toEqual(["encryptedKey", "key"]);
       expect(data.key).toEqual(encryptedKeyPlaceholder());
-      expect(decryptTestCredentialKey({ type: "google_calendar", userId: 4, teamId: 5, ...data })).toEqual(TOKEN);
+      expect(decryptTestCredentialKey({ type: "google_calendar", userId: 4, teamId: 5, ...data })).toEqual(
+        TOKEN
+      );
     });
 
     it("throws instead of returning plaintext when the keyring is missing", () => {
       stubMissingCredentialKeyring();
+      let result: unknown;
+      let error: unknown;
+      try {
+        result = buildCredentialKeyUpdateData({
+          type: "google_calendar",
+          userId: 434_343,
+          teamId: null,
+          key: TOKEN,
+        });
+      } catch (e) {
+        error = e;
+      }
+      expect(result).toBeUndefined();
+      expect(error).toBeInstanceOf(CredentialKeyUnavailableError);
+      expect(error).toMatchObject({
+        reason: "keyring_not_configured",
+        credentialId: null,
+        credentialType: "google_calendar",
+      });
+    });
+  });
+
+  describe("a key that would not read back as a JSON object", () => {
+    it.each([
+      ["an array", [1, 2]],
+      ["a Date", new Date(0)],
+      ["an object whose toJSON returns an array", { toJSON: () => [1] }],
+      ["a string", "ya29.x"],
+      ["null", null],
+      ["undefined", undefined],
+    ])("%s is refused by both builders, so no unreadable row is ever written", (_label, key) => {
+      let result: unknown;
+      let error: unknown;
+      try {
+        result = buildCredentialKeyUpdateData({
+          type: "google_calendar",
+          userId: newId(),
+          teamId: null,
+          key: key as never,
+        });
+      } catch (e) {
+        error = e;
+      }
+      expect(result).toBeUndefined();
+      expect(error).toBeInstanceOf(CredentialKeyUnavailableError);
+      expect(error).toMatchObject({ reason: "keyring_not_configured", credentialId: null });
+
       expect(() =>
-        buildCredentialKeyUpdateData({ type: "google_calendar", userId: 434_343, teamId: null, key: TOKEN })
+        buildCredentialCreateData({
+          type: "google_calendar",
+          key: key as never,
+          userId: newId(),
+          appId: "google-calendar",
+        })
       ).toThrow(CredentialKeyUnavailableError);
     });
   });
@@ -302,6 +378,19 @@ describe("CredentialDataService", () => {
         });
       });
 
+      it("an encryptedKey field that is absent or undefined -> decrypt_failed (transient: a missing select)", () => {
+        expect(decryptCredentialKeyResult(base() as never)).toEqual({
+          ok: false,
+          reason: "decrypt_failed",
+          kid: null,
+        });
+        expect(decryptCredentialKeyResult({ ...base(), encryptedKey: undefined } as never)).toEqual({
+          ok: false,
+          reason: "decrypt_failed",
+          kid: null,
+        });
+      });
+
       it.each([
         ["text that is not JSON", "not-json"],
         ["a JSON value that is not an envelope", '{"_enc":"keyring-v1"}'],
@@ -348,13 +437,20 @@ describe("CredentialDataService", () => {
       it("key material that is not 32 bytes -> keyring_not_configured", () => {
         const row = encryptedRow();
         vi.stubEnv("CALCOM_KEYRING_CREDENTIALS_KTEST", Buffer.alloc(31, 1).toString("base64url"));
-        expect(decryptCredentialKeyResult(row)).toMatchObject({ ok: false, reason: "keyring_not_configured" });
+        expect(decryptCredentialKeyResult(row)).toMatchObject({
+          ok: false,
+          reason: "keyring_not_configured",
+        });
       });
 
       it("another key under the same kid -> decrypt_failed", () => {
         const row = encryptedRow();
         vi.stubEnv("CALCOM_KEYRING_CREDENTIALS_KTEST", Buffer.alloc(32, 7).toString("base64url"));
-        expect(decryptCredentialKeyResult(row)).toEqual({ ok: false, reason: "decrypt_failed", kid: "KTEST" });
+        expect(decryptCredentialKeyResult(row)).toEqual({
+          ok: false,
+          reason: "decrypt_failed",
+          kid: "KTEST",
+        });
       });
 
       it("a flipped ciphertext bit -> decrypt_failed", () => {
@@ -391,6 +487,26 @@ describe("CredentialDataService", () => {
         message: `Credential key unavailable (keyring_not_configured) for credential ${row.id} (google_calendar)`,
       });
       expect((error as Error).cause).toBeUndefined();
+    });
+
+    it("decryptCredentialKey throws the typed error even for an untyped null credential", () => {
+      expect(decryptCredentialKeyResult(null as never)).toEqual({
+        ok: false,
+        reason: "decrypt_failed",
+        kid: null,
+      });
+      let error: unknown;
+      try {
+        decryptCredentialKey(null as never);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(CredentialKeyUnavailableError);
+      expect(error).toMatchObject({
+        reason: "decrypt_failed",
+        credentialId: null,
+        credentialType: "unknown",
+      });
     });
   });
 
@@ -463,6 +579,19 @@ describe("CredentialDataService", () => {
       decryptCredentialKeyResult({ ...row, id: firstId });
       expect(serviceLogError).toHaveBeenCalledTimes(10_003);
     });
+
+    it("starts the throttle map over when a burst fills it inside one interval, so it stays bounded", () => {
+      vi.spyOn(Date, "now").mockReturnValue(90_000_000);
+      const row = { type: "google_calendar", userId: 1, teamId: null, encryptedKey: null };
+      const firstId = newId();
+      decryptCredentialKeyResult({ ...row, id: firstId });
+      for (let i = 0; i < 10_000; i++) decryptCredentialKeyResult({ ...row, id: newId() });
+      expect(serviceLogError).toHaveBeenCalledTimes(10_001);
+
+      // Nothing had expired, so the full map was cleared: firstId is no longer remembered and logs again
+      decryptCredentialKeyResult({ ...row, id: firstId });
+      expect(serviceLogError).toHaveBeenCalledTimes(10_002);
+    });
   });
 
   describe("CredentialRepository encrypted-key writes (prismock)", () => {
@@ -479,7 +608,12 @@ describe("CredentialDataService", () => {
 
     it("creates a row from buildCredentialCreateData with the placeholder and the envelope", async () => {
       const created = await CredentialRepository.create(
-        buildCredentialCreateData({ type: "google_calendar", key: TOKEN, userId: 1, appId: "google-calendar" })
+        buildCredentialCreateData({
+          type: "google_calendar",
+          key: TOKEN,
+          userId: 1,
+          appId: "google-calendar",
+        })
       );
       const row = await prismock.credential.findUniqueOrThrow({ where: { id: created.id } });
       expect(row.key).toEqual(encryptedKeyPlaceholder());
@@ -541,16 +675,64 @@ describe("CredentialDataService", () => {
 
     it("writes nothing and throws when the row's teamId or type differs", async () => {
       const row = await createRow({ userId: 1, teamId: null });
-      const data = buildCredentialKeyUpdateData({ type: "google_calendar", userId: 1, teamId: 4, key: TOKEN });
+      const data = buildCredentialKeyUpdateData({
+        type: "google_calendar",
+        userId: 1,
+        teamId: 4,
+        key: TOKEN,
+      });
 
       await expect(
-        CredentialRepository.updateEncryptedKeyWhereId({ id: row.id, type: "google_calendar", userId: 1, teamId: 4, data })
+        CredentialRepository.updateEncryptedKeyWhereId({
+          id: row.id,
+          type: "google_calendar",
+          userId: 1,
+          teamId: 4,
+          data,
+        })
       ).rejects.toThrow("credential changed; encrypted key not stored");
       await expect(
-        CredentialRepository.updateEncryptedKeyWhereId({ id: row.id, type: "google_video", userId: 1, teamId: null, data })
+        CredentialRepository.updateEncryptedKeyWhereId({
+          id: row.id,
+          type: "google_video",
+          userId: 1,
+          teamId: null,
+          data,
+        })
       ).rejects.toThrow("credential changed; encrypted key not stored");
 
       const stored = await prismock.credential.findUniqueOrThrow({ where: { id: row.id } });
+      expect(stored.encryptedKey).toBe(row.encryptedKey);
+    });
+
+    it("refuses at runtime a data.key that is not the placeholder, or an empty envelope, and writes nothing", async () => {
+      const row = await createRow({ userId: 1, teamId: null });
+      const good = buildCredentialKeyUpdateData({
+        type: "google_calendar",
+        userId: 1,
+        teamId: null,
+        key: TOKEN,
+      });
+
+      for (const data of [
+        { ...good, key: TOKEN },
+        { ...good, key: { ...encryptedKeyPlaceholder(), access_token: TOKEN.access_token } },
+        { ...good, key: [encryptedKeyPlaceholder()] },
+        { ...good, encryptedKey: "" },
+      ]) {
+        await expect(
+          CredentialRepository.updateEncryptedKeyWhereId({
+            id: row.id,
+            type: "google_calendar",
+            userId: 1,
+            teamId: null,
+            data: data as never,
+          })
+        ).rejects.toThrow("credential changed; encrypted key not stored");
+      }
+
+      const stored = await prismock.credential.findUniqueOrThrow({ where: { id: row.id } });
+      expect(stored.key).toEqual(row.key);
       expect(stored.encryptedKey).toBe(row.encryptedKey);
     });
   });
@@ -558,13 +740,52 @@ describe("CredentialDataService", () => {
   describe("test keyring helpers", () => {
     it("encrypt with the test keyring even while a missing keyring is stubbed, and leave the env as it was", () => {
       stubMissingCredentialKeyring();
-      const fields = encryptedTestCredentialFields({ type: "google_calendar", userId: 1, teamId: null, key: TOKEN });
+      const fields = encryptedTestCredentialFields({
+        type: "google_calendar",
+        userId: 1,
+        teamId: null,
+        key: TOKEN,
+      });
       expect(process.env.CALCOM_KEYRING_CREDENTIALS_CURRENT).toBe("");
       expect(process.env.CALCOM_KEYRING_CREDENTIALS_KTEST).toBe("");
       expect(fields.key).toEqual(encryptedKeyPlaceholder());
-      expect(decryptTestCredentialKey({ type: "google_calendar", userId: 1, teamId: null, ...fields })).toEqual(
-        TOKEN
-      );
+      expect(
+        decryptTestCredentialKey({ type: "google_calendar", userId: 1, teamId: null, ...fields })
+      ).toEqual(TOKEN);
+    });
+
+    // The helpers spell out the placeholder and the AAD (@calcom/testing can't import @calcom/features), so
+    // they are checked against the production builder and reader for every userId/teamId shape
+    const idShapes: Array<[string, { userId?: number | null; teamId?: number | null }]> = [
+      ["user, team absent", { userId: 1 }],
+      ["user, team null", { userId: 1, teamId: null }],
+      ["user, team undefined", { userId: 1, teamId: undefined }],
+      ["user and team", { userId: 4, teamId: 5 }],
+      ["team only", { userId: null, teamId: 3 }],
+      ["both absent", {}],
+    ];
+
+    it.each(idShapes)("match the production placeholder and AAD: %s", (_label, ids) => {
+      const row = {
+        id: newId(),
+        type: "google_calendar",
+        userId: ids.userId ?? null,
+        teamId: ids.teamId ?? null,
+      };
+
+      const fields = encryptedTestCredentialFields({ type: "google_calendar", ...ids, key: TOKEN });
+      expect(fields.key).toEqual(encryptedKeyPlaceholder());
+      expect(isCredentialKeyPlaceholder(fields.key)).toBe(true);
+      expect(decryptCredentialKeyResult({ ...row, encryptedKey: fields.encryptedKey })).toEqual({
+        ok: true,
+        key: TOKEN,
+        kid: "KTEST",
+      });
+
+      const built = buildCredentialKeyUpdateData({ ...row, key: TOKEN });
+      expect(
+        decryptTestCredentialKey({ type: "google_calendar", ...ids, encryptedKey: built.encryptedKey })
+      ).toEqual(TOKEN);
     });
   });
 });
