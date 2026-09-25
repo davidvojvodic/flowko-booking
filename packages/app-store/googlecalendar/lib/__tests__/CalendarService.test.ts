@@ -13,12 +13,13 @@ import {
   setLastCreatedJWT,
   setLastCreatedOAuth2Client,
 } from "../__mocks__/googleapis";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "vitest-fetch-mock";
 
 import process from "node:process";
 import { MeetLocationType } from "@calcom/app-store/constants";
 import logger from "@calcom/lib/logger";
+import { encryptedTestCredentialFields, stubTestCredentialKeyring } from "@calcom/testing/lib/credentialKeyring";
 import type { CredentialForCalendarServiceWithEmail } from "@calcom/types/Credential";
 import BuildCalendarService, { createGoogleCalendarServiceWithGoogleType } from "../CalendarService";
 import { createCredentialForCalendarService, createMockJWTInstance } from "./utils";
@@ -35,6 +36,12 @@ beforeEach(() => {
   setLastCreatedJWT(null);
   setLastCreatedOAuth2Client(null);
   createMockJWTInstance({});
+  // Flowko U9: CalendarAuth decrypts the stored token, so the test keyring must be configured
+  stubTestCredentialKeyring();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const mockCredential: CredentialForCalendarServiceWithEmail = {
@@ -42,9 +49,6 @@ const mockCredential: CredentialForCalendarServiceWithEmail = {
   userId: 1,
   appId: "google-calendar",
   type: "google_calendar",
-  key: {
-    access_token: "<INVALID_TOKEN>",
-  },
   user: {
     email: "user@example.com",
   },
@@ -52,7 +56,15 @@ const mockCredential: CredentialForCalendarServiceWithEmail = {
   delegatedTo: null,
   invalid: false,
   teamId: null,
-  encryptedKey: null,
+  // Flowko U9: stored as production stores it (key = placeholder, token encrypted in encryptedKey)
+  ...encryptedTestCredentialFields({
+    type: "google_calendar",
+    userId: 1,
+    teamId: null,
+    key: {
+      access_token: "<INVALID_TOKEN>",
+    },
+  }),
 };
 
 describe("getAvailability", () => {
