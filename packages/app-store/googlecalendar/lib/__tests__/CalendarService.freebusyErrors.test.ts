@@ -676,3 +676,35 @@ describe("a host with more than one Google account connected", () => {
     });
   });
 });
+
+describe("chunks of a range longer than 90 days", () => {
+  const requestedRanges = () =>
+    freebusyQueryMock.mock.calls.map(([{ requestBody }]) => ({
+      timeMin: requestBody.timeMin,
+      timeMax: requestBody.timeMax,
+    }));
+
+  test("ask Google for the whole range, without gaps, when the day count is a multiple of 90", async () => {
+    const calendarService = buildService();
+    mockFreeBusy();
+
+    // 180 days and 23 hours: two whole 90-day chunks and a tail
+    await calendarService.getAvailability({
+      dateFrom: "2026-09-30T13:00:00Z",
+      dateTo: "2027-03-30T12:00:00Z",
+      selectedCalendars: [selectedCalendar(READABLE_ID)],
+      mode: "slots",
+      fallbackToPrimary: false,
+    });
+
+    const ranges = requestedRanges();
+    expect(ranges[0].timeMin).toBe("2026-09-30T13:00:00.000Z");
+    expect(ranges[ranges.length - 1].timeMax).toBe("2027-03-30T12:00:00.000Z");
+    ranges.slice(1).forEach((range, i) => expect(range.timeMin).toBe(ranges[i].timeMax));
+    ranges.forEach(({ timeMin, timeMax }) =>
+      expect(new Date(timeMax).getTime() - new Date(timeMin).getTime()).toBeLessThanOrEqual(
+        90 * 24 * 60 * 60 * 1000
+      )
+    );
+  });
+});

@@ -61,7 +61,7 @@ const GOOGLE_ERROR_REASON = /^[A-Za-z]{1,64}$/;
 
 const assertFreeBusyReadable = (
   freeBusyResult: calendar_v3.Schema$FreeBusyResponse,
-  /** Lowercased ids of calendars another connection of the host reads (see getCalendarIdsOfOtherConnections) */
+  /** Lowercased ids of calendars another connection reads (see getCalendarIdsOfOtherConnections) */
   otherConnectionCalendarIds: ReadonlySet<string> = new Set()
 ) => {
   const unreadable = [
@@ -803,19 +803,17 @@ class GoogleCalendarService implements Calendar {
 
     // Handle longer periods by chunking into 90-day periods
     const busyData: EventBusyDate[] = [];
-    const loopsNumber = Math.ceil(diff / 90);
     let currentStartTime = fromDate.getTime();
     const originalEndTime = toDate.getTime();
     const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-    const oneMinuteMs = 60 * 1000;
 
-    for (let i = 0; i < loopsNumber; i++) {
-      let currentEndTime = currentStartTime + ninetyDaysMs;
-
+    // Flowko: chunk until the end of the range is reached, each chunk starting where the last one
+    // ended. A chunk count from the floored day count left the tail of the range unasked when that
+    // count was a multiple of 90, and a one-minute step left a gap at every boundary: that time
+    // looked free.
+    while (currentStartTime < originalEndTime) {
       // Don't go beyond the original end date
-      if (currentEndTime > originalEndTime) {
-        currentEndTime = originalEndTime;
-      }
+      const currentEndTime = Math.min(currentStartTime + ninetyDaysMs, originalEndTime);
 
       const chunkData = await this.getFreeBusyData(
         {
@@ -831,7 +829,7 @@ class GoogleCalendarService implements Calendar {
       if (!chunkData) throw new Error("No response from google calendar");
       busyData.push(...chunkData.map((freeBusy) => ({ start: freeBusy.start, end: freeBusy.end })));
 
-      currentStartTime = currentEndTime + oneMinuteMs;
+      currentStartTime = currentEndTime;
     }
 
     return busyData;
