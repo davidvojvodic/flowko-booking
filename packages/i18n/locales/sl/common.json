@@ -2683,7 +2683,7 @@
   "continue_to_install_google_calendar": "Nadaljuj z namestitvijo Google Calendar",
   "install_google_meet": "Namesti Google Meet",
   "install_google_calendar": "Namesti Google Calendar",
-  "google_calendar_connect_notice": "Flowko bo bral, kdaj ste zasedeni v koledarjih, ki jih izberete, ter ustvarjal, spreminjal in brisal dogodke za rezervacije prek Flowka. Vsebine drugih dogodkov ne bere. Več v razdelku 3.3 <0>pravilnika o zasebnosti</0>.",
+  "google_calendar_connect_notice": "Aplikacija Flowko Rezervacije bo brala seznam vaših koledarjev in čase, ko ste zasedeni v koledarjih, ki jih izberete, ter ustvarjala, spreminjala in brisala dogodke za rezervacije, opravljene prek nje. Vsebine drugih dogodkov ne bere. Več v razdelku 3.3 <0>pravilnika o zasebnosti</0>.",
   "sender_name": "Ime pošiljatelja",
   "already_invited": "Udeleženec je že povabljen",
   "no_recordings_found": "Ni najdenih posnetkov",
