@@ -1,3 +1,4 @@
+import type { CredentialKeyPlaceholder } from "@calcom/features/credentials/services/CredentialDataService";
 import { buildNonDelegationCredential } from "@calcom/lib/delegationCredential";
 import logger from "@calcom/lib/logger";
 import { prisma } from "@calcom/prisma";
@@ -7,13 +8,15 @@ import { credentialForCalendarServiceSelect } from "@calcom/prisma/selects/crede
 
 const log = logger.getSubLogger({ prefix: ["CredentialRepository"] });
 
+// Flowko U9: a credential is created only with an encrypted key; build it with buildCredentialCreateData
 type CredentialCreateInput = {
   type: string;
-  key: object;
+  key: Prisma.InputJsonObject;
   userId: number;
   appId: string;
+  teamId?: number | null;
   delegationCredentialId?: string | null;
-  encryptedKey?: string | null;
+  encryptedKey: string;
 };
 
 type CredentialUpdateInput = {
@@ -59,6 +62,44 @@ export class CredentialRepository {
     });
     return buildNonDelegationCredential(credential);
   }
+
+  /** Flowko U9: the fields a credential's key envelope is bound to (its AAD), plus the id */
+  static async findKeyAadFieldsById({ id }: { id: number }) {
+    return prisma.credential.findUnique({
+      where: { id },
+      select: { id: true, type: true, userId: true, teamId: true },
+    });
+  }
+
+  /**
+   * Flowko U9: stores a re-encrypted key, but only while the row still has the type, userId and teamId the
+   * envelope was bound to. Build `data` with buildCredentialKeyUpdateData.
+   *
+   * @throws Error when no row matched, so nothing was stored
+   */
+  static async updateEncryptedKeyWhereId({
+    id,
+    type,
+    userId,
+    teamId,
+    data,
+  }: {
+    id: number;
+    type: string;
+    userId?: number | null;
+    teamId?: number | null;
+    data: { key: CredentialKeyPlaceholder; encryptedKey: string };
+  }) {
+    const { count } = await prisma.credential.updateMany({
+      // explicit nulls: disallowUndefinedDeleteUpdateManyExtension refuses undefined where values
+      where: { id, type, userId: userId ?? null, teamId: teamId ?? null },
+      data: { key: data.key, encryptedKey: data.encryptedKey },
+    });
+    if (count !== 1) {
+      throw new Error("credential changed; encrypted key not stored");
+    }
+  }
+
   static async findByAppIdAndUserId({ appId, userId }: { appId: string; userId: number }) {
     const credential = await prisma.credential.findFirst({
       where: {
@@ -266,6 +307,10 @@ export class CredentialRepository {
     });
   }
 
+  /**
+   * @deprecated Flowko U9: writes a plaintext key. Once U9 lands only the disabled salesforce app calls it, and
+   * the database CHECK refuses token fields in `key`. Use updateEncryptedKeyWhereId.
+   */
   static async updateWhereId({ id, data }: { id: number; data: { key: Prisma.InputJsonValue } }) {
     return prisma.credential.update({ where: { id }, data });
   }

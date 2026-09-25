@@ -2,8 +2,13 @@ import { createCipheriv } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as keyring from "./keyring";
-import { decryptSecret, encryptSecret, getKeyMaterial } from "./keyring";
+import {
+  decryptSecret,
+  encryptSecret,
+  getKeyMaterial,
+  isKeyringConfigured,
+  parseSecretEnvelope,
+} from "./keyring";
 
 // Test-only key material: the bytes 0x00..0x1f, never used outside unit tests.
 const TEST_KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
@@ -99,32 +104,32 @@ describe("keyring", () => {
 
   describe("isKeyringConfigured", () => {
     it("is true for a 32-byte key under CURRENT", () => {
-      expect(keyring.isKeyringConfigured("CREDENTIALS")).toBe(true);
+      expect(isKeyringConfigured("CREDENTIALS")).toBe(true);
     });
 
     it("is false when CURRENT is unset", () => {
       vi.stubEnv("CALCOM_KEYRING_CREDENTIALS_CURRENT", "");
-      expect(keyring.isKeyringConfigured("CREDENTIALS")).toBe(false);
+      expect(isKeyringConfigured("CREDENTIALS")).toBe(false);
     });
 
     it("is false when the kid variable is missing", () => {
       stubKeyring("K2");
-      expect(keyring.isKeyringConfigured("CREDENTIALS")).toBe(false);
+      expect(isKeyringConfigured("CREDENTIALS")).toBe(false);
     });
 
     it("is false for a 31-byte key", () => {
       stubKeyring("K1", TEST_KEY.subarray(0, 31).toString("base64url"));
-      expect(keyring.isKeyringConfigured("CREDENTIALS")).toBe(false);
+      expect(isKeyringConfigured("CREDENTIALS")).toBe(false);
     });
 
     it("is false for a CURRENT kid that is not upper-case", () => {
       stubKeyring("k1");
-      expect(keyring.isKeyringConfigured("CREDENTIALS")).toBe(false);
+      expect(isKeyringConfigured("CREDENTIALS")).toBe(false);
     });
 
     it("never throws, even for an invalid ring name", () => {
       expect(() =>
-        keyring.isKeyringConfigured("credentials" as unknown as Parameters<typeof keyring.isKeyringConfigured>[0])
+        isKeyringConfigured("credentials" as unknown as Parameters<typeof isKeyringConfigured>[0])
       ).not.toThrow();
     });
   });
@@ -134,7 +139,7 @@ describe("keyring", () => {
 
     it("returns the envelope fields for a valid envelope", () => {
       const envelope = valid();
-      expect(keyring.parseSecretEnvelope(JSON.stringify({ ...envelope, extra: "ignored" }))).toEqual(envelope);
+      expect(parseSecretEnvelope(JSON.stringify({ ...envelope, extra: "ignored" }))).toEqual(envelope);
     });
 
     it.each([
@@ -144,7 +149,7 @@ describe("keyring", () => {
     ])("rejects %s without echoing the input", (_label, json) => {
       let message = "";
       try {
-        keyring.parseSecretEnvelope(json);
+        parseSecretEnvelope(json);
       } catch (e) {
         message = (e as Error).message;
       }
@@ -164,7 +169,7 @@ describe("keyring", () => {
       ["missing ct", { ct: undefined }],
       ["numeric nonce", { nonce: 12 }],
     ])("rejects a bad %s", (_label, patch) => {
-      expect(() => keyring.parseSecretEnvelope(JSON.stringify({ ...valid(), ...patch }))).toThrow(
+      expect(() => parseSecretEnvelope(JSON.stringify({ ...valid(), ...patch }))).toThrow(
         "malformed envelope"
       );
     });
