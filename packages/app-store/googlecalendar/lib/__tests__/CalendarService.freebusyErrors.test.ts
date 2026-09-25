@@ -13,9 +13,10 @@ import {
   setLastCreatedJWT,
   setLastCreatedOAuth2Client,
 } from "../__mocks__/googleapis";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "vitest-fetch-mock";
 
+import { encryptedTestCredentialFields, stubTestCredentialKeyring } from "@calcom/testing/lib/credentialKeyring";
 import type { IntegrationCalendar } from "@calcom/types/Calendar";
 import type { CredentialForCalendarServiceWithEmail } from "@calcom/types/Credential";
 import BuildCalendarService, { GoogleCalendarFreeBusyError } from "../CalendarService";
@@ -39,6 +40,12 @@ beforeEach(() => {
   setLastCreatedJWT(null);
   setLastCreatedOAuth2Client(null);
   createMockJWTInstance({});
+  // Flowko U9: CalendarAuth decrypts the stored token, so the test keyring must be configured
+  stubTestCredentialKeyring();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const mockCredential: CredentialForCalendarServiceWithEmail = {
@@ -46,9 +53,6 @@ const mockCredential: CredentialForCalendarServiceWithEmail = {
   userId: 1,
   appId: "google-calendar",
   type: "google_calendar",
-  key: {
-    access_token: "<INVALID_TOKEN>",
-  },
   user: {
     email: "user@example.com",
   },
@@ -56,7 +60,15 @@ const mockCredential: CredentialForCalendarServiceWithEmail = {
   delegatedTo: null,
   invalid: false,
   teamId: null,
-  encryptedKey: null,
+  // Flowko U9: stored as production stores it (key = placeholder, token encrypted in encryptedKey)
+  ...encryptedTestCredentialFields({
+    type: "google_calendar",
+    userId: 1,
+    teamId: null,
+    key: {
+      access_token: "<INVALID_TOKEN>",
+    },
+  }),
 };
 
 const READABLE_ID = "readable.calendar@example.com";
@@ -631,6 +643,9 @@ describe("a host with more than one Google account connected", () => {
       ...mockCredential,
       id: -1,
       delegatedToId: "delegation-credential-1",
+      // Flowko U9: a delegation credential is built in memory and CalendarAuth reads its key as is (the
+      // delegation branch is unchanged), so it keeps the plaintext in-memory key, not the stored placeholder
+      key: { access_token: "<INVALID_TOKEN>" },
     });
     setFullMockOAuthManagerRequest();
     mockFreeBusy({ [OTHER_ACCOUNT_ID]: notFound });
