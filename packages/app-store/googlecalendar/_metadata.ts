@@ -4,8 +4,10 @@ import type { AppMeta } from "@calcom/types/App";
 
 export const metadata = {
   name: "Google Calendar",
+  // Flowko: Slovenian for every client (the UI is Slovenian), and Flowko instead of Cal.diy as publisher and
+  // contact, because Google's OAuth verification reviewer sees this page
   description:
-    "Google Calendar is a time management and scheduling service developed by Google. Allows users to create and edit events, with options available for type and time. Available to anyone that has a Gmail account on both mobile and web versions.",
+    "Povežite Google Calendar, da stranke ne morejo rezervirati terminov, ko ste zasedeni, in da se vsaka rezervacija samodejno doda v vaš koledar, ob spremembi posodobi in ob odpovedi izbriše.",
   installed: !!(process.env.GOOGLE_API_CREDENTIALS && validJson(process.env.GOOGLE_API_CREDENTIALS)),
   type: "google_calendar",
   title: "Google Calendar",
@@ -13,10 +15,10 @@ export const metadata = {
   category: "calendar",
   categories: ["calendar"],
   logo: "icon.svg",
-  publisher: "Cal.diy",
+  publisher: "Flowko",
   slug: "google-calendar",
-  url: "https://cal.com/",
-  email: "help@cal.com",
+  url: "https://flowko.si/",
+  email: "rezervacije@flowko.si",
   dirName: "googlecalendar",
   isOAuth: true,
   delegationCredential: {

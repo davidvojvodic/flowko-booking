@@ -42,8 +42,8 @@ describe("GoogleCalendarConnectGate", () => {
     clickConnect();
 
     expect(onClick).not.toHaveBeenCalled();
-    expect(notice()).toHaveTextContent(
-      "Flowko will read when you are busy in the calendars you choose and create, update and delete the events for bookings made through Flowko. It does not read the contents of your other events. See section 3.3 of the privacy policy."
+    expect(notice()?.textContent).toBe(
+      "Flowko Rezervacije will read the list of your calendars and the times you are busy in the calendars you choose, and will create, update and delete the events for bookings made through it. It does not read the contents of your other events. See section 3.3 of the privacy policy."
     );
     expect(screen.getByRole("link", { name: "privacy policy" })).toHaveAttribute(
       "href",
@@ -124,8 +124,8 @@ describe("GoogleCalendarConnectGate", () => {
 
     clickConnect();
 
-    expect(notice()).toHaveTextContent(
-      "Flowko bo bral, kdaj ste zasedeni v koledarjih, ki jih izberete, ter ustvarjal, spreminjal in brisal dogodke za rezervacije prek Flowka. Vsebine drugih dogodkov ne bere. Več v razdelku 3.3 pravilnika o zasebnosti."
+    expect(notice()?.textContent).toBe(
+      "Aplikacija Flowko Rezervacije bo brala seznam vaših koledarjev in čase, ko ste zasedeni v koledarjih, ki jih izberete, ter ustvarjala, spreminjala in brisala dogodke za rezervacije, opravljene prek nje. Vsebine drugih dogodkov ne bere. Več v razdelku 3.3 pravilnika o zasebnosti."
     );
     expect(screen.getByRole("link", { name: "pravilnika o zasebnosti" })).toHaveAttribute(
       "href",

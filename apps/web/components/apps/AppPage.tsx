@@ -15,7 +15,7 @@ import { doesAppSupportTeamInstall, isConferencing } from "@calcom/app-store/uti
 import DisconnectIntegration from "@calcom/web/modules/apps/components/DisconnectIntegration";
 import { AppOnboardingSteps } from "@calcom/lib/apps/appOnboardingSteps";
 import { getAppOnboardingUrl } from "@calcom/lib/apps/getAppOnboardingUrl";
-import { APP_NAME, COMPANY_NAME, SUPPORT_MAIL_ADDRESS, WEBAPP_URL } from "@calcom/lib/constants";
+import { WEBAPP_URL } from "@calcom/lib/constants";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc, type RouterOutputs } from "@calcom/trpc/react";
@@ -28,7 +28,6 @@ import {
   CircleAlertIcon,
   ExternalLinkIcon,
   FileIcon,
-  FlagIcon,
   MailIcon,
   ShieldIcon,
 } from "@coss/ui/icons";
@@ -360,10 +359,13 @@ export const AppPage = ({
               <h1 className="font-cal text-emphasis ml-4 text-3xl">{name}</h1>
             </div>
             <h2 className="text-default text-sm font-medium">
+              {/* Flowko: the chip showed the raw category id ("calendar", in English, on the Slovenian page).
+                  It shows the category's translation now; a category without one falls back to its id.
+                  The translations carry their own casing, so the chip no longer capitalises each word. */}
               <Link
                 href={`categories/${categories[0]}`}
-                className="bg-subtle text-emphasis rounded-md p-1 text-xs capitalize">
-                {categories[0]}
+                className="bg-subtle text-emphasis rounded-md p-1 text-xs">
+                {t(categories[0], { defaultValue: categories[0] })}
               </Link>{" "}
               {paid && (
                 <>
@@ -510,13 +512,8 @@ export const AppPage = ({
             </li>
           )}
         </ul>
-        <hr className="border-subtle my-8 border" />
-        <span className="text-subtle block text-xs">
-          {t("every_app_published", { appName: APP_NAME, companyName: COMPANY_NAME })}
-        </span>
-        <a className="mt-2 block text-xs text-red-500" href={`mailto:${SUPPORT_MAIL_ADDRESS}`}>
-          <FlagIcon className="inline h-3 w-3" /> {t("report_app")}
-        </a>
+        {/* Flowko: upstream's footer said every app is open source and peer reviewed and offered a
+            "report app" mailto. A single-operator service has no app review, so the claim is untrue. */}
       </div>
       {googleCalendarNotice.dialog}
     </div>
