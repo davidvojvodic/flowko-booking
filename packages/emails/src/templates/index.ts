@@ -12,6 +12,7 @@ export { AttendeeScheduledEmail } from "./AttendeeScheduledEmail";
 export { AttendeeUpdatedEmail } from "./AttendeeUpdatedEmail";
 export { AttendeeWasRequestedToRescheduleEmail } from "./AttendeeWasRequestedToRescheduleEmail";
 export { BookingRedirectEmailNotification } from "./BookingRedirectEmailNotification";
+export { BrokenCalendarConnectionEmail } from "./BrokenCalendarConnectionEmail";
 export { BrokenIntegrationEmail } from "./BrokenIntegrationEmail";
 export { DailyVideoDownloadRecordingEmail } from "./DailyVideoDownloadRecordingEmail";
 export { DailyVideoDownloadTranscriptEmail } from "./DailyVideoDownloadTranscriptEmail";
