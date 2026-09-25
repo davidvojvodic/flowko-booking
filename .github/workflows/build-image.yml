@@ -24,6 +24,8 @@ env:
   NEXT_PUBLIC_WEBAPP_URL: "https://booking.flowko.si"
   NEXT_PUBLIC_WEBSITE_TERMS_URL: "https://flowko.si/terms"
   NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL: "https://flowko.si/privacy"
+  # Flowko: the "<host>/<username>/" prefix in the app; without it the value is derived from NEXT_PUBLIC_WEBAPP_URL
+  NEXT_PUBLIC_WEBSITE_URL: "https://booking.flowko.si"
   NEXT_PUBLIC_APP_NAME: "Flowko"
   NEXT_PUBLIC_COMPANY_NAME: "David Vojvodić s.p., Flowko"
   NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS: "info@flowko.io"
@@ -84,6 +86,7 @@ jobs:
       - name: Check build args
         run: |
           for name in NEXT_PUBLIC_WEBAPP_URL NEXT_PUBLIC_WEBSITE_TERMS_URL NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL \
+            NEXT_PUBLIC_WEBSITE_URL \
             NEXT_PUBLIC_APP_NAME NEXT_PUBLIC_COMPANY_NAME NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS \
             NEXT_PUBLIC_SENDGRID_SENDER_NAME NEXT_PUBLIC_DISABLE_SIGNUP CALCOM_TELEMETRY_DISABLED MAX_OLD_SPACE_SIZE; do
             if [ -z "${!name}" ]; then
@@ -120,6 +123,7 @@ jobs:
             NEXT_PUBLIC_WEBAPP_URL=${{ env.NEXT_PUBLIC_WEBAPP_URL }}
             NEXT_PUBLIC_WEBSITE_TERMS_URL=${{ env.NEXT_PUBLIC_WEBSITE_TERMS_URL }}
             NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL=${{ env.NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL }}
+            NEXT_PUBLIC_WEBSITE_URL=${{ env.NEXT_PUBLIC_WEBSITE_URL }}
             NEXT_PUBLIC_APP_NAME=${{ env.NEXT_PUBLIC_APP_NAME }}
             NEXT_PUBLIC_COMPANY_NAME=${{ env.NEXT_PUBLIC_COMPANY_NAME }}
             NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS=${{ env.NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS }}
