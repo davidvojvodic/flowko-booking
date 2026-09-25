@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   revokeUnstoredGoogleCalendarToken: vi.fn(),
   findEarlierGoogleCalendarCredentials: vi.fn(),
   replaceEarlierGoogleCalendarCredentials: vi.fn(),
+  buildCredentialCreateData: vi.fn(),
+  isCredentialKeyringConfigured: vi.fn(),
 }));
 
 vi.mock("googleapis-common", () => ({
@@ -53,7 +55,8 @@ vi.mock("@calcom/features/credentials/repositories/CredentialRepository", () => 
 }));
 
 vi.mock("@calcom/features/credentials/services/CredentialDataService", () => ({
-  buildCredentialCreateData: vi.fn((data: unknown) => data),
+  buildCredentialCreateData: mocks.buildCredentialCreateData,
+  isCredentialKeyringConfigured: mocks.isCredentialKeyringConfigured,
 }));
 
 vi.mock("@calcom/lib/connectedCalendar", () => ({
@@ -97,9 +100,17 @@ function stateFromAdd(userId: number, state: Record<string, unknown>) {
   return encodeOAuthState(req);
 }
 
-async function callCallback({ userId, query }: { userId?: number; query: Record<string, string> }) {
+async function callCallback({
+  userId,
+  query,
+  headers = {},
+}: {
+  userId?: number;
+  query: Record<string, string>;
+  headers?: Record<string, string>;
+}) {
   const { default: handler } = await import("./callback");
-  const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: "GET", query });
+  const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: "GET", query, headers });
   if (userId) req.session = { user: { id: userId } } as NextApiRequest["session"];
   await handler(req, res);
   return res as unknown as NextApiResponse & {
@@ -121,6 +132,8 @@ beforeEach(() => {
   mocks.findEarlierGoogleCalendarCredentials.mockResolvedValue([]);
   mocks.replaceEarlierGoogleCalendarCredentials.mockResolvedValue(undefined);
   mocks.appFindUnique.mockResolvedValue({ enabled: false });
+  mocks.buildCredentialCreateData.mockImplementation((data: unknown) => data);
+  mocks.isCredentialKeyringConfigured.mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -272,5 +285,104 @@ describe("googlecalendar callback: Google Meet install", () => {
       expect.objectContaining({ userId: VICTIM_ID, appId: "google-meet", type: "google_video" })
     );
     expect(res._getRedirectUrl()).toContain("/apps/installed/conferencing?hl=google-meet");
+  });
+});
+
+describe("googlecalendar callback: credential keyring", () => {
+  const UNAVAILABLE = "Calendar connections are unavailable right now. Please try again later.";
+  const freshTokens = {
+    access_token: "ya29.fresh-access-token",
+    refresh_token: "1//fresh-refresh-token",
+    scope: GOOGLE_CALENDAR_SCOPES.join(" "),
+  };
+
+  function connect(headers: Record<string, string> = {}) {
+    const state = stateFromAdd(VICTIM_ID, { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}/apps/installed` });
+    return callCallback({ userId: VICTIM_ID, query: { code: "own-code", state }, headers });
+  }
+
+  beforeEach(() => {
+    mocks.getToken.mockResolvedValue({ tokens: freshTokens });
+  });
+
+  it("answers 503 before redeeming the code when the credential keyring is not configured", async () => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+
+    const res = await connect();
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).toBe(UNAVAILABLE);
+    expect(mocks.getToken).not.toHaveBeenCalled();
+    expect(mocks.buildCredentialCreateData).not.toHaveBeenCalled();
+    expect(mocks.credentialCreate).not.toHaveBeenCalled();
+    expect(mocks.revokeUnstoredGoogleCalendarToken).not.toHaveBeenCalled();
+  });
+
+  it("still checks the OAuth state first, so a forged callback learns nothing about the keyring", async () => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+
+    const res = await callCallback({ userId: VICTIM_ID, query: { code: "attacker-code" } });
+
+    expect(res._getStatusCode()).toBe(403);
+  });
+
+  it("revokes the fresh token and stores nothing when its key can't be encrypted", async () => {
+    mocks.buildCredentialCreateData.mockImplementation(() => {
+      throw new Error(
+        "Credential key unavailable (keyring_not_configured) for credential new (google_calendar)"
+      );
+    });
+
+    const res = await connect();
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).toBe(UNAVAILABLE);
+    expect(mocks.credentialCreate).not.toHaveBeenCalled();
+    expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
+      userId: VICTIM_ID,
+      key: freshTokens,
+    });
+    expect(mocks.upsertSelectedCalendar).not.toHaveBeenCalled();
+    expect(mocks.replaceEarlierGoogleCalendarCredentials).not.toHaveBeenCalled();
+    // The answer carries no token and no detail of the failure
+    const body = JSON.stringify(res._getJSONData());
+    expect(body).not.toContain("fresh-");
+    expect(body).not.toContain("keyring_not_configured");
+  });
+
+  it("revokes the fresh token when the credential row can't be created", async () => {
+    mocks.credentialCreate.mockRejectedValue(new Error("new row violates check constraint"));
+
+    const res = await connect();
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
+      userId: VICTIM_ID,
+      key: freshTokens,
+    });
+    expect(mocks.upsertSelectedCalendar).not.toHaveBeenCalled();
+    expect(JSON.stringify(res._getJSONData())).not.toContain("check constraint");
+  });
+
+  it("tells a Slovenian user in Slovenian", async () => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+
+    const res = await connect({ "accept-language": "sl" });
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).toBe(
+      "Povezovanje koledarjev trenutno ni na voljo. Poskusite znova pozneje."
+    );
+  });
+
+  it("stores the encrypted credential data it was given and revokes nothing on success", async () => {
+    const res = await connect();
+
+    expect(mocks.buildCredentialCreateData).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: VICTIM_ID, key: freshTokens, type: "google_calendar" })
+    );
+    expect(mocks.credentialCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.revokeUnstoredGoogleCalendarToken).not.toHaveBeenCalled();
+    expect(res._getRedirectUrl()).toContain("/apps/installed/calendar?hl=google-calendar");
   });
 });
