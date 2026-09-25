@@ -2460,6 +2460,7 @@
   "install_google_meet": "Install Google Meet",
   "install_google_calendar": "Install Google Calendar",
   "google_calendar_connect_notice": "Flowko Rezervacije will read the list of your calendars and the times you are busy in the calendars you choose, and will create, update and delete the events for bookings made through it. It does not read the contents of your other events. See section 3.3 of the <0>privacy policy</0>.",
+  "google_calendar_connections_unavailable": "Calendar connections are unavailable right now. Please try again later.",
   "sender_name": "Sender name",
   "already_invited": "Attendee already invited",
   "no_recordings_found": "No recordings found",
