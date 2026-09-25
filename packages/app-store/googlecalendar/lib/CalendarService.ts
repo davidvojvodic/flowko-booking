@@ -642,6 +642,20 @@ class GoogleCalendarService implements Calendar {
     const freeBusyResult = await this.getFreeBusyResult(args);
     // Flowko: a calendar Google could not read is unknown, not free (see GoogleCalendarFreeBusyError)
     assertFreeBusyReadable(freeBusyResult, otherConnectionCalendarIds);
+    // Flowko: a requested calendar missing from Google's answer would look free. Only observed for now
+    // (counts, never ids), to learn whether Google ever does this before failing closed on it
+    const answeredIds = new Set(
+      [...Object.keys(freeBusyResult.calendars ?? {}), ...Object.keys(freeBusyResult.groups ?? {})].map(
+        (id) => id.toLowerCase()
+      )
+    );
+    const unansweredCount = args.items.filter(({ id }) => !answeredIds.has(id.toLowerCase())).length;
+    if (unansweredCount) {
+      this.log.warn("Google freebusy did not answer every requested calendar", {
+        unansweredCount,
+        requestedCount: args.items.length,
+      });
+    }
     if (!freeBusyResult.calendars) return null;
 
     const result = Object.entries(freeBusyResult.calendars).reduce(

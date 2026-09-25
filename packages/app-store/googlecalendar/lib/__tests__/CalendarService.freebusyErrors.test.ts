@@ -210,6 +210,43 @@ describe("getFreeBusyData", () => {
   });
 });
 
+describe("a requested calendar missing from Google's answer", () => {
+  const MISSING_ID = "missing.calendar@example.com";
+
+  test("is logged as a count, without the calendar id, and the answer is used as before", async () => {
+    const calendarService = buildService();
+    freebusyQueryMock.mockResolvedValue({ data: { calendars: { [READABLE_ID]: { busy: readableBusy } } } });
+    const warnSpy = vi.spyOn((calendarService as any).log, "warn");
+
+    const result = await (calendarService as any).getFreeBusyData({
+      timeMin: "2024-01-01T00:00:00Z",
+      timeMax: "2024-01-02T00:00:00Z",
+      items: [{ id: READABLE_ID }, { id: MISSING_ID }],
+    });
+
+    expect(result).toEqual([{ id: READABLE_ID, ...readableBusy[0] }]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.any(String), { unansweredCount: 1, requestedCount: 2 });
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(MISSING_ID);
+  });
+
+  test("is not logged when Google answers every calendar, whatever the case of its keys", async () => {
+    const calendarService = buildService();
+    freebusyQueryMock.mockResolvedValue({
+      data: { calendars: { [READABLE_ID.toUpperCase()]: { busy: readableBusy } } },
+    });
+    const warnSpy = vi.spyOn((calendarService as any).log, "warn");
+
+    await (calendarService as any).getFreeBusyData({
+      timeMin: "2024-01-01T00:00:00Z",
+      timeMax: "2024-01-02T00:00:00Z",
+      items: [{ id: READABLE_ID }],
+    });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("convertFreeBusyToEventBusyDates", () => {
   test("throws for a calendar Google could not read and converts a readable response as before", () => {
     const calendarService = buildService() as any;
