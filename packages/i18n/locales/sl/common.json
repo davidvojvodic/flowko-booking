@@ -2605,6 +2605,7 @@
   "invalid_credential": "Videti je, da so dovoljenja za {{appName}} potekla ali bila preklicana.",
   "invalid_credential_action": "Znova namesti aplikacijo",
   "broken_calendar_connection_email_subject": "Povezava z {{appName}} ne deluje",
+  "google_calendar_removal_unavailable": "Te povezave z Google Calendar trenutno ni mogoče odstraniti. Poskusite znova pozneje.",
   "broken_calendar_connection_email_body": "Povezava z vašim koledarjem {{appName}} je prenehala delovati: dovoljenja so potekla ali bila preklicana.",
   "broken_calendar_connection_email_no_slots": "Dokler koledarja znova ne povežete, vaša javna stran za rezervacije ne prikazuje prostih terminov, da nihče ne rezervira termina, ki se prekriva z vašimi obstoječimi obveznostmi.",
   "broken_calendar_connection_email_reconnect": "Koledar znova povežete v razdelku Aplikacije → Nameščene aplikacije → Koledarji.",

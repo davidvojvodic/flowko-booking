@@ -14,8 +14,14 @@ import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-util
 import { sendCancelledEmailsAndSMS } from "@calcom/emails/email-manager";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import { deletePayment } from "@calcom/features/bookings/lib/payment/deletePayment";
+import {
+  decryptCredentialKeyResult,
+  isTransientCredentialKeyFailure,
+  tryDecryptCredentialKey,
+} from "@calcom/features/credentials/services/CredentialDataService";
 import { deleteWebhookScheduledTriggers } from "@calcom/features/webhooks/lib/scheduleTrigger";
 import { buildNonDelegationCredential } from "@calcom/lib/delegationCredential";
+import { HttpError } from "@calcom/lib/http-error";
 import { isPrismaObjOrUndefined } from "@calcom/lib/isPrismaObj";
 import { parseRecurringEvent } from "@calcom/lib/isRecurringEvent";
 import { getTranslation } from "@calcom/i18n/server";
@@ -120,9 +126,14 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
         { destinationCalendars: { some: calendarOfAccount } },
       ],
     },
-    select: { key: true },
+    // Flowko U9: the tokens are encrypted at rest and `key` holds only a placeholder. A key that can't be
+    // decrypted is looked up as null, which reads as "unknown": that credential does not count and the grant
+    // is revoked
+    select: { id: true, type: true, userId: true, teamId: true, encryptedKey: true },
   });
-  const accounts = await Promise.all(otherUsersCredentials.map(({ key }) => lookUpGoogleAccount(key)));
+  const accounts = await Promise.all(
+    otherUsersCredentials.map((credential) => lookUpGoogleAccount(tryDecryptCredentialKey(credential)))
+  );
   return accounts.some(
     (account) => account.status === "found" && account.primaryCalendarId === primaryCalendarId
   );
@@ -166,13 +177,22 @@ export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
   try {
     const credentials = await prisma.credential.findMany({
       where: { userId, type: "google_calendar" },
-      select: { id: true, key: true },
+      // Flowko U9: the tokens are encrypted at rest; decrypt them from encryptedKey
+      select: { id: true, type: true, userId: true, teamId: true, encryptedKey: true },
     });
     // All of them go away with the account, so none of them counts as sharing the grant
     const credentialIds = credentials.map(({ id }) => id);
     await Promise.all(
       credentials.map(async (credential) => {
-        const account = await lookUpGoogleAccount(credential.key);
+        const key = tryDecryptCredentialKey(credential);
+        // Flowko U9: without the key there is nothing to revoke with. Deleting the account is never blocked
+        if (!key) {
+          console.error(
+            `Google grant NOT revoked for credentialId: ${credential.id}: stored key unavailable`
+          );
+          return;
+        }
+        const account = await lookUpGoogleAccount(key);
         // Nothing left to revoke
         if (account.status === "grant_revoked") return;
         const grantShared = await isGoogleGrantSharedWithAnotherCredential({
@@ -184,7 +204,7 @@ export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
           console.info(`Skipped revoking shared Google Calendar grant for credentialId: ${credential.id}`);
           return;
         }
-        await revokeGoogleCalendarToken(credential.id, credential.key);
+        await revokeGoogleCalendarToken(credential.id, key);
       })
     );
   } catch (error) {
@@ -193,6 +213,24 @@ export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
       code: (error as { code?: unknown } | null)?.code,
     });
   }
+};
+
+// Flowko U9: the host sees this as the reason the removal failed, so it is worded in their language
+const GOOGLE_CALENDAR_REMOVAL_UNAVAILABLE_MESSAGE =
+  "This Google Calendar connection can't be removed right now. Try again later.";
+
+const googleCalendarRemovalUnavailableError = async (userId: number) => {
+  let message = GOOGLE_CALENDAR_REMOVAL_UNAVAILABLE_MESSAGE;
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { locale: true } });
+    const t = await getTranslation(user?.locale ?? "en", "common");
+    message = t("google_calendar_removal_unavailable");
+  } catch {
+    // The refusal itself must never fail: keep the English message
+  }
+  // A 4xx, not a 500: tRPC passes it on with its own code (CONFLICT) and this message, so the UI can tell the
+  // refusal apart from an unexpected failure
+  return new HttpError({ statusCode: 409, message });
 };
 
 const handleDeleteCredential = async ({
@@ -225,6 +263,27 @@ const handleDeleteCredential = async ({
 
   if (!credential) {
     throw new Error("Credential not found");
+  }
+
+  // Flowko U9: the Google tokens are encrypted at rest, so decrypt before the first write. While the keyring
+  // is unavailable (a transient failure) the disconnect is refused, which keeps the promise to revoke the
+  // grant once the key is back. A row that can never be decrypted (no envelope, or a malformed one) is removed
+  // without a revoke. A dead token (credential.invalid) still decrypts: its revoke is attempted, best effort
+  let googleCalendarKey: Prisma.JsonObject | null = null;
+  if (credential.type === "google_calendar") {
+    const keyResult = decryptCredentialKeyResult(credential);
+    if (keyResult.ok) {
+      googleCalendarKey = keyResult.key;
+    } else if (isTransientCredentialKeyFailure(keyResult.reason)) {
+      console.error(
+        `Refused removing Google Calendar credentialId: ${credential.id}: stored key unavailable (${keyResult.reason})`
+      );
+      throw await googleCalendarRemovalUnavailableError(userId);
+    } else {
+      console.error(
+        `Google grant NOT revoked for credentialId: ${credential.id}: stored key unavailable (${keyResult.reason})`
+      );
+    }
   }
 
   const eventTypes = await prisma.eventType.findMany({
@@ -642,7 +701,8 @@ const handleDeleteCredential = async ({
     }
   }
 
-  if (credential.type === "google_calendar") {
+  // Flowko U9: no key means a permanent key failure, logged above: there is nothing to revoke with
+  if (credential.type === "google_calendar" && googleCalendarKey) {
     const grantShared = await isGoogleGrantSharedWithAnotherCredential({
       credentialIds: [credential.id],
       userId,
@@ -652,7 +712,7 @@ const handleDeleteCredential = async ({
     if (grantShared) {
       console.info(`Skipped revoking shared Google Calendar grant for credentialId: ${credential.id}`);
     } else {
-      await revokeGoogleCalendarToken(credential.id, credential.key);
+      await revokeGoogleCalendarToken(credential.id, googleCalendarKey);
     }
   }
 

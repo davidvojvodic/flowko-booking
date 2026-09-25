@@ -2295,6 +2295,7 @@
   "invalid_credential": "It looks like permissions expired or were revoked for {{appName}}.",
   "invalid_credential_action": "Reinstall app",
   "broken_calendar_connection_email_subject": "The connection to {{appName}} is not working",
+  "google_calendar_removal_unavailable": "This Google Calendar connection can't be removed right now. Try again later.",
   "broken_calendar_connection_email_body": "The connection to {{appName}} stopped working: its permissions expired or were revoked.",
   "broken_calendar_connection_email_no_slots": "Until you reconnect it, your public booking page shows no free slots, so that nobody books a time that overlaps your existing appointments.",
   "broken_calendar_connection_email_reconnect": "You can reconnect it under Apps → Installed apps → Calendars.",
