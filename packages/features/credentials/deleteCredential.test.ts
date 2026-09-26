@@ -256,37 +256,6 @@ describe("deleteCredential", () => {
       expect(revokeWarnings).toEqual([[expect.any(String), { status: 400, code: undefined }]]);
       expect(JSON.stringify(revokeWarnings)).not.toContain("test-access-token");
     });
-    test("Delete Google Calendar credential without revoking a grant another credential shares", async () => {
-      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
-      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
-
-      const user = await new UserRepository(prisma).create({
-        ...testUser,
-      });
-
-      await PrismaAppRepository.seedApp("googlecalendar");
-
-      await setupCredential({
-        userId: user.id,
-        type: "google_calendar",
-        appId: "google-calendar",
-        key: { access_token: "old-access-token", refresh_token: "old-refresh-token" },
-      });
-      // Reconnecting the same Google account adds a second credential and keeps the first
-      await setupCredential({
-        id: 124,
-        userId: user.id,
-        type: "google_calendar",
-        appId: "google-calendar",
-        key: { access_token: "new-access-token", refresh_token: "new-refresh-token" },
-      });
-
-      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
-
-      expect(revokeTokenSpy).not.toHaveBeenCalled();
-      expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
-      expect(await prisma.credential.findUnique({ where: { id: 124 } })).not.toBeNull();
-    });
 
     // TODO: Add test for payment apps
     // TODO: Add test for event type apps
@@ -514,7 +483,7 @@ describe("deleteCredential", () => {
       mockPrimaryCalendars({});
       await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
 
-      // The user already has a working connection, which may be the same Google account
+      // The user already has a working connection, and Google confirms it is the same Google account
       await setupCredential({
         id: 125,
         userId: user.id,
@@ -522,10 +491,234 @@ describe("deleteCredential", () => {
         appId: "google-calendar",
         key: googleKey("existing"),
       });
-      mockPrimaryCalendars({ "partial-refresh": "owner@example.com" });
+      mockPrimaryCalendars({
+        "partial-refresh": "owner@example.com",
+        "existing-refresh": "owner@example.com",
+      });
       await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
 
       expect(revokeTokenSpy).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      ["is another Google account", { "existing-refresh": "private@example.com" }],
+      ["can't be confirmed, because Google does not answer for it", {}],
+    ])("Flowko D8: a token with a missing scope is revoked when the user's existing connection %s", async (_label, existingAccount) => {
+      const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      const user = await setupUserWithGoogleCredentials({ email: "host@example.com", username: "host" }, [
+        { id: 125, name: "existing" },
+      ]);
+      mockPrimaryCalendars({ "partial-refresh": "salon@example.com", ...existingAccount });
+
+      await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
+
+      expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+      expect(revokeTokenSpy).toHaveBeenCalledWith("partial-refresh");
+      expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("existing"));
+      expect(await prisma.credential.findUnique({ where: { id: 125 } })).not.toBeNull();
+    });
+
+    test("Flowko D8: deleting an account revokes every grant, even two credentials of the same Google account", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      // A reconnect whose earlier credential the callback could not replace
+      const user = await setupUserWithGoogleCredentials({ email: "host@example.com", username: "host" }, [
+        { id: 123, name: "old" },
+        { id: 124, name: "new" },
+      ]);
+      mockPrimaryCalendars({ "old-refresh": "salon@example.com", "new-refresh": "salon@example.com" });
+
+      await revokeGoogleCalendarTokensOfUser(user.id);
+
+      expect(revokeTokenSpy).toHaveBeenCalledTimes(2);
+      expect(revokeTokenSpy).toHaveBeenCalledWith("old-refresh");
+      expect(revokeTokenSpy).toHaveBeenCalledWith("new-refresh");
+      // The user's own credentials all go away with the account: none is looked up as a possible sharer
+      expect(lookUpGoogleAccount).toHaveBeenCalledTimes(2);
+    });
+
+    describe("Flowko D8: a disconnect keeps the grant for the user's other credential only when Google confirms the same account", () => {
+      const host = { email: "host@example.com", username: "host" };
+
+      beforeEach(() => {
+        vi.mocked(lookUpGoogleAccount).mockReset();
+      });
+
+      // Upstream lists the disconnected credential's calendars first; its primary calendar id is the Google
+      // account's email address. null: Google does not answer, so the account is unknown
+      const listPrimaryCalendarOnDisconnect = async (primaryCalendarId: string | null) => {
+        await PrismaAppRepository.seedApp("googlecalendar");
+        (await googleCalendarServiceMock()).mockImplementation(
+          () =>
+            ({
+              listCalendars: async () => {
+                if (!primaryCalendarId) throw new Error("backendError");
+                return [{ externalId: primaryCalendarId, primary: true, integration: "google_calendar" }];
+              },
+            }) as never
+        );
+      };
+
+      const disconnect = async (user: { id: number; metadata: unknown }, credentialId = 123) => {
+        const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+        await handleDeleteCredential({
+          userId: user.id,
+          userMetadata: user.metadata as never,
+          credentialId,
+        });
+      };
+
+      test("The grant is kept when the user's other credential is the same Google account", async () => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        await listPrimaryCalendarOnDisconnect("salon@example.com");
+        // Reconnecting the same Google account added a second credential and kept the first
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 123, name: "old" },
+          { id: 124, name: "new" },
+        ]);
+        mockPrimaryCalendars({ "old-refresh": "salon@example.com", "new-refresh": "salon@example.com" });
+
+        await disconnect(user);
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        // Google is asked with the decrypted token, never the placeholder
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("new"));
+        expect(vi.mocked(lookUpGoogleAccount).mock.calls).not.toContainEqual([encryptedKeyPlaceholder()]);
+        expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+        expect(await prisma.credential.findUnique({ where: { id: 124 } })).not.toBeNull();
+      });
+
+      test("The grant is revoked when the user's other credential is another Google account", async () => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        await listPrimaryCalendarOnDisconnect("salon@example.com");
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 123, name: "work" },
+          { id: 124, name: "private" },
+        ]);
+        mockPrimaryCalendars({
+          "work-refresh": "salon@example.com",
+          "private-refresh": "private@example.com",
+        });
+
+        await disconnect(user);
+
+        expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+        expect(revokeTokenSpy).toHaveBeenCalledWith("work-refresh");
+        expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+        expect(await prisma.credential.findUnique({ where: { id: 124 } })).not.toBeNull();
+      });
+
+      test.each([
+        ["Google does not answer for it", {}],
+        ["Google says its grant was revoked", { "private-refresh": "revoked" }],
+      ])("The grant is revoked when the user's other credential can't be confirmed: %s", async (_label, otherAccount) => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        await listPrimaryCalendarOnDisconnect("salon@example.com");
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 123, name: "work" },
+          { id: 124, name: "private" },
+        ]);
+        mockPrimaryCalendars({ "work-refresh": "salon@example.com", ...otherAccount });
+
+        await disconnect(user);
+
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("private"));
+        expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+        expect(revokeTokenSpy).toHaveBeenCalledWith("work-refresh");
+      });
+
+      test.each([
+        ["a legacy plaintext row (no envelope)", { key: googleKey("private"), encryptedKey: null }],
+        [
+          "an envelope bound to another user",
+          {
+            key: encryptedKeyPlaceholder(),
+            encryptedKey: encryptedTestCredentialFields({
+              type: "google_calendar",
+              userId: 999,
+              key: googleKey("private"),
+            }).encryptedKey,
+          },
+        ],
+      ])("The grant is revoked when the user's other credential can't be decrypted: %s", async (_label, credentialInput) => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        vi.spyOn(console, "error").mockImplementation(() => undefined);
+        await listPrimaryCalendarOnDisconnect("salon@example.com");
+        const user = await setupUserWithGoogleCredentials(host, [{ id: 123, name: "work" }]);
+        await setupCredential({
+          id: 124,
+          userId: user.id,
+          type: "google_calendar",
+          appId: "google-calendar",
+          ...credentialInput,
+        });
+        // Any token Google is asked about would be the same account: only a key that can't be read is unknown
+        vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) =>
+          key ? { status: "found", primaryCalendarId: "salon@example.com" } : { status: "unknown" }
+        );
+
+        await disconnect(user);
+
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(null);
+        expect(lookUpGoogleAccount).not.toHaveBeenCalledWith(googleKey("private"));
+        expect(vi.mocked(lookUpGoogleAccount).mock.calls).not.toContainEqual([encryptedKeyPlaceholder()]);
+        expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+        expect(revokeTokenSpy).toHaveBeenCalledWith("work-refresh");
+      });
+
+      test("The grant is revoked when the disconnected credential's account is unknown, without asking Google about the others", async () => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        await listPrimaryCalendarOnDisconnect(null);
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 123, name: "old" },
+          { id: 124, name: "new" },
+        ]);
+        // Even a credential Google would confirm as the same account can't be matched to an unknown account
+        mockPrimaryCalendars({ "old-refresh": "salon@example.com", "new-refresh": "salon@example.com" });
+
+        await disconnect(user);
+
+        expect(lookUpGoogleAccount).not.toHaveBeenCalled();
+        expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+        expect(revokeTokenSpy).toHaveBeenCalledWith("old-refresh");
+        expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+      });
+
+      test("Another user's connection Google confirms as the same account still keeps the grant", async () => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        await listPrimaryCalendarOnDisconnect("salon@example.com");
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 123, name: "work" },
+          { id: 124, name: "private" },
+        ]);
+        const colleague = await setupUserWithGoogleCredentials(
+          { email: "colleague@example.com", username: "colleague" },
+          [{ id: 125, name: "colleague" }]
+        );
+        await prisma.selectedCalendar.create({
+          data: {
+            userId: colleague.id,
+            integration: "google_calendar",
+            externalId: "salon@example.com",
+            credentialId: 125,
+          },
+        });
+        mockPrimaryCalendars({
+          "work-refresh": "salon@example.com",
+          "private-refresh": "private@example.com",
+          "colleague-refresh": "salon@example.com",
+        });
+
+        await disconnect(user);
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("private"));
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("colleague"));
+      });
     });
   });
 
