@@ -15,6 +15,7 @@ import AppListCardWebWrapper from "@calcom/web/modules/apps/components/AppListCa
 import { SkeletonLoader } from "@calcom/web/modules/apps/components/SkeletonLoader";
 import { SelectedCalendarsSettingsWebWrapper } from "@calcom/web/modules/calendars/components/SelectedCalendarsSettingsWebWrapper";
 import SubHeadingTitleWithConnections from "@components/integrations/SubHeadingTitleWithConnections";
+import { isCalendarConnectError } from "@lib/apps/calendarConnectError";
 import useRouterQuery from "@lib/hooks/useRouterQuery";
 import { QueryCell } from "@lib/QueryCell";
 import { Suspense, useEffect } from "react";
@@ -101,7 +102,8 @@ export function CalendarListContainer({
   const { error, setQuery: setError } = useRouterQuery("error");
 
   useEffect(() => {
-    if (error === "account_already_linked" || error === "no_default_calendar") {
+    // Flowko U9: one list of the callbacks' ?error= keys, which now include a refused Google Calendar connect
+    if (isCalendarConnectError(error)) {
       showToast(t(error), "error", { id: error });
       setError(undefined);
     }

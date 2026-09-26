@@ -21,6 +21,7 @@ import { Prisma } from "@calcom/prisma/client";
 
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
 import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+import type { IntegrationOAuthCallbackState } from "../../types";
 import { getGoogleAppKeys } from "../lib/getGoogleAppKeys";
 import {
   findEarlierGoogleCalendarCredentials,
@@ -29,6 +30,34 @@ import {
 import { calendarConnectionsUnavailableError } from "./add";
 
 const log = logger.getSubLogger({ prefix: ["googlecalendar/callback"] });
+
+/**
+ * Flowko U9: a connect refused because the token can't be stored encrypted goes back to the page the host
+ * started it from (or the installed calendars) with the reason as ?error=<i18n key>, which that page shows as a
+ * toast, like the account_already_linked redirect below, instead of a bare JSON page with no way back. Only a
+ * flow that has no page in the app to return to keeps the localised 503 JSON answer.
+ */
+async function refuseCalendarConnection(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  state: IntegrationOAuthCallbackState
+) {
+  let onErrorReturnTo: string | null = null;
+  try {
+    onErrorReturnTo = getSafeRedirectUrl(state.onErrorReturnTo);
+  } catch {
+    // Not an absolute URL: treated as missing
+  }
+  if (!onErrorReturnTo && !state.fromApp) {
+    throw await calendarConnectionsUnavailableError(req);
+  }
+  const url = new URL(
+    onErrorReturnTo ?? getInstalledAppPath({ variant: "calendar", slug: "google-calendar" }),
+    WEBAPP_URL
+  );
+  url.searchParams.set("error", "google_calendar_connections_unavailable");
+  res.redirect(url.toString());
+}
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
@@ -61,7 +90,8 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   // redeemed: no token is issued that could not be stored
   if (!isCredentialKeyringConfigured()) {
     log.error("Credential keyring is not configured: Google Calendar connect refused");
-    throw await calendarConnectionsUnavailableError(req);
+    await refuseCalendarConnection(req, res, state);
+    return;
   }
 
   const { client_id, client_secret } = await getGoogleAppKeys();
@@ -111,7 +141,8 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         userId: req.session.user.id,
       });
       await revokeUnstoredGoogleCalendarToken({ userId: req.session.user.id, key });
-      throw await calendarConnectionsUnavailableError(req);
+      await refuseCalendarConnection(req, res, state);
+      return;
     }
 
     const gCalService = createGoogleCalendarServiceWithGoogleType({

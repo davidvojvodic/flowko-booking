@@ -290,28 +290,37 @@ describe("googlecalendar callback: Google Meet install", () => {
 
 describe("googlecalendar callback: credential keyring", () => {
   const UNAVAILABLE = "Calendar connections are unavailable right now. Please try again later.";
+  const BACK_WITH_REASON = `${WEBAPP_URL}/apps/installed?error=google_calendar_connections_unavailable`;
   const freshTokens = {
     access_token: "ya29.fresh-access-token",
     refresh_token: "1//fresh-refresh-token",
     scope: GOOGLE_CALENDAR_SCOPES.join(" "),
   };
 
-  function connect(headers: Record<string, string> = {}) {
-    const state = stateFromAdd(VICTIM_ID, { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}/apps/installed` });
-    return callCallback({ userId: VICTIM_ID, query: { code: "own-code", state }, headers });
+  function connect(
+    headers: Record<string, string> = {},
+    state: Record<string, unknown> = { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}/apps/installed` }
+  ) {
+    return callCallback({
+      userId: VICTIM_ID,
+      query: { code: "own-code", state: stateFromAdd(VICTIM_ID, state) as string },
+      headers,
+    });
   }
+
+  // A flow that did not start in the app: no page to go back to
+  const NOT_FROM_APP = { fromApp: false };
 
   beforeEach(() => {
     mocks.getToken.mockResolvedValue({ tokens: freshTokens });
   });
 
-  it("answers 503 before redeeming the code when the credential keyring is not configured", async () => {
+  it("sends the host back with the reason, before redeeming the code, when the credential keyring is not configured", async () => {
     mocks.isCredentialKeyringConfigured.mockReturnValue(false);
 
     const res = await connect();
 
-    expect(res._getStatusCode()).toBe(503);
-    expect(res._getJSONData().message).toBe(UNAVAILABLE);
+    expect(res._getRedirectUrl()).toBe(BACK_WITH_REASON);
     expect(mocks.getToken).not.toHaveBeenCalled();
     expect(mocks.buildCredentialCreateData).not.toHaveBeenCalled();
     expect(mocks.credentialCreate).not.toHaveBeenCalled();
@@ -326,7 +335,7 @@ describe("googlecalendar callback: credential keyring", () => {
     expect(res._getStatusCode()).toBe(403);
   });
 
-  it("revokes the fresh token and stores nothing when its key can't be encrypted", async () => {
+  it("revokes the fresh token, stores nothing and sends the host back when its key can't be encrypted", async () => {
     mocks.buildCredentialCreateData.mockImplementation(() => {
       throw new Error(
         "Credential key unavailable (keyring_not_configured) for credential new (google_calendar)"
@@ -335,8 +344,7 @@ describe("googlecalendar callback: credential keyring", () => {
 
     const res = await connect();
 
-    expect(res._getStatusCode()).toBe(503);
-    expect(res._getJSONData().message).toBe(UNAVAILABLE);
+    expect(res._getRedirectUrl()).toBe(BACK_WITH_REASON);
     expect(mocks.credentialCreate).not.toHaveBeenCalled();
     expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
       userId: VICTIM_ID,
@@ -345,9 +353,52 @@ describe("googlecalendar callback: credential keyring", () => {
     expect(mocks.upsertSelectedCalendar).not.toHaveBeenCalled();
     expect(mocks.replaceEarlierGoogleCalendarCredentials).not.toHaveBeenCalled();
     // The answer carries no token and no detail of the failure
+    expect(res._getRedirectUrl()).not.toContain("fresh-");
+    expect(res._getRedirectUrl()).not.toContain("keyring_not_configured");
+  });
+
+  it("keeps the 503 JSON, without details, for a flow that has no page in the app to go back to", async () => {
+    mocks.buildCredentialCreateData.mockImplementation(() => {
+      throw new Error(
+        "Credential key unavailable (keyring_not_configured) for credential new (google_calendar)"
+      );
+    });
+
+    const res = await connect({}, NOT_FROM_APP);
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).toBe(UNAVAILABLE);
+    expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
+      userId: VICTIM_ID,
+      key: freshTokens,
+    });
     const body = JSON.stringify(res._getJSONData());
     expect(body).not.toContain("fresh-");
     expect(body).not.toContain("keyring_not_configured");
+  });
+
+  it("sends the host back to the installed calendars when the state has no page of its own", async () => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+
+    const res = await connect({}, { fromApp: true });
+
+    const url = new URL(res._getRedirectUrl());
+    expect(`${url.origin}${url.pathname}`).toBe(`${WEBAPP_URL}/apps/installed/calendar`);
+    expect(url.searchParams.get("hl")).toBe("google-calendar");
+    expect(url.searchParams.get("error")).toBe("google_calendar_connections_unavailable");
+  });
+
+  it.each([
+    ["a relative page", "/apps/installed", `${WEBAPP_URL}/apps/installed/calendar`],
+    ["a page on another site", "https://attacker.example/phish", `${WEBAPP_URL}/`],
+  ])("never sends the host to %s", async (_label, onErrorReturnTo, expectedPage) => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+
+    const res = await connect({}, { fromApp: true, onErrorReturnTo });
+
+    const url = new URL(res._getRedirectUrl());
+    expect(`${url.origin}${url.pathname}`).toBe(expectedPage);
+    expect(url.searchParams.get("error")).toBe("google_calendar_connections_unavailable");
   });
 
   it("revokes the fresh token when the credential row can't be created", async () => {
@@ -355,19 +406,19 @@ describe("googlecalendar callback: credential keyring", () => {
 
     const res = await connect();
 
-    expect(res._getStatusCode()).toBe(503);
+    expect(res._getRedirectUrl()).toBe(BACK_WITH_REASON);
     expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
       userId: VICTIM_ID,
       key: freshTokens,
     });
     expect(mocks.upsertSelectedCalendar).not.toHaveBeenCalled();
-    expect(JSON.stringify(res._getJSONData())).not.toContain("check constraint");
+    expect(res._getRedirectUrl()).not.toContain("check constraint");
   });
 
-  it("tells a Slovenian user in Slovenian", async () => {
+  it("tells a Slovenian user in Slovenian when it answers with JSON", async () => {
     mocks.isCredentialKeyringConfigured.mockReturnValue(false);
 
-    const res = await connect({ "accept-language": "sl" });
+    const res = await connect({ "accept-language": "sl" }, NOT_FROM_APP);
 
     expect(res._getStatusCode()).toBe(503);
     expect(res._getJSONData().message).toBe(
