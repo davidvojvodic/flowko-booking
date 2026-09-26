@@ -195,6 +195,72 @@ async function handleDestinationCalendarNotInConnectedCalendars({
   };
 }
 
+// Flowko: an entry whose calendar list could not be read (it carries `error`, e.g. a credential key failure,
+// an expired grant or any listCalendars failure) says nothing about which calendars exist
+function isHealthyConnectedCalendarEntry(
+  entry: ConnectedCalendarsFromGetConnectedCalendars[number] | undefined
+): boolean {
+  return !!entry && !entry.error && Array.isArray(entry.calendars);
+}
+
+// Flowko: the default/repair writes copy connectedCalendars[0].primary. For an errored entry that is
+// integration "" / externalId "", which would overwrite the host's destination calendar for good
+function canCopyDestinationCalendarFrom(
+  entry: ConnectedCalendarsFromGetConnectedCalendars[number] | undefined
+): boolean {
+  return isHealthyConnectedCalendarEntry(entry) && !!entry?.primary?.externalId;
+}
+
+// Flowko: a default destination is only set from a connection that listed its calendars and has a primary
+function canSetDefaultDestinationCalendar({
+  user,
+  connectedCalendars,
+}: {
+  user: UserWithCalendars;
+  connectedCalendars: ConnectedCalendarsFromGetConnectedCalendars;
+}): boolean {
+  if (canCopyDestinationCalendarFrom(connectedCalendars[0])) return true;
+  log.warn(
+    `No destination calendar, but the first connected calendar has an error or no primary, so no default is set for user ${user.id}`,
+    { credentialId: connectedCalendars[0]?.credentialId }
+  );
+  return false;
+}
+
+// Flowko: a calendar-list error (e.g. a credential key failure) must never rewrite the destination calendar.
+// It is only treated as gone when the connection that owns it listed its calendars, and only repaired from a
+// healthy entry. With no credentialId on the row the owner is unknown, so every connection must be healthy
+function canRepairDestinationCalendar({
+  user,
+  connectedCalendars,
+}: {
+  user: UserWithCalendars;
+  connectedCalendars: ConnectedCalendarsFromGetConnectedCalendars;
+}): boolean {
+  const destinationCalendar = user.destinationCalendar;
+  if (!destinationCalendar) return false;
+  const ownerEntries =
+    destinationCalendar.credentialId != null
+      ? connectedCalendars.filter((entry) => entry.credentialId === destinationCalendar.credentialId)
+      : connectedCalendars;
+  if (
+    ownerEntries.every(isHealthyConnectedCalendarEntry) &&
+    canCopyDestinationCalendarFrom(connectedCalendars[0])
+  ) {
+    return true;
+  }
+  log.warn(
+    `Destination calendar isn't in connectedCalendars, but its connection or the first connected calendar has an error or no primary, so it is left unchanged for user ${user.id}`,
+    {
+      destinationCredentialId: destinationCalendar.credentialId,
+      erroredCredentialIds: connectedCalendars
+        .filter((entry) => !isHealthyConnectedCalendarEntry(entry))
+        .map((entry) => entry.credentialId),
+    }
+  );
+  return false;
+}
+
 function findMatchingCalendar({
   connectedCalendars,
   calendar,
@@ -332,12 +398,15 @@ export async function getConnectedDestinationCalendarsAndEnsureDefaultsInDb({
     if (connectedCalendars.length === 0) {
       user = await handleNoConnectedCalendars(user);
     } else if (!user.destinationCalendar) {
-      ({ user, calendarToEnsureIsEnabledForConflictCheck, connectedCalendars } =
-        await handleNoDestinationCalendar({
-          user,
-          connectedCalendars,
-          onboarding,
-        }));
+      // Flowko: never create a default from an errored entry (it would store integration "" / externalId "")
+      if (canSetDefaultDestinationCalendar({ user, connectedCalendars })) {
+        ({ user, calendarToEnsureIsEnabledForConflictCheck, connectedCalendars } =
+          await handleNoDestinationCalendar({
+            user,
+            connectedCalendars,
+            onboarding,
+          }));
+      }
     } else {
       /* There are connected calendars and a destination calendar */
       log.debug(
@@ -346,12 +415,15 @@ export async function getConnectedDestinationCalendarsAndEnsureDefaultsInDb({
 
       const destinationCal = findMatchingCalendar({ connectedCalendars, calendar: user.destinationCalendar });
       if (!destinationCal) {
-        ({ user, calendarToEnsureIsEnabledForConflictCheck, connectedCalendars } =
-          await handleDestinationCalendarNotInConnectedCalendars({
-            user,
-            connectedCalendars,
-            onboarding,
-          }));
+        // Flowko: a calendar-list error (e.g. a credential key failure) must never rewrite the destination
+        if (canRepairDestinationCalendar({ user, connectedCalendars })) {
+          ({ user, calendarToEnsureIsEnabledForConflictCheck, connectedCalendars } =
+            await handleDestinationCalendarNotInConnectedCalendars({
+              user,
+              connectedCalendars,
+              onboarding,
+            }));
+        }
       } else if (onboarding && !destinationCal.isSelected) {
         log.debug(
           `Onboarding:Destination calendar is not selected, but in connectedCalendars, so mark it as selected in the calendar list for user ${user.id}`

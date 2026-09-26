@@ -16,6 +16,8 @@ import {
 } from "@calcom/ui/components/dropdown";
 import { showToast } from "@calcom/ui/components/toast";
 
+import { removeAppErrorMessage } from "./removeAppErrorMessage";
+
 interface CredentialActionsDropdownProps {
   credentialId: number;
   onSuccess?: () => void;
@@ -39,8 +41,9 @@ export default function CredentialActionsDropdown({
       showToast(t("app_removed_successfully"), "success");
       onSuccess?.();
     },
-    onError: () => {
-      showToast(t("error_removing_app"), "error");
+    // Flowko U9: a refused Google Calendar removal says to try again later, not "Error removing app"
+    onError: (error) => {
+      showToast(removeAppErrorMessage(error, t), "error");
     },
     async onSettled() {
       await utils.viewer.calendars.connectedCalendars.invalidate();

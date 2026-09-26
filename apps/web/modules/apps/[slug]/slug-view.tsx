@@ -8,6 +8,7 @@ import { markdownToSafeHTML } from "@calcom/lib/markdownToSafeHTML";
 import { showToast } from "@calcom/ui/components/toast";
 
 import type { AppDataProps } from "@lib/apps/[slug]/getStaticProps";
+import { isCalendarConnectError } from "@lib/apps/calendarConnectError";
 import useRouterQuery from "@lib/hooks/useRouterQuery";
 
 import App from "@components/apps/App";
@@ -15,7 +16,8 @@ import App from "@components/apps/App";
 function SingleAppPage(props: AppDataProps) {
   const { error, setQuery: setError } = useRouterQuery("error");
   const { t } = useLocale();
-  if (error === "account_already_linked" || error === "no_default_calendar") {
+  // Flowko U9: one list of the callbacks' ?error= keys, which now include a refused Google Calendar connect
+  if (isCalendarConnectError(error)) {
     showToast(t(error), "error", { id: error });
     setError(undefined);
   }

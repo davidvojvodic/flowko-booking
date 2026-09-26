@@ -1,6 +1,6 @@
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import getCalendarsEvents, {
   InvalidCalendarCredentialError,
@@ -10,6 +10,10 @@ import { FeaturesRepository } from "@calcom/features/flags/features.repository";
 import { SelectedCalendarRepository } from "@calcom/features/selectedCalendar/repositories/SelectedCalendarRepository";
 import { getTestEmails, resetTestEmails } from "@calcom/lib/testEmails";
 import { credentialForCalendarServiceSelect } from "@calcom/prisma/selects/credential";
+import {
+  encryptedTestCredentialFields,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 import type { SelectedCalendar } from "@calcom/types/Calendar";
 import type { CredentialForCalendarService } from "@calcom/types/Credential";
 
@@ -77,7 +81,13 @@ const seed = async ({ extraSelectedCalendar }: { extraSelectedCalendar?: string 
       type: "google_calendar",
       appId: "google-calendar",
       userId: USER_ID,
-      key: { access_token: "old-access", refresh_token: "old-refresh" },
+      // Flowko U9: stored as production stores it (key = placeholder, token encrypted in encryptedKey)
+      ...encryptedTestCredentialFields({
+        type: "google_calendar",
+        userId: USER_ID,
+        teamId: null,
+        key: { access_token: "old-access", refresh_token: "old-refresh" },
+      }),
     },
   });
   for (const externalId of [OWNER, ...(extraSelectedCalendar ? [extraSelectedCalendar] : [])]) {
@@ -129,7 +139,13 @@ const reconnectSameAccount = async (oldTokenLookup: GoogleAccountLookup) => {
       type: "google_calendar",
       appId: "google-calendar",
       userId: USER_ID,
-      key: { access_token: "new-access", refresh_token: "new-refresh" },
+      // Flowko U9: the callback stores the new token encrypted, like every Google credential
+      ...encryptedTestCredentialFields({
+        type: "google_calendar",
+        userId: USER_ID,
+        teamId: null,
+        key: { access_token: "new-access", refresh_token: "new-refresh" },
+      }),
     },
   });
   const earlierCredentials = await findEarlierGoogleCalendarCredentials({
@@ -166,6 +182,12 @@ describe("a broken Google connection", () => {
     vi.mocked(lookUpGoogleAccount).mockReset();
     resetTestEmails();
     Reflect.set(FeaturesRepository, "featuresCache", null);
+    // Flowko U9: the stored tokens are decrypted with the test keyring (the disconnect revokes with them)
+    stubTestCredentialKeyring();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("blocks the slots and tells the host once", async () => {

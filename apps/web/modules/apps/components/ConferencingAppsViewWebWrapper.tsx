@@ -11,6 +11,7 @@ import { EmptyScreen } from "@calcom/ui/components/empty-screen";
 import { SkeletonContainer, SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
 import AppListCardWebWrapper from "@calcom/web/modules/apps/components/AppListCardWebWrapper";
+import { removeAppErrorMessage } from "@calcom/web/modules/apps/components/removeAppErrorMessage";
 import { useReducer } from "react";
 
 export type UpdateUsersDefaultConferencingAppParams = {
@@ -218,8 +219,9 @@ export const ConferencingAppsViewWebWrapper = ({
           utils.viewer.apps.integrations.invalidate();
           utils.viewer.calendars.connectedCalendars.invalidate();
         },
-        onError: () => {
-          showToast(t("error_removing_app"), "error");
+        // Flowko U9: a refused Google Calendar removal says to try again later, not "Error removing app"
+        onError: (error) => {
+          showToast(removeAppErrorMessage(error, t), "error");
           callback();
         },
       }

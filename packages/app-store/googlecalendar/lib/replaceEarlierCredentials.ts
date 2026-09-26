@@ -1,6 +1,6 @@
+import { tryDecryptCredentialKey } from "@calcom/features/credentials/services/CredentialDataService";
 import logger from "@calcom/lib/logger";
 import prisma from "@calcom/prisma";
-import type { Prisma } from "@calcom/prisma/client";
 import type { IntegrationCalendar } from "@calcom/types/Calendar";
 
 import { lookUpGoogleAccount } from "./lookUpGoogleAccount";
@@ -11,7 +11,12 @@ const LIST_NEW_CONNECTION_CALENDARS_TIMEOUT_MS = 5000;
 
 export type EarlierGoogleCalendarCredential = {
   id: number;
-  key: Prisma.JsonValue;
+  // Flowko U9: the fields the key is decrypted from. Credential.key holds only a placeholder, and the token
+  // is decrypted from encryptedKey just for the account lookup, so no plaintext travels with this object
+  type: string;
+  userId: number | null;
+  teamId: number | null;
+  encryptedKey: string | null;
   /** invalidateCredential marked it: Google refused its grant when this instance last used it */
   invalid: boolean;
   /** A SelectedCalendar or DestinationCalendar of it has the new connection's primary calendar id */
@@ -50,7 +55,7 @@ export const findEarlierGoogleCalendarCredentials = async ({
   try {
     const credentials = await prisma.credential.findMany({
       where: { userId, type: "google_calendar", delegationCredentialId: null, id: { not: credentialId } },
-      select: { id: true, key: true, invalid: true },
+      select: { id: true, type: true, userId: true, teamId: true, encryptedKey: true, invalid: true },
     });
     if (!credentials.length) return [];
 
@@ -181,7 +186,10 @@ export const replaceEarlierGoogleCalendarCredentials = async ({
     const lookups = await Promise.all(
       earlierCredentials.map(async (credential) => ({
         credential,
-        account: await lookUpGoogleAccount(credential.key),
+        // Flowko U9: an earlier credential whose key cannot be decrypted (keyring missing, another tenant's
+        // envelope, a legacy plaintext row) is looked up with null, which reads as "unknown": it is kept
+        // unless it is also marked invalid (Google already refused its grant), see isRevokedCandidate
+        account: await lookUpGoogleAccount(tryDecryptCredentialKey(credential)),
       }))
     );
     const isRevokedCandidate = ({ credential, account }: (typeof lookups)[number]) =>

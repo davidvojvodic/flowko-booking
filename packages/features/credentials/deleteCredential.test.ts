@@ -1,15 +1,32 @@
 import { addEventTypesToDb, mockNoTranslations } from "@calcom/testing/lib/bookingScenario/bookingScenario";
+import i18nMock from "@calcom/testing/lib/__mocks__/libServerI18n";
+import {
+  encryptedTestCredentialFields,
+  stubMissingCredentialKeyring,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 import { PrismaAppRepository } from "@calcom/features/apps/repository/PrismaAppRepository";
 import { DestinationCalendarRepository } from "@calcom/features/calendars/repositories/DestinationCalendarRepository";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
+import { encryptedKeyPlaceholder } from "@calcom/features/credentials/services/CredentialDataService";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
+import en from "@calcom/i18n/locales/en/common.json";
+import sl from "@calcom/i18n/locales/sl/common.json";
+import { HttpError } from "@calcom/lib/http-error";
 import { prisma } from "@calcom/prisma";
+import { CalendarServiceMap } from "@calcom/app-store/calendar.services.generated";
 import { lookUpGoogleAccount } from "@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount";
+import type { TFunction } from "i18next";
 import { OAuth2Client } from "googleapis-common";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("@calcom/app-store/googlecalendar/lib/lookUpGoogleAccount", () => ({ lookUpGoogleAccount: vi.fn() }));
+
+// bookingScenario mocks every calendar service with one shared vi.fn per app, which builds nothing unless a
+// test gives it an implementation, so no test here calls Google
+const googleCalendarServiceMock = async () => vi.mocked((await CalendarServiceMap.googlecalendar).default);
+
 const testUser = {
   email: "test@test.com",
   username: "test-user",
@@ -30,16 +47,33 @@ const setupCredential = async (credentialInput) => {
     teamId: null,
   };
 
-  return await CredentialRepository.create({ ...exampleCredential, ...credentialInput });
+  const credential = { ...exampleCredential, ...credentialInput };
+  // Flowko U9: a Google Calendar row holds its tokens encrypted, as the callback stores them. A test that
+  // passes encryptedKey itself sets up a legacy or broken row
+  if (credential.type === "google_calendar" && !("encryptedKey" in credentialInput)) {
+    Object.assign(
+      credential,
+      encryptedTestCredentialFields({
+        type: credential.type,
+        userId: credential.userId,
+        teamId: credential.teamId,
+        key: credential.key ?? {},
+      })
+    );
+  }
+  return await CredentialRepository.create(credential);
 };
 
 describe("deleteCredential", () => {
   beforeEach(async () => {
     mockNoTranslations();
+    stubTestCredentialKeyring();
+    (await googleCalendarServiceMock()).mockReset();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe("individual credentials", () => {
@@ -178,6 +212,10 @@ describe("deleteCredential", () => {
         appId: "google-calendar",
         key: { access_token: "test-access-token", refresh_token: "test-refresh-token" },
       });
+      // Flowko U9: the row holds only the placeholder; the token is revoked from the decrypted envelope
+      expect((await prisma.credential.findUnique({ where: { id: 123 } }))?.key).toEqual(
+        encryptedKeyPlaceholder()
+      );
 
       await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
 
@@ -276,7 +314,9 @@ describe("deleteCredential", () => {
 
     const mockPrimaryCalendars = (primaryCalendarIdByToken: Record<string, string | "revoked">) => {
       vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) => {
-        const primaryCalendarId = primaryCalendarIdByToken[(key as { refresh_token: string }).refresh_token];
+        // Like lookUpGoogleAccount, a missing key (one that could not be decrypted) reads as unknown
+        const refreshToken = (key as { refresh_token?: string } | null)?.refresh_token;
+        const primaryCalendarId = refreshToken ? primaryCalendarIdByToken[refreshToken] : undefined;
         if (!primaryCalendarId) return { status: "unknown" };
         if (primaryCalendarId === "revoked") return { status: "grant_revoked" };
         return { status: "found", primaryCalendarId };
@@ -486,6 +526,321 @@ describe("deleteCredential", () => {
       await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
 
       expect(revokeTokenSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Google Calendar tokens encrypted at rest", () => {
+    const REFUSAL_EN = "This Google Calendar connection can't be removed right now. Please try again later.";
+    const googleKey = (name: string) => ({
+      access_token: `${name}-access`,
+      refresh_token: `${name}-refresh`,
+    });
+
+    /** A host with a Google Calendar connection that a removal would otherwise change in several places */
+    const setupHostWithGoogleCalendar = async (credentialInput: Record<string, unknown> = {}) => {
+      const user = await new UserRepository(prisma).create({
+        ...testUser,
+        locale: "sl",
+        metadata: { defaultConferencingApp: { appSlug: "google-calendar" } },
+      });
+      await PrismaAppRepository.seedApp("googlecalendar");
+      const eventTypes = await addEventTypesToDb([{ id: 1, userId: user.id }]);
+      await setupCredential({
+        userId: user.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: googleKey("salon"),
+        ...credentialInput,
+      });
+      await DestinationCalendarRepository.create({
+        id: 2,
+        integration: "google_calendar",
+        externalId: "salon@gmail.com",
+        primaryId: "salon@gmail.com",
+        eventTypeId: eventTypes[0].id,
+        credentialId: 123,
+      });
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: user.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 123,
+        },
+      });
+      return user;
+    };
+
+    const snapshotHost = async (userId: number) => ({
+      credential: await prisma.credential.findUnique({ where: { id: 123 } }),
+      eventType: await prisma.eventType.findUnique({ where: { id: 1 } }),
+      destinationCalendar: await prisma.destinationCalendar.findUnique({ where: { id: 2 } }),
+      selectedCalendars: await prisma.selectedCalendar.findMany({ where: { credentialId: 123 } }),
+      user: await prisma.user.findUnique({ where: { id: userId }, select: { metadata: true } }),
+    });
+
+    test.each([
+      ["the keyring is not configured", {}, () => stubMissingCredentialKeyring()],
+      [
+        "the envelope does not decrypt (bound to another user)",
+        {
+          key: encryptedKeyPlaceholder(),
+          encryptedKey: encryptedTestCredentialFields({
+            type: "google_calendar",
+            userId: 999,
+            key: googleKey("salon"),
+          }).encryptedKey,
+        },
+        () => undefined,
+      ],
+    ])("A removal is refused before any write while the stored key is unavailable: %s", async (_label, credentialInput, breakKey) => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      const user = await setupHostWithGoogleCalendar(credentialInput);
+      const before = await snapshotHost(user.id);
+      breakKey();
+
+      const removal = handleDeleteCredential({
+        userId: user.id,
+        userMetadata: user.metadata,
+        credentialId: 123,
+      });
+
+      await expect(removal).rejects.toBeInstanceOf(HttpError);
+      await expect(removal).rejects.toMatchObject({
+        statusCode: 409,
+        message: "google_calendar_removal_unavailable",
+      });
+      expect(await snapshotHost(user.id)).toEqual(before);
+      expect(before.credential).not.toBeNull();
+      expect(before.eventType).not.toBeNull();
+      expect(before.destinationCalendar).not.toBeNull();
+      expect(before.selectedCalendars).toHaveLength(1);
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+      expect(await googleCalendarServiceMock()).not.toHaveBeenCalled();
+      expect(lookUpGoogleAccount).not.toHaveBeenCalled();
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).toContain("credentialId: 123");
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("salon-");
+    });
+
+    test("The refusal is worded in the host's language, and in English if the translation can't load", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const user = await setupHostWithGoogleCalendar();
+      stubMissingCredentialKeyring();
+
+      i18nMock.getTranslation.mockImplementation(
+        async (locale: string) => ((key: string) => `${locale}:${key}`) as unknown as TFunction
+      );
+      await expect(
+        handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 })
+      ).rejects.toMatchObject({ statusCode: 409, message: "sl:google_calendar_removal_unavailable" });
+
+      i18nMock.getTranslation.mockRejectedValue(new Error("locale bundle missing"));
+      await expect(
+        handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 })
+      ).rejects.toMatchObject({ statusCode: 409, message: REFUSAL_EN });
+      expect(await prisma.credential.findUnique({ where: { id: 123 } })).not.toBeNull();
+    });
+
+    test("The refusal text exists in English and Slovenian", () => {
+      expect(en.google_calendar_removal_unavailable).toBe(REFUSAL_EN);
+      expect(sl.google_calendar_removal_unavailable).toBe(
+        "Te povezave z Google Calendar trenutno ni mogoče odstraniti. Poskusite znova pozneje."
+      );
+    });
+
+    test.each([
+      ["no envelope (a legacy plaintext row)", { encryptedKey: null }, "not_encrypted"],
+      ["a malformed envelope", { encryptedKey: '{"v":1}' }, "malformed_envelope"],
+    ])("A row whose key can never be decrypted is removed without a revoke: %s", async (_label, credentialInput, reason) => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      // A legacy row: the plaintext token sits in key and must never be used as a fallback
+      const user = await setupHostWithGoogleCalendar(credentialInput);
+
+      await expect(
+        handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 })
+      ).resolves.toBeUndefined();
+
+      expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+      const grantLogs = consoleErrorSpy.mock.calls.filter(([message]) =>
+        String(message).includes("Google grant NOT revoked")
+      );
+      expect(grantLogs).toEqual([[expect.stringContaining(`credentialId: 123`)]]);
+      expect(String(grantLogs[0][0])).toContain(reason);
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("salon-");
+    });
+
+    test("A dead token (invalid credential) is still removed, and its revoke is attempted", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      const revokeTokenSpy = vi
+        .spyOn(OAuth2Client.prototype, "revokeToken")
+        .mockRejectedValue(Object.assign(new Error("invalid_token"), { response: { status: 400 } }));
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      // Google refuses the dead grant
+      (await googleCalendarServiceMock()).mockImplementation(
+        () =>
+          ({
+            listCalendars: async () => {
+              throw new Error("invalid_grant");
+            },
+          }) as never
+      );
+      const user = await setupHostWithGoogleCalendar({ invalid: true });
+
+      await expect(
+        handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 })
+      ).resolves.toBeUndefined();
+
+      expect(revokeTokenSpy).toHaveBeenCalledWith("salon-refresh");
+      expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+    });
+
+    test("The grant-sharing check looks up other users' decrypted tokens, never the placeholder", async () => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      // The primary calendar id is the Google account's email address
+      (await googleCalendarServiceMock()).mockImplementation(
+        () =>
+          ({
+            listCalendars: async () => [
+              { externalId: "salon@gmail.com", primary: true, integration: "google_calendar" },
+            ],
+          }) as never
+      );
+      const user = await setupHostWithGoogleCalendar();
+      const colleague = await new UserRepository(prisma).create({
+        ...testUser,
+        email: "colleague@test.com",
+        username: "colleague",
+      });
+      await setupCredential({
+        id: 124,
+        userId: colleague.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: googleKey("colleague"),
+      });
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: colleague.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 124,
+        },
+      });
+      // The colleague connected the same Google account
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) =>
+        (key as { refresh_token?: string } | null)?.refresh_token === "colleague-refresh"
+          ? { status: "found", primaryCalendarId: "salon@gmail.com" }
+          : { status: "unknown" }
+      );
+
+      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata, credentialId: 123 });
+
+      expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("colleague"));
+      expect(vi.mocked(lookUpGoogleAccount).mock.calls).not.toContainEqual([encryptedKeyPlaceholder()]);
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+      expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+    });
+
+    test("Another user's credential whose key can't be decrypted does not keep the grant", async () => {
+      const { isGoogleGrantSharedWithAnotherCredential } = await import("./handleDeleteCredential");
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const user = await setupHostWithGoogleCalendar();
+      const colleague = await new UserRepository(prisma).create({
+        ...testUser,
+        email: "colleague@test.com",
+        username: "colleague",
+      });
+      // Its envelope was copied from another tenant's row, so it fails authentication
+      await setupCredential({
+        id: 124,
+        userId: colleague.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: encryptedKeyPlaceholder(),
+        encryptedKey: encryptedTestCredentialFields({
+          type: "google_calendar",
+          userId: user.id,
+          key: googleKey("colleague"),
+        }).encryptedKey,
+      });
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: colleague.id,
+          integration: "google_calendar",
+          externalId: "salon@gmail.com",
+          credentialId: 124,
+        },
+      });
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) =>
+        key ? { status: "found", primaryCalendarId: "salon@gmail.com" } : { status: "unknown" }
+      );
+
+      await expect(
+        isGoogleGrantSharedWithAnotherCredential({
+          credentialIds: [123],
+          userId: user.id,
+          primaryCalendarId: "salon@gmail.com",
+        })
+      ).resolves.toBe(false);
+      expect(lookUpGoogleAccount).toHaveBeenCalledWith(null);
+    });
+
+    test("Deleting an account skips a credential whose key can't be decrypted, logs it and never throws", async () => {
+      const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
+      const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const user = await new UserRepository(prisma).create({ ...testUser });
+      await setupCredential({
+        id: 123,
+        userId: user.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: googleKey("work"),
+      });
+      // A legacy row: its plaintext key must not be revoked from, or looked up
+      await setupCredential({
+        id: 124,
+        userId: user.id,
+        type: "google_calendar",
+        appId: "google-calendar",
+        key: googleKey("legacy"),
+        encryptedKey: null,
+      });
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      vi.mocked(lookUpGoogleAccount).mockResolvedValue({
+        status: "found",
+        primaryCalendarId: "owner@work.si",
+      });
+
+      await expect(revokeGoogleCalendarTokensOfUser(user.id)).resolves.toBeUndefined();
+
+      expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+      expect(revokeTokenSpy).toHaveBeenCalledWith("work-refresh");
+      expect(lookUpGoogleAccount).toHaveBeenCalledTimes(1);
+      expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("work"));
+      expect(consoleErrorSpy.mock.calls).toContainEqual([
+        "Google grant NOT revoked for credentialId: 124: stored key unavailable",
+      ]);
+
+      // With the keyring gone, nothing is revoked and the deletion still goes ahead
+      revokeTokenSpy.mockClear();
+      stubMissingCredentialKeyring();
+      await expect(revokeGoogleCalendarTokensOfUser(user.id)).resolves.toBeUndefined();
+      expect(revokeTokenSpy).not.toHaveBeenCalled();
+      expect(consoleErrorSpy.mock.calls).toContainEqual([
+        "Google grant NOT revoked for credentialId: 123: stored key unavailable",
+      ]);
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toMatch(/work-|legacy-/);
     });
   });
 });

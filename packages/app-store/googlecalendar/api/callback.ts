@@ -5,11 +5,15 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createGoogleCalendarServiceWithGoogleType } from "@calcom/app-store/googlecalendar/lib/CalendarService";
 import { revokeUnstoredGoogleCalendarToken } from "@calcom/features/credentials/handleDeleteCredential";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
-import { buildCredentialCreateData } from "@calcom/features/credentials/services/CredentialDataService";
+import {
+  buildCredentialCreateData,
+  isCredentialKeyringConfigured,
+} from "@calcom/features/credentials/services/CredentialDataService";
 import { renewSelectedCalendarCredentialId } from "@calcom/lib/connectedCalendar";
 import { GOOGLE_CALENDAR_SCOPES, WEBAPP_URL, WEBAPP_URL_FOR_OAUTH } from "@calcom/lib/constants";
 import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
 import { HttpError } from "@calcom/lib/http-error";
+import logger from "@calcom/lib/logger";
 import { defaultHandler } from "@calcom/lib/server/defaultHandler";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
 import prisma from "@calcom/prisma";
@@ -17,11 +21,67 @@ import { Prisma } from "@calcom/prisma/client";
 
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
 import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+import type { IntegrationOAuthCallbackState } from "../../types";
 import { getGoogleAppKeys } from "../lib/getGoogleAppKeys";
 import {
   findEarlierGoogleCalendarCredentials,
   replaceEarlierGoogleCalendarCredentials,
 } from "../lib/replaceEarlierCredentials";
+import { calendarConnectionsUnavailableError } from "./add";
+
+const log = logger.getSubLogger({ prefix: ["googlecalendar/callback"] });
+
+/**
+ * Flowko U9: the app pages that turn ?error=<key> into a toast (isCalendarConnectError in
+ * apps/web/lib/apps/calendarConnectError.ts): CalendarListContainer on Settings → Calendars and on the installed
+ * calendars, and slug-view on the Google Calendar app page. Every other page ignores ?error=, so a refusal sent
+ * there would be silent.
+ */
+const PAGES_THAT_SHOW_CALENDAR_CONNECT_ERRORS = [
+  "/settings/my-account/calendars",
+  "/apps/installed/calendar",
+  "/apps/google-calendar",
+];
+
+const showsCalendarConnectErrors = (pageUrl: string) => {
+  const url = new URL(pageUrl);
+  return (
+    url.origin === new URL(WEBAPP_URL).origin &&
+    PAGES_THAT_SHOW_CALENDAR_CONNECT_ERRORS.includes(url.pathname.replace(/\/+$/, ""))
+  );
+};
+
+/**
+ * Flowko U9: a connect refused because the token can't be stored encrypted goes back to the page the host
+ * started it from, when that page shows ?error=<i18n key> as a toast, and otherwise to the installed calendars,
+ * which do, instead of a bare JSON page with no way back. Only a flow that has no page in the app to return to
+ * keeps the localised 503 JSON answer.
+ */
+async function refuseCalendarConnection(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  state: IntegrationOAuthCallbackState
+) {
+  let onErrorReturnTo: string | null = null;
+  try {
+    onErrorReturnTo = getSafeRedirectUrl(state.onErrorReturnTo);
+  } catch {
+    // Not an absolute URL: treated as missing
+  }
+  if (!onErrorReturnTo && !state.fromApp) {
+    throw await calendarConnectionsUnavailableError(req);
+  }
+  // Flowko: onboarding, the app categories, the event-type calendar selector and the troubleshooter start a
+  // connect too but show no ?error=, so the host is sent to the installed calendars to see why it was refused
+  const url = new URL(
+    onErrorReturnTo && showsCalendarConnectErrors(onErrorReturnTo)
+      ? onErrorReturnTo
+      : getInstalledAppPath({ variant: "calendar", slug: "google-calendar" }),
+    WEBAPP_URL
+  );
+  url.searchParams.set("error", "google_calendar_connections_unavailable");
+  res.redirect(url.toString());
+}
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
@@ -48,6 +108,14 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   // victim who opens an attacker's callback link can't get the attacker's Google account attached (login CSRF)
   if (!state) {
     throw new HttpError({ statusCode: 403, message: "Invalid OAuth state" });
+  }
+
+  // Flowko U9: tokens are stored only encrypted, so without the credential keyring the code must not be
+  // redeemed: no token is issued that could not be stored
+  if (!isCredentialKeyringConfigured()) {
+    log.error("Credential keyring is not configured: Google Calendar connect refused");
+    await refuseCalendarConnection(req, res, state);
+    return;
   }
 
   const { client_id, client_secret } = await getGoogleAppKeys();
@@ -81,13 +149,25 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
 
     oAuth2Client.setCredentials(key);
 
-    const gcalCredentialData = buildCredentialCreateData({
-      userId: req.session.user.id,
-      key,
-      appId: "google-calendar",
-      type: "google_calendar",
-    });
-    const gcalCredential = await CredentialRepository.create(gcalCredentialData);
+    let gcalCredential: Awaited<ReturnType<typeof CredentialRepository.create>>;
+    try {
+      const gcalCredentialData = buildCredentialCreateData({
+        userId: req.session.user.id,
+        key,
+        appId: "google-calendar",
+        type: "google_calendar",
+      });
+      gcalCredential = await CredentialRepository.create(gcalCredentialData);
+    } catch {
+      // Flowko U9: the token could not be stored (encrypted), so end its grant at Google instead of leaving a
+      // live grant that no row can revoke, and answer without details
+      log.error("Google Calendar credential not stored: its fresh grant is revoked", {
+        userId: req.session.user.id,
+      });
+      await revokeUnstoredGoogleCalendarToken({ userId: req.session.user.id, key });
+      await refuseCalendarConnection(req, res, state);
+      return;
+    }
 
     const gCalService = createGoogleCalendarServiceWithGoogleType({
       ...gcalCredential,

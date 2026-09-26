@@ -3,8 +3,14 @@ import "@calcom/testing/lib/__mocks__/prisma";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { symmetricDecrypt } from "@calcom/lib/crypto";
+import { decryptSecret, encryptSecret } from "@calcom/lib/crypto/keyring";
 import logger from "@calcom/lib/logger";
 import type { SelectedCalendar } from "@calcom/prisma/client";
+import {
+  encryptedTestCredentialFields,
+  stubMissingCredentialKeyring,
+  stubTestCredentialKeyring,
+} from "@calcom/testing/lib/credentialKeyring";
 import type { EventBusyDate } from "@calcom/types/Calendar";
 import type { CredentialForCalendarService, CredentialPayload } from "@calcom/types/Credential";
 
@@ -23,20 +29,30 @@ const mockGoogleGetAvailability = vi.fn().mockResolvedValue([]);
 const mockGoogleGetAvailabilityWithTimeZones = vi.fn().mockResolvedValue([]);
 const mockOfficeGetAvailability = vi.fn().mockResolvedValue([]);
 const mockOfficeGetAvailabilityWithTimeZones = vi.fn().mockResolvedValue([]);
+// Flowko U9f: the credential each Google calendar service was built with
+const mockGoogleServiceCredentials: unknown[] = [];
+
+vi.mock("@calcom/lib/crypto/keyring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@calcom/lib/crypto/keyring")>();
+  return { ...actual, decryptSecret: vi.fn(actual.decryptSecret) };
+});
 
 vi.mock("@calcom/app-store/calendar.services.generated", () => {
   return {
     CalendarServiceMap: {
       googlecalendar: Promise.resolve({
-        default: (credential: { id: number }) => ({
-          getCredentialId: () => credential.id,
-          createEvent: vi.fn().mockResolvedValue({}),
-          updateEvent: vi.fn().mockResolvedValue({}),
-          deleteEvent: vi.fn().mockResolvedValue({}),
-          getAvailability: mockGoogleGetAvailability,
-          getAvailabilityWithTimeZones: mockGoogleGetAvailabilityWithTimeZones,
-          listCalendars: vi.fn().mockResolvedValue([]),
-        }),
+        default: (credential: { id: number }) => {
+          mockGoogleServiceCredentials.push(credential);
+          return {
+            getCredentialId: () => credential.id,
+            createEvent: vi.fn().mockResolvedValue({}),
+            updateEvent: vi.fn().mockResolvedValue({}),
+            deleteEvent: vi.fn().mockResolvedValue({}),
+            getAvailability: mockGoogleGetAvailability,
+            getAvailabilityWithTimeZones: mockGoogleGetAvailabilityWithTimeZones,
+            listCalendars: vi.fn().mockResolvedValue([]),
+          };
+        },
       }),
       office365calendar: Promise.resolve({
         default: (credential: { id: number }) => ({
@@ -696,6 +712,130 @@ describe("getCalendarsEventsWithTimezones", () => {
         ],
       ]);
     });
+  });
+});
+
+/**
+ * Flowko U9f: the availability path decrypts nothing itself. It used to decrypt an upstream-style envelope
+ * bound to {type} only and, when that failed, fell back to the plaintext in Credential.key. Now the stored
+ * row goes to the calendar service as it is, and CalendarAuth is the only place a Google token is decrypted
+ * (with the row's type, userId and teamId in the AAD).
+ */
+describe("Flowko U9f: the stored credential reaches the calendar service unchanged", () => {
+  const TOKEN_A = { access_token: "token-a-access", refresh_token: "token-a-refresh", token_type: "Bearer" };
+  const TOKEN_B = { access_token: "token-b-access", refresh_token: "token-b-refresh", token_type: "Bearer" };
+  const DATE_FROM = "2026-10-01T00:00:00Z";
+  const DATE_TO = "2026-10-02T00:00:00Z";
+  const selectedCalendar = buildSelectedCalendar({
+    credentialId: 303,
+    externalId: "owner@example.com",
+    integration: "google_calendar",
+    userId: 808,
+    id: "selected-owner",
+  });
+
+  const storedCredential = ({
+    key,
+    encryptedKey,
+  }: Pick<CredentialForCalendarService, "key" | "encryptedKey">): CredentialForCalendarService =>
+    buildRegularCredential({
+      id: 303,
+      type: "google_calendar",
+      key,
+      encryptedKey,
+      userId: 808,
+      teamId: null,
+      user: { email: "owner@example.com" },
+      appId: "google-calendar",
+      invalid: false,
+      delegationCredentialId: null,
+    });
+
+  // Upstream's CredentialDataService wrote envelopes like this one: bound to the credential type only
+  const upstreamStyleEnvelopeOf = (token: object) =>
+    JSON.stringify(
+      encryptSecret({ ring: "CREDENTIALS", plaintext: JSON.stringify(token), aad: { type: "google_calendar" } })
+    );
+
+  const readBoth = (credential: CredentialForCalendarService) => [
+    () => getCalendarsEvents([credential], DATE_FROM, DATE_TO, [selectedCalendar], "slots"),
+    () => getCalendarsEventsWithTimezones([credential], DATE_FROM, DATE_TO, [selectedCalendar]),
+  ];
+
+  /** Reads availability both ways and returns the credential each Google calendar service was built with */
+  const serviceCredentialsOfBothReads = async (credential: CredentialForCalendarService) => {
+    const received: unknown[] = [];
+    for (const read of readBoth(credential)) {
+      mockGoogleServiceCredentials.length = 0;
+      await read();
+      received.push(...mockGoogleServiceCredentials);
+    }
+    return received;
+  };
+
+  const legacyFallbackWarnings = (warnSpy: { mock: { calls: unknown[][] } }) =>
+    warnSpy.mock.calls.filter((args) => args.some((arg) => /legacy key|decrypt/i.test(String(arg))));
+
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    mockGoogleServiceCredentials.length = 0;
+    vi.mocked(decryptSecret).mockClear();
+    stubTestCredentialKeyring();
+    warnSpy = vi.spyOn(logger.constructor.prototype, "warn");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("passes the stored key B, not the plaintext A of an upstream-style {type} envelope", async () => {
+    const credential = storedCredential({ key: TOKEN_B, encryptedKey: upstreamStyleEnvelopeOf(TOKEN_A) });
+    const storedCopy = structuredClone(credential);
+
+    const received = await serviceCredentialsOfBothReads(credential);
+
+    expect(received).toHaveLength(2);
+    for (const serviceCredential of received) {
+      expect((serviceCredential as CredentialForCalendarService).key).toEqual(TOKEN_B);
+      // The very row the caller loaded: nothing is decrypted, substituted or copied on the way
+      expect(serviceCredential).toBe(credential);
+    }
+    expect(JSON.stringify(received)).not.toContain(TOKEN_A.access_token);
+    expect(JSON.stringify(received)).not.toContain(TOKEN_A.refresh_token);
+    expect(credential).toEqual(storedCopy);
+    expect(decryptSecret).not.toHaveBeenCalled();
+    expect(legacyFallbackWarnings(warnSpy)).toEqual([]);
+  });
+
+  it("passes a production row (placeholder key + envelope) as stored, with no legacy-key fallback", async () => {
+    const credential = storedCredential(
+      encryptedTestCredentialFields({ type: "google_calendar", userId: 808, teamId: null, key: TOKEN_A })
+    );
+    const storedCopy = structuredClone(credential);
+
+    const received = await serviceCredentialsOfBothReads(credential);
+
+    expect(decryptSecret).not.toHaveBeenCalled();
+    expect(legacyFallbackWarnings(warnSpy)).toEqual([]);
+    expect(received).toHaveLength(2);
+    received.forEach((serviceCredential) => expect(serviceCredential).toBe(credential));
+    expect(credential).toEqual(storedCopy);
+    expect(JSON.stringify(received)).not.toContain(TOKEN_A.access_token);
+  });
+
+  it("never falls back to the plaintext in key when the keyring is missing, and logs no fallback", async () => {
+    const credential = storedCredential({ key: TOKEN_B, encryptedKey: upstreamStyleEnvelopeOf(TOKEN_A) });
+    stubMissingCredentialKeyring();
+
+    const received = await serviceCredentialsOfBothReads(credential);
+
+    expect(legacyFallbackWarnings(warnSpy)).toEqual([]);
+    expect(decryptSecret).not.toHaveBeenCalled();
+    // The row goes on as stored; CalendarAuth's decrypt then fails closed (U9b), never reading key
+    expect(received).toHaveLength(2);
+    received.forEach((serviceCredential) => expect(serviceCredential).toBe(credential));
   });
 });
 
