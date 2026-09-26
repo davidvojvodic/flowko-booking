@@ -28,7 +28,8 @@ describe("isCalendarConnectError", () => {
   });
 
   it.each(CALLBACK_ERRORS)("%s is translated in English and Slovenian", (error) => {
-    expect((en as Record<string, string>)[error]).toBeTruthy();
-    expect((sl as Record<string, string>)[error]).toBeTruthy();
+    // unknown, not string: common.json also holds nested objects
+    expect((en as Record<string, unknown>)[error]).toBeTruthy();
+    expect((sl as Record<string, unknown>)[error]).toBeTruthy();
   });
 });

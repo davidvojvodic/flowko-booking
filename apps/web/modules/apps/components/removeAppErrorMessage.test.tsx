@@ -81,6 +81,8 @@ const refusal = {
   data: { code: "CONFLICT", httpStatus: 409 },
 };
 const unexpectedFailure = { message: "Credential not found", data: { code: "INTERNAL_SERVER_ERROR" } };
+// A failure that never reached the server carries no tRPC data
+const networkFailure = { message: "Failed to fetch", data: undefined };
 
 const REFUSED_TOAST = "t(google_calendar_removal_unavailable)";
 const GENERIC_TOAST = "t(error_removing_app)";
@@ -94,7 +96,7 @@ describe("removeAppErrorMessage", () => {
 
   it.each([
     ["an unexpected server error", unexpectedFailure],
-    ["an error without tRPC data (network)", { message: "Failed to fetch" }],
+    ["an error without tRPC data (network)", networkFailure],
     ["an error with null data", { data: null }],
     ["no error at all", undefined],
   ])("keeps the generic message for %s", (_label, error) => {
