@@ -958,6 +958,9 @@ describe("deleteCredential", () => {
       eventType: await prisma.eventType.findUnique({ where: { id: 1 } }),
       destinationCalendar: await prisma.destinationCalendar.findUnique({ where: { id: 2 } }),
       selectedCalendars: await prisma.selectedCalendar.findMany({ where: { credentialId: 123 } }),
+      selectedCalendarsWithoutCredential: await prisma.selectedCalendar.findMany({
+        where: { userId, credentialId: null },
+      }),
       user: await prisma.user.findUnique({ where: { id: userId }, select: { metadata: true } }),
     });
 
@@ -981,6 +984,15 @@ describe("deleteCredential", () => {
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
       vi.mocked(lookUpGoogleAccount).mockReset();
       const user = await setupHostWithGoogleCalendar(credentialInput);
+      // Flowko U12: a row without a credential is untouched as well
+      await prisma.selectedCalendar.create({
+        data: {
+          userId: user.id,
+          integration: "google_calendar",
+          externalId: "salon@example.com",
+          eventTypeId: 1,
+        },
+      });
       const before = await snapshotHost(user.id);
       breakKey();
 
@@ -1000,6 +1012,7 @@ describe("deleteCredential", () => {
       expect(before.eventType).not.toBeNull();
       expect(before.destinationCalendar).not.toBeNull();
       expect(before.selectedCalendars).toHaveLength(1);
+      expect(before.selectedCalendarsWithoutCredential).toHaveLength(1);
       expect(revokeTokenSpy).not.toHaveBeenCalled();
       expect(await googleCalendarServiceMock()).not.toHaveBeenCalled();
       expect(lookUpGoogleAccount).not.toHaveBeenCalled();
@@ -1223,6 +1236,278 @@ describe("deleteCredential", () => {
         "Google grant NOT revoked for credentialId: 123: stored key unavailable",
       ]);
       expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toMatch(/work-|legacy-/);
+    });
+  });
+
+  // Upstream deleted every SelectedCalendar of the user whose calendar id the removed connection lists, and
+  // every event type's destination calendar on any credential of the same app, so the host's other Google
+  // connection silently stopped checking a calendar or writing an event type's bookings where the host chose
+  describe("Flowko U12: a disconnect deletes only the removed connection's calendar settings", () => {
+    const host = { email: "host@example.com", username: "host" };
+    const REMOVED = 123;
+    const STAYS = 124;
+    // A calendar both of the host's Google connections list
+    const SHARED = "team@example.com";
+
+    const setupHost = async (credentialIds: number[] = [REMOVED, STAYS]) => {
+      const user = await new UserRepository(prisma).create({ ...testUser, ...host });
+      await PrismaAppRepository.seedApp("googlecalendar");
+      for (const id of credentialIds) {
+        await setupCredential({
+          id,
+          userId: user.id,
+          type: "google_calendar",
+          appId: "google-calendar",
+          key: { access_token: `${id}-access`, refresh_token: `${id}-refresh` },
+        });
+      }
+      return user;
+    };
+
+    /** Each connection lists its calendars (the first is its primary); a missing entry can't list them */
+    const listCalendarsOf = async (calendarIdsByCredentialId: Record<number, string[]>) => {
+      const listedCredentialIds: number[] = [];
+      (await googleCalendarServiceMock()).mockImplementation(
+        (credential) =>
+          ({
+            listCalendars: async () => {
+              listedCredentialIds.push(credential.id);
+              const calendarIds = calendarIdsByCredentialId[credential.id];
+              if (!calendarIds) throw Object.assign(new Error("backendError"), { code: 503 });
+              return calendarIds.map((externalId, index) => ({
+                externalId,
+                primary: index === 0,
+                integration: "google_calendar",
+              }));
+            },
+          }) as never
+      );
+      return listedCredentialIds;
+    };
+
+    const selectCalendar = (data: {
+      userId: number;
+      externalId: string;
+      credentialId?: number | null;
+      eventTypeId?: number;
+    }) =>
+      prisma.selectedCalendar.create({
+        data: { integration: "google_calendar", credentialId: null, ...data },
+      });
+
+    const selectedCalendarsOf = async (userId: number) =>
+      (
+        await prisma.selectedCalendar.findMany({
+          where: { userId },
+          select: { externalId: true, credentialId: true, eventTypeId: true },
+        })
+      ).sort((a, b) =>
+        `${a.credentialId}:${a.externalId}:${a.eventTypeId}`.localeCompare(
+          `${b.credentialId}:${b.externalId}:${b.eventTypeId}`
+        )
+      );
+
+    const disconnect = async (user: { id: number; metadata: unknown }, credentialId = REMOVED) => {
+      const handleDeleteCredential = (await import("./handleDeleteCredential")).default;
+      await handleDeleteCredential({ userId: user.id, userMetadata: user.metadata as never, credentialId });
+    };
+
+    beforeEach(() => {
+      vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      vi.mocked(lookUpGoogleAccount).mockReset();
+      vi.mocked(lookUpGoogleAccount).mockResolvedValue({ status: "unknown" });
+    });
+
+    test.each([
+      [
+        "the same Google account connected twice (D8: a reconnect kept the earlier credential)",
+        { [REMOVED]: ["salon@example.com", SHARED], [STAYS]: ["salon@example.com", SHARED] },
+        "salon@example.com",
+      ],
+      [
+        "a calendar shared into two of the host's Google accounts",
+        { [REMOVED]: ["salon@example.com", SHARED], [STAYS]: ["private@example.com", SHARED] },
+        "private@example.com",
+      ],
+    ])("The other connection keeps its selected calendars: %s", async (_label, calendarIds, stayingPrimary) => {
+      const user = await setupHost();
+      const [eventType] = await addEventTypesToDb([{ id: 1, userId: user.id }]);
+      const listedCredentialIds = await listCalendarsOf(calendarIds);
+      // Each connection has its own rows, the same calendar ids included (user-level rows have no
+      // eventTypeId, and NULLs never collide in the unique index)
+      await selectCalendar({ userId: user.id, externalId: "salon@example.com", credentialId: REMOVED });
+      await selectCalendar({ userId: user.id, externalId: SHARED, credentialId: REMOVED });
+      await selectCalendar({ userId: user.id, externalId: stayingPrimary, credentialId: STAYS });
+      await selectCalendar({ userId: user.id, externalId: SHARED, credentialId: STAYS });
+      await selectCalendar({
+        userId: user.id,
+        externalId: SHARED,
+        credentialId: STAYS,
+        eventTypeId: eventType.id,
+      });
+      const staying = (await selectedCalendarsOf(user.id)).filter((row) => row.credentialId === STAYS);
+      expect(staying).toHaveLength(3);
+
+      await disconnect(user);
+
+      expect(await prisma.credential.findUnique({ where: { id: REMOVED } })).toBeNull();
+      // The removed connection's own rows went with it (the credentialId foreign key cascades)
+      expect(await selectedCalendarsOf(user.id)).toEqual(staying);
+      // Without a row lacking a credential, no other connection is asked for its calendars
+      expect(listedCredentialIds).toEqual([REMOVED]);
+    });
+
+    test("The other connection keeps the destination calendars set on it", async () => {
+      const user = await setupHost();
+      const [kept, removed] = await addEventTypesToDb([
+        { id: 1, userId: user.id },
+        { id: 2, userId: user.id },
+      ]);
+      await listCalendarsOf({ [REMOVED]: ["salon@example.com"], [STAYS]: ["private@example.com"] });
+      const setDestination = (
+        data: { id: number; externalId: string; credentialId: number } & (
+          | { userId: number }
+          | { eventTypeId: number }
+        )
+      ) => prisma.destinationCalendar.create({ data: { integration: "google_calendar", ...data } });
+      await setDestination({
+        id: 1,
+        externalId: "private@example.com",
+        credentialId: STAYS,
+        userId: user.id,
+      });
+      await setDestination({
+        id: 2,
+        externalId: "private@example.com",
+        credentialId: STAYS,
+        eventTypeId: kept.id,
+      });
+      await setDestination({
+        id: 3,
+        externalId: "salon@example.com",
+        credentialId: REMOVED,
+        eventTypeId: removed.id,
+      });
+
+      await disconnect(user);
+
+      expect(await DestinationCalendarRepository.getByUserId(user.id)).toMatchObject({
+        id: 1,
+        credentialId: STAYS,
+      });
+      expect(await DestinationCalendarRepository.getByEventTypeId(kept.id)).toMatchObject({
+        id: 2,
+        credentialId: STAYS,
+      });
+      // The removed connection's destination went with it (the credentialId foreign key cascades)
+      expect(await DestinationCalendarRepository.getByEventTypeId(removed.id)).toBeNull();
+    });
+
+    describe("A selected calendar without a credential (credentialId NULL), which every connection is asked for", () => {
+      test("is deleted when the removed connection was the only one, as upstream did", async () => {
+        const user = await setupHost([REMOVED]);
+        await listCalendarsOf({ [REMOVED]: ["salon@example.com", SHARED] });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com", credentialId: REMOVED });
+        await selectCalendar({ userId: user.id, externalId: SHARED });
+        // A calendar the removed connection does not list stays, as upstream left it
+        await selectCalendar({ userId: user.id, externalId: "unlisted@example.com" });
+
+        await disconnect(user);
+
+        expect(await selectedCalendarsOf(user.id)).toEqual([
+          { externalId: "unlisted@example.com", credentialId: null, eventTypeId: null },
+        ]);
+      });
+
+      test("stays when another connection lists its calendar, and is deleted when none does", async () => {
+        const user = await setupHost();
+        const [eventType] = await addEventTypesToDb([{ id: 1, userId: user.id }]);
+        const listedCredentialIds = await listCalendarsOf({
+          [REMOVED]: ["salon@example.com", SHARED],
+          [STAYS]: ["private@example.com", SHARED],
+        });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com" });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com", eventTypeId: eventType.id });
+        await selectCalendar({ userId: user.id, externalId: SHARED });
+        await selectCalendar({ userId: user.id, externalId: SHARED, eventTypeId: eventType.id });
+
+        await disconnect(user);
+
+        expect(await selectedCalendarsOf(user.id)).toEqual([
+          { externalId: SHARED, credentialId: null, eventTypeId: eventType.id },
+          { externalId: SHARED, credentialId: null, eventTypeId: null },
+        ]);
+        expect(listedCredentialIds).toEqual([REMOVED, STAYS]);
+      });
+
+      test("stays when another connection's calendars can't be listed, and the log names no calendar", async () => {
+        const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const user = await setupHost();
+        // The other connection's listing fails (Google does not answer, or its key is unavailable)
+        const listedCredentialIds = await listCalendarsOf({ [REMOVED]: ["salon@example.com"] });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com" });
+
+        await disconnect(user);
+
+        expect(await prisma.credential.findUnique({ where: { id: REMOVED } })).toBeNull();
+        expect(await selectedCalendarsOf(user.id)).toEqual([
+          { externalId: "salon@example.com", credentialId: null, eventTypeId: null },
+        ]);
+        expect(listedCredentialIds).toEqual([REMOVED, STAYS]);
+        const keptLogs = consoleWarnSpy.mock.calls.filter(([message]) =>
+          String(message).includes("Kept 1 selected calendar(s) without a credential")
+        );
+        expect(keptLogs).toEqual([
+          [expect.stringContaining(`credentialId: ${STAYS}`), { error: "Error", code: 503 }],
+        ]);
+        expect(JSON.stringify(consoleWarnSpy.mock.calls)).not.toContain("salon@example.com");
+      });
+
+      test("is deleted when the other connection is marked invalid, which is not asked", async () => {
+        const user = await setupHost([REMOVED]);
+        await setupCredential({
+          id: STAYS,
+          userId: user.id,
+          type: "google_calendar",
+          appId: "google-calendar",
+          key: { access_token: "dead-access", refresh_token: "dead-refresh" },
+          invalid: true,
+        });
+        // Were it asked, the dead connection would list the calendar
+        const listedCredentialIds = await listCalendarsOf({
+          [REMOVED]: ["salon@example.com"],
+          [STAYS]: ["salon@example.com"],
+        });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com" });
+
+        await disconnect(user);
+
+        expect(await selectedCalendarsOf(user.id)).toEqual([]);
+        expect(listedCredentialIds).toEqual([REMOVED]);
+      });
+
+      test("stays when the removed connection's own calendars can't be listed, without asking the others", async () => {
+        const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const user = await setupHost();
+        const listedCredentialIds = await listCalendarsOf({ [STAYS]: ["private@example.com"] });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com", credentialId: REMOVED });
+        await selectCalendar({ userId: user.id, externalId: "salon@example.com" });
+        await selectCalendar({ userId: user.id, externalId: "private@example.com", credentialId: STAYS });
+
+        await disconnect(user);
+
+        expect(await selectedCalendarsOf(user.id)).toEqual([
+          { externalId: "private@example.com", credentialId: STAYS, eventTypeId: null },
+          { externalId: "salon@example.com", credentialId: null, eventTypeId: null },
+        ]);
+        expect(listedCredentialIds).toEqual([REMOVED]);
+        // The listing error is logged by name and code only
+        expect(
+          consoleWarnSpy.mock.calls.filter(([message]) =>
+            String(message).includes("Error deleting selected calendars")
+          )
+        ).toEqual([[expect.any(String), { error: "Error", code: 503 }]]);
+      });
     });
   });
 });
