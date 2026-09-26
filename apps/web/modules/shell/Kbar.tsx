@@ -7,14 +7,7 @@ import { isMac } from "@calcom/lib/isMac";
 import { UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
 import { Tooltip } from "@calcom/ui/components/tooltip";
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CommandIcon,
-  CornerDownLeftIcon,
-  ExternalLinkIcon,
-  SearchIcon,
-} from "@coss/ui/icons";
+import { ArrowDownIcon, ArrowUpIcon, CommandIcon, CornerDownLeftIcon, SearchIcon } from "@coss/ui/icons";
 import type { Action } from "kbar";
 import {
   KBarAnimator,
@@ -29,7 +22,7 @@ import {
 } from "kbar";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
 type ShortcutArrayType = {
   shortcuts?: string[];
@@ -448,35 +441,13 @@ function renderResultItem(item: string | Action, active: boolean, t: (key: strin
   );
 }
 
-function NoResultsFound({ searchQuery }: { searchQuery: string }): JSX.Element {
+// Flowko: no help-desk search. Upstream sent the host's query to https://cal.com/help (a link, and Enter opened it)
+function NoResultsFound(): JSX.Element {
   const { t } = useLocale();
-  const helpUrl = `https://cal.com/help/welcome?search=${encodeURIComponent(searchQuery)}`;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Enter") {
-        window.open(helpUrl, "_blank", "noopener,noreferrer");
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [helpUrl]);
 
   return (
     <div className="px-4 py-6 text-center">
-      <p className="mb-3 text-sm text-subtle">{t("kbar_no_results_found")}</p>
-      <a
-        href={helpUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center justify-center gap-2 text-emphasis text-sm transition hover:text-default">
-        <ExternalLinkIcon className="h-4 w-4" />
-        {t("kbar_search_help_desk_prefix")} <span className="underline">&quot;{searchQuery}&quot;</span>{" "}
-        {t("kbar_search_help_desk_suffix")}
-      </a>
+      <p className="text-sm text-subtle">{t("kbar_no_results_found")}</p>
     </div>
   );
 }
@@ -490,7 +461,7 @@ function RenderResults(): JSX.Element {
   useUpcomingBookingsAction();
 
   if (results.length === 0 && searchQuery.trim().length > 0) {
-    return <NoResultsFound searchQuery={searchQuery} />;
+    return <NoResultsFound />;
   }
 
   return (

@@ -6,6 +6,17 @@ vi.mock("next-auth/react", () => ({
   signOut: vi.fn(),
 }));
 
+// Flowko: the Help item mails SUPPORT_MAIL_ADDRESS (build arg NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS); a getter lets a test blank it
+const mockConstants: { supportMailAddress: string } = vi.hoisted(() => ({
+  supportMailAddress: "support@example.com",
+}));
+vi.mock("@calcom/lib/constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@calcom/lib/constants")>()),
+  get SUPPORT_MAIL_ADDRESS(): string {
+    return mockConstants.supportMailAddress;
+  },
+}));
+
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
   useLocale: () => ({
     t: (key: string) => key,
@@ -65,22 +76,15 @@ vi.mock("@calcom/ui/classNames", () => ({
 
 describe("UserDropdown", () => {
   let mockBeacon: ReturnType<typeof vi.fn>;
-  let mockSupportOpen: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConstants.supportMailAddress = "support@example.com";
 
     mockBeacon = vi.fn();
-    mockSupportOpen = vi.fn();
 
     Object.defineProperty(window, "Beacon", {
       value: mockBeacon,
-      writable: true,
-      configurable: true,
-    });
-
-    Object.defineProperty(window, "Support", {
-      value: { open: mockSupportOpen, shouldShowTriggerButton: vi.fn() },
       writable: true,
       configurable: true,
     });
@@ -94,7 +98,6 @@ describe("UserDropdown", () => {
 
   afterEach(() => {
     delete window.Beacon;
-    delete window.Support;
   });
 
   describe("Beacon session-data functionality", () => {
@@ -287,8 +290,41 @@ describe("UserDropdown", () => {
         "/settings/my-account/profile",
         "/settings/my-account/general",
         "/settings/my-account/out-of-office",
+        "mailto:support@example.com",
       ]);
       expect(getByText("help")).toBeInTheDocument();
+      expect(getByText("sign_out")).toBeInTheDocument();
+    });
+
+    // Upstream's Help opened window.Support, a support widget this fork does not load, so it did nothing
+    it("Help is a mailto link to the support address", async () => {
+      mockUseMeQuery.mockReturnValue({
+        data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
+        isPending: false,
+      });
+
+      const { UserDropdown } = await import("./UserDropdown");
+      const { getByText } = render(<UserDropdown />);
+
+      const help = getByText("help").closest("a");
+      expect(help).not.toBeNull();
+      expect(help?.getAttribute("href")).toBe("mailto:support@example.com");
+      expect(help?.getAttribute("target")).toBeNull();
+    });
+
+    it("hides Help, and its separator, when no support address is set", async () => {
+      mockConstants.supportMailAddress = "";
+      mockUseMeQuery.mockReturnValue({
+        data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
+        isPending: false,
+      });
+
+      const { UserDropdown } = await import("./UserDropdown");
+      const { container, queryByText, getByText } = render(<UserDropdown />);
+
+      expect(queryByText("help")).not.toBeInTheDocument();
+      expect(container.querySelector('a[href^="mailto:"]')).toBeNull();
+      expect(container.querySelectorAll("hr")).toHaveLength(1);
       expect(getByText("sign_out")).toBeInTheDocument();
     });
   });
