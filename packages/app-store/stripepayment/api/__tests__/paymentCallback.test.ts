@@ -18,6 +18,12 @@ vi.mock("@calcom/prisma", () => ({
   },
 }));
 
+// Flowko: the premium-username errors named support@cal.com. They now name SUPPORT_MAIL_ADDRESS (U12).
+vi.mock("@calcom/lib/constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@calcom/lib/constants")>()),
+  SUPPORT_MAIL_ADDRESS: "support@example.com",
+}));
+
 vi.mock("../../lib/getCustomerAndCheckoutSession");
 vi.mock("@calcom/features/auth/lib/sendVerificationRequest");
 vi.mock("../../lib/VerificationTokenService", () => ({
@@ -265,6 +271,44 @@ describe("paymentCallback", () => {
         identifier: "test@example.com", // Should use user.email
         expires: expect.any(Date),
       });
+    });
+  });
+
+  describe("support address in the error messages", () => {
+    it("names SUPPORT_MAIL_ADDRESS when the Stripe customer is missing", async () => {
+      mockGetCustomerAndCheckoutSession.mockResolvedValue({
+        stripeCustomer: null,
+        checkoutSession: { payment_status: "paid" },
+      } as unknown as Awaited<ReturnType<typeof getCustomerAndCheckoutSession>>);
+
+      const { default: handler } = await import("../paymentCallback");
+
+      await handler(mockReq as NextApiRequest, mockRes as NextApiResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            "Stripe customer not found or deleted.  Please contact support@example.com and mention your premium username",
+        })
+      );
+    });
+
+    it("names SUPPORT_MAIL_ADDRESS when the paid premium username cannot be reserved", async () => {
+      mockPrisma.user.update.mockRejectedValue(new Error("Unique constraint failed"));
+
+      const { default: handler } = await import("../paymentCallback");
+
+      await handler(mockReq as NextApiRequest, mockRes as NextApiResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            "We have received your payment. Your premium username could still not be reserved. Please contact support@example.com and mention your premium username",
+        })
+      );
+      expect(mockVerificationTokenServiceCreate).not.toHaveBeenCalled();
     });
   });
 });
