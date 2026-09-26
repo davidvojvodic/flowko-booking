@@ -24,54 +24,17 @@ import {
 } from "@coss/ui/icons";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { useEffect, useState } from "react";
-
-declare global {
-  interface Window {
-    Beacon?: BeaconFunction;
-  }
-}
-
-type BeaconFunction = {
-  (command: "session-data", data: Record<string, string | number>): void;
-  // Catch-all for other methods - add explicit types above if using new commands
-  (...args: unknown[]): void;
-};
+import { useState } from "react";
 
 interface UserDropdownProps {
   small?: boolean;
 }
 
+// Flowko: no Help Scout Beacon. Upstream polled window.Beacon every second, for as long as the menu was
+// mounted, to send it the username and screen size; this fork loads no Beacon widget (Help is a mailto)
 export function UserDropdown({ small }: UserDropdownProps) {
   const { t } = useLocale();
   const { data: user, isPending } = useMeQuery();
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const sendSessionData = () => {
-      const Beacon = window.Beacon;
-      if (Beacon) {
-        Beacon("session-data", {
-          username: user?.username || "Unknown",
-          screenResolution: `${screen.width}x${screen.height}`,
-        });
-        return true;
-      }
-      return false;
-    };
-
-    // Try immediately, then poll if Beacon isn't loaded yet
-    if (!sendSessionData()) {
-      const intervalId = setInterval(() => {
-        if (sendSessionData()) {
-          clearInterval(intervalId);
-        }
-      }, 1000);
-
-      return () => clearInterval(intervalId);
-    }
-  }, [user?.username]);
 
   const [menuOpen, setMenuOpen] = useState(false);
 

@@ -1,11 +1,9 @@
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
+import PageWrapper from "@components/PageWrapperAppDir";
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
 import type { ReadonlyHeaders, ReadonlyRequestCookies } from "app/_types";
 import { _generateMetadata } from "app/_utils";
 import { cookies, headers } from "next/headers";
-// Flowko: relative instead of @components/PageWrapperAppDir (the same file): the Vitest config has no
-// @components alias, and not-found.test.tsx imports this page.
-import PageWrapper from "../components/PageWrapperAppDir";
 import { NotFound } from "./notFoundClient";
 
 export const generateMetadata = async () => {

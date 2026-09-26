@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import React from "react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
@@ -75,33 +75,23 @@ vi.mock("@calcom/ui/classNames", () => ({
 }));
 
 describe("UserDropdown", () => {
-  let mockBeacon: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockConstants.supportMailAddress = "support@example.com";
-
-    mockBeacon = vi.fn();
-
-    Object.defineProperty(window, "Beacon", {
-      value: mockBeacon,
-      writable: true,
-      configurable: true,
-    });
-
-    Object.defineProperty(window, "screen", {
-      value: { width: 1920, height: 1080 },
-      writable: true,
-      configurable: true,
-    });
   });
 
   afterEach(() => {
-    delete window.Beacon;
+    vi.useRealTimers();
+    Reflect.deleteProperty(window, "Beacon");
   });
 
-  describe("Beacon session-data functionality", () => {
-    it("should call Beacon with session-data when Beacon is available and user has username", async () => {
+  // Flowko: upstream polled window.Beacon (Help Scout) every second to send it the username and screen size.
+  // This fork loads no Beacon widget, so the menu neither polls nor sends anything, even if a page defines one
+  describe("Flowko: no Beacon", () => {
+    it("sends nothing to a window.Beacon, however long the menu stays mounted", async () => {
+      vi.useFakeTimers();
+      const beacon = vi.fn();
+      Object.defineProperty(window, "Beacon", { value: beacon, writable: true, configurable: true });
       mockUseMeQuery.mockReturnValue({
         data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
         isPending: false,
@@ -109,116 +99,10 @@ describe("UserDropdown", () => {
 
       const { UserDropdown } = await import("./UserDropdown");
       render(<UserDropdown />);
+      vi.advanceTimersByTime(5000);
 
-      await waitFor(() => {
-        expect(mockBeacon).toHaveBeenCalledWith("session-data", {
-          username: "testuser",
-          screenResolution: "1920x1080",
-        });
-      });
-    });
-
-    it("should call Beacon with 'Unknown' username when user has no username", async () => {
-      mockUseMeQuery.mockReturnValue({
-        data: { username: null, name: "Test User", avatarUrl: null, avatar: null },
-        isPending: false,
-      });
-
-      const { UserDropdown } = await import("./UserDropdown");
-      render(<UserDropdown />);
-
-      await waitFor(() => {
-        expect(mockBeacon).toHaveBeenCalledWith("session-data", {
-          username: "Unknown",
-          screenResolution: "1920x1080",
-        });
-      });
-    });
-
-    it("should not throw error when Beacon is undefined", async () => {
-      delete window.Beacon;
-
-      mockUseMeQuery.mockReturnValue({
-        data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
-        isPending: false,
-      });
-
-      const { UserDropdown } = await import("./UserDropdown");
-
-      // Should not throw
-      expect(() => render(<UserDropdown />)).not.toThrow();
-    });
-
-    it("should call Beacon when it loads lazily after mount", async () => {
-      // Start with Beacon undefined (simulating lazy load)
-      delete window.Beacon;
-
-      mockUseMeQuery.mockReturnValue({
-        data: { username: "testuser", name: "Test User", avatarUrl: null, avatar: null },
-        isPending: false,
-      });
-
-      const { UserDropdown } = await import("./UserDropdown");
-      render(<UserDropdown />);
-
-      // Beacon should not have been called yet
-      expect(mockBeacon).not.toHaveBeenCalled();
-
-      // Simulate Beacon loading after mount
-      Object.defineProperty(window, "Beacon", {
-        value: mockBeacon,
-        writable: true,
-        configurable: true,
-      });
-
-      // Wait for the polling interval to detect Beacon
-      await waitFor(
-        () => {
-          expect(mockBeacon).toHaveBeenCalledWith("session-data", {
-            username: "testuser",
-            screenResolution: "1920x1080",
-          });
-        },
-        { timeout: 2000 }
-      );
-    });
-
-    it("should update Beacon session-data when username changes", async () => {
-      const { rerender } = render(<div />);
-
-      // First render with initial username
-      mockUseMeQuery.mockReturnValue({
-        data: { username: "user1", name: "User One", avatarUrl: null, avatar: null },
-        isPending: false,
-      });
-
-      const { UserDropdown } = await import("./UserDropdown");
-      const { rerender: rerenderComponent } = render(<UserDropdown />);
-
-      await waitFor(() => {
-        expect(mockBeacon).toHaveBeenCalledWith("session-data", {
-          username: "user1",
-          screenResolution: "1920x1080",
-        });
-      });
-
-      // Clear mock to track new calls
-      mockBeacon.mockClear();
-
-      // Update username
-      mockUseMeQuery.mockReturnValue({
-        data: { username: "user2", name: "User Two", avatarUrl: null, avatar: null },
-        isPending: false,
-      });
-
-      rerenderComponent(<UserDropdown />);
-
-      await waitFor(() => {
-        expect(mockBeacon).toHaveBeenCalledWith("session-data", {
-          username: "user2",
-          screenResolution: "1920x1080",
-        });
-      });
+      expect(beacon).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 
