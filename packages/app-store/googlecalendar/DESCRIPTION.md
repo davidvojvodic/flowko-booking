@@ -1,3 +1,3 @@
-Povežite Google Calendar z aplikacijo Flowko Rezervacije. Aplikacija bo brala seznam vaših koledarjev in čase, ko ste zasedeni v koledarjih, ki jih izberete, da stranke ne morejo rezervirati terminov, ko ste zasedeni. Vsako rezervacijo doda v koledar, ki ga izberete, jo ob spremembi posodobi in ob odpovedi izbriše. Vsebine drugih dogodkov ne bere.
+Connect Google Calendar to Flowko Rezervacije. The app will read the list of your calendars and the times you are busy in the calendars you choose, so that customers cannot book appointments when you are busy. It adds every booking to the calendar you choose, updates it when it changes and deletes it when it is cancelled. It does not read the contents of your other events.
 
-Povezavo lahko kadar koli prekinete v razdelku Aplikacije → Nameščene aplikacije → Koledarji ali na strani https://myaccount.google.com/connections. Več v razdelku 3.3 pravilnika o zasebnosti: https://flowko.si/privacy
+You can disconnect at any time under Apps → Installed apps → Calendars or at https://myaccount.google.com/connections. See section 3.3 of the privacy policy: https://flowko.si/privacy

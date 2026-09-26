@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getAppWithMetadata } from "@calcom/app-store/_appRegistry";
 import { getAppAssetFullPath } from "@calcom/app-store/getAppAssetFullPath";
+import { i18n } from "@calcom/i18n/next-i18next.config";
 import { IS_PRODUCTION } from "@calcom/lib/constants";
 import { prisma } from "@calcom/prisma";
 import logger from "@calcom/lib/logger";
@@ -64,9 +65,26 @@ export const sourceSchema = z.object({
   }),
 });
 
+/**
+ * Flowko: an app can ship its page body in another language as DESCRIPTION.<locale>.md next to its
+ * DESCRIPTION.md (Google Calendar has DESCRIPTION.sl.md). A request whose locale has such a file gets it;
+ * every other request gets DESCRIPTION.md, which is English, and so does every app without locale files.
+ * Only a configured locale is looked up, so the request's locale never builds any other path.
+ */
+export function getDescriptionFilePath(appDirPath: string, locale?: string): string {
+  const defaultPath = path.join(appDirPath, "DESCRIPTION.md");
+  if (!locale || !i18n.locales.includes(locale)) return defaultPath;
+  const localizedPath = path.join(appDirPath, `DESCRIPTION.${locale}.md`);
+  return fs.existsSync(localizedPath) ? localizedPath : defaultPath;
+}
+
 export type AppDataProps = NonNullable<Awaited<ReturnType<typeof getStaticProps>>>;
 
-export const getStaticProps = async (slug: string) => {
+/**
+ * @param locale the request's locale, resolved as the root layout resolves it; it picks the page body
+ * (see getDescriptionFilePath). Without it the page body is DESCRIPTION.md.
+ */
+export const getStaticProps = async (slug: string, locale?: string) => {
   const appMeta = await getAppWithMetadata({
     slug,
   });
@@ -91,8 +109,8 @@ export const getStaticProps = async (slug: string) => {
 
   const isTemplate = appMeta.isTemplate;
   const appDirname = path.join(isTemplate ? "templates" : "", appFromDb.dirName);
-  const README_PATH = path.join(process.cwd(), "..", "..", `packages/app-store/${appDirname}/DESCRIPTION.md`);
-  const postFilePath = path.join(README_PATH);
+  const appDirPath = path.join(process.cwd(), "..", "..", `packages/app-store/${appDirname}`);
+  const postFilePath = getDescriptionFilePath(appDirPath, locale);
   let source = "";
 
   try {

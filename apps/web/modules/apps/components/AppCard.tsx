@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import posthog from "posthog-js";
 
 import { InstallAppButton } from "@calcom/app-store/InstallAppButton";
+import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import { isRedirectApp } from "@calcom/app-store/_utils/redirectApps";
 import useAddAppMutation from "@calcom/app-store/_utils/useAddAppMutation";
 import { doesAppSupportTeamInstall, isConferencing } from "@calcom/app-store/utils";
@@ -128,7 +129,8 @@ export function AppCard({ app, credentials, searchText, userAdminTeams }: AppCar
             <span className="pl-1 text-subtle">{props.reviews} reviews</span>
           </div> */}
       <p className="text-default mt-2 text-sm line-clamp-3">
-        {markdownToSafeHTML(app.description).replace(/<[^>]+>/g, "")}
+        {/* Flowko: in the UI's language where the app's description is translated (Google Calendar) */}
+        {markdownToSafeHTML(getAppDescription(app, t)).replace(/<[^>]+>/g, "")}
       </p>
 
       <div className="mt-auto flex max-w-full flex-row justify-between gap-2">

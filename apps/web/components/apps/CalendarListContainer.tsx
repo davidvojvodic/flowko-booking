@@ -1,6 +1,7 @@
 "use client";
 
 import { InstallAppButton } from "@calcom/app-store/InstallAppButton";
+import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { RouterOutputs } from "@calcom/trpc/react";
@@ -49,7 +50,7 @@ function CalendarList(props: Props): JSX.Element {
               title={item.name}
               key={item.name}
               logo={item.logo}
-              description={item.description}
+              description={getAppDescription(item, t)}
               shouldHighlight
               slug={item.slug}
               actions={
