@@ -255,6 +255,19 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         // else
         errorMessage = "account_already_linked";
       }
+      // Flowko D8 (U11): the new credential is the only row that holds the fresh token, and it is deleted
+      // below, so end the fresh grant at Google first, by the D8 rule: kept only when Google confirms that
+      // another live connection, the user's own or another user's, is the same Google account (for
+      // account_already_linked that is normally the earlier connection that holds the primary calendar), or
+      // when Google can't name the fresh token's account. The new credential itself still holds this very
+      // token, so it is excluded: it would always confirm its own grant as shared. Upstream deleted the
+      // credential and left the grant live at Google. Best effort: it never throws, so the credential is
+      // still deleted and the host is still sent back
+      await revokeUnstoredGoogleCalendarToken({
+        userId: req.session.user.id,
+        key,
+        excludeCredentialIds: [gcalCredential.id],
+      });
       await CredentialRepository.deleteById({ id: gcalCredential.id });
       // Flowko: upstream appended "?error=" to a path that may already have a query, and a relative
       // onErrorReturnTo made getSafeRedirectUrl throw after the credential was deleted (a 500)

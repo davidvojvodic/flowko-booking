@@ -90,7 +90,8 @@ export const revokeGoogleCalendarToken = async (credentialId: number | null, key
 // Revoking ends Google's grant for the whole Google account, not just this credential's token,
 // so any other connection to that account would silently stop syncing.
 // credentialIds are the credentials going away with the revoke: the one disconnected, none for a token
-// that was never stored, or every credential of a user whose account is deleted.
+// that was never stored, the callback's new credential when it can't select the primary calendar, or every
+// credential of a user whose account is deleted.
 // Flowko D8: another credential shares the grant only when Google confirms that its token belongs to the
 // same Google account (the same primary calendar id). The grant is revoked whenever that can't be confirmed:
 // Google's policy is to revoke tokens that are no longer needed, and the disconnect promises it.
@@ -149,25 +150,31 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
   );
 };
 
-// The callback never stores a token that lacks a required scope, nor one it failed to store. Revoke its
-// grant unless Google confirms that another connection, the user's own or another user's, is the same
-// Google account. The Google account is only known when calendar.readonly was granted; without it, keep
-// the grant.
+// The callback never stores a token that lacks a required scope, nor one it failed to store, and it deletes
+// the new credential again when it can't select the primary calendar. Revoke its grant unless Google
+// confirms that another connection, the user's own or another user's, is the same Google account. The
+// Google account is only known when calendar.readonly was granted; without it, keep the grant.
 // Flowko D8: when the fresh token's account is found but Google does not answer for the user's existing
 // connection to that account, nothing confirms the sharing and the fresh grant is revoked. Revoking ends the
 // whole grant, so that existing connection stops working too and the host has to reconnect it.
+// Flowko D8 (U11): excludeCredentialIds are stored credentials that hold this very token and go away with it:
+// the callback's new credential, which it deletes right after the revoke. Such a row would be looked up as
+// the same Google account and always keep the grant, so it never counts as sharing it.
+// Best effort: it never throws, so what the callback does next (delete, redirect, refuse) always runs.
 export const revokeUnstoredGoogleCalendarToken = async ({
   userId,
   key,
+  excludeCredentialIds = [],
 }: {
   userId: number;
   key: unknown;
+  excludeCredentialIds?: number[];
 }) => {
   try {
     const account = await lookUpGoogleAccount(key);
     if (account.status !== "found") return;
     const grantShared = await isGoogleGrantSharedWithAnotherCredential({
-      credentialIds: [],
+      credentialIds: excludeCredentialIds,
       userId,
       primaryCalendarId: account.primaryCalendarId,
     });

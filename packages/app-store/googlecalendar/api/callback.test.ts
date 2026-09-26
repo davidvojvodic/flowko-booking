@@ -460,10 +460,10 @@ describe("googlecalendar callback: credential keyring", () => {
     const res = await connect();
 
     expect(res._getRedirectUrl()).toBe(BACK_WITH_REASON);
-    expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
-      userId: VICTIM_ID,
-      key: freshTokens,
-    });
+    // Flowko D8 (U11): no row was created, so there is no credential to exclude
+    expect(mocks.revokeUnstoredGoogleCalendarToken.mock.calls).toStrictEqual([
+      [{ userId: VICTIM_ID, key: freshTokens }],
+    ]);
     expect(mocks.upsertSelectedCalendar).not.toHaveBeenCalled();
     expect(res._getRedirectUrl()).not.toContain("check constraint");
   });
@@ -620,5 +620,99 @@ describe("googlecalendar callback: primary calendar can't be selected", () => {
     expect(res._getRedirectUrl()).toBe("/apps/installed/calendar?hl=google-calendar");
     expect(mocks.replaceEarlierGoogleCalendarCredentials).toHaveBeenCalledTimes(1);
     expect(mocks.deleteById).not.toHaveBeenCalled();
+    // The new credential stays and keeps its grant
+    expect(mocks.revokeUnstoredGoogleCalendarToken).not.toHaveBeenCalled();
+  });
+
+  // Flowko D8 (U11): upstream deleted the new credential and left its fresh grant live at Google
+  describe("the fresh grant of the credential it deletes", () => {
+    const NEW_CREDENTIAL_ID = 10;
+    const freshTokens = {
+      access_token: "ya29.fresh-access-token",
+      refresh_token: "1//fresh-refresh-token",
+      scope: GOOGLE_CALENDAR_SCOPES.join(" "),
+    };
+
+    beforeEach(() => {
+      mocks.getToken.mockResolvedValue({ tokens: freshTokens });
+    });
+
+    it.each([
+      ["any other failure", () => new Error("connection terminated unexpectedly"), "something_went_wrong"],
+      [
+        "a unique conflict it can't hand over to the new credential",
+        uniqueConstraintFailed,
+        "account_already_linked",
+      ],
+    ])("is revoked by the D8 rule, then the credential deleted, after %s", async (_label, failure, error) => {
+      mocks.upsertSelectedCalendar.mockRejectedValue(failure());
+      // The revoke runs while the new credential still exists
+      mocks.revokeUnstoredGoogleCalendarToken.mockImplementationOnce(async () => {
+        expect(mocks.deleteById).not.toHaveBeenCalled();
+      });
+
+      const res = await connect({
+        fromApp: true,
+        onErrorReturnTo: `${WEBAPP_URL}/settings/my-account/calendars`,
+      });
+
+      expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledTimes(1);
+      expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
+        userId: VICTIM_ID,
+        key: freshTokens,
+        // It still holds this very token, so it must not count as another connection sharing the grant
+        excludeCredentialIds: [NEW_CREDENTIAL_ID],
+      });
+      expect(mocks.deleteById).toHaveBeenCalledTimes(1);
+      expect(mocks.deleteById).toHaveBeenCalledWith({ id: NEW_CREDENTIAL_ID });
+      expect(mocks.revokeUnstoredGoogleCalendarToken.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.deleteById.mock.invocationCallOrder[0]
+      );
+      // The redirect is unchanged, and carries no token
+      expect(res._getRedirectUrl()).toBe(`${WEBAPP_URL}/settings/my-account/calendars?error=${error}`);
+      expect(res._getRedirectUrl()).not.toContain("fresh-");
+      expect(mocks.replaceEarlierGoogleCalendarCredentials).not.toHaveBeenCalled();
+    });
+
+    it("is revoked only after the orphaned selected calendar could not be handed over", async () => {
+      mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+      const { page, params } = redirectOf(await connect({ fromApp: true }));
+
+      expect(mocks.renewSelectedCalendarCredentialId).toHaveBeenCalledWith(
+        { userId: VICTIM_ID, externalId: "owner@example.com", integration: "google_calendar" },
+        NEW_CREDENTIAL_ID
+      );
+      expect(mocks.renewSelectedCalendarCredentialId.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.revokeUnstoredGoogleCalendarToken.mock.invocationCallOrder[0]
+      );
+      expect(page).toBe(INSTALLED_CALENDARS);
+      expect(params.get("error")).toBe("account_already_linked");
+    });
+  });
+});
+
+describe("googlecalendar callback: a token without every required scope", () => {
+  it("revokes the fresh grant by the D8 rule and stores nothing, as before", async () => {
+    const partialTokens = {
+      access_token: "access",
+      refresh_token: "refresh",
+      scope: GOOGLE_CALENDAR_SCOPES[0],
+    };
+    mocks.getToken.mockResolvedValue({ tokens: partialTokens });
+    const state = stateFromAdd(VICTIM_ID, {
+      fromApp: true,
+      onErrorReturnTo: `${WEBAPP_URL}/apps/google-calendar`,
+    });
+
+    const res = await callCallback({ userId: VICTIM_ID, query: { code: "own-code", state } });
+
+    // Nothing was stored, so there is no credential to exclude
+    expect(mocks.revokeUnstoredGoogleCalendarToken.mock.calls).toStrictEqual([
+      [{ userId: VICTIM_ID, key: partialTokens }],
+    ]);
+    expect(mocks.credentialCreate).not.toHaveBeenCalled();
+    expect(mocks.deleteById).not.toHaveBeenCalled();
+    expect(res._getRedirectUrl()).toBe(`${WEBAPP_URL}/apps/google-calendar`);
   });
 });
