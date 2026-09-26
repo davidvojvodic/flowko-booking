@@ -530,7 +530,7 @@ describe("deleteCredential", () => {
   });
 
   describe("Google Calendar tokens encrypted at rest", () => {
-    const REFUSAL_EN = "This Google Calendar connection can't be removed right now. Try again later.";
+    const REFUSAL_EN = "This Google Calendar connection can't be removed right now. Please try again later.";
     const googleKey = (name: string) => ({
       access_token: `${name}-access`,
       refresh_token: `${name}-refresh`,

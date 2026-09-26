@@ -217,7 +217,7 @@ export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
 
 // Flowko U9: the host sees this as the reason the removal failed, so it is worded in their language
 const GOOGLE_CALENDAR_REMOVAL_UNAVAILABLE_MESSAGE =
-  "This Google Calendar connection can't be removed right now. Try again later.";
+  "This Google Calendar connection can't be removed right now. Please try again later.";
 
 const googleCalendarRemovalUnavailableError = async (userId: number) => {
   let message = GOOGLE_CALENDAR_REMOVAL_UNAVAILABLE_MESSAGE;
