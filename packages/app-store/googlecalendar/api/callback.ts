@@ -51,6 +51,40 @@ const showsCalendarConnectErrors = (pageUrl: string) => {
   );
 };
 
+/** The ?error= keys this callback sends; the pages above show only the whitelisted ones as a toast. */
+type CalendarConnectErrorKey =
+  | "google_calendar_connections_unavailable"
+  | "account_already_linked"
+  | "something_went_wrong";
+
+/** state.onErrorReturnTo when it is a page of this app; a relative or malformed value counts as missing. */
+function getSafeOnErrorReturnTo(state: IntegrationOAuthCallbackState): string | null {
+  try {
+    return getSafeRedirectUrl(state.onErrorReturnTo);
+  } catch {
+    // Not an absolute URL: treated as missing
+    return null;
+  }
+}
+
+/**
+ * Flowko: where a refused connect sends the host, with ?error=<i18n key>. That is the page the host started it
+ * from when that page shows ?error= as a toast, and otherwise the installed calendars, which do: onboarding, the
+ * app categories, the event-type calendar selector and the troubleshooter start a connect too but show no
+ * ?error=. Built with the URL API, because the installed calendars' path already carries ?hl=google-calendar:
+ * appending "?error=" to it gave a second "?" and the page never saw the error.
+ */
+function calendarConnectErrorUrl(onErrorReturnTo: string | null, error: CalendarConnectErrorKey): string {
+  const url = new URL(
+    onErrorReturnTo && showsCalendarConnectErrors(onErrorReturnTo)
+      ? onErrorReturnTo
+      : getInstalledAppPath({ variant: "calendar", slug: "google-calendar" }),
+    WEBAPP_URL
+  );
+  url.searchParams.set("error", error);
+  return url.toString();
+}
+
 /**
  * Flowko U9: a connect refused because the token can't be stored encrypted goes back to the page the host
  * started it from, when that page shows ?error=<i18n key> as a toast, and otherwise to the installed calendars,
@@ -62,25 +96,11 @@ async function refuseCalendarConnection(
   res: NextApiResponse,
   state: IntegrationOAuthCallbackState
 ) {
-  let onErrorReturnTo: string | null = null;
-  try {
-    onErrorReturnTo = getSafeRedirectUrl(state.onErrorReturnTo);
-  } catch {
-    // Not an absolute URL: treated as missing
-  }
+  const onErrorReturnTo = getSafeOnErrorReturnTo(state);
   if (!onErrorReturnTo && !state.fromApp) {
     throw await calendarConnectionsUnavailableError(req);
   }
-  // Flowko: onboarding, the app categories, the event-type calendar selector and the troubleshooter start a
-  // connect too but show no ?error=, so the host is sent to the installed calendars to see why it was refused
-  const url = new URL(
-    onErrorReturnTo && showsCalendarConnectErrors(onErrorReturnTo)
-      ? onErrorReturnTo
-      : getInstalledAppPath({ variant: "calendar", slug: "google-calendar" }),
-    WEBAPP_URL
-  );
-  url.searchParams.set("error", "google_calendar_connections_unavailable");
-  res.redirect(url.toString());
+  res.redirect(calendarConnectErrorUrl(onErrorReturnTo, "google_calendar_connections_unavailable"));
 }
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
@@ -220,7 +240,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         externalId: selectedCalendarWhereUnique.externalId,
       });
     } catch (error) {
-      let errorMessage = "something_went_wrong";
+      let errorMessage: CalendarConnectErrorKey = "something_went_wrong";
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         // it is possible a selectedCalendar was orphaned, in this situation-
         // we want to recover by connecting the existing selectedCalendar to the new Credential.
@@ -236,12 +256,9 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         errorMessage = "account_already_linked";
       }
       await CredentialRepository.deleteById({ id: gcalCredential.id });
-      res.redirect(
-        `${
-          getSafeRedirectUrl(state?.onErrorReturnTo) ??
-          getInstalledAppPath({ variant: "calendar", slug: "google-calendar" })
-        }?error=${errorMessage}`
-      );
+      // Flowko: upstream appended "?error=" to a path that may already have a query, and a relative
+      // onErrorReturnTo made getSafeRedirectUrl throw after the credential was deleted (a 500)
+      res.redirect(calendarConnectErrorUrl(getSafeOnErrorReturnTo(state), errorMessage));
       return;
     }
 
