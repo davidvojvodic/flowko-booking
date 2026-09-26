@@ -8,6 +8,8 @@ const CALENDAR_CONNECT_ERRORS = [
   "no_default_calendar",
   // Flowko U9: the Google Calendar callback refused a connect because the token could not be stored encrypted
   "google_calendar_connections_unavailable",
+  // Flowko U10: the Google Calendar callback could not store the selected calendar (not a duplicate account)
+  "something_went_wrong",
 ] as const;
 
 export type CalendarConnectError = (typeof CALENDAR_CONNECT_ERRORS)[number];

@@ -47,7 +47,7 @@ export const metadata = {
     apple: "/api/logo?type=apple-touch-icon",
     other: [
       {
-        rel: "icon-mask",
+        rel: "mask-icon",
         url: "/safari-pinned-tab.svg",
         color: "#000000",
       },

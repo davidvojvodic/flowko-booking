@@ -117,7 +117,10 @@ const ConnectedCalendarList = ({
                 <Link href={`/apps/${connectedCalendar.integration.slug}`}>
                   {connectedCalendar.integration.name}
                 </Link>
-                : {t("calendar_error")}
+                :{" "}
+                {connectedCalendar.error?.code === "credential_key_unavailable"
+                  ? t("google_calendar_temporarily_unavailable")
+                  : t("calendar_error")}
               </span>
             }
             iconClassName="h-10 w-10 ml-2 mr-1 mt-0.5"

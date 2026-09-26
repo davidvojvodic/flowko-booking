@@ -10,6 +10,8 @@ const CALLBACK_ERRORS = [
   "no_default_calendar",
   // Sent by the Google Calendar callback when it refuses a connect (U9)
   "google_calendar_connections_unavailable",
+  // Sent by the Google Calendar callback when storing the selected calendar fails (U10)
+  "something_went_wrong",
 ];
 
 describe("isCalendarConnectError", () => {

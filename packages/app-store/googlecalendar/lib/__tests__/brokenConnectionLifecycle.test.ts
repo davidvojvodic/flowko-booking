@@ -236,6 +236,8 @@ describe("a broken Google connection", () => {
       invalid: true,
     });
     await expect(readHostAvailability()).rejects.toBeInstanceOf(InvalidCalendarCredentialError);
+    // Google refuses to revoke a dead token
+    mocks.revokeToken.mockRejectedValue(Object.assign(new Error("invalid_token"), { code: 400 }));
 
     // "Odstrani aplikacijo" on the dead connection: its token cannot list calendars
     await expect(
@@ -247,8 +249,14 @@ describe("a broken Google connection", () => {
       []
     );
     await expect(readHostAvailability()).resolves.toEqual([[]]);
-    // The new connection shares the grant, so it is not revoked
-    expect(mocks.revokeToken).not.toHaveBeenCalled();
+    // Flowko D8: the dead token can't list its calendars, so its Google account is unknown and nothing
+    // confirms that the new connection shares its grant: its revoke is attempted. Google refuses it
+    // (invalid_token), and the new connection's grant is untouched
+    expect(mocks.revokeToken).toHaveBeenCalledTimes(1);
+    expect(mocks.revokeToken).toHaveBeenCalledWith("old-refresh");
+    expect(await prismock.credential.findUnique({ where: { id: NEW_CREDENTIAL_ID } })).toMatchObject({
+      invalid: false,
+    });
   });
 
   it("can be removed while it is the host's only connection", async () => {

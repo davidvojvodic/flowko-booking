@@ -1619,6 +1619,7 @@
   "it_stored_encrypted": "It will be stored and encrypted.",
   "go_to_app_store": "Go to App Store",
   "calendar_error": "Try reconnecting your calendar with all necessary permissions",
+  "google_calendar_temporarily_unavailable": "Google Calendar is temporarily unavailable because of a problem on our side; you don't need to reconnect it. Until we fix it, your booking page shows no free slots. Please try again later.",
   "set_your_phone_number": "Set a phone number for the meeting",
   "calendar_no_busy_slots": "There are no busy slots",
   "display_location_label": "Display on booking page",

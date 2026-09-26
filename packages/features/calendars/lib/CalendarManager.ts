@@ -7,6 +7,10 @@ import getCalendarsEvents, {
 } from "@calcom/features/calendars/lib/getCalendarsEvents";
 import { getRichDescription, getUid } from "@calcom/lib/CalEventParser";
 import { CalendarAppDelegationCredentialError } from "@calcom/lib/CalendarAppError";
+import {
+  CredentialKeyUnavailableError,
+  isTransientCredentialKeyFailure,
+} from "@calcom/features/credentials/services/CredentialDataService";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS } from "@calcom/lib/constants";
 import { buildNonDelegationCredentials } from "@calcom/lib/delegationCredential";
 import { formatCalEvent } from "@calcom/lib/formatCalendarEvent";
@@ -125,6 +129,8 @@ export const getConnectedCalendars = async (
     delegationCredentialId?: string | null;
     error?: {
       message: string;
+      // Flowko U10: set only for a transient credential key failure (the operator's keyring outage)
+      code?: "credential_key_unavailable";
     };
     primary?: ConnectedCalendar;
   }[];
@@ -205,12 +211,19 @@ export const getConnectedCalendars = async (
 
         log.error("getConnectedCalendars failed", error, safeStringify({ credentialId: item.credential.id }));
 
+        // Flowko U10: a keyring outage is not the host's grant, so the settings page must not tell them to
+        // reconnect (a reconnect answers 503 until the key is back). Only a stable code reaches the client:
+        // no reason, credential id or stack. Permanent key failures keep the generic error.
+        const keyUnavailable =
+          error instanceof CredentialKeyUnavailableError && isTransientCredentialKeyFailure(error.reason);
+
         return {
           integration: cleanIntegrationKeys(item.integration),
           credentialId: item.credential.id,
           delegationCredentialId: item.credential.delegatedToId,
           error: {
             message: errorMessage,
+            ...(keyUnavailable ? { code: "credential_key_unavailable" as const } : {}),
           },
         };
       }

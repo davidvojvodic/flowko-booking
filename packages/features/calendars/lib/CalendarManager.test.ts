@@ -2,10 +2,12 @@ import { prisma } from "@calcom/prisma/__mocks__/prisma";
 import { getCalendar } from "@calcom/app-store/_utils/getCalendar";
 import type { CalendarEvent } from "@calcom/types/Calendar";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CredentialKeyUnavailableError } from "@calcom/features/credentials/services/CredentialDataService";
 import {
   deduplicateCredentialsBasedOnSelectedCalendars,
   deleteEvent,
   getCalendarCredentials,
+  getConnectedCalendars,
   processEvent,
 } from "./CalendarManager";
 
@@ -97,6 +99,39 @@ function buildCalendarEvent(overrides = {}) {
 }
 
 describe("CalendarManager tests", () => {
+  // Flowko U10: the settings page must not tell a host to reconnect during the operator's keyring outage
+  describe("fn: getConnectedCalendars, credential key failures", () => {
+    const connection = (listCalendars: () => Promise<unknown>) =>
+      ({
+        integration: { slug: "google-calendar", name: "Google Calendar", type: "google_calendar", logo: "" },
+        credential: { id: 7, delegatedToId: null },
+        calendar: Promise.resolve(async () => ({ listCalendars })),
+      }) as never;
+
+    it.each(["keyring_not_configured", "decrypt_failed"] as const)(
+      "marks a transient failure (%s) with a stable code and nothing more",
+      async (reason) => {
+        const { connectedCalendars } = await getConnectedCalendars(
+          [connection(() => Promise.reject(new CredentialKeyUnavailableError(reason, 7, "google_calendar")))],
+          []
+        );
+        expect(connectedCalendars[0].error).toEqual({
+          message: "Could not get connected calendars",
+          code: "credential_key_unavailable",
+        });
+      }
+    );
+
+    it.each([
+      ["a permanent key failure (not_encrypted)", new CredentialKeyUnavailableError("not_encrypted", 7, "google_calendar")],
+      ["a permanent key failure (malformed_envelope)", new CredentialKeyUnavailableError("malformed_envelope", 7, "google_calendar")],
+      ["any other error", new Error("boom")],
+    ])("keeps the generic error for %s", async (_label, error) => {
+      const { connectedCalendars } = await getConnectedCalendars([connection(() => Promise.reject(error))], []);
+      expect(connectedCalendars[0].error).toEqual({ message: "Could not get connected calendars" });
+    });
+  });
+
   describe("fn: processEvent", () => {
     it("should clear attendees when hideOrganizerEmail is true and no Zoho Calendar destination", () => {
       const calEvent = buildCalendarEvent({
