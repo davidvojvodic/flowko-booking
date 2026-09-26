@@ -255,6 +255,87 @@ const googleCalendarRemovalUnavailableError = async (userId: number) => {
   return new HttpError({ statusCode: 409, message });
 };
 
+// Flowko U12: a disconnect deletes only the removed connection's selected calendars. Upstream deleted every
+// SelectedCalendar of the user whose calendar id the removed connection lists, so when another connection of
+// the host listed the same calendar (the same Google account connected twice, or a calendar shared into two of
+// the host's Google accounts), that connection's rows went too and it silently stopped checking that calendar
+// for conflicts. Rows with a credential now go only with their own credential (the foreign key cascades).
+// A row without a credential (credentialId NULL: from before SelectedCalendar had one, or selected by
+// onboarding's default destination, which stores none) is asked of every connection of its kind. It is still
+// deleted by calendar id, but only when no other valid connection of the user and kind lists that calendar,
+// because then nothing is left that reads it. When another connection lists it, it stays: that connection
+// still checks it. When another connection's calendars can't be listed, it stays too: a selected calendar
+// that no connection can read fails closed (no slots), while a wrongly deleted one would silently stop being
+// checked. A connection marked invalid reads nothing (as in getCalendarsEvents), so it keeps no row and is not
+// asked; one that Google refuses during this listing is marked invalid then and does not count either.
+// Google is asked about the other connections only when such a row is at stake. Calendar ids are compared
+// without case, as the Google CalendarService compares them.
+const deleteSelectedCalendarsWithoutCredential = async ({
+  userId,
+  credential,
+  calendarIds,
+}: {
+  userId: number;
+  credential: { id: number; type: string };
+  calendarIds: string[];
+}) => {
+  if (!calendarIds.length) return;
+  const rowsWithoutCredential = await prisma.selectedCalendar.findMany({
+    where: {
+      userId,
+      integration: credential.type,
+      credentialId: null,
+      // A delegation credential's rows are its own and go with it
+      delegationCredentialId: null,
+      externalId: { in: calendarIds },
+    },
+    select: { id: true, externalId: true },
+  });
+  if (!rowsWithoutCredential.length) return;
+
+  const otherCredentials = (
+    await prisma.credential.findMany({
+      where: { userId, type: credential.type, id: { not: credential.id } },
+      select: credentialForCalendarServiceSelect,
+    })
+  ).filter((otherCredential) => !otherCredential.invalid);
+
+  const calendarIdsOfOtherCredentials = new Set<string>();
+  for (const otherCredential of otherCredentials) {
+    try {
+      const otherCalendar = await getCalendar(buildNonDelegationCredential(otherCredential), "none");
+      if (!otherCalendar) throw new Error("Calendar service unavailable");
+      for (const otherCalendarEntry of await otherCalendar.listCalendars()) {
+        calendarIdsOfOtherCredentials.add(otherCalendarEntry.externalId.toLowerCase());
+      }
+    } catch (error) {
+      // A connection whose grant Google refuses right now is marked invalid (invalidateCredential) before the
+      // listing throws. Like a connection already marked invalid, it reads nothing and keeps no row. So does
+      // one removed meanwhile. Any other failure, the re-read's own included, keeps the rows (fail closed)
+      const readsNothingNow = await prisma.credential
+        .findUnique({ where: { id: otherCredential.id }, select: { invalid: true } })
+        .then((current) => !current || current.invalid === true)
+        .catch(() => false);
+      if (readsNothingNow) continue;
+      // Counts and ids only: never a calendar id, which is usually the host's e-mail address
+      console.warn(
+        `Kept ${rowsWithoutCredential.length} selected calendar(s) without a credential for userId: ${userId}: the calendars of credentialId: ${otherCredential.id} could not be listed`,
+        {
+          error: error instanceof Error ? error.name : "Unknown error",
+          code: (error as { code?: unknown } | null)?.code,
+        }
+      );
+      return;
+    }
+  }
+
+  const idsToDelete = rowsWithoutCredential
+    .filter((row) => !calendarIdsOfOtherCredentials.has(row.externalId.toLowerCase()))
+    .map((row) => row.id);
+  if (!idsToDelete.length) return;
+  await prisma.selectedCalendar.deleteMany({ where: { id: { in: idsToDelete } } });
+};
+
 const handleDeleteCredential = async ({
   userId,
   userMetadata,
@@ -325,11 +406,6 @@ const handleDeleteCredential = async ({
     select: {
       id: true,
       locations: true,
-      destinationCalendar: {
-        include: {
-          credential: true,
-        },
-      },
       price: true,
       currency: true,
       metadata: true,
@@ -378,25 +454,12 @@ const handleDeleteCredential = async ({
       });
     }
 
-    // If it's a calendar, remove the destination calendar from the event type
-    if (
-      credential.app?.categories.includes(AppCategories.calendar) &&
-      eventType.destinationCalendar?.credential?.appId === credential.appId
-    ) {
-      const destinationCalendar = await prisma.destinationCalendar.findUnique({
-        where: {
-          id: eventType.destinationCalendar?.id,
-        },
-      });
-
-      if (destinationCalendar) {
-        await prisma.destinationCalendar.delete({
-          where: {
-            id: destinationCalendar.id,
-          },
-        });
-      }
-    }
+    // Flowko U12: a calendar credential's destination calendars, the user's and its event types', are deleted
+    // with it: the DestinationCalendar credentialId foreign key cascades on delete. Upstream also deleted here
+    // every event type's destination calendar on any credential of the same app, so removing one Google
+    // connection cleared the destinations set on the host's other Google connection, and those event types'
+    // bookings silently went to the default destination instead. A destination without a credential was never
+    // deleted here and still isn't.
 
     if (credential.app?.categories.includes(AppCategories.crm)) {
       const metadata = EventTypeMetaDataSchema.parse(eventType.metadata);
@@ -696,29 +759,33 @@ const handleDeleteCredential = async ({
 
   let calendars: IntegrationCalendar[] | undefined;
 
-  // Backwards compatibility. Selected calendars cascade on delete when deleting a credential
-  // If it's a calendar remove it from the SelectedCalendars
+  // The credential's own selected calendars (credentialId) are deleted with it: the foreign key cascades on
+  // delete. Flowko U12: only rows without a credential are still matched by calendar id here, see
+  // deleteSelectedCalendarsWithoutCredential
   if (credential.app?.categories.includes(AppCategories.calendar)) {
     try {
       const calendar = await getCalendar(buildNonDelegationCredential(credential), "slots");
 
       calendars = await calendar?.listCalendars();
 
-      const calendarIds = calendars?.map((cal) => cal.externalId);
-
-      await prisma.selectedCalendar.deleteMany({
-        where: {
-          userId: userId,
-          integration: credential.type as string,
-          externalId: {
-            in: calendarIds,
-          },
-        },
-      });
+      // Flowko U12: without a calendar list nothing is matched by calendar id, as in upstream: when no calendar
+      // service was built, upstream passed `in: undefined`, which disallowUndefinedDeleteUpdateManyExtension
+      // rejects, so its deleteMany threw and the error was only logged
+      if (calendars) {
+        await deleteSelectedCalendarsWithoutCredential({
+          userId,
+          credential,
+          calendarIds: calendars.map((cal) => cal.externalId),
+        });
+      }
     } catch (error) {
+      // Flowko: the error's name and code only; a Google API error can carry calendar ids and request details
       console.warn(
         `Error deleting selected calendars for userId: ${userId} integration: ${credential.type}`,
-        error
+        {
+          error: error instanceof Error ? error.name : "Unknown error",
+          code: (error as { code?: unknown } | null)?.code,
+        }
       );
     }
   }
