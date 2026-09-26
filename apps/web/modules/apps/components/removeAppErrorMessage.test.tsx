@@ -77,7 +77,7 @@ vi.mock("@calcom/trpc/react", () => {
 
 // What tRPC hands the client for handleDeleteCredential's refusal (HttpError 409), worded by the stored locale
 const refusal = {
-  message: "This Google Calendar connection can't be removed right now. Try again later.",
+  message: "This Google Calendar connection can't be removed right now. Please try again later.",
   data: { code: "CONFLICT", httpStatus: 409 },
 };
 const unexpectedFailure = { message: "Credential not found", data: { code: "INTERNAL_SERVER_ERROR" } };
