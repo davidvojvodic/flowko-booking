@@ -3,7 +3,9 @@
 import type { UseAddAppMutationOptions } from "@calcom/app-store/_utils/useAddAppMutation";
 import useAddAppMutation from "@calcom/app-store/_utils/useAddAppMutation";
 import { deriveAppDictKeyFromType } from "@calcom/lib/deriveAppDictKeyFromType";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { App } from "@calcom/types/App";
+import { showToast } from "@calcom/ui/components/toast";
 
 import {
   GOOGLE_CALENDAR_APP_TYPE,
@@ -18,7 +20,24 @@ export const InstallAppButtonWithoutPlanCheck = (
     options?: UseAddAppMutationOptions;
   } & InstallAppButtonProps
 ) => {
-  const mutation = useAddAppMutation(null, props.options);
+  const { t } = useLocale();
+  // Flowko U9: several connect buttons pass no onError, so a refused connect (the Google Calendar add route's
+  // 503) did nothing visible. Without the caller's own onError, show the server's message only when it is the
+  // known localised one, and a localised generic message for anything else (it may be raw English)
+  const mutation = useAddAppMutation(null, {
+    ...props.options,
+    onError:
+      props.options?.onError ??
+      ((error: unknown) => {
+        const connectionsUnavailable = t("google_calendar_connections_unavailable");
+        showToast(
+          error instanceof Error && error.message === connectionsUnavailable
+            ? connectionsUnavailable
+            : t("app_could_not_be_installed"),
+          "error"
+        );
+      }),
+  });
   const key = deriveAppDictKeyFromType(props.type, InstallAppButtonMap);
   const InstallAppButtonComponent = InstallAppButtonMap[key as keyof typeof InstallAppButtonMap];
   if (!InstallAppButtonComponent) {
