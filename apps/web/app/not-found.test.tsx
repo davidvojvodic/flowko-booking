@@ -14,7 +14,7 @@ vi.mock("next/headers", () => ({ headers: mocks.headers, cookies: mocks.cookies 
 vi.mock("@calcom/features/auth/lib/getServerSession", () => ({ getServerSession: mocks.getServerSession }));
 // generateMetadata's translation helpers are not under test here
 vi.mock("app/_utils", () => ({ _generateMetadata: vi.fn() }));
-vi.mock("../components/PageWrapperAppDir", () => ({
+vi.mock("@components/PageWrapperAppDir", () => ({
   default: ({ children, ...props }: { children: ReactNode }) => {
     mocks.pageWrapperProps.push(props);
     return <>{children}</>;

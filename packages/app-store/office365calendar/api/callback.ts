@@ -12,8 +12,48 @@ import { Prisma } from "@calcom/prisma/client";
 import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
 import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+import type { IntegrationOAuthCallbackState } from "../../types";
 
 const scopes = ["offline_access", "Calendars.Read", "Calendars.ReadWrite"];
+
+const log = logger.getSubLogger({ prefix: ["office365calendar/callback"] });
+
+/** The ?error= keys this callback sends; apps/web/lib/apps/calendarConnectError.ts shows them as a toast. */
+type CalendarConnectErrorKey = "no_default_calendar" | "account_already_linked" | "something_went_wrong";
+
+/** state.onErrorReturnTo when it is a page of this app; a missing, relative or malformed value counts as missing. */
+function getSafeOnErrorReturnTo(state: IntegrationOAuthCallbackState | undefined): string | null {
+  try {
+    return getSafeRedirectUrl(state?.onErrorReturnTo);
+  } catch {
+    // Not an absolute URL: treated as missing
+    return null;
+  }
+}
+
+/**
+ * Flowko: where a refused connect sends the host, with ?error=<i18n key>: state.onErrorReturnTo, otherwise the
+ * installed calendars. Built with the URL API, as the Google Calendar callback does (U10): upstream appended
+ * "?error=" to /apps/installed/calendar?hl=office365-calendar, so hl swallowed it and no toast appeared, and a
+ * relative onErrorReturnTo made getSafeRedirectUrl throw (a 500, after the credential had been deleted).
+ */
+function calendarConnectErrorUrl(
+  state: IntegrationOAuthCallbackState | undefined,
+  error: CalendarConnectErrorKey
+): string {
+  const url = new URL(
+    getSafeOnErrorReturnTo(state) ?? getInstalledAppPath({ variant: "calendar", slug: "office365-calendar" }),
+    WEBAPP_URL
+  );
+  url.searchParams.set("error", error);
+  return url.toString();
+}
+
+/** The OAuth error code of a refused token request (RFC 6749 5.2, e.g. invalid_grant), for the log only. */
+function oauthErrorCode(responseBody: unknown): string {
+  const error = (responseBody as { error?: unknown } | null)?.error;
+  return typeof error === "string" && /^[a-z_]{1,64}$/.test(error) ? error : "unknown";
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
@@ -65,7 +105,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const responseBody = await response.json();
 
   if (!response.ok) {
-    return res.redirect(`/apps/installed?error=${JSON.stringify(responseBody)}`);
+    // Flowko: a fixed key instead of the whole response. Upstream put JSON.stringify(responseBody), unencoded,
+    // into the URL: Microsoft's error body (the AADSTS error_description, which can name the app and the
+    // directory, plus trace and correlation ids) then sat in the browser history and in request logs, and no
+    // page showed it, because the ?error= toast shows only known i18n keys. Only the OAuth error code is logged.
+    log.warn("Office 365 Calendar: the token request was refused", {
+      userId: req.session?.user?.id,
+      status: response.status,
+      error: oauthErrorCode(responseBody),
+    });
+    return res.redirect(calendarConnectErrorUrl(state, "something_went_wrong"));
   }
 
   const whoami = await fetch("https://graph.microsoft.com/v1.0/me", {
@@ -124,10 +173,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (!defaultCalendar?.id) {
-    const errorMessage = "no_default_calendar";
-    res.redirect(
-      `${getSafeRedirectUrl(state?.onErrorReturnTo) ?? getInstalledAppPath({ variant: "calendar", slug: "office365-calendar" })}?error=${errorMessage}`
-    );
+    res.redirect(calendarConnectErrorUrl(state, "no_default_calendar"));
     return;
   }
 
@@ -155,7 +201,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
     } catch (error) {
-      let errorMessage = "something_went_wrong";
+      let errorMessage: CalendarConnectErrorKey = "something_went_wrong";
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         // it is possible a selectedCalendar was orphaned, in this situation-
         // we want to recover by connecting the existing selectedCalendar to the new Credential.
@@ -170,12 +216,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         errorMessage = "account_already_linked";
       }
       await prisma.credential.delete({ where: { id: credential.id } });
-      res.redirect(
-        `${
-          getSafeRedirectUrl(state?.onErrorReturnTo) ??
-          getInstalledAppPath({ variant: "calendar", slug: "office365-calendar" })
-        }?error=${errorMessage}`
-      );
+      res.redirect(calendarConnectErrorUrl(state, errorMessage));
       return;
     }
   }
