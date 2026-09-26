@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 
+import { SUPPORT_MAIL_ADDRESS } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { RouterOutputs } from "@calcom/trpc/react";
 import { trpc } from "@calcom/trpc/react";
@@ -9,7 +10,8 @@ import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
 import { showToast } from "@calcom/ui/components/toast";
 
-import Shell from "~/shell/Shell";
+// Flowko: was "~/shell/Shell"; vitest maps "~" to apps/api/v1, so a test could not import this view (U12)
+import Shell from "@calcom/web/modules/shell/Shell";
 
 export type OrgUpgradeBannerProps = {
   data: RouterOutputs["viewer"]["me"]["getUserTopBanners"]["orgUpgradeBanner"];
@@ -47,7 +49,8 @@ export default function UpgradePage() {
             headline={t("you_are_all_set")}
             description={t("you_are_all_set_description")}
             Icon="circle-check"
-            buttonRaw={<Button href="mailto:support@cal.com">{t("contact_support")}</Button>}
+            // Flowko: upstream mailed support@cal.com (U12)
+            buttonRaw={<Button href={`mailto:${SUPPORT_MAIL_ADDRESS}`}>{t("contact_support")}</Button>}
           />
         )}
       </div>

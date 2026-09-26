@@ -1,3 +1,4 @@
+import { SUPPORT_MAIL_ADDRESS } from "@calcom/lib/constants";
 import { Logger } from "@nestjs/common";
 import webpush from "web-push";
 
@@ -12,7 +13,8 @@ const vapidKeys = {
 if (vapidKeys.publicKey && vapidKeys.privateKey) {
   try {
     // The mail to email address should be the one at which push service providers can reach you. It can also be a URL.
-    webpush.setVapidDetails("mailto:support@cal.com", vapidKeys.publicKey, vapidKeys.privateKey);
+    // Flowko: upstream gave push services support@cal.com (U12)
+    webpush.setVapidDetails(`mailto:${SUPPORT_MAIL_ADDRESS}`, vapidKeys.publicKey, vapidKeys.privateKey);
     logger.log("VAPID keys loaded. Web push enabled.");
     isVapidConfigured = true;
   } catch (err) {

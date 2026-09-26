@@ -4,7 +4,9 @@ info:
   description: The open source Calendly alternative.
   contact:
     name: Support
-    email: support@cal.com
+    # Flowko: upstream listed support@cal.com (U12). YAML cannot import SUPPORT_MAIL_ADDRESS from
+    # @calcom/lib/constants, so this repeats that constant's fallback; calendso.test.ts keeps them in step.
+    email: info@flowko.io
   license:
     name: MIT License
     url: "https://opensource.org/licenses/MIT"

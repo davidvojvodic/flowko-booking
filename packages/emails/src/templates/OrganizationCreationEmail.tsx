@@ -1,5 +1,5 @@
 import ServerTrans from "@calcom/lib/components/ServerTrans";
-import { APP_NAME, WEBAPP_URL } from "@calcom/lib/constants";
+import { APP_NAME, SUPPORT_MAIL_ADDRESS, WEBAPP_URL } from "@calcom/lib/constants";
 
 import type { OrganizationCreation } from "../../lib/types/email-types";
 import { V2BaseEmailHtml } from "../components";
@@ -97,7 +97,12 @@ export const OrganizationCreationEmail = (
         <p style={{ fontWeight: 400, margin: 0 }}>
           <>
             {props.language("have_any_questions")}{" "}
-            <a href="mailto:support@cal.com" style={{ color: "#3E3E3E" }} target="_blank" rel="noreferrer">
+            <a
+              // Flowko: upstream linked support@cal.com (U12)
+              href={`mailto:${SUPPORT_MAIL_ADDRESS}`}
+              style={{ color: "#3E3E3E" }}
+              target="_blank"
+              rel="noreferrer">
               <>{props.language("contact")}</>
             </a>{" "}
             {props.language("our_support_team")}

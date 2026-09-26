@@ -1,3 +1,4 @@
+import { SUPPORT_MAIL_ADDRESS } from "@calcom/lib/constants";
 import { Prisma } from "@calcom/prisma/client";
 
 export function getRequestedSlugError(error: unknown, requestedSlug: string) {
@@ -8,7 +9,8 @@ export function getRequestedSlugError(error: unknown, requestedSlug: string) {
   // https://www.prisma.io/docs/reference/api-reference/error-reference#p2002
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
     statusCode = 400;
-    message = `It seems like the requestedSlug: '${requestedSlug}' is already taken. Please contact support at help@cal.com so we can resolve this issue.`;
+    // Flowko: upstream named help@cal.com (U12)
+    message = `It seems like the requestedSlug: '${requestedSlug}' is already taken. Please contact support at ${SUPPORT_MAIL_ADDRESS} so we can resolve this issue.`;
   } else if (error instanceof Error) {
     message = error.message;
   }

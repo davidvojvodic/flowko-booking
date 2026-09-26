@@ -3,7 +3,7 @@ import z from "zod";
 
 import { getCustomerAndCheckoutSession } from "@calcom/app-store/stripepayment/lib/getCustomerAndCheckoutSession";
 import sendVerificationRequest from "@calcom/features/auth/lib/sendVerificationRequest";
-import { WEBAPP_URL } from "@calcom/lib/constants";
+import { SUPPORT_MAIL_ADDRESS, WEBAPP_URL } from "@calcom/lib/constants";
 import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { defaultHandler } from "@calcom/lib/server/defaultHandler";
@@ -32,8 +32,8 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     log.error("Could not find stripeCustomer");
     throw new HttpError({
       statusCode: 404,
-      message:
-        "Stripe customer not found or deleted.  Please contact support@cal.com and mention your premium username",
+      // Flowko: upstream named support@cal.com here and below (U12)
+      message: `Stripe customer not found or deleted.  Please contact ${SUPPORT_MAIL_ADDRESS} and mention your premium username`,
       url: req.url,
       method: req.method,
     });
@@ -110,8 +110,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         statusCode: 400,
         url: req.url,
         method: req.method,
-        message:
-          "We have received your payment. Your premium username could still not be reserved. Please contact support@cal.com and mention your premium username",
+        message: `We have received your payment. Your premium username could still not be reserved. Please contact ${SUPPORT_MAIL_ADDRESS} and mention your premium username`,
       });
     }
   }
