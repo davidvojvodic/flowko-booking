@@ -28,7 +28,7 @@ import { isWithinMinimumRescheduleNotice as isWithinMinimumRescheduleNoticeUtil 
 import type { nameObjectSchema } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { shouldShowFieldInCustomResponses } from "@calcom/lib/bookings/SystemField";
-import { APP_NAME, IS_CALCOM } from "@calcom/lib/constants";
+import { APP_NAME, IS_CALCOM, WEBAPP_URL } from "@calcom/lib/constants";
 import { formatToLocalizedDate, formatToLocalizedTime, formatToLocalizedTimezone } from "@calcom/lib/dayjs";
 import useGetBrandingColours from "@calcom/lib/getBrandColours";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
@@ -106,7 +106,57 @@ const useBrandColors = ({
   useCalcomTheme(brandTheme);
 };
 
-export default function Success(props: PageProps) {
+/*
+ * Flowko U13-11: inside an embed (/booking/<uid>/embed) the success page doesn't change the booking in the
+ * iframe. The framing lock blocks every page outside the /embed routes in a frame, and the cancel request
+ * needs the calcom.csrf_token cookie, which Safari/iOS and Chrome Incognito don't send from a third-party
+ * frame (403 "Invalid CSRF token"). So Reschedule, Cancel, the login link and the links to the previous or
+ * rescheduled booking open the first-party pages on WEBAPP_URL in a new tab.
+ *
+ * The booker's e-mail stays out of these URLs. A booking's uid (a seat's reference for a seat) is what lets
+ * an anonymous booker reschedule or cancel; `rescheduledBy`/`cancelledBy` only record who made the change.
+ * The seat reference is kept, because it authorizes the seat's cancel and without it the first-party page
+ * asks a seat holder to log in, and so is `allRemainingBookings`, the cancel scope of a recurring series.
+ */
+export const FIRST_PARTY_NEW_TAB_LINK_PROPS = { target: "_blank", rel: "noopener noreferrer" } as const;
+
+export function getFirstPartyBookingUrl(uid: string): string {
+  return `${WEBAPP_URL}/booking/${encodeURIComponent(uid)}`;
+}
+
+export function getFirstPartyRescheduleUrl({
+  uid,
+  seatReferenceUid,
+}: {
+  uid: string;
+  seatReferenceUid?: string;
+}): string {
+  // Like the page's own link: /reschedule resolves a seat reference to its booking and seat
+  return `${WEBAPP_URL}/reschedule/${encodeURIComponent(seatReferenceUid || uid)}`;
+}
+
+export function getFirstPartyCancelUrl({
+  uid,
+  seatReferenceUid,
+  allRemainingBookings,
+}: {
+  uid: string;
+  seatReferenceUid?: string;
+  allRemainingBookings?: boolean;
+}): string {
+  // `cancel=true` opens this page's cancel form, as in the booking e-mails' cancel link
+  const params = new URLSearchParams({ cancel: "true" });
+  if (allRemainingBookings) params.set("allRemainingBookings", "true");
+  if (seatReferenceUid) params.set("seatReferenceUid", seatReferenceUid);
+  return `${getFirstPartyBookingUrl(uid)}?${params.toString()}`;
+}
+
+export function getFirstPartyLoginUrl(uid: string): string {
+  return `${WEBAPP_URL}/auth/login?callbackUrl=${encodeURIComponent(`/booking/${uid}`)}`;
+}
+
+// The /embed route's server props carry `isEmbed`, so the page knows it is embedded from its first render
+export default function Success(props: PageProps & { isEmbed?: boolean }) {
   const { t } = useLocale();
   const router = useRouter();
   const routerQuery = useRouterQuery();
@@ -197,7 +247,9 @@ export default function Success(props: PageProps) {
   const googleCalendarLink = calendarLinks.find((link) => link.id === CalendarLinkType.GOOGLE_CALENDAR)?.link;
 
   const isBackgroundTransparent = useIsBackgroundTransparent();
-  const isEmbed = useIsEmbed();
+  const isEmbed = useIsEmbed(props.isEmbed);
+  // Flowko U13-11: an embed never shows the cancel form, even when opened with ?cancel=true
+  const showCancelForm = isCancellationMode && !isEmbed;
   const shouldAlignCentrallyInEmbed = useEmbedNonStylesConfig("align") !== "left";
   const shouldAlignCentrally = !isEmbed || shouldAlignCentrallyInEmbed;
   const [calculatedDuration, setCalculatedDuration] = useState<number | undefined>(undefined);
@@ -595,9 +647,19 @@ export default function Success(props: PageProps) {
                             <div className="font-medium">{t("rescheduled_by")}</div>
                             <div className="col-span-2 mb-6 last:mb-0">
                               <p className="wrap-break-word">{previousBooking?.rescheduledBy}</p>
-                              <Link className="text-sm underline" href={`/booking/${previousBooking?.uid}`}>
-                                {t("original_booking")}
-                              </Link>
+                              {isEmbed ? (
+                                <a
+                                  className="text-sm underline"
+                                  href={getFirstPartyBookingUrl(previousBooking.uid)}
+                                  {...FIRST_PARTY_NEW_TAB_LINK_PROPS}
+                                  data-testid="original-booking-link">
+                                  {t("original_booking")}
+                                </a>
+                              ) : (
+                                <Link className="text-sm underline" href={`/booking/${previousBooking?.uid}`}>
+                                  {t("original_booking")}
+                                </Link>
+                              )}
                             </div>
                           </>
                         )}
@@ -726,7 +788,9 @@ export default function Success(props: PageProps) {
                           </>
                         )}
 
-                        {rescheduledToUid ? <RescheduledToLink rescheduledToUid={rescheduledToUid} /> : null}
+                        {rescheduledToUid ? (
+                          <RescheduledToLink rescheduledToUid={rescheduledToUid} isEmbed={!!isEmbed} />
+                        ) : null}
 
                         {bookingInfo?.description && (
                           <>
@@ -853,14 +917,24 @@ export default function Success(props: PageProps) {
                           </span>
                           {/* Login button but redirect to here */}
                           <span className="text-default inline">
-                            <Link
-                              href={`/auth/login?callbackUrl=${encodeURIComponent(
-                                `/booking/${bookingInfo?.uid}`
-                              )}`}
-                              className="underline"
-                              data-testid="reschedule-link">
-                              {t("login")}
-                            </Link>
+                            {isEmbed ? (
+                              <a
+                                href={getFirstPartyLoginUrl(bookingInfo.uid)}
+                                {...FIRST_PARTY_NEW_TAB_LINK_PROPS}
+                                className="underline"
+                                data-testid="reschedule-link">
+                                {t("login")}
+                              </a>
+                            ) : (
+                              <Link
+                                href={`/auth/login?callbackUrl=${encodeURIComponent(
+                                  `/booking/${bookingInfo?.uid}`
+                                )}`}
+                                className="underline"
+                                data-testid="reschedule-link">
+                                {t("login")}
+                              </Link>
+                            )}
                           </span>
                         </div>
                       </>
@@ -870,7 +944,7 @@ export default function Success(props: PageProps) {
                       isReschedulable &&
                       !isRerouting &&
                       canCancelOrReschedule &&
-                      (!isCancellationMode ? (
+                      (!showCancelForm ? (
                         <>
                           {/* Only show section if there's at least one actionable option */}
                           {((!props.recurringBookings &&
@@ -890,33 +964,63 @@ export default function Success(props: PageProps) {
                                     canReschedule &&
                                     !isRescheduleDisabled && (
                                       <span className="text-default inline">
-                                        <Link
-                                          href={`/reschedule/${seatReferenceUid || bookingInfo?.uid}${
-                                            currentUserEmail
-                                              ? `?rescheduledBy=${encodeURIComponent(currentUserEmail)}`
-                                              : ""
-                                          }`}
-                                          className="underline"
-                                          data-testid="reschedule-link">
-                                          {t("reschedule")}
-                                        </Link>
+                                        {isEmbed ? (
+                                          <a
+                                            href={getFirstPartyRescheduleUrl({
+                                              uid: bookingInfo.uid,
+                                              seatReferenceUid,
+                                            })}
+                                            {...FIRST_PARTY_NEW_TAB_LINK_PROPS}
+                                            className="underline"
+                                            data-testid="reschedule-link">
+                                            {t("reschedule")}
+                                          </a>
+                                        ) : (
+                                          <Link
+                                            href={`/reschedule/${seatReferenceUid || bookingInfo?.uid}${
+                                              currentUserEmail
+                                                ? `?rescheduledBy=${encodeURIComponent(currentUserEmail)}`
+                                                : ""
+                                            }`}
+                                            className="underline"
+                                            data-testid="reschedule-link">
+                                            {t("reschedule")}
+                                          </Link>
+                                        )}
                                         {!isBookingInPast && canCancel && (
                                           <span className="mx-2">{t("or_lowercase")}</span>
                                         )}
                                       </span>
                                     )}
 
-                                  {!isBookingInPast && canCancel && (
-                                    <button
-                                      data-testid="cancel"
-                                      className={classNames(
-                                        "text-default underline",
-                                        props.recurringBookings && "ltr:mr-2 rtl:ml-2"
-                                      )}
-                                      onClick={() => setIsCancellationMode(true)}>
-                                      {t("cancel")}
-                                    </button>
-                                  )}
+                                  {!isBookingInPast &&
+                                    canCancel &&
+                                    (isEmbed ? (
+                                      <a
+                                        href={getFirstPartyCancelUrl({
+                                          uid: bookingInfo.uid,
+                                          seatReferenceUid,
+                                          allRemainingBookings,
+                                        })}
+                                        {...FIRST_PARTY_NEW_TAB_LINK_PROPS}
+                                        data-testid="cancel"
+                                        className={classNames(
+                                          "text-default underline",
+                                          props.recurringBookings && "ltr:mr-2 rtl:ml-2"
+                                        )}>
+                                        {t("cancel")}
+                                      </a>
+                                    ) : (
+                                      <button
+                                        data-testid="cancel"
+                                        className={classNames(
+                                          "text-default underline",
+                                          props.recurringBookings && "ltr:mr-2 rtl:ml-2"
+                                        )}
+                                        onClick={() => setIsCancellationMode(true)}>
+                                        {t("cancel")}
+                                      </button>
+                                    ))}
                                 </>
                               </div>
                             </>
@@ -963,7 +1067,7 @@ export default function Success(props: PageProps) {
                         </Button>
                       </div>
                     )}
-                    {!needsConfirmation && !isCancellationMode && isReschedulable && !!calculatedDuration && (
+                    {!needsConfirmation && !showCancelForm && isReschedulable && !!calculatedDuration && (
                       <>
                         <hr className="border-subtle mt-8" />
                         <div className="text-default align-center flex flex-row justify-center pt-8">
@@ -1158,19 +1262,29 @@ export default function Success(props: PageProps) {
   );
 }
 
-const RescheduledToLink = ({ rescheduledToUid }: { rescheduledToUid: string }) => {
+const RescheduledToLink = ({ rescheduledToUid, isEmbed }: { rescheduledToUid: string; isEmbed: boolean }) => {
   const { t } = useLocale();
+  const label = (
+    <div className="flex items-center gap-1">
+      {t("view_booking")}
+      <ExternalLinkIcon className="h-4 w-4" />
+    </div>
+  );
   return (
     <>
       <div className="mt-3 font-medium">{t("rescheduled")}</div>
       <div className="col-span-2 mb-2 mt-3">
         <span className="underline">
-          <Link href={`/booking/${rescheduledToUid}`}>
-            <div className="flex items-center gap-1">
-              {t("view_booking")}
-              <ExternalLinkIcon className="h-4 w-4" />
-            </div>
-          </Link>
+          {isEmbed ? (
+            <a
+              href={getFirstPartyBookingUrl(rescheduledToUid)}
+              {...FIRST_PARTY_NEW_TAB_LINK_PROPS}
+              data-testid="rescheduled-booking-link">
+              {label}
+            </a>
+          ) : (
+            <Link href={`/booking/${rescheduledToUid}`}>{label}</Link>
+          )}
         </span>
       </div>
     </>
