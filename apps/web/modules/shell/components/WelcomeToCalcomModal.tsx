@@ -9,15 +9,9 @@ import { CheckIcon, UserIcon } from "@coss/ui/icons";
 
 import { useWelcomeToCalcomModal } from "../hooks/useWelcomeToCalcomModal";
 
-const features = [
-  "unlimited_calendars",
-  "unlimited_event_types",
-  "integrate_with_favorite_apps",
-  "accept_payments_via_stripe",
-  "html_react_embed",
-  "cal_ai_phone_agent",
-  "cal_video",
-];
+// Flowko: only what this instance offers. Upstream also listed other apps, Stripe payments, Cal.ai and Cal Video,
+// none of which is enabled here (only google-calendar is)
+const features = ["unlimited_calendars", "unlimited_event_types", "html_react_embed"];
 
 export function WelcomeToCalcomModal() {
   const { t } = useLocale();
@@ -94,15 +88,9 @@ export function WelcomeToCalcomModal() {
           </div>
         </div>
 
-        <div className="bg-muted border-subtle flex shrink-0 items-center justify-between rounded-b-2xl border-t px-8 py-6">
-          <Button
-            color="minimal"
-            href="https://cal.diy"
-            target="_blank"
-            EndIcon="external-link"
-            className="pointer-events-none opacity-0">
-            {t("learn_more")}
-          </Button>
+        {/* Flowko: no invisible "learn more" link to https://cal.diy. It stayed focusable: the focus trap looped Tab
+            from Continue to it, and Enter then opened cal.diy */}
+        <div className="bg-muted border-subtle flex shrink-0 items-center justify-end rounded-b-2xl border-t px-8 py-6">
           <Button color="primary" onClick={closeModal}>
             {t("continue")}
           </Button>

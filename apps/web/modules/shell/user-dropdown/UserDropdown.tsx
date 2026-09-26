@@ -1,3 +1,4 @@
+import { SUPPORT_MAIL_ADDRESS } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import useMeQuery from "@calcom/trpc/react/hooks/useMeQuery";
 import classNames from "@calcom/ui/classNames";
@@ -23,15 +24,10 @@ import {
 } from "@coss/ui/icons";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import type { MouseEvent } from "react";
 import { useEffect, useState } from "react";
 
 declare global {
   interface Window {
-    Support?: {
-      open: () => void;
-      shouldShowTriggerButton: (showTrigger: boolean) => void;
-    };
     Beacon?: BeaconFunction;
   }
 }
@@ -78,25 +74,6 @@ export function UserDropdown({ small }: UserDropdownProps) {
   }, [user?.username]);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [openSupportAfterClose, setOpenSupportAfterClose] = useState(false);
-
-  const handleHelpClick = (e?: MouseEvent) => {
-    e?.preventDefault();
-    e?.stopPropagation();
-
-    setOpenSupportAfterClose(true);
-    setMenuOpen(false);
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!menuOpen && openSupportAfterClose) {
-      setTimeout(() => {
-        window.Support?.open();
-      }, 0);
-      setOpenSupportAfterClose(false);
-    }
-  }, [menuOpen, openSupportAfterClose]);
 
   // Prevent rendering dropdown if user isn't available.
   // We don't want to show nameless user.
@@ -176,11 +153,16 @@ export function UserDropdown({ small }: UserDropdownProps) {
           </>
 
           {/* Flowko: no "Visit roadmap" item; it opened https://cal.com/roadmap (ROADMAP), Cal.com's own product roadmap */}
-          <MenuItem onClick={handleHelpClick}>
-            <CircleHelpIcon />
-            {t("help")}
-          </MenuItem>
-          <MenuSeparator />
+          {/* Flowko: Help e-mails the support address. Upstream opened window.Support, a widget this fork does not load */}
+          {SUPPORT_MAIL_ADDRESS.length > 0 && (
+            <>
+              <MenuItem render={<a href={`mailto:${SUPPORT_MAIL_ADDRESS}`} />}>
+                <CircleHelpIcon />
+                {t("help")}
+              </MenuItem>
+              <MenuSeparator />
+            </>
+          )}
 
           <MenuItem
             variant="destructive"
