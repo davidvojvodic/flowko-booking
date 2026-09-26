@@ -19,10 +19,13 @@ export function defaultCookies(useSecureCookies: boolean): CookiesOptions {
 
   const defaultOptions: CookieOption["options"] = {
     domain: NEXTAUTH_COOKIE_DOMAIN || undefined,
-    // To enable cookies on widgets,
-    // https://stackoverflow.com/questions/45094712/iframe-not-reading-cookies-in-chrome
-    // But we need to set it as `lax` in development
-    sameSite: useSecureCookies ? "none" : "lax",
+    // Flowko U13-09: Lax on HTTPS too (upstream used "none" here "to enable cookies on widgets"). Bookers never sign
+    // in, and an embedded booker needs no cookie (U13-10 keeps the embed from asking for the session at all). Every
+    // host flow that needs the session is same-site or a top-level GET, which carries Lax cookies: login, 2FA and
+    // logout are same-origin fetches, and Google redirects back to /api/integrations/googlecalendar/callback as a
+    // top-level GET, so the U8c state nonce still finds the session. Lax keeps the session out of cross-site iframes
+    // and subresource requests (clickjacking, CSRF) and matches next-auth's own default.
+    sameSite: "lax",
     path: "/",
     secure: useSecureCookies,
   };
