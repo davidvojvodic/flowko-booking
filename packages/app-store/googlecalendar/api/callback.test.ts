@@ -290,7 +290,8 @@ describe("googlecalendar callback: Google Meet install", () => {
 
 describe("googlecalendar callback: credential keyring", () => {
   const UNAVAILABLE = "Calendar connections are unavailable right now. Please try again later.";
-  const BACK_WITH_REASON = `${WEBAPP_URL}/apps/installed?error=google_calendar_connections_unavailable`;
+  // The installed calendars show ?error= as a toast (CalendarListContainer), so the host goes back there
+  const BACK_WITH_REASON = `${WEBAPP_URL}/apps/installed/calendar?error=google_calendar_connections_unavailable`;
   const freshTokens = {
     access_token: "ya29.fresh-access-token",
     refresh_token: "1//fresh-refresh-token",
@@ -299,7 +300,7 @@ describe("googlecalendar callback: credential keyring", () => {
 
   function connect(
     headers: Record<string, string> = {},
-    state: Record<string, unknown> = { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}/apps/installed` }
+    state: Record<string, unknown> = { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}/apps/installed/calendar` }
   ) {
     return callCallback({
       userId: VICTIM_ID,
@@ -389,16 +390,65 @@ describe("googlecalendar callback: credential keyring", () => {
   });
 
   it.each([
-    ["a relative page", "/apps/installed", `${WEBAPP_URL}/apps/installed/calendar`],
-    ["a page on another site", "https://attacker.example/phish", `${WEBAPP_URL}/`],
-  ])("never sends the host to %s", async (_label, onErrorReturnTo, expectedPage) => {
+    ["a relative page", "/apps/installed"],
+    ["a page on another site", "https://attacker.example/phish"],
+    ["the same page on another site", "https://attacker.example/apps/installed/calendar"],
+  ])("never sends the host to %s", async (_label, onErrorReturnTo) => {
     mocks.isCredentialKeyringConfigured.mockReturnValue(false);
 
     const res = await connect({}, { fromApp: true, onErrorReturnTo });
 
     const url = new URL(res._getRedirectUrl());
-    expect(`${url.origin}${url.pathname}`).toBe(expectedPage);
+    expect(`${url.origin}${url.pathname}`).toBe(`${WEBAPP_URL}/apps/installed/calendar`);
     expect(url.searchParams.get("error")).toBe("google_calendar_connections_unavailable");
+  });
+
+  // The pages that show ?error= as a toast: CalendarListContainer and the Google Calendar app page
+  it.each(["/settings/my-account/calendars", "/apps/installed/calendar", "/apps/google-calendar"])(
+    "sends the host back to %s, which shows the reason",
+    async (page) => {
+      mocks.credentialCreate.mockRejectedValue(new Error("connection terminated unexpectedly"));
+
+      const res = await connect({}, { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}${page}` });
+
+      expect(res._getRedirectUrl()).toBe(
+        `${WEBAPP_URL}${page}?error=google_calendar_connections_unavailable`
+      );
+    }
+  );
+
+  // Connects start on these pages too, but they ignore ?error=: the refusal would be silent there
+  describe.each([
+    "/apps/categories/calendar",
+    "/getting-started/connected-calendar",
+    "/onboarding/personal/calendar",
+    "/event-types/12",
+    "/availability/troubleshoot",
+    "/apps/installed",
+  ])("a connect started on %s", (page) => {
+    const state = { fromApp: true, onErrorReturnTo: `${WEBAPP_URL}${page}` };
+    const toInstalledCalendars = `${WEBAPP_URL}/apps/installed/calendar?hl=google-calendar&error=google_calendar_connections_unavailable`;
+
+    it("goes to the installed calendars with the reason when the credential can't be stored", async () => {
+      mocks.credentialCreate.mockRejectedValue(new Error("connection terminated unexpectedly"));
+
+      const res = await connect({}, state);
+
+      expect(res._getRedirectUrl()).toBe(toInstalledCalendars);
+      expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalledWith({
+        userId: VICTIM_ID,
+        key: freshTokens,
+      });
+    });
+
+    it("goes to the installed calendars with the reason when the credential keyring is not configured", async () => {
+      mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+
+      const res = await connect({}, state);
+
+      expect(res._getRedirectUrl()).toBe(toInstalledCalendars);
+      expect(mocks.getToken).not.toHaveBeenCalled();
+    });
   });
 
   it("revokes the fresh token when the credential row can't be created", async () => {

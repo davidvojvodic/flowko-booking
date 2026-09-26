@@ -32,10 +32,30 @@ import { calendarConnectionsUnavailableError } from "./add";
 const log = logger.getSubLogger({ prefix: ["googlecalendar/callback"] });
 
 /**
+ * Flowko U9: the app pages that turn ?error=<key> into a toast (isCalendarConnectError in
+ * apps/web/lib/apps/calendarConnectError.ts): CalendarListContainer on Settings → Calendars and on the installed
+ * calendars, and slug-view on the Google Calendar app page. Every other page ignores ?error=, so a refusal sent
+ * there would be silent.
+ */
+const PAGES_THAT_SHOW_CALENDAR_CONNECT_ERRORS = [
+  "/settings/my-account/calendars",
+  "/apps/installed/calendar",
+  "/apps/google-calendar",
+];
+
+const showsCalendarConnectErrors = (pageUrl: string) => {
+  const url = new URL(pageUrl);
+  return (
+    url.origin === new URL(WEBAPP_URL).origin &&
+    PAGES_THAT_SHOW_CALENDAR_CONNECT_ERRORS.includes(url.pathname.replace(/\/+$/, ""))
+  );
+};
+
+/**
  * Flowko U9: a connect refused because the token can't be stored encrypted goes back to the page the host
- * started it from (or the installed calendars) with the reason as ?error=<i18n key>, which that page shows as a
- * toast, like the account_already_linked redirect below, instead of a bare JSON page with no way back. Only a
- * flow that has no page in the app to return to keeps the localised 503 JSON answer.
+ * started it from, when that page shows ?error=<i18n key> as a toast, and otherwise to the installed calendars,
+ * which do, instead of a bare JSON page with no way back. Only a flow that has no page in the app to return to
+ * keeps the localised 503 JSON answer.
  */
 async function refuseCalendarConnection(
   req: NextApiRequest,
@@ -51,8 +71,12 @@ async function refuseCalendarConnection(
   if (!onErrorReturnTo && !state.fromApp) {
     throw await calendarConnectionsUnavailableError(req);
   }
+  // Flowko: onboarding, the app categories, the event-type calendar selector and the troubleshooter start a
+  // connect too but show no ?error=, so the host is sent to the installed calendars to see why it was refused
   const url = new URL(
-    onErrorReturnTo ?? getInstalledAppPath({ variant: "calendar", slug: "google-calendar" }),
+    onErrorReturnTo && showsCalendarConnectErrors(onErrorReturnTo)
+      ? onErrorReturnTo
+      : getInstalledAppPath({ variant: "calendar", slug: "google-calendar" }),
     WEBAPP_URL
   );
   url.searchParams.set("error", "google_calendar_connections_unavailable");
