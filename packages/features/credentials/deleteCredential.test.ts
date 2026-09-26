@@ -548,14 +548,17 @@ describe("deleteCredential", () => {
       });
 
       // Upstream lists the disconnected credential's calendars first; its primary calendar id is the Google
-      // account's email address. null: Google does not answer, so the account is unknown
-      const listPrimaryCalendarOnDisconnect = async (primaryCalendarId: string | null) => {
+      // account's email address. null: the calendars can't be listed (listError), so the account is unknown
+      const listPrimaryCalendarOnDisconnect = async (
+        primaryCalendarId: string | null,
+        listError = "backendError"
+      ) => {
         await PrismaAppRepository.seedApp("googlecalendar");
         (await googleCalendarServiceMock()).mockImplementation(
           () =>
             ({
               listCalendars: async () => {
-                if (!primaryCalendarId) throw new Error("backendError");
+                if (!primaryCalendarId) throw new Error(listError);
                 return [{ externalId: primaryCalendarId, primary: true, integration: "google_calendar" }];
               },
             }) as never
@@ -669,10 +672,21 @@ describe("deleteCredential", () => {
         expect(revokeTokenSpy).toHaveBeenCalledWith("work-refresh");
       });
 
-      test("The grant is revoked when the disconnected credential's account is unknown, without asking Google about the others", async () => {
-        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+      test.each([
+        ["Google does not answer", "backendError", null],
+        [
+          // A reconnect that could not replace the dead credential: its token is already refused, so Google
+          // answers the revoke with invalid_token and the new connection's grant is untouched
+          "its token is dead and Google refuses the revoke",
+          "invalid_grant",
+          Object.assign(new Error("invalid_token"), { code: 400 }),
+        ],
+      ])("The grant is revoked when the disconnected credential's account is unknown (%s), without asking Google about the others", async (_label, listError, revokeError) => {
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken");
+        if (revokeError) revokeTokenSpy.mockRejectedValue(revokeError);
+        else revokeTokenSpy.mockResolvedValue(undefined);
         vi.spyOn(console, "warn").mockImplementation(() => undefined);
-        await listPrimaryCalendarOnDisconnect(null);
+        await listPrimaryCalendarOnDisconnect(null, listError);
         const user = await setupUserWithGoogleCredentials(host, [
           { id: 123, name: "old" },
           { id: 124, name: "new" },
@@ -680,12 +694,13 @@ describe("deleteCredential", () => {
         // Even a credential Google would confirm as the same account can't be matched to an unknown account
         mockPrimaryCalendars({ "old-refresh": "salon@example.com", "new-refresh": "salon@example.com" });
 
-        await disconnect(user);
+        await expect(disconnect(user)).resolves.toBeUndefined();
 
         expect(lookUpGoogleAccount).not.toHaveBeenCalled();
         expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
         expect(revokeTokenSpy).toHaveBeenCalledWith("old-refresh");
         expect(await prisma.credential.findUnique({ where: { id: 123 } })).toBeNull();
+        expect(await prisma.credential.findUnique({ where: { id: 124 } })).not.toBeNull();
       });
 
       test("Another user's connection Google confirms as the same account still keeps the grant", async () => {

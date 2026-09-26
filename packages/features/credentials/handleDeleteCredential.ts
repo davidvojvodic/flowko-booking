@@ -153,6 +153,9 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
 // grant unless Google confirms that another connection, the user's own or another user's, is the same
 // Google account. The Google account is only known when calendar.readonly was granted; without it, keep
 // the grant.
+// Flowko D8: when the fresh token's account is found but Google does not answer for the user's existing
+// connection to that account, nothing confirms the sharing and the fresh grant is revoked. Revoking ends the
+// whole grant, so that existing connection stops working too and the host has to reconnect it.
 export const revokeUnstoredGoogleCalendarToken = async ({
   userId,
   key,
@@ -720,7 +723,9 @@ const handleDeleteCredential = async ({
       userId,
       // The primary calendar id is the Google account's email address. Flowko D8: when the calendars could
       // not be listed it is unknown, no other credential can be confirmed as the same account, and the
-      // grant is revoked
+      // grant is revoked. For a dead token (invalid_grant) Google refuses that revoke and nothing changes.
+      // When the listing failed only transiently, the revoke also ends the grant of a connection to the
+      // same account that stays, which then has to be reconnected
       primaryCalendarId: calendars?.find((cal) => cal.primary)?.externalId,
     });
     if (grantShared) {
