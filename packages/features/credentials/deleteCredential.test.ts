@@ -520,6 +520,178 @@ describe("deleteCredential", () => {
       expect(await prisma.credential.findUnique({ where: { id: 125 } })).not.toBeNull();
     });
 
+    // The callback stored the fresh token as a new credential, could not select its primary calendar, and
+    // revokes the fresh grant before it deletes that credential
+    describe("Flowko D8 (U11): a token whose new credential the callback deletes", () => {
+      const host = { email: "host@example.com", username: "host" };
+      const NEW_CREDENTIAL_ID = 126;
+
+      beforeEach(() => {
+        vi.mocked(lookUpGoogleAccount).mockReset();
+      });
+
+      test("is revoked when only the excluded new credential, which holds this very token, is the same account", async () => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        const user = await setupUserWithGoogleCredentials(host, [{ id: NEW_CREDENTIAL_ID, name: "fresh" }]);
+        mockPrimaryCalendars({ "fresh-refresh": "salon@example.com" });
+
+        await revokeUnstoredGoogleCalendarToken({
+          userId: user.id,
+          key: googleKey("fresh"),
+          excludeCredentialIds: [NEW_CREDENTIAL_ID],
+        });
+
+        expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+        expect(revokeTokenSpy).toHaveBeenCalledWith("fresh-refresh");
+        // Only the fresh token is looked up: the excluded credential's copy of it is never asked about
+        expect(lookUpGoogleAccount).toHaveBeenCalledTimes(1);
+        // The revoke deletes nothing: the callback deletes the credential itself
+        expect(await prisma.credential.findUnique({ where: { id: NEW_CREDENTIAL_ID } })).not.toBeNull();
+      });
+
+      test("is kept without the exclusion, exactly as before: the new credential confirms its own grant", async () => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        const user = await setupUserWithGoogleCredentials(host, [{ id: NEW_CREDENTIAL_ID, name: "fresh" }]);
+        mockPrimaryCalendars({ "fresh-refresh": "salon@example.com" });
+
+        await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("fresh") });
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        // The fresh token, then the stored credential's decrypted copy of it
+        expect(lookUpGoogleAccount).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(lookUpGoogleAccount).mock.calls).toEqual([
+          [googleKey("fresh")],
+          [googleKey("fresh")],
+        ]);
+      });
+
+      test("is kept when the user's earlier connection, not excluded, is the same account", async () => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        // account_already_linked: the earlier connection holds the primary calendar's SelectedCalendar
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 125, name: "existing" },
+          { id: NEW_CREDENTIAL_ID, name: "fresh" },
+        ]);
+        mockPrimaryCalendars({
+          "fresh-refresh": "salon@example.com",
+          "existing-refresh": "salon@example.com",
+        });
+
+        await revokeUnstoredGoogleCalendarToken({
+          userId: user.id,
+          key: googleKey("fresh"),
+          excludeCredentialIds: [NEW_CREDENTIAL_ID],
+        });
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("existing"));
+        // The fresh token and the earlier connection: the excluded credential is not asked about
+        expect(lookUpGoogleAccount).toHaveBeenCalledTimes(2);
+      });
+
+      test("is kept when another user's connection is the same account", async () => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        const user = await setupUserWithGoogleCredentials(host, [{ id: NEW_CREDENTIAL_ID, name: "fresh" }]);
+        const colleague = await setupUserWithGoogleCredentials(
+          { email: "colleague@example.com", username: "colleague" },
+          [{ id: 127, name: "colleague" }]
+        );
+        await prisma.selectedCalendar.create({
+          data: {
+            userId: colleague.id,
+            integration: "google_calendar",
+            externalId: "salon@example.com",
+            credentialId: 127,
+          },
+        });
+        mockPrimaryCalendars({
+          "fresh-refresh": "salon@example.com",
+          "colleague-refresh": "salon@example.com",
+        });
+
+        await revokeUnstoredGoogleCalendarToken({
+          userId: user.id,
+          key: googleKey("fresh"),
+          excludeCredentialIds: [NEW_CREDENTIAL_ID],
+        });
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        expect(lookUpGoogleAccount).toHaveBeenCalledWith(googleKey("colleague"));
+      });
+
+      test.each([
+        ["is another Google account", { "existing-refresh": "private@example.com" }],
+        ["can't be confirmed, because Google does not answer for it", {}],
+      ])("is revoked when the user's earlier connection %s", async (_label, existingAccount) => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        const user = await setupUserWithGoogleCredentials(host, [
+          { id: 125, name: "existing" },
+          { id: NEW_CREDENTIAL_ID, name: "fresh" },
+        ]);
+        mockPrimaryCalendars({ "fresh-refresh": "salon@example.com", ...existingAccount });
+
+        await revokeUnstoredGoogleCalendarToken({
+          userId: user.id,
+          key: googleKey("fresh"),
+          excludeCredentialIds: [NEW_CREDENTIAL_ID],
+        });
+
+        expect(revokeTokenSpy).toHaveBeenCalledTimes(1);
+        expect(revokeTokenSpy).toHaveBeenCalledWith("fresh-refresh");
+      });
+
+      test("is kept when Google can't name the fresh token's account, without reading any credential", async () => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        const findManySpy = vi.spyOn(prisma.credential, "findMany");
+        const user = await setupUserWithGoogleCredentials(host, [{ id: NEW_CREDENTIAL_ID, name: "fresh" }]);
+        mockPrimaryCalendars({});
+
+        await revokeUnstoredGoogleCalendarToken({
+          userId: user.id,
+          key: googleKey("fresh"),
+          excludeCredentialIds: [NEW_CREDENTIAL_ID],
+        });
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        expect(findManySpy).not.toHaveBeenCalled();
+      });
+
+      test("never throws, so the callback still deletes the credential and redirects", async () => {
+        const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
+        const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
+        const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const user = await setupUserWithGoogleCredentials(host, [{ id: NEW_CREDENTIAL_ID, name: "fresh" }]);
+        mockPrimaryCalendars({ "fresh-refresh": "salon@example.com" });
+        vi.spyOn(prisma.credential, "findMany").mockRejectedValue(new Error("connection terminated"));
+
+        await expect(
+          revokeUnstoredGoogleCalendarToken({
+            userId: user.id,
+            key: googleKey("fresh"),
+            excludeCredentialIds: [NEW_CREDENTIAL_ID],
+          })
+        ).resolves.toBeUndefined();
+
+        vi.mocked(lookUpGoogleAccount).mockRejectedValue(new Error("unexpected"));
+        await expect(
+          revokeUnstoredGoogleCalendarToken({
+            userId: user.id,
+            key: googleKey("fresh"),
+            excludeCredentialIds: [NEW_CREDENTIAL_ID],
+          })
+        ).resolves.toBeUndefined();
+
+        expect(revokeTokenSpy).not.toHaveBeenCalled();
+        expect(JSON.stringify(consoleWarnSpy.mock.calls)).not.toContain("fresh-");
+      });
+    });
+
     test("Flowko D8: deleting an account revokes every grant, even two credentials of the same Google account", async () => {
       const { revokeGoogleCalendarTokensOfUser } = await import("./handleDeleteCredential");
       const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
