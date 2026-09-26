@@ -2147,7 +2147,7 @@
   "it_stored_encrypted": "Shranjeno bo šifrirano.",
   "go_to_app_store": "Pojdi v trgovino z aplikacijami",
   "calendar_error": "Poskusite koledar znova povezati z vsemi potrebnimi dovoljenji",
-  "google_calendar_temporarily_unavailable": "Google Calendar zaradi težave pri nas začasno ni na voljo; povezave vam ni treba znova vzpostaviti. Dokler težave ne odpravimo, vaša stran za rezervacije ne prikazuje prostih terminov. Poskusite znova pozneje.",
+  "google_calendar_temporarily_unavailable": "Zaradi težave pri nas začasno ni na voljo; povezave vam ni treba znova vzpostaviti. Dokler težave ne odpravimo, vaša javna stran za rezervacije ne prikazuje prostih terminov. Poskusite znova pozneje.",
   "set_your_phone_number": "Nastavite telefonsko številko za sestanek",
   "display_location_label": "Prikaži na strani za rezervacije",
   "display_location_info_badge": "Lokacija bo vidna že pred potrditvijo rezervacije",
