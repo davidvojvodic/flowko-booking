@@ -257,13 +257,14 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
       }
       // Flowko D8 (U11): the new credential is the only row that holds the fresh token, and it is deleted
       // below, so end the fresh grant at Google first, by the D8 rule: kept only when Google confirms that
-      // another live connection, the user's own or another user's, is the same Google account, or
-      // when Google can't name the fresh token's account. (account_already_linked can't happen with today's
-      // SelectedCalendar upsert, which moves the host's row to the new credential; if it did, the row's holder
-      // would normally be an earlier connection to the same account.) The new credential itself still holds this very
-      // token, so it is excluded: it would always confirm its own grant as shared. Upstream deleted the
-      // credential and left the grant live at Google. Best effort: it never throws, so the credential is
-      // still deleted and the host is still sent back
+      // another live connection, the user's own or another user's, is the same Google account, or when
+      // Google can't name the fresh token's account. The new credential itself still holds this very token,
+      // so it is excluded: it would confirm its own grant as shared. Upstream deleted the credential and left
+      // the grant live at Google. Best effort: it never throws, so the credential is still deleted and the
+      // host is still sent back. (account_already_linked can't happen with today's SelectedCalendar upsert:
+      // it moves the host's user-level row to the new credential, and a NULL eventTypeId never trips the
+      // unique index. If it did, the row's holder would normally be an earlier connection to the same
+      // account.)
       await revokeUnstoredGoogleCalendarToken({
         userId: req.session.user.id,
         key,

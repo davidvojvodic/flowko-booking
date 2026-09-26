@@ -570,7 +570,8 @@ describe("deleteCredential", () => {
       test("is kept when the user's earlier connection, not excluded, is the same account", async () => {
         const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
         const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
-        // account_already_linked: the earlier connection holds the primary calendar's SelectedCalendar
+        // The user's earlier connection to the same account (the case account_already_linked would describe,
+        // which today's SelectedCalendar upsert never raises)
         const user = await setupUserWithGoogleCredentials(host, [
           { id: 125, name: "existing" },
           { id: NEW_CREDENTIAL_ID, name: "fresh" },
