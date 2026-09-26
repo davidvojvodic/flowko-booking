@@ -323,6 +323,43 @@ describe("Cal", () => {
         expect(iframe.src).toContain("param2=value");
       });
     });
+
+    describe("origin handling (Flowko U13-07)", () => {
+      beforeEach(() => {
+        calInstance = new CalClass("test-namespace", []);
+        window.Cal.config = { forwardQueryParams: false };
+        mockSearchParams("");
+      });
+
+      it.each([
+        "https://booking.flowko.si",
+        "https://booking.example.com",
+        "https://cal.com",
+      ])("loads the iframe from the calOrigin %s verbatim, without rewriting its host", (calOrigin) => {
+        const iframe = calInstance.createIframe({
+          calLink: "john-doe/meeting",
+          config: {},
+          calOrigin,
+        });
+
+        const src = new URL(iframe.src);
+        expect(src.origin).toBe(calOrigin);
+        expect(src.pathname).toBe("/john-doe/meeting/embed");
+        expect(iframe.src).not.toContain("app.cal.com");
+      });
+
+      it("falls back to the namespace calOrigin verbatim when none is passed", () => {
+        calInstance.__config = { ...calInstance.__config, calOrigin: "https://booking.flowko.si" };
+
+        const iframe = calInstance.createIframe({
+          calLink: "john-doe/meeting",
+          config: {},
+          calOrigin: null,
+        });
+
+        expect(new URL(iframe.src).origin).toBe("https://booking.flowko.si");
+      });
+    });
   });
 
   describe("__iframeReady handler", () => {
