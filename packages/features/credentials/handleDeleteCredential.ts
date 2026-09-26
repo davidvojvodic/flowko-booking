@@ -109,9 +109,9 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
   // The user's other credential may be for the same Google account, e.g. from a reconnect whose earlier
   // credential the callback could not replace.
   // Flowko D8: it may just as well be another Google account of the same user, whose grant is its own, so it
-  // counts only when Google confirms the account, like another user's credential below. Upstream kept the
-  // grant for any other Google Calendar connection of the user, which left a disconnected account's grant
-  // live at Google. A key that can't be decrypted is looked up as null and reads as "unknown"
+  // counts only when Google confirms the account, like another user's credential below. Before D8, Flowko
+  // (U4) kept the grant for any other Google Calendar connection of the user, which left a disconnected
+  // account's grant live at Google. A key that can't be decrypted is looked up as null and reads as "unknown"
   const otherCredentialsOfUser = await prisma.credential.findMany({
     where: { userId, type: "google_calendar", id: { notIn: credentialIds } },
     select: { id: true, type: true, userId: true, teamId: true, encryptedKey: true },

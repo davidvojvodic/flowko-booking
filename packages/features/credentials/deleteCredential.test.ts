@@ -547,8 +547,9 @@ describe("deleteCredential", () => {
         vi.mocked(lookUpGoogleAccount).mockReset();
       });
 
-      // Upstream lists the disconnected credential's calendars first; its primary calendar id is the Google
-      // account's email address. null: the calendars can't be listed (listError), so the account is unknown
+      // The disconnect lists the credential's calendars before the revoke; its primary calendar id is the
+      // Google account's email address. null: the calendars can't be listed (listError), so the account is
+      // unknown
       const listPrimaryCalendarOnDisconnect = async (
         primaryCalendarId: string | null,
         listError = "backendError"
