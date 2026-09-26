@@ -18,6 +18,7 @@ import { Button } from "@calcom/ui/components/button";
 import { Switch } from "@calcom/ui/components/form";
 import { InfoIcon } from "@coss/ui/icons";
 import { showToast } from "@calcom/ui/components/toast";
+import { removeAppErrorMessage } from "@calcom/web/modules/apps/components/removeAppErrorMessage";
 
 export default function HitPaySetup(props: IHitPaySetupProps) {
   const params = useCompatSearchParams();
@@ -119,8 +120,9 @@ function HitPaySetupPage(props: IHitPaySetupProps) {
     onSuccess: () => {
       router.push("/apps/hitpay");
     },
-    onError: () => {
-      showToast(t("error_removing_app"), "error");
+    // Flowko U9: every removal failure is worded like the other disconnect buttons'
+    onError: (error) => {
+      showToast(removeAppErrorMessage(error, t), "error");
     },
   });
 

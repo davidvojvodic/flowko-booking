@@ -17,6 +17,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
 import { showToast } from "@calcom/ui/components/toast";
+import { removeAppErrorMessage } from "@calcom/web/modules/apps/components/removeAppErrorMessage";
 import { LoaderIcon } from "@coss/ui/icons";
 
 export default function BTCPaySetup(props: IBTCPaySetupProps) {
@@ -110,8 +111,9 @@ function BTCPaySetupPage(props: IBTCPaySetupProps) {
     onSuccess: () => {
       router.push("/apps/btcpayserver");
     },
-    onError: () => {
-      showToast(t("error_removing_app"), "error");
+    // Flowko U9: every removal failure is worded like the other disconnect buttons'
+    onError: (error) => {
+      showToast(removeAppErrorMessage(error, t), "error");
     },
   });
 
