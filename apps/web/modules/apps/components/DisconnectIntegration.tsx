@@ -9,6 +9,8 @@ import type { ButtonProps } from "@calcom/ui/components/button";
 import { DisconnectIntegrationComponent } from "@calcom/ui/components/disconnect-calendar-integration";
 import { showToast } from "@calcom/ui/components/toast";
 
+import { removeAppErrorMessage } from "./removeAppErrorMessage";
+
 export default function DisconnectIntegration(props: {
   credentialId: number;
   teamId?: number | null;
@@ -29,8 +31,9 @@ export default function DisconnectIntegration(props: {
       setModalOpen(false);
       onSuccess && onSuccess();
     },
-    onError: () => {
-      showToast(t("error_removing_app"), "error");
+    // Flowko U9: a refused Google Calendar removal says to try again later, not "Error removing app"
+    onError: (error) => {
+      showToast(removeAppErrorMessage(error, t), "error");
       setModalOpen(false);
     },
     async onSettled() {
