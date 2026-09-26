@@ -1486,6 +1486,60 @@ describe("deleteCredential", () => {
         expect(listedCredentialIds).toEqual([REMOVED]);
       });
 
+      test.each([
+        [
+          "Google refuses its grant, which marks it invalid before the listing throws",
+          () => prisma.credential.update({ where: { id: STAYS }, data: { invalid: true } }),
+        ],
+        ["it was removed meanwhile", () => prisma.credential.delete({ where: { id: STAYS } })],
+      ])(
+        "is deleted when the other connection reads nothing by the time it is asked: %s",
+        async (_label, breakOtherConnection) => {
+          const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+          const user = await setupHost();
+          const listedCredentialIds: number[] = [];
+          (await googleCalendarServiceMock()).mockImplementation(
+            (credential) =>
+              ({
+                listCalendars: async () => {
+                  listedCredentialIds.push(credential.id);
+                  if (credential.id === REMOVED) {
+                    return [{ externalId: "salon@example.com", primary: true, integration: "google_calendar" }];
+                  }
+                  // As OAuthManager does: invalidateCredential has run before the refresh error is thrown
+                  await breakOtherConnection();
+                  throw new Error("invalid_grant");
+                },
+              }) as never
+          );
+          await selectCalendar({ userId: user.id, externalId: "salon@example.com" });
+
+          await disconnect(user);
+
+          expect(await prisma.credential.findUnique({ where: { id: REMOVED } })).toBeNull();
+          expect(await selectedCalendarsOf(user.id)).toEqual([]);
+          expect(listedCredentialIds).toEqual([REMOVED, STAYS]);
+          expect(
+            consoleWarnSpy.mock.calls.filter(([message]) => String(message).includes("Kept "))
+          ).toEqual([]);
+        }
+      );
+
+      test("stays when another connection lists its calendar in another case", async () => {
+        const user = await setupHost();
+        await listCalendarsOf({
+          [REMOVED]: ["salon@example.com", SHARED],
+          [STAYS]: ["private@example.com", SHARED.toUpperCase()],
+        });
+        await selectCalendar({ userId: user.id, externalId: SHARED });
+
+        await disconnect(user);
+
+        expect(await selectedCalendarsOf(user.id)).toEqual([
+          { externalId: SHARED, credentialId: null, eventTypeId: null },
+        ]);
+      });
+
       test("stays when the removed connection's own calendars can't be listed, without asking the others", async () => {
         const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
         const user = await setupHost();

@@ -267,7 +267,9 @@ const googleCalendarRemovalUnavailableError = async (userId: number) => {
 // still checks it. When another connection's calendars can't be listed, it stays too: a selected calendar
 // that no connection can read fails closed (no slots), while a wrongly deleted one would silently stop being
 // checked. A connection marked invalid reads nothing (as in getCalendarsEvents), so it keeps no row and is not
-// asked. Google is asked about the other connections only when such a row is at stake.
+// asked; one that Google refuses during this listing is marked invalid then and does not count either.
+// Google is asked about the other connections only when such a row is at stake. Calendar ids are compared
+// without case, as the Google CalendarService compares them.
 const deleteSelectedCalendarsWithoutCredential = async ({
   userId,
   credential,
@@ -304,9 +306,17 @@ const deleteSelectedCalendarsWithoutCredential = async ({
       const otherCalendar = await getCalendar(buildNonDelegationCredential(otherCredential), "none");
       if (!otherCalendar) throw new Error("Calendar service unavailable");
       for (const otherCalendarEntry of await otherCalendar.listCalendars()) {
-        calendarIdsOfOtherCredentials.add(otherCalendarEntry.externalId);
+        calendarIdsOfOtherCredentials.add(otherCalendarEntry.externalId.toLowerCase());
       }
     } catch (error) {
+      // A connection whose grant Google refuses right now is marked invalid (invalidateCredential) before the
+      // listing throws. Like a connection already marked invalid, it reads nothing and keeps no row. So does
+      // one removed meanwhile. Any other failure, the re-read's own included, keeps the rows (fail closed)
+      const readsNothingNow = await prisma.credential
+        .findUnique({ where: { id: otherCredential.id }, select: { invalid: true } })
+        .then((current) => !current || current.invalid === true)
+        .catch(() => false);
+      if (readsNothingNow) continue;
       // Counts and ids only: never a calendar id, which is usually the host's e-mail address
       console.warn(
         `Kept ${rowsWithoutCredential.length} selected calendar(s) without a credential for userId: ${userId}: the calendars of credentialId: ${otherCredential.id} could not be listed`,
@@ -320,7 +330,7 @@ const deleteSelectedCalendarsWithoutCredential = async ({
   }
 
   const idsToDelete = rowsWithoutCredential
-    .filter((row) => !calendarIdsOfOtherCredentials.has(row.externalId))
+    .filter((row) => !calendarIdsOfOtherCredentials.has(row.externalId.toLowerCase()))
     .map((row) => row.id);
   if (!idsToDelete.length) return;
   await prisma.selectedCalendar.deleteMany({ where: { id: { in: idsToDelete } } });
@@ -758,9 +768,9 @@ const handleDeleteCredential = async ({
 
       calendars = await calendar?.listCalendars();
 
-      // Flowko U12: without a calendar list nothing is matched by calendar id. When no calendar service was
-      // built, upstream passed `in: undefined`, which Prisma drops, and so deleted every selected calendar of
-      // this kind of the user
+      // Flowko U12: without a calendar list nothing is matched by calendar id, as in upstream: when no calendar
+      // service was built, upstream passed `in: undefined`, which disallowUndefinedDeleteUpdateManyExtension
+      // rejects, so its deleteMany threw and the error was only logged
       if (calendars) {
         await deleteSelectedCalendarsWithoutCredential({
           userId,
