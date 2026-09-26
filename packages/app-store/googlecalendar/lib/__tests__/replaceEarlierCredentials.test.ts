@@ -16,7 +16,7 @@ import {
 
 vi.mock("../lookUpGoogleAccount", () => ({ lookUpGoogleAccount: vi.fn() }));
 
-const OWNER = "owner@gmail.com";
+const OWNER = "owner@example.com";
 const WORK = "work@group.calendar.google.com";
 const USER_ID = 1;
 const OTHER_USER_ID = 2;
@@ -50,10 +50,10 @@ const createGoogleCredential = (id: number, userId: number) =>
 const PLACEHOLDER = { _enc: "keyring-v1" };
 
 /**
- * User 1 reconnected owner@gmail.com (credential 20 is the new one). Credential 10 is their earlier
- * connection of the same account; credential 11 is their personal account, which has owner@gmail.com
+ * User 1 reconnected owner@example.com (credential 20 is the new one). Credential 10 is their earlier
+ * connection of the same account; credential 11 is their personal account, which has owner@example.com
  * shared into it and uses it as the destination of their event type 30. User 2 connected
- * owner@gmail.com too (credential 12).
+ * owner@example.com too (credential 12).
  */
 const seed = async () => {
   await prismock.user.create({ data: { id: USER_ID, email: "user1@flowko.si", username: "user1" } });
@@ -109,7 +109,7 @@ const seed = async () => {
   });
 };
 
-/** What the new connection to owner@gmail.com sees: its own primary calendar and the work calendar */
+/** What the new connection to owner@example.com sees: its own primary calendar and the work calendar */
 const OWNER_CALENDARS = [
   { externalId: OWNER, readOnly: false },
   { externalId: WORK, readOnly: false },
@@ -188,7 +188,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
   test("looks up earlier encrypted credentials with their decrypted tokens", async () => {
     mockGoogleAccounts({
       10: { status: "found", primaryCalendarId: OWNER },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     await findAndReplace();
@@ -211,7 +211,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     });
     mockGoogleAccounts({
       10: { status: "found", primaryCalendarId: OWNER },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     await findAndReplace();
@@ -229,7 +229,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     await prismock.credential.update({ where: { id: 10 }, data: { key: tokenOf(10), encryptedKey: null } });
     mockGoogleAccounts({
       10: { status: "found", primaryCalendarId: OWNER },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     await findAndReplace();
@@ -265,12 +265,12 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
   test("replaces the earlier credential of the same account and moves its calendars", async () => {
     mockGoogleAccounts({
       10: { status: "found", primaryCalendarId: OWNER },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     await findAndReplace();
 
-    // Credential 11 uses owner@gmail.com as a shared calendar, but its token belongs to another account
+    // Credential 11 uses owner@example.com as a shared calendar, but its token belongs to another account
     expect(await remainingCredentialIds()).toEqual([11, 12, NEW_CREDENTIAL_ID]);
     const selectedCalendars = await prismock.selectedCalendar.findMany();
     expect(Object.fromEntries(selectedCalendars.map(({ id, credentialId }) => [id, credentialId]))).toEqual({
@@ -294,7 +294,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
   test("replaces a revoked credential only when it used this account's primary calendar", async () => {
     await prismock.destinationCalendar.update({
       where: { id: 2 },
-      data: { externalId: "personal@gmail.com" },
+      data: { externalId: "personal@example.com" },
     });
     mockGoogleAccounts({
       10: { status: "grant_revoked" },
@@ -307,16 +307,16 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
   });
 
   test("keeps a revoked credential of another account that has this calendar shared into it", async () => {
-    // Credential 11 is the personal account: owner@gmail.com is shared into it as its destination, and
+    // Credential 11 is the personal account: owner@example.com is shared into it as its destination, and
     // its own primary calendar is selected. Google can no longer say which account its dead token
-    // belonged to, and the new connection cannot see personal@gmail.com, so replacing it would turn
+    // belonged to, and the new connection cannot see personal@example.com, so replacing it would turn
     // those busy times free and drop its reconnect prompt.
     await prismock.selectedCalendar.create({
       data: {
         id: "primary-of-11",
         userId: USER_ID,
         integration: "google_calendar",
-        externalId: "personal@gmail.com",
+        externalId: "personal@example.com",
         credentialId: 11,
       },
     });
@@ -342,11 +342,11 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
   });
 
   test("replaces a revoked credential when the new connection keeps every calendar it had", async () => {
-    // Credential 10 is a dead earlier connection of owner@gmail.com: the new connection can read its
+    // Credential 10 is a dead earlier connection of owner@example.com: the new connection can read its
     // selected calendars and write to its destination, so replacing it loses nothing
     mockGoogleAccounts({
       10: { status: "grant_revoked" },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     await findAndReplace();
@@ -387,7 +387,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
 
     await findAndReplace();
 
-    // Credential 11 is still replaced: Google said its token belongs to owner@gmail.com
+    // Credential 11 is still replaced: Google said its token belongs to owner@example.com
     expect(await remainingCredentialIds()).toEqual([10, 12, NEW_CREDENTIAL_ID]);
   });
 
@@ -416,7 +416,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     });
     mockGoogleAccounts({
       10: { status: "grant_revoked" },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     const earlierCredentials = await findAndReplace();
@@ -446,8 +446,8 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
       data: { invalid: true, encryptedKey: encryptedFieldsOf(10, OTHER_USER_ID).encryptedKey },
     });
     mockGoogleAccounts({
-      10: { status: "found", primaryCalendarId: "someone-else@gmail.com" },
-      11: { status: "found", primaryCalendarId: "personal@gmail.com" },
+      10: { status: "found", primaryCalendarId: "someone-else@example.com" },
+      11: { status: "found", primaryCalendarId: "personal@example.com" },
     });
 
     await findAndReplace();
@@ -464,7 +464,7 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
     // Kept, its selected calendars would keep the booking page without slots (getCalendarsEvents fails
     // closed on them)
     await prismock.credential.update({ where: { id: 10 }, data: { invalid: true } });
-    mockGoogleAccounts({ 11: { status: "found", primaryCalendarId: "personal@gmail.com" } });
+    mockGoogleAccounts({ 11: { status: "found", primaryCalendarId: "personal@example.com" } });
 
     await findAndReplace();
 
@@ -484,14 +484,14 @@ describe("replaceEarlierGoogleCalendarCredentials", () => {
   });
 
   test("keeps an invalid credential that Google cannot identify when replacing it would lose a calendar", async () => {
-    // Same fail-closed rule as a revoked grant: the new connection cannot read personal@gmail.com
+    // Same fail-closed rule as a revoked grant: the new connection cannot read personal@example.com
     await prismock.credential.update({ where: { id: 11 }, data: { invalid: true } });
     await prismock.selectedCalendar.create({
       data: {
         id: "primary-of-11",
         userId: USER_ID,
         integration: "google_calendar",
-        externalId: "personal@gmail.com",
+        externalId: "personal@example.com",
         credentialId: 11,
       },
     });

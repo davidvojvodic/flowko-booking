@@ -534,8 +534,8 @@ describe("busy calendar times of a host with an unreadable Google calendar", () 
 describe("a host with more than one Google account connected", () => {
   // Every Google connection of the host is asked for all of the host's selected Google calendars.
   // Google answers a calendar of another account that is not shared with this one with notFound.
-  const OWN_ID = "own.calendar@gmail.com";
-  const OTHER_ACCOUNT_ID = "other.calendar@business.si";
+  const OWN_ID = "own.calendar@example.com";
+  const OTHER_ACCOUNT_ID = "other.calendar@example.org";
   const OTHER_CREDENTIAL_ID = 2;
   const otherAccountBusy = [{ start: "2024-01-02T09:00:00Z", end: "2024-01-02T10:00:00Z" }];
 

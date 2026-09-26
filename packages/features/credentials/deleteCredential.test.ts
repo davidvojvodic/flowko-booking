@@ -330,7 +330,7 @@ describe("deleteCredential", () => {
         { id: 123, name: "work" },
         { id: 124, name: "personal" },
       ]);
-      mockPrimaryCalendars({ "work-refresh": "owner@work.si", "personal-refresh": "owner@gmail.com" });
+      mockPrimaryCalendars({ "work-refresh": "owner@example.org", "personal-refresh": "owner@example.com" });
 
       await revokeGoogleCalendarTokensOfUser(user.id);
 
@@ -344,19 +344,19 @@ describe("deleteCredential", () => {
       const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
       const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "shared" }]);
       const otherUser = await setupUserWithGoogleCredentials(
-        { email: "colleague@test.com", username: "colleague" },
+        { email: "colleague@example.net", username: "colleague" },
         [{ id: 124, name: "colleague" }]
       );
       await prisma.selectedCalendar.create({
         data: {
           userId: otherUser.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 124,
         },
       });
       // The colleague connected the same Google account
-      mockPrimaryCalendars({ "shared-refresh": "salon@gmail.com", "colleague-refresh": "salon@gmail.com" });
+      mockPrimaryCalendars({ "shared-refresh": "salon@example.com", "colleague-refresh": "salon@example.com" });
 
       await revokeGoogleCalendarTokensOfUser(user.id);
 
@@ -368,7 +368,7 @@ describe("deleteCredential", () => {
       const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
       const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "salon" }]);
       const otherUser = await setupUserWithGoogleCredentials(
-        { email: "colleague@test.com", username: "colleague" },
+        { email: "colleague@example.net", username: "colleague" },
         [{ id: 124, name: "colleague" }]
       );
       // The salon shared its primary calendar with the colleague's own Google account
@@ -376,12 +376,12 @@ describe("deleteCredential", () => {
         data: {
           userId: otherUser.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 124,
         },
       });
       mockPrimaryCalendars({
-        "salon-refresh": "salon@gmail.com",
+        "salon-refresh": "salon@example.com",
         "colleague-refresh": "colleague@gmail.com",
       });
 
@@ -409,12 +409,12 @@ describe("deleteCredential", () => {
         data: {
           userId: attacker.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 124,
         },
       });
       await prisma.selectedCalendar.create({
-        data: { userId: bystander.id, integration: "google_calendar", externalId: "salon@gmail.com" },
+        data: { userId: bystander.id, integration: "google_calendar", externalId: "salon@example.com" },
       });
       await setupCredential({
         id: 125,
@@ -427,12 +427,12 @@ describe("deleteCredential", () => {
         data: {
           userId: bystander.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 125,
         },
       });
       mockPrimaryCalendars({
-        "salon-refresh": "salon@gmail.com",
+        "salon-refresh": "salon@example.com",
         "attacker-refresh": "attacker@gmail.com",
         "bystander-refresh": "revoked",
       });
@@ -441,17 +441,17 @@ describe("deleteCredential", () => {
         isGoogleGrantSharedWithAnotherCredential({
           credentialIds: [123],
           userId: user.id,
-          primaryCalendarId: "salon@gmail.com",
+          primaryCalendarId: "salon@example.com",
         })
       ).resolves.toBe(false);
 
       // Once Google says the bystander's credential is the same account, it shares the grant
-      mockPrimaryCalendars({ "bystander-refresh": "salon@gmail.com" });
+      mockPrimaryCalendars({ "bystander-refresh": "salon@example.com" });
       await expect(
         isGoogleGrantSharedWithAnotherCredential({
           credentialIds: [123],
           userId: user.id,
-          primaryCalendarId: "salon@gmail.com",
+          primaryCalendarId: "salon@example.com",
         })
       ).resolves.toBe(true);
     });
@@ -461,19 +461,19 @@ describe("deleteCredential", () => {
       const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
       const user = await setupUserWithGoogleCredentials(testUser, [{ id: 123, name: "salon" }]);
       const otherUser = await setupUserWithGoogleCredentials(
-        { email: "colleague@test.com", username: "colleague" },
+        { email: "colleague@example.net", username: "colleague" },
         [{ id: 124, name: "colleague" }]
       );
       await prisma.selectedCalendar.create({
         data: {
           userId: otherUser.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 124,
         },
       });
       // Google does not answer for the colleague's token, so the grant is revoked
-      mockPrimaryCalendars({ "salon-refresh": "salon@gmail.com" });
+      mockPrimaryCalendars({ "salon-refresh": "salon@example.com" });
 
       await revokeGoogleCalendarTokensOfUser(user.id);
 
@@ -498,7 +498,7 @@ describe("deleteCredential", () => {
       const { revokeUnstoredGoogleCalendarToken } = await import("./handleDeleteCredential");
       const revokeTokenSpy = vi.spyOn(OAuth2Client.prototype, "revokeToken").mockResolvedValue(undefined);
       const user = await setupUserWithGoogleCredentials(testUser, []);
-      mockPrimaryCalendars({ "partial-refresh": "owner@gmail.com" });
+      mockPrimaryCalendars({ "partial-refresh": "owner@example.com" });
 
       await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
 
@@ -522,7 +522,7 @@ describe("deleteCredential", () => {
         appId: "google-calendar",
         key: googleKey("existing"),
       });
-      mockPrimaryCalendars({ "partial-refresh": "owner@gmail.com" });
+      mockPrimaryCalendars({ "partial-refresh": "owner@example.com" });
       await revokeUnstoredGoogleCalendarToken({ userId: user.id, key: googleKey("partial") });
 
       expect(revokeTokenSpy).not.toHaveBeenCalled();
@@ -555,8 +555,8 @@ describe("deleteCredential", () => {
       await DestinationCalendarRepository.create({
         id: 2,
         integration: "google_calendar",
-        externalId: "salon@gmail.com",
-        primaryId: "salon@gmail.com",
+        externalId: "salon@example.com",
+        primaryId: "salon@example.com",
         eventTypeId: eventTypes[0].id,
         credentialId: 123,
       });
@@ -564,7 +564,7 @@ describe("deleteCredential", () => {
         data: {
           userId: user.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 123,
         },
       });
@@ -709,14 +709,14 @@ describe("deleteCredential", () => {
         () =>
           ({
             listCalendars: async () => [
-              { externalId: "salon@gmail.com", primary: true, integration: "google_calendar" },
+              { externalId: "salon@example.com", primary: true, integration: "google_calendar" },
             ],
           }) as never
       );
       const user = await setupHostWithGoogleCalendar();
       const colleague = await new UserRepository(prisma).create({
         ...testUser,
-        email: "colleague@test.com",
+        email: "colleague@example.net",
         username: "colleague",
       });
       await setupCredential({
@@ -730,7 +730,7 @@ describe("deleteCredential", () => {
         data: {
           userId: colleague.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 124,
         },
       });
@@ -738,7 +738,7 @@ describe("deleteCredential", () => {
       vi.mocked(lookUpGoogleAccount).mockReset();
       vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) =>
         (key as { refresh_token?: string } | null)?.refresh_token === "colleague-refresh"
-          ? { status: "found", primaryCalendarId: "salon@gmail.com" }
+          ? { status: "found", primaryCalendarId: "salon@example.com" }
           : { status: "unknown" }
       );
 
@@ -756,7 +756,7 @@ describe("deleteCredential", () => {
       const user = await setupHostWithGoogleCalendar();
       const colleague = await new UserRepository(prisma).create({
         ...testUser,
-        email: "colleague@test.com",
+        email: "colleague@example.net",
         username: "colleague",
       });
       // Its envelope was copied from another tenant's row, so it fails authentication
@@ -776,20 +776,20 @@ describe("deleteCredential", () => {
         data: {
           userId: colleague.id,
           integration: "google_calendar",
-          externalId: "salon@gmail.com",
+          externalId: "salon@example.com",
           credentialId: 124,
         },
       });
       vi.mocked(lookUpGoogleAccount).mockReset();
       vi.mocked(lookUpGoogleAccount).mockImplementation(async (key) =>
-        key ? { status: "found", primaryCalendarId: "salon@gmail.com" } : { status: "unknown" }
+        key ? { status: "found", primaryCalendarId: "salon@example.com" } : { status: "unknown" }
       );
 
       await expect(
         isGoogleGrantSharedWithAnotherCredential({
           credentialIds: [123],
           userId: user.id,
-          primaryCalendarId: "salon@gmail.com",
+          primaryCalendarId: "salon@example.com",
         })
       ).resolves.toBe(false);
       expect(lookUpGoogleAccount).toHaveBeenCalledWith(null);
@@ -819,7 +819,7 @@ describe("deleteCredential", () => {
       vi.mocked(lookUpGoogleAccount).mockReset();
       vi.mocked(lookUpGoogleAccount).mockResolvedValue({
         status: "found",
-        primaryCalendarId: "owner@work.si",
+        primaryCalendarId: "owner@example.org",
       });
 
       await expect(revokeGoogleCalendarTokensOfUser(user.id)).resolves.toBeUndefined();

@@ -33,8 +33,8 @@ vi.mock("@calcom/app-store/calendar.services.generated", () => ({
 }));
 
 const USER_ID = 808;
-const OWNER = "owner@gmail.com";
-const SHOP = "shop@gmail.com";
+const OWNER = "owner@example.com";
+const SHOP = "shop@example.com";
 
 const googleCredential = (id: number, invalid: boolean): CredentialForCalendarService => ({
   id,

@@ -65,8 +65,8 @@ vi.mock("googleapis-common", async (importOriginal) => ({
 const USER_ID = 1;
 const OLD_CREDENTIAL_ID = 10;
 const NEW_CREDENTIAL_ID = 20;
-const OWNER = "frizerstvo.ana@gmail.com";
-const COLLEAGUE = "kolegica@gmail.com";
+const OWNER = "frizerstvo.ana@example.com";
+const COLLEAGUE = "kolegica@example.com";
 
 const seed = async ({ extraSelectedCalendar }: { extraSelectedCalendar?: string } = {}) => {
   await prismock.app.create({

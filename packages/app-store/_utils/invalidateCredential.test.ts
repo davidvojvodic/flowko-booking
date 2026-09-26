@@ -45,7 +45,7 @@ const seedHost = async ({
         id: "primary",
         userId: USER_ID,
         integration: type,
-        externalId: "frizerstvo.ana@gmail.com",
+        externalId: "frizerstvo.ana@example.com",
         credentialId: CREDENTIAL_ID,
       },
     });
@@ -92,7 +92,7 @@ describe("invalidateCredential", () => {
       );
       expect(body).toContain("Aplikacije → Nameščene aplikacije → Koledarji");
       expect(body).toContain("/apps/installed/calendar");
-      for (const secret of [ACCESS_TOKEN, REFRESH_TOKEN, "frizerstvo.ana@gmail.com"]) {
+      for (const secret of [ACCESS_TOKEN, REFRESH_TOKEN, "frizerstvo.ana@example.com"]) {
         expect(body).not.toContain(secret);
       }
     }

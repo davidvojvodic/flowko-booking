@@ -38,8 +38,8 @@ import {
 } from "./getConnectedDestinationCalendars";
 
 const USER_ID = 42;
-const OWNER = "owner@gmail.com";
-const SHOP = "shop@gmail.com";
+const OWNER = "owner@example.com";
+const SHOP = "shop@example.com";
 const SECONDARY = "c_secondary@group.calendar.google.com";
 const KEY_ERROR = { message: "Could not get connected calendars" };
 
