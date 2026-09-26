@@ -4,10 +4,12 @@ import type { AppMeta } from "@calcom/types/App";
 
 export const metadata = {
   name: "Google Calendar",
-  // Flowko: Slovenian for every client (the UI is Slovenian), and Flowko instead of Cal.diy as publisher and
-  // contact, because Google's OAuth verification reviewer sees this page
+  // Flowko: Flowko instead of Cal.diy as publisher and contact, because Google's OAuth verification reviewer
+  // sees this page. The UI shows the description in its own language through getAppDescription
+  // (i18n key google_calendar_app_description, English and Slovenian); this is the English text, which
+  // must stay equal to that key's English string (_metadata.test.ts).
   description:
-    "Povežite Google Calendar, da stranke ne morejo rezervirati terminov, ko ste zasedeni, in da se vsaka rezervacija samodejno doda v vaš koledar, ob spremembi posodobi in ob odpovedi izbriše.",
+    "Connect Google Calendar so that customers cannot book appointments when you are busy, and so that every booking is added to your calendar automatically, updated when it changes and deleted when it is cancelled.",
   installed: !!(process.env.GOOGLE_API_CREDENTIALS && validJson(process.env.GOOGLE_API_CREDENTIALS)),
   type: "google_calendar",
   title: "Google Calendar",

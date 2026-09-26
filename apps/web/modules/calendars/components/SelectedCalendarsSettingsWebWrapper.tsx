@@ -1,3 +1,4 @@
+import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import { SelectedCalendarsSettings } from "@calcom/atoms/selected-calendars/SelectedCalendarsSettings";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { RouterOutputs } from "@calcom/trpc/react";
@@ -63,7 +64,9 @@ const ConnectedCalendarList = ({
               slug={connectedCalendar.integration.slug}
               title={connectedCalendar.integration.name}
               logo={connectedCalendar.integration.logo}
-              description={connectedCalendar.primary?.email ?? connectedCalendar.integration.description}
+              description={
+                connectedCalendar.primary?.email ?? getAppDescription(connectedCalendar.integration, t)
+              }
               className="border-subtle mt-4 rounded-lg border"
               actions={
                 <div className="flex w-32 justify-end">

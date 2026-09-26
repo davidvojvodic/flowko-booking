@@ -1,6 +1,7 @@
 "use client";
 
 import AppCategoryNavigation from "@calcom/app-store/_components/AppCategoryNavigation";
+import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import { appKeysSchemas } from "@calcom/app-store/apps.keys-schemas.generated";
 import { Dialog } from "@calcom/features/components/controlled-dialog";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
@@ -82,7 +83,7 @@ const IntegrationContainer = ({
     <li>
       <AppListCardWebWrapper
         logo={app.logo}
-        description={app.description}
+        description={getAppDescription(app, t)}
         title={app.name}
         isTemplate={app.isTemplate}
         actions={

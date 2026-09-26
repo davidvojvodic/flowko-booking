@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import { IS_PRODUCTION } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { markdownToSafeHTML } from "@calcom/lib/markdownToSafeHTML";
@@ -43,7 +44,7 @@ function SingleAppPage(props: AppDataProps) {
   return (
     <App
       name={data.name}
-      description={data.description}
+      description={getAppDescription(data, t)}
       isGlobal={data.isGlobal}
       slug={data.slug}
       variant={data.variant}
