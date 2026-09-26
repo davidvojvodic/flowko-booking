@@ -5,6 +5,7 @@ import { createMocks } from "node-mocks-http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GOOGLE_CALENDAR_SCOPES, WEBAPP_URL } from "@calcom/lib/constants";
+import { Prisma } from "@calcom/prisma/client";
 
 import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
 
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   replaceEarlierGoogleCalendarCredentials: vi.fn(),
   buildCredentialCreateData: vi.fn(),
   isCredentialKeyringConfigured: vi.fn(),
+  renewSelectedCalendarCredentialId: vi.fn(),
 }));
 
 vi.mock("googleapis-common", () => ({
@@ -60,7 +62,7 @@ vi.mock("@calcom/features/credentials/services/CredentialDataService", () => ({
 }));
 
 vi.mock("@calcom/lib/connectedCalendar", () => ({
-  renewSelectedCalendarCredentialId: vi.fn(),
+  renewSelectedCalendarCredentialId: mocks.renewSelectedCalendarCredentialId,
 }));
 
 vi.mock("@calcom/prisma", () => ({
@@ -134,6 +136,7 @@ beforeEach(() => {
   mocks.appFindUnique.mockResolvedValue({ enabled: false });
   mocks.buildCredentialCreateData.mockImplementation((data: unknown) => data);
   mocks.isCredentialKeyringConfigured.mockReturnValue(true);
+  mocks.renewSelectedCalendarCredentialId.mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -485,5 +488,137 @@ describe("googlecalendar callback: credential keyring", () => {
     expect(mocks.credentialCreate).toHaveBeenCalledTimes(1);
     expect(mocks.revokeUnstoredGoogleCalendarToken).not.toHaveBeenCalled();
     expect(res._getRedirectUrl()).toContain("/apps/installed/calendar?hl=google-calendar");
+  });
+});
+
+describe("googlecalendar callback: primary calendar can't be selected", () => {
+  const INSTALLED_CALENDARS = `${WEBAPP_URL}/apps/installed/calendar`;
+  const uniqueConstraintFailed = () =>
+    new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002",
+      clientVersion: "test",
+    });
+
+  function connect(state: Record<string, unknown>) {
+    return callCallback({
+      userId: VICTIM_ID,
+      query: { code: "own-code", state: stateFromAdd(VICTIM_ID, state) as string },
+    });
+  }
+
+  function redirectOf(res: Awaited<ReturnType<typeof connect>>) {
+    const location = res._getRedirectUrl();
+    const url = new URL(location);
+    return { location, page: `${url.origin}${url.pathname}`, params: url.searchParams };
+  }
+
+  it("goes back to the page that started the connect with account_already_linked, and drops the new credential", async () => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+    const res = await connect({
+      fromApp: true,
+      onErrorReturnTo: `${WEBAPP_URL}/settings/my-account/calendars`,
+    });
+
+    expect(res._getRedirectUrl()).toBe(
+      `${WEBAPP_URL}/settings/my-account/calendars?error=account_already_linked`
+    );
+    expect(mocks.deleteById).toHaveBeenCalledWith({ id: 10 });
+    expect(mocks.replaceEarlierGoogleCalendarCredentials).not.toHaveBeenCalled();
+  });
+
+  // getInstalledAppPath already has a query (?hl=google-calendar): "?error=" appended to it gave
+  // "?hl=google-calendar?error=account_already_linked", so the page never saw an error
+  it("adds the error to the installed calendars' own query when the state has no page", async () => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+    const { location, page, params } = redirectOf(await connect({ fromApp: true }));
+
+    expect(page).toBe(INSTALLED_CALENDARS);
+    expect(params.get("hl")).toBe("google-calendar");
+    expect(params.get("error")).toBe("account_already_linked");
+    expect(location.split("?")).toHaveLength(2);
+  });
+
+  it("adds the error to the installed calendars for a flow that did not start in the app", async () => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+    const res = await connect({ fromApp: false });
+
+    expect(res._getRedirectUrl()).toBe(
+      `${INSTALLED_CALENDARS}?hl=google-calendar&error=account_already_linked`
+    );
+  });
+
+  it("answers something_went_wrong for any other failure", async () => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(new Error("connection terminated unexpectedly"));
+
+    const { location, page, params } = redirectOf(await connect({ fromApp: true }));
+
+    expect(page).toBe(INSTALLED_CALENDARS);
+    expect(params.get("error")).toBe("something_went_wrong");
+    expect(location).not.toContain("connection terminated");
+    expect(mocks.renewSelectedCalendarCredentialId).not.toHaveBeenCalled();
+    expect(mocks.deleteById).toHaveBeenCalledWith({ id: 10 });
+  });
+
+  it("keeps the page's own query and replaces an error it already carries", async () => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+    const { page, params } = redirectOf(
+      await connect({
+        fromApp: true,
+        onErrorReturnTo: `${WEBAPP_URL}/settings/my-account/calendars?tab=1&error=no_default_calendar`,
+      })
+    );
+
+    expect(page).toBe(`${WEBAPP_URL}/settings/my-account/calendars`);
+    expect(params.get("tab")).toBe("1");
+    expect(params.getAll("error")).toEqual(["account_already_linked"]);
+  });
+
+  // Connects start on these pages too, but they ignore ?error=: the refusal would be silent there
+  it.each([
+    "/getting-started/connected-calendar",
+    "/apps/categories/calendar",
+    "/event-types/12",
+    "/availability/troubleshoot",
+  ])("sends a connect started on %s to the installed calendars, which show the reason", async (start) => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+    const res = await connect({ fromApp: true, onErrorReturnTo: `${WEBAPP_URL}${start}` });
+
+    expect(res._getRedirectUrl()).toBe(
+      `${INSTALLED_CALENDARS}?hl=google-calendar&error=account_already_linked`
+    );
+  });
+
+  it.each([
+    // getSafeRedirectUrl throws on a relative URL: that used to end the request with a 500
+    ["a relative page", "/settings/my-account/calendars"],
+    ["a page on another site", "https://attacker.example/settings/my-account/calendars"],
+    ["a malformed URL", "https://"],
+  ])("never sends the host to %s", async (_label, onErrorReturnTo) => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+
+    const { page, params } = redirectOf(await connect({ fromApp: true, onErrorReturnTo }));
+
+    expect(page).toBe(INSTALLED_CALENDARS);
+    expect(params.get("error")).toBe("account_already_linked");
+    expect(mocks.deleteById).toHaveBeenCalledWith({ id: 10 });
+  });
+
+  it("still moves an orphaned selected calendar to the new credential without an error", async () => {
+    mocks.upsertSelectedCalendar.mockRejectedValue(uniqueConstraintFailed());
+    mocks.renewSelectedCalendarCredentialId.mockResolvedValue(true);
+
+    const res = await connect({
+      fromApp: true,
+      onErrorReturnTo: `${WEBAPP_URL}/settings/my-account/calendars`,
+    });
+
+    expect(res._getRedirectUrl()).toBe("/apps/installed/calendar?hl=google-calendar");
+    expect(mocks.replaceEarlierGoogleCalendarCredentials).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteById).not.toHaveBeenCalled();
   });
 });
