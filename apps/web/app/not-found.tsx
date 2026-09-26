@@ -3,8 +3,8 @@ import { buildLegacyRequest } from "@lib/buildLegacyCtx";
 import type { ReadonlyHeaders, ReadonlyRequestCookies } from "app/_types";
 import { _generateMetadata } from "app/_utils";
 import { cookies, headers } from "next/headers";
-// Relative instead of @components/PageWrapperAppDir (the same file): the Vitest config has no @components
-// alias, and not-found.test.tsx imports this page.
+// Flowko: relative instead of @components/PageWrapperAppDir (the same file): the Vitest config has no
+// @components alias, and not-found.test.tsx imports this page.
 import PageWrapper from "../components/PageWrapperAppDir";
 import { NotFound } from "./notFoundClient";
 
@@ -23,9 +23,10 @@ export const generateMetadata = async () => {
 };
 
 // Flowko: the 404's home link goes to the event types only for a signed-in host and to https://flowko.si for
-// everyone else (see notFoundClient.tsx). A session lookup that fails (no database, a bad token) counts as
-// signed out, so the 404 page never fails because of it. headers() and cookies() stay outside the try so
-// Next's dynamic-rendering signal is never swallowed.
+// everyone else (see notFoundClient.tsx). No session counts as signed out (next-auth answers an invalid
+// token with no session), and so does a lookup that throws (for example, the database is down), so the 404
+// page never fails because of it. headers() and cookies() stay outside the try so Next's dynamic-rendering
+// signal is never swallowed.
 async function isSignedIn(
   requestHeaders: ReadonlyHeaders,
   requestCookies: ReadonlyRequestCookies
