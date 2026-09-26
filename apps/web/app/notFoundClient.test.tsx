@@ -56,10 +56,17 @@ const upsellKeys = [
   "blog_description",
 ] as const;
 
-function renderAt(pathname: string, strings: Record<string, string>) {
+function renderAt(pathname: string, strings: Record<string, string>, { isSignedIn = false } = {}) {
   state.pathname = pathname;
   state.strings = strings;
-  return render(<NotFound host="booking.example.com" />);
+  return render(<NotFound isSignedIn={isSignedIn} />);
+}
+
+function homeLinks(container: HTMLElement) {
+  return Array.from(container.querySelectorAll("a")).map((link) => ({
+    href: link.getAttribute("href"),
+    text: link.textContent,
+  }));
 }
 
 describe("NotFound (Flowko)", () => {
@@ -95,12 +102,30 @@ describe("NotFound (Flowko)", () => {
       expect(state.missing).toEqual([]);
     });
 
-    it("offers only one link, home to this app's root", () => {
-      const { container } = renderAt("/salon-lepota", dict);
+    // A signed-out visitor is usually a booker with a wrong link and no account: this app's root would show
+    // them the login page, so home is the marketing site.
+    it.each([
+      "/",
+      "/booking/abc",
+      "/someuser",
+    ])("sends a signed-out visitor on %s home to https://flowko.si with its one link", (pathname) => {
+      const { container } = renderAt(pathname, dict);
 
-      const links = Array.from(container.querySelectorAll("a"));
-      expect(links.map((link) => link.getAttribute("href"))).toEqual(["/"]);
-      expect(links[0]).toHaveTextContent(dict.or_go_back_home);
+      expect(homeLinks(container)).toEqual([
+        { href: "https://flowko.si", text: `${dict.or_go_back_home} \u2192` },
+      ]);
+      expect(state.missing).toEqual([]);
+    });
+
+    it.each([
+      "/",
+      "/booking/abc",
+      "/someuser",
+    ])("sends a signed-in host on %s home to this app's root with its one link", (pathname) => {
+      const { container } = renderAt(pathname, dict, { isSignedIn: true });
+
+      expect(homeLinks(container)).toEqual([{ href: "/", text: `${dict.or_go_back_home} \u2192` }]);
+      expect(state.missing).toEqual([]);
     });
   });
 
@@ -111,10 +136,22 @@ describe("NotFound (Flowko)", () => {
     expect(container.textContent).toContain(sl.booking_not_found);
   });
 
-  it("links nowhere near cal.com", () => {
-    const { container } = renderAt("/booking/unknown-uid", en as unknown as Record<string, string>);
+  it.each([false, true])("links nowhere near cal.com (signed in: %s)", (isSignedIn) => {
+    const { container } = renderAt("/booking/unknown-uid", en as unknown as Record<string, string>, {
+      isSignedIn,
+    });
 
     expect(container.innerHTML).not.toMatch(/cal\.com/i);
+  });
+
+  it("gives both home links the same look", () => {
+    const signedOut = renderAt("/salon-lepota", en as unknown as Record<string, string>);
+    const signedOutClass = signedOut.container.querySelector("a")?.className;
+    signedOut.unmount();
+    const signedIn = renderAt("/salon-lepota", en as unknown as Record<string, string>, { isSignedIn: true });
+
+    expect(signedOutClass).toBeTruthy();
+    expect(signedIn.container.querySelector("a")?.className).toBe(signedOutClass);
   });
 
   it("still reports the 404 status to the embed", () => {
