@@ -91,6 +91,9 @@ export const revokeGoogleCalendarToken = async (credentialId: number | null, key
 // so any other connection to that account would silently stop syncing.
 // credentialIds are the credentials going away with the revoke: the one disconnected, none for a token
 // that was never stored, or every credential of a user whose account is deleted.
+// Flowko D8: another credential shares the grant only when Google confirms that its token belongs to the
+// same Google account (the same primary calendar id). The grant is revoked whenever that can't be confirmed:
+// Google's policy is to revoke tokens that are no longer needed, and the disconnect promises it.
 export const isGoogleGrantSharedWithAnotherCredential = async ({
   credentialIds,
   userId,
@@ -100,14 +103,19 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
   userId: number;
   primaryCalendarId?: string;
 }) => {
-  // The user's other credential may be for the same Google account, e.g. from a reconnect whose earlier
-  // credential the callback could not replace
-  const otherCredentialOfUser = await prisma.credential.findFirst({
-    where: { userId, type: "google_calendar", id: { notIn: credentialIds } },
-    select: { id: true },
-  });
-  if (otherCredentialOfUser) return true;
+  // Without the Google account of the revoked token, no other credential can be confirmed as sharing its grant
   if (!primaryCalendarId) return false;
+
+  // The user's other credential may be for the same Google account, e.g. from a reconnect whose earlier
+  // credential the callback could not replace.
+  // Flowko D8: it may just as well be another Google account of the same user, whose grant is its own, so it
+  // counts only when Google confirms the account, like another user's credential below. Before D8, Flowko
+  // (U4) kept the grant for any other Google Calendar connection of the user, which left a disconnected
+  // account's grant live at Google. A key that can't be decrypted is looked up as null and reads as "unknown"
+  const otherCredentialsOfUser = await prisma.credential.findMany({
+    where: { userId, type: "google_calendar", id: { notIn: credentialIds } },
+    select: { id: true, type: true, userId: true, teamId: true, encryptedKey: true },
+  });
 
   // Another user connected the same Google account.
   // Flowko: a SelectedCalendar or DestinationCalendar row with this calendar id proves nothing on its own:
@@ -132,16 +140,22 @@ export const isGoogleGrantSharedWithAnotherCredential = async ({
     select: { id: true, type: true, userId: true, teamId: true, encryptedKey: true },
   });
   const accounts = await Promise.all(
-    otherUsersCredentials.map((credential) => lookUpGoogleAccount(tryDecryptCredentialKey(credential)))
+    [...otherCredentialsOfUser, ...otherUsersCredentials].map((credential) =>
+      lookUpGoogleAccount(tryDecryptCredentialKey(credential))
+    )
   );
   return accounts.some(
     (account) => account.status === "found" && account.primaryCalendarId === primaryCalendarId
   );
 };
 
-// The callback never stores a token that lacks a required scope. Revoke its grant unless another
-// connection may share it. The Google account is only known when calendar.readonly was granted;
-// without it, keep the grant.
+// The callback never stores a token that lacks a required scope, nor one it failed to store. Revoke its
+// grant unless Google confirms that another connection, the user's own or another user's, is the same
+// Google account. The Google account is only known when calendar.readonly was granted; without it, keep
+// the grant.
+// Flowko D8: when the fresh token's account is found but Google does not answer for the user's existing
+// connection to that account, nothing confirms the sharing and the fresh grant is revoked. Revoking ends the
+// whole grant, so that existing connection stops working too and the host has to reconnect it.
 export const revokeUnstoredGoogleCalendarToken = async ({
   userId,
   key,
@@ -171,7 +185,8 @@ export const revokeUnstoredGoogleCalendarToken = async ({
 };
 
 // Deleting an account cascade-deletes its credentials without telling Google. Revoke each Google
-// Calendar grant first, unless another user's connection to the same Google account shares it.
+// Calendar grant first, unless another user's connection to the same Google account shares it (the
+// user's own credentials all go away, so none of them can).
 // Best effort, like a disconnect: it never throws, so it can never block the deletion.
 export const revokeGoogleCalendarTokensOfUser = async (userId: number) => {
   try {
@@ -706,7 +721,11 @@ const handleDeleteCredential = async ({
     const grantShared = await isGoogleGrantSharedWithAnotherCredential({
       credentialIds: [credential.id],
       userId,
-      // The primary calendar id is the Google account's email address
+      // The primary calendar id is the Google account's email address. Flowko D8: when the calendars could
+      // not be listed it is unknown, no other credential can be confirmed as the same account, and the
+      // grant is revoked. For a dead token (invalid_grant) Google refuses that revoke and nothing changes.
+      // When the listing failed only transiently, the revoke also ends the grant of a connection to the
+      // same account that stays, which then has to be reconnected
       primaryCalendarId: calendars?.find((cal) => cal.primary)?.externalId,
     });
     if (grantShared) {
