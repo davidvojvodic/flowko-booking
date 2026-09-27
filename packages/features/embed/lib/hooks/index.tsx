@@ -1,6 +1,8 @@
 import { useEmbedBookerUrl } from "@calcom/features/bookings/hooks/useBookerUrl";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 
+// Flowko U13-05 (Q10): three embed types. The email embed (available times pasted into an e-mail) is not
+// offered; Embed.tsx closes the dialog for any type that isn't in this list.
 export const useEmbedTypes = () => {
   const { t } = useLocale();
   return [
@@ -178,140 +180,6 @@ export const useEmbedTypes = () => {
           <rect x="237" y="171" width="6" height="6" rx="1" fill="#E5E7EB" />
           <rect x="24" y="35" width="259" height="192" rx="5.5" stroke="#101010" />
           <rect x="24" y="241.503" width="260" height="24" rx="6" fill="#F3F4F6" />
-        </svg>
-      ),
-    },
-    {
-      title: t("email_embed"),
-      subtitle: t("add_times_to_your_email"),
-      type: "email",
-      illustration: (
-        <svg
-          width="100%"
-          height="100%"
-          className="rounded-md"
-          viewBox="0 0 308 265"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg">
-          <g clip-path="url(#clip0_457_1339)">
-            <rect width="308" height="265" rx="8" fill="white" />
-            <rect width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="19" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="38" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="57" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="76" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="95" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="114" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="133" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="152" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="171" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="190" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="209" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="228" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <rect y="247" width="308" height="18" rx="4" fill="#F3F4F6" />
-            <g clip-path="url(#clip1_457_1339)">
-              <rect x="107" y="64" width="189" height="189" rx="6" fill="white" />
-              <g clip-path="url(#clip2_457_1339)">
-                <path
-                  d="M124.671 75.5243C124.671 75.1018 124.325 74.756 123.902 74.756H117.756C117.334 74.756 116.988 75.1018 116.988 75.5243M124.671 75.5243V80.1341C124.671 80.5567 124.325 80.9024 123.902 80.9024H117.756C117.334 80.9024 116.988 80.5567 116.988 80.1341V75.5243M124.671 75.5243L120.829 78.2134L116.988 75.5243"
-                  stroke="#9CA3AF"
-                  stroke-width="1.15244"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </g>
-              <rect x="130.049" y="75.5244" width="92.1951" height="4.60976" rx="2.30488" fill="#D1D5DB" />
-              <rect x="130.049" y="84.7439" width="55.3171" height="4.60976" rx="2.30488" fill="#E5E7EB" />
-              <rect
-                opacity="0.8"
-                x="107"
-                y="98.5732"
-                width="189"
-                height="1.15244"
-                rx="0.576219"
-                fill="#E5E7EB"
-              />
-              <rect x="116.219" y="113.555" width="92.1951" height="4.60976" rx="2.30488" fill="#D1D5DB" />
-              <rect x="116.219" y="122.774" width="42.6402" height="4.60976" rx="2.30488" fill="#E5E7EB" />
-              <rect x="116.219" y="136.604" width="55.3171" height="4.60976" rx="2.30488" fill="#D1D5DB" />
-              <rect x="116.719" y="145.171" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="142.073" y="145.171" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="167.427" y="145.171" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="192.781" y="145.171" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="218.134" y="145.171" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="116.219" y="160.805" width="55.3171" height="4.60976" rx="2.30488" fill="#D1D5DB" />
-              <rect x="116.719" y="169.372" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="142.073" y="169.372" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="167.427" y="169.372" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="192.781" y="169.372" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="218.134" y="169.372" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="116.219" y="185.006" width="55.3171" height="4.60976" rx="2.30488" fill="#D1D5DB" />
-              <rect x="116.719" y="193.573" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="142.073" y="193.573" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="167.427" y="193.573" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="192.781" y="193.573" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect x="218.134" y="193.573" width="22.0488" height="5.91463" rx="2.95732" stroke="#9CA3AF" />
-              <rect
-                opacity="0.8"
-                x="107"
-                y="223.037"
-                width="189"
-                height="1.15244"
-                rx="0.576219"
-                fill="#E5E7EB"
-              />
-              <rect width="189" height="28.811" transform="translate(107 224.189)" fill="#F9FAFB" />
-              <rect x="116.219" y="233.985" width="23.0488" height="9.21951" rx="2.30488" fill="#9CA3AF" />
-              <rect
-                opacity="0.8"
-                x="141.573"
-                y="233.985"
-                width="9.21951"
-                height="9.21951"
-                rx="2.30488"
-                fill="#E5E7EB"
-              />
-              <rect
-                opacity="0.8"
-                x="153.098"
-                y="233.985"
-                width="9.21951"
-                height="9.21951"
-                rx="2.30488"
-                fill="#E5E7EB"
-              />
-              <rect
-                opacity="0.8"
-                x="164.622"
-                y="233.985"
-                width="9.21951"
-                height="9.21951"
-                rx="2.30488"
-                fill="#E5E7EB"
-              />
-            </g>
-            <rect
-              x="106.424"
-              y="63.4238"
-              width="190.152"
-              height="190.152"
-              rx="6.57622"
-              stroke="#101010"
-              stroke-width="1.15244"
-            />
-          </g>
-          <rect x="0.5" y="0.5" width="307" height="264" rx="7.5" stroke="#E5E7EB" />
-          <defs>
-            <clipPath id="clip0_457_1339">
-              <rect width="308" height="265" rx="8" fill="white" />
-            </clipPath>
-            <clipPath id="clip1_457_1339">
-              <rect x="107" y="64" width="189" height="189" rx="6" fill="white" />
-            </clipPath>
-            <clipPath id="clip2_457_1339">
-              <rect width="9.21951" height="9.21951" fill="white" transform="translate(116.219 73.2195)" />
-            </clipPath>
-          </defs>
         </svg>
       ),
     },
