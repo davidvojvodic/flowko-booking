@@ -195,6 +195,46 @@ Lines marked *planned* are not on `flowko` yet; each is updated when its change 
     - When the removed connection's own calendars can't be listed, or it has no calendar service, nothing is deleted by calendar id, as in upstream.
   - *Logs:* the listing-failure warnings carry the error's name and code only, never the error object or a calendar id.
 
+- **U13a Security release** (David, 2026-09-27; plan items U13-07 to U13-11 in Flowko's step-7 plan; the embed routes stay frameable for clients' websites):
+  - *Framing protection (U13-08):* every route sends `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN` (`apps/web/next.config.ts` `headers()`), so only booking.flowko.si itself can frame the dashboard, the admin pages and the public booking pages (`/:user`, `/:user/:type`, `/booking/:uid`, `/reschedule/:uid`). Any site may still frame the embed routes `/:user/embed`, `/:user/:type/embed`, `/booking/:uid/embed` and `/reschedule/:uid/embed`, the static `/embed/*` files (`embed.js`, `preview.html`) and the `/embed.js` rewrite; these get neither header. Before U13a only `/auth/*` and `/signup` sent a framing header.
+    - The locked entry excludes those paths with a negative lookahead, because X-Frame-Options has no "allow" value and a later entry can't unlock a path. The `:user` segment must not be a top-level route, a virtual route or a locale: that is the list `pagesAndRewritePaths.ts` scans at build time for the org rewrites, plus the rewrite-only prefixes and the locales. So a dashboard catch-all like `/getting-started/embed` stays locked. The build fails if that scan misses `settings`, `event-types`, `apps`, `getting-started` or `bookings`. A locale-prefixed embed path (`/sl/<user>/<type>/embed`) is locked too, and embed.js never requests one.
+    - `/auth/*`, `/login`, `/signup` and their locale-prefixed forms stay at `X-Frame-Options: DENY` plus `frame-ancestors 'none'`. With `CSP_POLICY` set, the proxy's sign-in CSP replaces the config's, so `proxy.ts` adds `frame-ancestors 'none'` to it. No other route sends a CSP (`CSP_POLICY` is unset on Railway, `x-csp-status: not-opted-in`), so a response never carries two CSP headers.
+    - A username or event-type slug must not end in `embed`. For such a link, embed.js loads the page without adding `/embed` (upstream behaviour), and that page is now locked. A username must not be one of the reserved names either (a route name such as `video`, `apps` or `d`, or a locale code such as `sl`), or its embed stays locked.
+    - The headers only protect full page loads. An in-app link inside an embed that navigates client-side to a non-/embed page renders that page inside the frame. U13-11 moves the success page's links to a new tab, and U13-09 (SameSite=Lax) keeps the session out of cross-site frames.
+    - Test: `apps/web/next.config.headers.test.ts` evaluates `headers()` with Next.js's own route matcher over a path matrix. `apps/web/proxy.test.ts` covers the sign-in CSP.
+  - *Session cookies and embeds (U13-09, U13-10):*
+    - *Cookies:* every NextAuth cookie (session token, callback URL, CSRF token, PKCE verifier, state, nonce) is now `SameSite=Lax` on HTTPS too (`packages/lib/default-cookies.ts`). Upstream used `None` "to enable cookies on widgets". A cross-site iframe or subresource request no longer carries a host's session, and browsers that follow RFC 6265bis refuse to store these cookies from a cross-site iframe response. Every host flow is same-site or a top-level GET, so it keeps working:
+      - credentials login and 2FA, and logout (same-origin fetches);
+      - the Google Calendar add route (a same-origin fetch);
+      - Google's redirect back to `/api/integrations/googlecalendar/callback`, a top-level GET, so the U8c state nonce still finds the session;
+      - the U9 disconnect and reconnect.
+    - *SSO callbacks:* Google, Azure and SAML login are off. A cross-site POST callback (SAML/OIDC `form_post`) would not carry Lax cookies, so check this before enabling any of them.
+    - *Existing sessions:* a signed-in host's older `SameSite=None` session cookie is re-issued as Lax on their first dashboard load after the deploy, because the JWT session route re-sets it.
+    - *Embeds:* `/embed` routes render `SessionProvider` with `session={null}` and refetching off (`apps/web/app/providers.tsx`). The signal is the root layout's `isEmbed`, from the `x-isEmbed` header `proxy.ts` sets for every path ending in `/embed`; Next copies middleware response headers onto the request, so the layout knows it at SSR. An embedded booker never requests `/api/auth/session`, so it gets no csrf-token or callback-url cookie, and it never writes `nextauth.message` to localStorage. Pages that are not embeds are unchanged.
+    - *Booking needs no cookie or session:*
+      - the slots and the other booker calls are public tRPC with a session-less context;
+      - `POST /api/book/event` has no CSRF check and treats the session as optional;
+      - the success page (`/booking/<uid>/embed`) identifies the booker by the `email` query param.
+    - *Not covered:*
+      - `calcom.csrf_token` is still `SameSite=None`. It is the double-submit token that `/api/csrf?sameSite=none` sets when a booker confirms a cancel (`CancelBooking.tsx`), never during booking.
+      - The pages-router `/router/embed` (routing forms) keeps `_app.tsx`'s own SessionProvider.
+      - `WebPushProvider` registers `/service-worker.js` on every page, embeds included.
+    - *Post-deploy check:* `curl -s -D - -o /dev/null https://booking.flowko.si/api/auth/session | grep -i set-cookie` shows `SameSite=Lax` on the csrf-token and callback-url cookies (before U13a: `SameSite=None`). Live embed test: no request to `/api/auth/session`, 0 cookies for booking.flowko.si. Google connect on flowko-test still works (the U9 checks).
+  - *No cal.com in embed.js (U13-07):*
+    - **The problem:** embed.js runs on every client's website. Its inlined stylesheet declared `@font-face "Cal Sans"` from `https://cal.com/cal.ttf` for h1–h6, so a visitor's browser could fetch a font from cal.com and send it the visitor's IP (the LG München Google Fonts pattern).
+    - **Removed:** the `@font-face` block, the h1–h6 rule that used it, and the dead `.replace("https://cal.com","https://app.cal.com")` on the iframe origin in `embed.ts`.
+    - **Now:** headings use the system font stack. The only heading embed.js renders is the skeleton's empty event-title `<h1>`. The iframe origin is used exactly as configured.
+    - **Guard tests:**
+      - `src/__tests__/no-external-origins.test.ts`: no `@font-face`, remote `url()` or remote `@import` in `styles.css`, `embed.css`, `loader.css`, or any CSS they import (followed recursively). No cal.com origin, quoted cal.com host or `cal.ttf` in any embed-core source file.
+      - `embed.test.ts`: the configured origin is used verbatim.
+    - **Build result** (`NEXT_PUBLIC_WEBAPP_URL=https://booking.flowko.si`): `grep -c 'cal\.com' embed.js` went from 1 (3 occurrences) to **0**. There are also 0 `@font-face` and 0 `url(`.
+    - **cal.com text still in embed-core, none of it in embed.js:**
+      - source comments, which minification removes;
+      - one console warning in `embed-iframe.ts`, which runs inside the booker page;
+      - the upstream npm-publish script in `package.json`, which our build does not run.
+    - **Post-deploy check:** `curl -s https://booking.flowko.si/embed/embed.js | grep -c 'cal\.com'` → 0.
+  - *Embedded success page (U13-11):* inside an embed (`/booking/<uid>/embed`), Reschedule, Cancel, the seat holder's login link, the host-no-show page's Reschedule and the links to the previous or rescheduled booking open the first-party page on `WEBAPP_URL` in a new tab (`target="_blank" rel="noopener noreferrer"`): `/reschedule/<seat reference or uid>`, `/booking/<uid>?cancel=true` (with `allRemainingBookings` and `seatReferenceUid` when the page has them) and `/booking/<uid>`. The embed never shows the cancel form, even when opened with `?cancel=true`. The cancel request needs the `calcom.csrf_token` cookie, which Safari/iOS and Chrome Incognito don't send from a third-party frame (403 "Invalid CSRF token"), and the framing lock blocks every non-/embed page in a frame. The booker's e-mail stays out of these URLs: the uid (a seat's reference for a seat) authorizes an anonymous cancel or reschedule, and `cancelledBy`/`rescheduledBy` only record who made the change. Without `email=` the first-party page hides the booker's own phone number. Outside an embed nothing changes. The page reads the /embed route's `isEmbed` server prop, so it is in embed mode from the server render on. Tests: `apps/web/modules/bookings/views/bookings-single-view.embed-links.test.tsx`.
+
 ## API v2 must not be deployed
 
 The image builds only the web app (`./Dockerfile`); `apps/api/v2` (the `calcom-api` service in `docker-compose.yml`) is not part of the deployment and must stay out of it. Flowko's booker-facing fixes were made on the web app's routes and pages, not on API v2. There, `GET /v2/bookings/:bookingUid` (2024-04-15, no auth guard on the route) returns every seat's reference, and the 2024-08-13 `GET /v2/bookings/:bookingUid` and `/v2/bookings/by-seat/:seatUid` (optional auth) return every attendee's `seatUid` when the event type shows attendees. A seat's reference cancels that seat through `POST /v2/bookings/:bookingUid/cancel`. Deploying API v2 first needs an auth guard on those routes, or their output limited to the caller's own seat. It would also reopen U8c fixes that live only on the web app's tRPC routes: API v2 has its own SelectedSlots writers (slot reservation, AV-2) and accepts the internal `getSchedule` flags (AV-5), and its throttler keys on the client-sent `cf-connecting-ip` (`apps/api/v2/src/lib/throttler-guard.ts`).
@@ -226,6 +266,26 @@ The `NEXT_PUBLIC_*` values are compiled into the image. To change one, edit the 
 Do not build on an Apple-Silicon Mac. The Dockerfile's builder stage is pinned to `$BUILDPLATFORM`, so a `--platform linux/amd64` build there ships arm64 native binaries.
 
 After the first push, check the GHCR package's visibility. A private package needs a token with `read:packages` on the deployment host.
+
+**Post-deploy framing check (U13a)**, plain HEAD requests without cookies:
+
+```sh
+H=https://booking.flowko.si
+for p in /event-types /settings/my-account/general /settings/admin/flags /apps/installed/calendar /bookings/upcoming \
+         /flowko-test /flowko-test/ogled /booking/x /reschedule/x \
+         /flowko-test/embed /flowko-test/ogled/embed /booking/x/embed /reschedule/x/embed \
+         /embed/embed.js /embed/preview.html /embed.js \
+         /auth/login /login /signup; do
+  printf '%-30s %s\n' "$p" "$(curl -sI "$H$p" | tr -d '\r' | grep -iE '^(x-frame-options|content-security-policy):' | sort | tr '\n' ' ')"
+done
+```
+
+Expected:
+- The nine dashboard and public booking paths (`/event-types` … `/reschedule/x`): `content-security-policy: frame-ancestors 'self' x-frame-options: SAMEORIGIN`.
+- The seven embed paths (`/flowko-test/embed` … `/embed.js`): nothing (neither header).
+- `/auth/login`, `/login` and `/signup`: `content-security-policy: frame-ancestors 'none' x-frame-options: DENY`.
+
+A redirect or 404 answer, for example for `/bookings/upcoming` signed out or the fake `x` uids, carries the same headers, so a row is valid whatever the status code.
 
 ## License
 
