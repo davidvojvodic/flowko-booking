@@ -27,6 +27,7 @@ import { useNonEmptyScheduleDays } from "@calcom/web/modules/schedules/hooks/use
 import { useSlotsForDate } from "@calcom/web/modules/schedules/hooks/useSlotsForDate";
 import { APP_NAME, DEFAULT_LIGHT_BRAND_COLOR, DEFAULT_DARK_BRAND_COLOR } from "@calcom/lib/constants";
 import { weekdayToWeekIndex } from "@calcom/lib/dayjs";
+import { getWCAGContrastColor } from "@calcom/lib/getBrandColours";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { BookerLayouts } from "@calcom/prisma/zod-utils";
@@ -44,12 +45,17 @@ import { showToast } from "@calcom/ui/components/toast";
 
 import { useBookerTime } from "@calcom/features/bookings/Booker/hooks/useBookerTime";
 import { EmbedTabName } from "@calcom/features/embed/lib/EmbedTabs";
-import { buildCssVarsPerTheme } from "@calcom/features/embed/lib/buildCssVarsPerTheme";
+import {
+  buildCssVarsPerTheme,
+  getPinnedBrandColors,
+  isValidBrandColor,
+} from "@calcom/features/embed/lib/buildCssVarsPerTheme";
 import { EmbedTheme } from "@calcom/features/embed/lib/constants";
 import { getDimension } from "@calcom/features/embed/lib/getDimension";
 import { useEmbedDialogCtx } from "@calcom/features/embed/lib/hooks/useEmbedDialogCtx";
 import { useEmbedParams } from "@calcom/features/embed/lib/hooks/useEmbedParams";
 import type {
+  ElementClickVariant,
   EmbedTabs,
   EmbedType,
   EmbedTypes,
@@ -184,6 +190,18 @@ function useEmbedGoto(noQueryParamMode = false) {
   return { gotoState, resetState, gotoEmbedTypeSelectionState };
 }
 
+// Flowko U13-03: a colour typed in the dialog may be half-finished; only a hex colour is used.
+function validColorOr(color: string | null | undefined, fallback: string): string {
+  return isValidBrandColor(color) ? color : fallback;
+}
+
+// Flowko U13-03/06: see where it is used in EmbedTypeCodeAndPreviewDialogContent.
+function useColorPickerKey(defaultValue: string, touched: boolean) {
+  const key = useRef(defaultValue);
+  if (!touched) key.current = defaultValue;
+  return key.current;
+}
+
 const ThemeSelectControl = ({
   children,
   ...props
@@ -222,13 +240,10 @@ const ChooseEmbedTypesDialogContent = ({
             key={index}
             data-testid={embed.type}
             onClick={() => {
-              if (embed.type === "headless") {
-                window.open("https://cal.com/help/routing/headless-routing", "_blank");
-              } else {
-                gotoState({
-                  embedType: embed.type as EmbedType,
-                });
-              }
+              // Flowko U13-05: no headless type, whose branch opened cal.com's help pages.
+              gotoState({
+                embedType: embed.type as EmbedType,
+              });
             }}>
             <div className="bg-default order-0 box-border flex-none rounded-md border border-solid transition dark:bg-transparent dark:invert">
               {embed.illustration}
@@ -488,7 +503,7 @@ const EmailEmbedPreview = ({
   selectedDuration: number | undefined;
   userSettingsTimezone?: string;
 }) => {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const { timeFormat, timezoneFromBookerStore, timezoneFromTimePreferences } = useBookerTime();
   const timezone = chooseTimezone({
     timezoneFromBookerStore,
@@ -533,7 +548,11 @@ const EmailEmbedPreview = ({
               lineHeight: "17px",
               color: "#333333",
             }}>
-            {t("duration")}: <b style={{ color: "black" }}>{selectedDuration} mins</b>
+            {/* Flowko U13-04: the unit and the date below follow the UI language (were English) */}
+            {t("duration")}:{" "}
+            <b style={{ color: "black" }}>
+              {selectedDuration} {t("minute_timeUnit")}
+            </b>
           </div>
           <div>
             <b style={{ color: "black" }}>
@@ -557,9 +576,13 @@ const EmailEmbedPreview = ({
                   .map((key) => {
                     const sortedTimes = [...selectedDateAndTime[key]].sort();
                     const firstSlotOfSelectedDay = sortedTimes[0];
-                    const selectedDate = dayjs(firstSlotOfSelectedDay)
-                      .tz(timezone)
-                      .format("dddd, MMMM D, YYYY");
+                    const selectedDate = new Intl.DateTimeFormat(i18n.language, {
+                      weekday: "long",
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                      timeZone: timezone,
+                    }).format(dayjs(firstSlotOfSelectedDay).toDate());
                     return (
                       <table
                         key={key}
@@ -746,9 +769,10 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
     _searchParams.set(a, b);
     return `${pathname?.split("?")[0] ?? ""}?${_searchParams.toString()}`;
   };
+  // Flowko U13-04: tabs are matched by `id`; `name` is the translated label.
   const parsedTabs = tabs.map((t) => {
     const { href, ...rest } = t;
-    const tabName = href.split("=")[1];
+    const tabName = t.id;
     return {
       ...rest,
       isActive: tabName === embedParams.embedTabName,
@@ -765,11 +789,11 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
           }),
     };
   });
-  const embedCodeRefs: Record<(typeof tabs)[0]["name"], RefObject<HTMLTextAreaElement>> = {};
+  const embedCodeRefs: Record<string, RefObject<HTMLTextAreaElement>> = {};
   tabs
     .filter((tab) => tab.type === "code")
     .forEach((codeTab) => {
-      embedCodeRefs[codeTab.name] = createRef();
+      embedCodeRefs[codeTab.id] = createRef();
     });
 
   const refOfEmbedCodesRefs = useRef(embedCodeRefs);
@@ -778,18 +802,26 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
 
   const [isEmbedCustomizationOpen, setIsEmbedCustomizationOpen] = useState(true);
   const [isBookingCustomizationOpen, setIsBookingCustomizationOpen] = useState(true);
+  // Flowko U13-07b (Q8): the light theme by default, as in the snippet.
   const defaultConfig = {
     layout: BookerLayouts.MONTH_VIEW,
     useSlotsViewOnSmallScreen: "true" as const,
+    theme: EmbedTheme.light,
   };
+
+  // Flowko U13-03/06: the profile's colours (Settings -> Appearance) with the booker's defaults applied. They
+  // come from a query that may still be loading when the dialog opens, so the state below keeps only what the
+  // host changed, and every default is worked out on each render.
+  const profileBrandColor = validColorOr(defaultBrandColor?.brandColor, DEFAULT_LIGHT_BRAND_COLOR);
+  const profileDarkBrandColor = validColorOr(defaultBrandColor?.darkBrandColor, DEFAULT_DARK_BRAND_COLOR);
 
   const paletteDefaultValue = (paletteName: string) => {
     if (paletteName === "brandColor") {
-      return defaultBrandColor?.brandColor ?? DEFAULT_LIGHT_BRAND_COLOR;
+      return profileBrandColor;
     }
 
     if (paletteName === "darkBrandColor") {
-      return defaultBrandColor?.darkBrandColor ?? DEFAULT_DARK_BRAND_COLOR;
+      return profileDarkBrandColor;
     }
 
     return "#000000";
@@ -801,29 +833,73 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
       height: "100%",
       config: defaultConfig,
     } as PreviewState["inline"],
-    theme: EmbedTheme.auto,
+    theme: EmbedTheme.light,
     layout: defaultConfig.layout,
     floatingPopup: {
       config: defaultConfig,
     } as PreviewState["floatingPopup"],
     elementClick: {
       config: defaultConfig,
+      variant: "button",
     } as PreviewState["elementClick"],
     hideEventTypeDetails: false,
+    // Flowko U13-06: the colours the host picks here; null until they touch a picker.
     palette: {
-      brandColor: defaultBrandColor?.brandColor ?? null,
-      darkBrandColor: defaultBrandColor?.darkBrandColor ?? null,
+      brandColor: null,
+      darkBrandColor: null,
     },
   });
+
+  // Flowko U13-03 (Q6): the button says „Rezervirajte termin“ / "Book an appointment" in the profile's brand
+  // colour, and its text is white or black, whichever reads on it, until the host picks a text colour.
+  const defaultButtonText = t("flowko_book_button");
+  const buttonColor = validColorOr(previewState.floatingPopup.buttonColor, profileBrandColor);
+  const buttonTextColor = validColorOr(
+    previewState.floatingPopup.buttonTextColor,
+    getWCAGContrastColor(buttonColor)
+  );
+  // What the code tab and the preview get: defaults filled in, and (U13-06, Q7) only the brand colours that
+  // differ from the profile's, so a snippet without a changed colour follows Appearance live.
+  const snippetPreviewState: PreviewState = {
+    ...previewState,
+    floatingPopup: {
+      ...previewState.floatingPopup,
+      buttonText: previewState.floatingPopup.buttonText?.trim() || defaultButtonText,
+      buttonColor,
+      buttonTextColor,
+    },
+    elementClick: {
+      ...previewState.elementClick,
+      buttonText: previewState.elementClick.buttonText?.trim() || defaultButtonText,
+    },
+    palette: getPinnedBrandColors({
+      picked: previewState.palette,
+      profile: { brandColor: profileBrandColor, darkBrandColor: profileDarkBrandColor },
+    }),
+  };
+  // The colour pickers keep their own state from `defaultValue`. Until the host touches one, it is re-created
+  // when its default changes (the profile loaded, or the button colour changed the automatic text colour);
+  // afterwards its key stays, so it is never re-created while the host is using it.
+  const buttonColorPickerKey = useColorPickerKey(buttonColor, !!previewState.floatingPopup.buttonColor);
+  const buttonTextColorPickerKey = useColorPickerKey(
+    buttonTextColor,
+    !!previewState.floatingPopup.buttonTextColor
+  );
+  const brandColorPickerKey = useColorPickerKey(profileBrandColor, previewState.palette.brandColor !== null);
+  const darkBrandColorPickerKey = useColorPickerKey(
+    profileDarkBrandColor,
+    previewState.palette.darkBrandColor !== null
+  );
 
   const close = () => {
     resetState();
   };
 
-  // Use embed-code as default tab
-  if (!embedParams.embedTabName) {
+  // Use embed-code as default tab. Flowko U13-05: also for a tab that no longer exists (a link to the removed
+  // React tabs) or has no code, so the copy button always finds a code block.
+  if (!tabs.some((tab) => tab.type === "code" && tab.id === embedParams.embedTabName)) {
     gotoState({
-      embedTabName: "embed-code",
+      embedTabName: EmbedTabName.HTML,
     });
   }
 
@@ -875,9 +951,17 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
       theme: previewState.theme,
       layout: previewState.layout,
       hideEventTypeDetails: previewState.hideEventTypeDetails,
+      // Flowko U13-06: the preview gets the palette of every colour the host touched, the profile colour
+      // included, so picking the profile colour again also resets the preview.
       cssVarsPerTheme: buildCssVarsPerTheme({
-        brandColor: previewState.palette.brandColor,
-        darkBrandColor: previewState.palette.darkBrandColor,
+        brandColor:
+          previewState.palette.brandColor === null
+            ? null
+            : validColorOr(previewState.palette.brandColor, profileBrandColor),
+        darkBrandColor:
+          previewState.palette.darkBrandColor === null
+            ? null
+            : validColorOr(previewState.palette.darkBrandColor, profileDarkBrandColor),
       }),
     },
   });
@@ -906,7 +990,7 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
         attributes: {
           id: "my-floating-button",
         },
-        ...previewState.floatingPopup,
+        ...snippetPreviewState.floatingPopup,
       },
     });
   }
@@ -918,10 +1002,11 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
     });
   }
 
+  // Flowko U13-04: translated labels; U13-07b (Q8): light first, as the default.
   const ThemeOptions = [
-    { value: EmbedTheme.auto, label: "Auto" },
-    { value: EmbedTheme.dark, label: "Dark Theme" },
-    { value: EmbedTheme.light, label: "Light Theme" },
+    { value: EmbedTheme.light, label: t("embed_theme_light") },
+    { value: EmbedTheme.dark, label: t("embed_theme_dark") },
+    { value: EmbedTheme.auto, label: t("embed_theme_auto") },
   ];
 
   const layoutOptions = [
@@ -933,14 +1018,22 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
   const FloatingPopupPositionOptions = [
     {
       value: "bottom-right" as const,
-      label: "Bottom right",
+      label: t("embed_position_bottom_right"),
     },
     {
       value: "bottom-left" as const,
-      label: "Bottom left",
+      label: t("embed_position_bottom_left"),
     },
   ];
-  const previewTab = tabs.find((tab) => tab.name === "Preview");
+  // Flowko U13-02 (Q1): element-click gives our button or makes the client's own button open the pop-up.
+  const ElementClickVariantOptions: { value: ElementClickVariant; label: string }[] = [
+    { value: "button", label: t("embed_click_variant_button") },
+    { value: "link", label: t("embed_click_variant_link") },
+  ];
+  const elementClickVariant = previewState.elementClick.variant ?? "button";
+  const showButtonText =
+    embedType === "floating-popup" || (embedType === "element-click" && elementClickVariant === "button");
+  const previewTab = tabs.find((tab) => tab.id === EmbedTabName.PREVIEW);
 
   return (
     <DialogContent
@@ -948,8 +1041,9 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
       ref={dialogContentRef}
       className="rounded-lg p-0.5 sm:max-w-7xl!"
       type="creation">
-      <div className="flex">
-        <div className="bg-cal-muted flex h-[95vh] w-1/3 flex-col overflow-y-auto p-8">
+      {/* Flowko U13-22: one column below lg, so the dialog also works on a phone */}
+      <div className="flex flex-col lg:flex-row">
+        <div className="bg-cal-muted flex w-full flex-col overflow-y-auto p-4 sm:p-8 lg:h-[95vh] lg:w-1/3">
           <h3
             className="text-emphasis mb-2.5 flex items-center text-xl font-semibold leading-5"
             id="modal-title">
@@ -971,16 +1065,37 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
             />
           ) : (
             <div className="flex flex-col">
-              <div className={classNames("font-medium", embedType === "element-click" ? "hidden" : "")}>
+              <div className="font-medium">
                 <Collapsible
                   open={isEmbedCustomizationOpen}
                   onOpenChange={() => setIsEmbedCustomizationOpen((val) => !val)}>
                   <CollapsibleContent className="text-sm">
-                    {/* Conditionally render Window Sizing only if inline embed AND NOT React Atom */}
-                    {embedType === "inline" && embedParams.embedTabName !== EmbedTabName.ATOM_REACT && (
+                    {embedType === "element-click" && (
+                      <Label className="mb-6">
+                        <div className="mb-2">{t("embed_click_variant")}</div>
+                        <Select<{ value: ElementClickVariant; label: string }>
+                          className="w-full"
+                          data-testid="embed-click-variant"
+                          value={ElementClickVariantOptions.find(
+                            (option) => option.value === elementClickVariant
+                          )}
+                          onChange={(option) => {
+                            if (!option) {
+                              return;
+                            }
+                            setPreviewState((previewState) => ({
+                              ...previewState,
+                              elementClick: { ...previewState.elementClick, variant: option.value },
+                            }));
+                          }}
+                          options={ElementClickVariantOptions}
+                        />
+                      </Label>
+                    )}
+                    {embedType === "inline" && (
                       <div>
                         {/*TODO: Add Auto/Fixed toggle from Figma */}
-                        <div className="text-default mb-[9px] text-sm">Window sizing</div>
+                        <div className="text-default mb-[9px] text-sm">{t("embed_window_sizing")}</div>
                         <div className="justify-left mb-6 flex items-center font-normal! ">
                           <div className="mr-[9px]">
                             <TextField
@@ -1001,7 +1116,7 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                                   };
                                 });
                               }}
-                              addOnLeading={<>W</>}
+                              addOnLeading={<>{t("embed_width_short")}</>}
                             />
                           </div>
 
@@ -1023,7 +1138,7 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                                 };
                               });
                             }}
-                            addOnLeading={<>H</>}
+                            addOnLeading={<>{t("embed_height_short")}</>}
                           />
                         </div>
                       </div>
@@ -1031,24 +1146,35 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                     <div
                       className={classNames(
                         "items-center justify-between",
-                        embedType === "floating-popup" ? "text-emphasis" : "hidden"
+                        showButtonText ? "text-emphasis" : "hidden"
                       )}>
-                      <div className="mb-2 text-sm">Button text</div>
-                      {/* Default Values should come from preview iframe */}
+                      <div className="mb-2 text-sm">{t("embed_button_text")}</div>
+                      {/* Flowko U13-03: the default is the text the snippet gets (flowko_book_button); a blank
+                          field falls back to it. Floating button and our element-click button share the field. */}
                       <TextField
                         labelProps={{ className: "hidden" }}
+                        data-testid="embed-button-text"
+                        maxLength={40}
                         onChange={(e) => {
                           setPreviewState((previewState) => {
-                            return {
-                              ...previewState,
-                              floatingPopup: {
-                                ...previewState.floatingPopup,
-                                buttonText: e.target.value,
-                              },
-                            };
+                            return embedType === "element-click"
+                              ? {
+                                  ...previewState,
+                                  elementClick: {
+                                    ...previewState.elementClick,
+                                    buttonText: e.target.value,
+                                  },
+                                }
+                              : {
+                                  ...previewState,
+                                  floatingPopup: {
+                                    ...previewState.floatingPopup,
+                                    buttonText: e.target.value,
+                                  },
+                                };
                           });
                         }}
-                        defaultValue={t("book_my_cal")}
+                        defaultValue={defaultButtonText}
                         required
                       />
                     </div>
@@ -1073,14 +1199,14 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                           });
                         }}
                       />
-                      <div className="text-default my-2 text-sm">Display calendar icon</div>
+                      <div className="text-default my-2 text-sm">{t("embed_display_calendar_icon")}</div>
                     </div>
                     <div
                       className={classNames(
                         "mt-4 items-center justify-between",
                         embedType === "floating-popup" ? "text-emphasis" : "hidden"
                       )}>
-                      <div className="mb-2">Position of button</div>
+                      <div className="mb-2">{t("embed_button_position")}</div>
                       <Select
                         onChange={(position) => {
                           setPreviewState((previewState) => {
@@ -1099,13 +1225,14 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                     </div>
                     <div className="mt-3 flex flex-col xl:flex-row xl:justify-between">
                       <div className={classNames("mt-4", embedType === "floating-popup" ? "" : "hidden")}>
-                        <div className="whitespace-nowrap">Button color</div>
+                        <div className="whitespace-nowrap">{t("embed_button_color")}</div>
                         <div className="mt-2 w-40 xl:mt-0 xl:w-full">
                           <ColorPicker
+                            key={buttonColorPickerKey}
                             className="w-[130px]"
                             popoverAlign="start"
                             container={dialogContentRef?.current ?? undefined}
-                            defaultValue="#000000"
+                            defaultValue={buttonColor}
                             onChange={(color) => {
                               setPreviewState((previewState) => {
                                 return {
@@ -1121,13 +1248,14 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                         </div>
                       </div>
                       <div className={classNames("mt-4", embedType === "floating-popup" ? "" : "hidden")}>
-                        <div className="whitespace-nowrap">Text color</div>
+                        <div className="whitespace-nowrap">{t("embed_text_color")}</div>
                         <div className="mb-6 mt-2 w-40 xl:mt-0 xl:w-full">
                           <ColorPicker
+                            key={buttonTextColorPickerKey}
                             className="w-[130px]"
                             popoverAlign="start"
                             container={dialogContentRef?.current ?? undefined}
-                            defaultValue="#000000"
+                            defaultValue={buttonTextColor}
                             onChange={(color) => {
                               setPreviewState((previewState) => {
                                 return {
@@ -1152,53 +1280,51 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                   onOpenChange={() => setIsBookingCustomizationOpen((val) => !val)}>
                   <CollapsibleContent>
                     <div className="text-sm">
-                      {/* Conditionally render EmbedTheme only if NOT React Atom */}
-                      {embedParams.embedTabName !== EmbedTabName.ATOM_REACT && (
-                        <Label className="mb-6">
-                          <div className="mb-2">Embed theme</div>
-                          <Select
-                            className="w-full"
-                            defaultValue={ThemeOptions[0]}
-                            components={{
-                              Control: ThemeSelectControl,
-                              IndicatorSeparator: () => null,
-                            }}
-                            onChange={(option) => {
-                              if (!option) {
-                                return;
-                              }
-                              setPreviewState((previewState) => {
-                                // Ensure theme is updated in config for all embed types
-                                const newConfig = (currentConfig?: EmbedConfig) => ({
-                                  ...(currentConfig ?? {}),
-                                  theme: option.value,
-                                });
-                                return {
-                                  ...previewState,
-                                  inline: {
-                                    ...previewState.inline,
-                                    config: newConfig(previewState.inline.config),
-                                  },
-                                  floatingPopup: {
-                                    ...previewState.floatingPopup,
-                                    config: newConfig(previewState.floatingPopup.config),
-                                  },
-                                  elementClick: {
-                                    ...previewState.elementClick,
-                                    config: newConfig(previewState.elementClick.config),
-                                  },
-                                  // Keep updating top-level theme for preview iframe
-                                  theme: option.value,
-                                };
+                      {/* Flowko U13-05: no React (Atom) tab, so theme, details and colours always show */}
+                      <Label className="mb-6">
+                        <div className="mb-2">{t("embed_theme")}</div>
+                        <Select
+                          className="w-full"
+                          data-testid="embed-theme"
+                          defaultValue={ThemeOptions[0]}
+                          components={{
+                            Control: ThemeSelectControl,
+                            IndicatorSeparator: () => null,
+                          }}
+                          onChange={(option) => {
+                            if (!option) {
+                              return;
+                            }
+                            setPreviewState((previewState) => {
+                              // Ensure theme is updated in config for all embed types
+                              const newConfig = (currentConfig?: EmbedConfig) => ({
+                                ...(currentConfig ?? {}),
+                                theme: option.value,
                               });
-                            }}
-                            options={ThemeOptions}
-                          />
-                        </Label>
-                      )}
-                      {/* Conditionally render Hide Details Switch only if NOT Atom embed AND not disabled by prop */}
-                      {!eventTypeHideOptionDisabled &&
-                      embedParams.embedTabName !== EmbedTabName.ATOM_REACT ? (
+                              return {
+                                ...previewState,
+                                inline: {
+                                  ...previewState.inline,
+                                  config: newConfig(previewState.inline.config),
+                                },
+                                floatingPopup: {
+                                  ...previewState.floatingPopup,
+                                  config: newConfig(previewState.floatingPopup.config),
+                                },
+                                elementClick: {
+                                  ...previewState.elementClick,
+                                  config: newConfig(previewState.elementClick.config),
+                                },
+                                // Keep updating top-level theme for preview iframe
+                                theme: option.value,
+                              };
+                            });
+                          }}
+                          options={ThemeOptions}
+                        />
+                      </Label>
+                      {/* Conditionally render Hide Details Switch only if not disabled by prop */}
+                      {!eventTypeHideOptionDisabled ? (
                         <div className="mb-6 flex items-center justify-start space-x-2 rtl:space-x-reverse">
                           <Switch
                             checked={previewState.hideEventTypeDetails}
@@ -1214,33 +1340,33 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                           <div className="text-default text-sm">{t("hide_eventtype_details")}</div>
                         </div>
                       ) : null}
-                      {/* Conditionally render Brand Colors only if NOT React Atom */}
-                      {embedParams.embedTabName !== EmbedTabName.ATOM_REACT &&
-                        [
-                          { name: "brandColor", title: "light_brand_color" },
-                          { name: "darkBrandColor", title: "dark_brand_color" },
-                          // { name: "lightColor", title: "Light Color" },
-                          // { name: "lighterColor", title: "Lighter Color" },
-                          // { name: "lightestColor", title: "Lightest Color" },
-                          // { name: "highlightColor", title: "Highlight Color" },
-                          // { name: "medianColor", title: "Median Color" },
-                        ].map((palette) => (
-                          <Label key={palette.name} className="mb-6">
-                            <div className="mb-2">{t(palette.title)}</div>
-                            <div className="w-full">
-                              <ColorPicker
-                                popoverAlign="start"
-                                container={dialogContentRef?.current ?? undefined}
-                                defaultValue={paletteDefaultValue(palette.name)}
-                                onChange={(color) => {
-                                  addToPalette({
-                                    [palette.name as keyof (typeof previewState)["palette"]]: color,
-                                  });
-                                }}
-                              />
-                            </div>
-                          </Label>
-                        ))}
+                      {/* Flowko U13-06: the snippet pins a colour only when it differs from the profile's */}
+                      {[
+                        { name: "brandColor", title: "light_brand_color", key: brandColorPickerKey },
+                        { name: "darkBrandColor", title: "dark_brand_color", key: darkBrandColorPickerKey },
+                        // { name: "lightColor", title: "Light Color" },
+                        // { name: "lighterColor", title: "Lighter Color" },
+                        // { name: "lightestColor", title: "Lightest Color" },
+                        // { name: "highlightColor", title: "Highlight Color" },
+                        // { name: "medianColor", title: "Median Color" },
+                      ].map((palette) => (
+                        <Label key={palette.name} className="mb-6">
+                          <div className="mb-2">{t(palette.title)}</div>
+                          <div className="w-full">
+                            <ColorPicker
+                              key={palette.key}
+                              popoverAlign="start"
+                              container={dialogContentRef?.current ?? undefined}
+                              defaultValue={paletteDefaultValue(palette.name)}
+                              onChange={(color) => {
+                                addToPalette({
+                                  [palette.name as keyof (typeof previewState)["palette"]]: color,
+                                });
+                              }}
+                            />
+                          </div>
+                        </Label>
+                      ))}
                       <Label className="mb-6">
                         <div className="mb-2">{t("layout")}</div>
                         <Select
@@ -1285,13 +1411,13 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
             </div>
           )}
         </div>
-        <div className="flex h-[95vh] w-2/3 flex-col px-8 pt-8">
+        <div className="flex h-[85vh] w-full flex-col px-4 pt-4 sm:px-8 sm:pt-8 lg:h-[95vh] lg:w-2/3">
           <HorizontalTabs
             data-testid="embed-tabs"
             tabs={
               embedType === "email"
-                ? parsedTabs.filter((tab) => tab.name === "Preview")
-                : parsedTabs.filter((tab) => tab.name !== "Preview")
+                ? parsedTabs.filter((tab) => tab.id === EmbedTabName.PREVIEW)
+                : parsedTabs.filter((tab) => tab.id !== EmbedTabName.PREVIEW)
             }
             linkShallow
           />
@@ -1299,20 +1425,18 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
             <div className="flex h-full flex-col">
               {tabs.map((tab) => {
                 if (embedType !== "email") {
-                  if (tab.name === "Preview") return null;
+                  if (tab.id === EmbedTabName.PREVIEW) return null;
                   return (
                     <div
                       key={tab.href}
-                      className={classNames(
-                        embedParams.embedTabName === tab.href.split("=")[1] ? "flex-1" : "hidden"
-                      )}>
+                      className={classNames(embedParams.embedTabName === tab.id ? "flex-1" : "hidden")}>
                       {tab.type === "code" && (
                         <tab.Component
                           namespace={namespace}
                           embedType={embedType}
                           calLink={calLink}
-                          previewState={previewState}
-                          ref={refOfEmbedCodesRefs.current[tab.name]}
+                          previewState={snippetPreviewState}
+                          ref={refOfEmbedCodesRefs.current[tab.id]}
                         />
                       )}
                       <div
@@ -1322,7 +1446,8 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                   );
                 }
 
-                if (embedType === "email" && (tab.name !== "Preview" || !eventTypeData?.eventType)) return;
+                if (embedType === "email" && (tab.id !== EmbedTabName.PREVIEW || !eventTypeData?.eventType))
+                  return;
 
                 return (
                   <div key={tab.href} className={classNames("flex grow flex-col")}>
@@ -1353,7 +1478,7 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                     namespace={namespace}
                     embedType={embedType}
                     calLink={calLink}
-                    previewState={previewState}
+                    previewState={snippetPreviewState}
                     ref={iframeRef}
                   />
                 </div>
@@ -1367,12 +1492,9 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
                   if (embedType === "email") {
                     handleCopyEmailText();
                   } else {
-                    const currentTabHref = embedParams.embedTabName;
-                    const currentTabName = tabs.find(
-                      (tab) => tab.href === `embedTabName=${currentTabHref}`
-                    )?.name;
-                    if (!currentTabName) return;
-                    const currentTabCodeEl = refOfEmbedCodesRefs.current[currentTabName].current;
+                    const currentTabId = tabs.find((tab) => tab.id === embedParams.embedTabName)?.id;
+                    if (!currentTabId) return;
+                    const currentTabCodeEl = refOfEmbedCodesRefs.current[currentTabId]?.current;
                     if (!currentTabCodeEl) {
                       return;
                     }
@@ -1459,7 +1581,8 @@ export const EmbedButton = <T extends React.ElementType = typeof Button>({
   ...props
 }: EmbedButtonProps<T> & React.ComponentPropsWithoutRef<T>) => {
   const { gotoState } = useEmbedGoto(noQueryParamMode);
-  className = classNames("hidden lg:inline-flex", className);
+  // Flowko U13-22: shown below 1024 px too (was "hidden lg:inline-flex"); the dialog stacks its columns there.
+  className = classNames(className);
 
   const openEmbedModal = () => {
     gotoState({

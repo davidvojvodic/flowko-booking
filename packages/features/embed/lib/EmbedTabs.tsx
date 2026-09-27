@@ -1,30 +1,117 @@
 import type { MutableRefObject } from "react";
 import { forwardRef } from "react";
 
-import type { BookerLayout } from "@calcom/features/bookings/Booker/types";
 import { useEmbedBookerUrl } from "@calcom/features/bookings/hooks/useBookerUrl";
-import { APP_NAME } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { TextArea } from "@calcom/ui/components/form";
 
-import type { EmbedFramework, EmbedType, PreviewState } from "../types";
-import { Codes } from "./EmbedCodes";
+import type { EmbedType, PreviewState } from "../types";
 import { buildCssVarsPerTheme } from "./buildCssVarsPerTheme";
+import type {
+  FlowkoSnippetLang,
+  FlowkoSnippetLayout,
+  FlowkoSnippetTheme,
+  FlowkoSnippetType,
+} from "./buildFlowkoSnippet";
+import { buildFlowkoSnippet } from "./buildFlowkoSnippet";
 import { embedLibUrl, EMBED_PREVIEW_HTML_URL } from "./constants";
-import { getApiNameForReactSnippet, getApiNameForVanillaJsSnippet } from "./getApiName";
-import { getDimension } from "./getDimension";
 import { useEmbedCalOrigin } from "./hooks";
 
+// Flowko U13-04/05: a tab's `id` is what Embed.tsx matches; its `name` is only the label, an i18n key that
+// HorizontalTabItem translates. Only the HTML code and the preview are left (Q10): the React (iframe) and
+// React (Atom) tabs are gone, and Atom needs API v2, which this fork must not deploy (FLOWKO.md).
 export const enum EmbedTabName {
   HTML = "embed-code",
-  IFRAME_REACT = "embed-react",
-  ATOM_REACT = "embed-atom-react",
+  PREVIEW = "embed-preview",
+}
+
+/** The snippet the dialog shows for an embed type; element-click has our button and the client's own button. */
+export function getFlowkoSnippetType(
+  embedType: EmbedType,
+  previewState: Pick<PreviewState, "elementClick">
+): FlowkoSnippetType | null {
+  if (embedType === "element-click") {
+    return previewState.elementClick.variant === "link" ? "click-link" : "element-click";
+  }
+  if (embedType === "inline" || embedType === "floating-popup") return embedType;
+  return null;
+}
+
+export function getSnippetLang(language: string | undefined): FlowkoSnippetLang {
+  return language?.toLowerCase().startsWith("sl") ? "sl" : "en";
+}
+
+/**
+ * Flowko U13-01: the dialog's HTML code comes from the same builder as the welcome e-mail's.
+ * `previewState` is the one Embed.tsx resolves: default button text and colours filled in, and `palette`
+ * holding only colours that differ from the profile's (U13-06).
+ */
+export function getDialogSnippet({
+  embedType,
+  calLink,
+  namespace,
+  previewState,
+  origin,
+  lang,
+}: {
+  embedType: EmbedType;
+  calLink: string;
+  namespace: string;
+  previewState: PreviewState;
+  origin: string;
+  lang: FlowkoSnippetLang;
+}) {
+  const type = getFlowkoSnippetType(embedType, previewState);
+  if (!type) return "";
+  return buildFlowkoSnippet({
+    type,
+    calLink,
+    namespace,
+    origin,
+    embedLibUrl,
+    theme: previewState.theme as FlowkoSnippetTheme,
+    layout: previewState.layout as FlowkoSnippetLayout,
+    hideEventTypeDetails: previewState.hideEventTypeDetails,
+    width: previewState.inline.width,
+    height: previewState.inline.height,
+    buttonText:
+      type === "floating-popup"
+        ? previewState.floatingPopup.buttonText
+        : previewState.elementClick.buttonText,
+    buttonColor: previewState.floatingPopup.buttonColor,
+    buttonTextColor: previewState.floatingPopup.buttonTextColor,
+    buttonPosition: previewState.floatingPopup.buttonPosition,
+    hideButtonIcon: previewState.floatingPopup.hideButtonIcon,
+    cssVarsPerTheme: buildCssVarsPerTheme(previewState.palette),
+    lang,
+  });
+}
+
+/** Flowko U13-04: where the code goes, per snippet (replaces the one "where the widget appears" line). */
+function getSnippetHint(
+  t: ReturnType<typeof useLocale>["t"],
+  type: FlowkoSnippetType | null,
+  bookingUrl: string
+): string {
+  switch (type) {
+    case "inline":
+      return t("embed_hint_inline");
+    case "floating-popup":
+      return t("embed_hint_floating");
+    case "element-click":
+      return t("embed_hint_click_button");
+    case "click-link":
+      return t("embed_hint_click_link", { url: bookingUrl, interpolation: { escapeValue: false } });
+    default:
+      return "";
+  }
 }
 
 export const tabs = [
   {
-    name: "HTML (iframe)",
-    href: "embedTabName=embed-code",
+    id: EmbedTabName.HTML,
+    name: "embed_tab_html",
+    href: `embedTabName=${EmbedTabName.HTML}`,
     icon: "code" as const,
     type: "code",
     "data-testid": "HTML",
@@ -32,8 +119,7 @@ export const tabs = [
       HTMLTextAreaElement | HTMLIFrameElement | null,
       { embedType: EmbedType; calLink: string; previewState: PreviewState; namespace: string }
     >(function EmbedHtml({ embedType, calLink, previewState, namespace }, ref) {
-      const { t } = useLocale();
-      const embedSnippetString = useGetEmbedSnippetString(namespace);
+      const { t, i18n } = useLocale();
       const embedCalOrigin = useEmbedCalOrigin();
       if (ref instanceof Function || !ref) {
         return null;
@@ -41,11 +127,27 @@ export const tabs = [
       if (ref.current && !(ref.current instanceof HTMLTextAreaElement)) {
         return null;
       }
+      const snippetType = getFlowkoSnippetType(embedType, previewState);
+      let code = "";
+      try {
+        code = getDialogSnippet({
+          embedType,
+          calLink,
+          namespace,
+          previewState,
+          origin: embedCalOrigin,
+          lang: getSnippetLang(i18n.language),
+        });
+      } catch (error) {
+        // An event type link the builder refuses; the dialog shows no code rather than breaking the page.
+        console.error("Embed code could not be built", error);
+      }
+      const hint = getSnippetHint(t, snippetType, `${embedCalOrigin}/${calLink}`);
       return (
         <>
           <div>
-            <small className="text-subtle flex py-2">
-              {t("place_where_cal_widget_appear", { appName: APP_NAME })}
+            <small className="text-subtle flex py-2" data-testid="embed-code-hint">
+              {hint}
             </small>
           </div>
           <TextArea
@@ -55,24 +157,7 @@ export const tabs = [
             className="text-default bg-default h-[calc(100%-50px)] font-mono"
             style={{ resize: "none", overflow: "auto" }}
             readOnly
-            value={`<!-- Cal ${embedType} embed code begins -->\n${
-              embedType === "inline"
-                ? `<div style="width:${getDimension(previewState.inline.width)};height:${getDimension(
-                    previewState.inline.height
-                  )};overflow:scroll" id="my-cal-inline-${namespace}"></div>\n`
-                : ""
-            }<script type="text/javascript">
-  ${embedSnippetString}
-  ${getEmbedTypeSpecificString({
-    embedFramework: "HTML",
-    embedType,
-    calLink,
-    previewState,
-    embedCalOrigin,
-    namespace,
-  })}
-  </script>
-  <!-- Cal ${embedType} embed code ends -->`}
+            value={code}
           />
           <p className="text-subtle hidden text-sm">{t("need_help_embedding")}</p>
         </>
@@ -80,107 +165,9 @@ export const tabs = [
     }),
   },
   {
-    name: "React (iframe)",
-    href: "embedTabName=embed-react",
-    "data-testid": "react",
-    icon: "code" as const,
-    type: "code",
-    Component: forwardRef<
-      HTMLTextAreaElement | HTMLIFrameElement | null,
-      { embedType: EmbedType; calLink: string; previewState: PreviewState; namespace: string }
-    >(function EmbedReact({ embedType, calLink, previewState, namespace }, ref) {
-      const { t } = useLocale();
-      const embedCalOrigin = useEmbedCalOrigin();
-
-      if (ref instanceof Function || !ref) {
-        return null;
-      }
-      if (ref.current && !(ref.current instanceof HTMLTextAreaElement)) {
-        return null;
-      }
-      return (
-        <>
-          <small className="text-subtle flex py-2">{t("create_update_react_component")}</small>
-          <TextArea
-            data-testid="embed-react"
-            ref={ref as typeof ref & MutableRefObject<HTMLTextAreaElement>}
-            name="embed-react"
-            className="text-default bg-default h-[calc(100%-50px)] font-mono"
-            readOnly
-            style={{ resize: "none", overflow: "auto" }}
-            value={`/* First make sure that you have installed the package */
-
-/* If you are using yarn */
-// yarn add @calcom/embed-react
-
-/* If you are using npm */
-// npm install @calcom/embed-react
-  ${getEmbedTypeSpecificString({
-    embedFramework: "react",
-    embedType,
-    calLink,
-    previewState,
-    embedCalOrigin,
-    namespace,
-  })}
-  `}
-          />
-        </>
-      );
-    }),
-  },
-  {
-    name: "React (Atom)",
-    href: `embedTabName=${EmbedTabName.ATOM_REACT}`,
-    "data-testid": "react-atom",
-    icon: "code" as const,
-    type: "code",
-    Component: forwardRef<
-      HTMLTextAreaElement | HTMLIFrameElement | null,
-      { embedType: EmbedType; calLink: string; previewState: PreviewState; namespace: string }
-    >(function EmbedReactAtom({ embedType, calLink, previewState, namespace }, ref) {
-      const { t } = useLocale();
-      const embedCalOrigin = useEmbedCalOrigin();
-
-      if (ref instanceof Function || !ref) {
-        return null;
-      }
-      if (ref.current && !(ref.current instanceof HTMLTextAreaElement)) {
-        return null;
-      }
-      return (
-        <>
-          <small className="text-subtle flex py-2">{t("create_update_react_component")}</small>
-          <TextArea
-            data-testid={`${EmbedTabName.ATOM_REACT}`}
-            ref={ref as typeof ref & MutableRefObject<HTMLTextAreaElement>}
-            name={`${EmbedTabName.ATOM_REACT}`}
-            className="text-default bg-default h-[calc(100%-50px)] font-mono"
-            readOnly
-            style={{ resize: "none", overflow: "auto" }}
-            value={`/* First make sure that you have installed the package */
-
-/* If you are using yarn */
-// yarn add @calcom/atoms
-
-/* If you are using npm */
-// npm install @calcom/atoms
-${getEmbedTypeSpecificString({
-  embedFramework: "react-atom" as EmbedFramework,
-  embedType,
-  calLink,
-  previewState,
-  embedCalOrigin,
-  namespace,
-})}`}
-          />
-        </>
-      );
-    }),
-  },
-  {
-    name: "Preview",
-    href: "embedTabName=embed-preview",
+    id: EmbedTabName.PREVIEW,
+    name: "preview",
+    href: `embedTabName=${EmbedTabName.PREVIEW}`,
     icon: "trello" as const,
     type: "iframe",
     "data-testid": "Preview",
@@ -210,132 +197,3 @@ ${getEmbedTypeSpecificString({
     }),
   },
 ];
-
-const getEmbedTypeSpecificString = ({
-  embedFramework,
-  embedType,
-  calLink,
-  embedCalOrigin,
-  previewState,
-  namespace,
-}: {
-  embedFramework: EmbedFramework;
-  embedType: EmbedType;
-  calLink: string;
-  previewState: PreviewState;
-  embedCalOrigin: string;
-  namespace: string;
-}) => {
-  const frameworkCodes = Codes[embedFramework];
-  if (!frameworkCodes) {
-    throw new Error(`No code available for the framework:${embedFramework}`);
-  }
-  if (embedType === "email") return "";
-  let uiInstructionStringArg: {
-    apiName: string;
-    theme: PreviewState["theme"];
-    brandColor: string | null;
-    darkBrandColor: string | null;
-    hideEventTypeDetails: boolean;
-    layout?: BookerLayout;
-  };
-  const baseUiInstructionStringArg = {
-    theme: previewState.theme,
-    brandColor: previewState.palette.brandColor,
-    darkBrandColor: previewState.palette.darkBrandColor,
-    hideEventTypeDetails: previewState.hideEventTypeDetails,
-    layout: previewState.layout,
-  };
-  if (embedFramework === "react") {
-    uiInstructionStringArg = {
-      ...baseUiInstructionStringArg,
-      apiName: getApiNameForReactSnippet({ mainApiName: "cal" }),
-    };
-  } else {
-    uiInstructionStringArg = {
-      ...baseUiInstructionStringArg,
-      apiName: getApiNameForVanillaJsSnippet({ namespace, mainApiName: "Cal" }),
-    };
-  }
-  if (!frameworkCodes[embedType]) {
-    throw new Error(`Code not available for framework:${embedFramework} and embedType:${embedType}`);
-  }
-
-  const codeGeneratorInput = {
-    calLink,
-    uiInstructionCode: getEmbedUIInstructionString(uiInstructionStringArg),
-    embedCalOrigin,
-    namespace,
-  };
-
-  if (embedType === "inline") {
-    return frameworkCodes[embedType]({
-      ...codeGeneratorInput,
-      previewState: previewState.inline,
-    });
-  } else if (embedType === "floating-popup") {
-    return frameworkCodes[embedType]({
-      ...codeGeneratorInput,
-      previewState: previewState.floatingPopup,
-    });
-  } else if (embedType === "element-click") {
-    return frameworkCodes[embedType]({
-      ...codeGeneratorInput,
-      previewState: previewState.elementClick,
-    });
-  } else if (embedType === "headless") {
-    return frameworkCodes[embedType]();
-  }
-  return "";
-};
-
-const getEmbedUIInstructionString = ({
-  apiName,
-  theme,
-  brandColor,
-  darkBrandColor,
-  hideEventTypeDetails,
-  layout,
-}: {
-  apiName: string;
-  theme?: string;
-  brandColor: string | null;
-  darkBrandColor: string | null;
-  hideEventTypeDetails: boolean;
-  layout?: string;
-}) => {
-  theme = theme !== "auto" ? theme : undefined;
-
-  return getInstructionString({
-    apiName,
-    instructionName: "ui",
-    instructionArg: {
-      theme,
-      cssVarsPerTheme: buildCssVarsPerTheme({ brandColor, darkBrandColor }),
-      hideEventTypeDetails,
-      layout,
-    },
-  });
-};
-
-const getInstructionString = ({
-  apiName,
-  instructionName,
-  instructionArg,
-}: {
-  apiName: string;
-  instructionName: string;
-  instructionArg: Record<string, unknown>;
-}) => {
-  return `${apiName}("${instructionName}", ${JSON.stringify(instructionArg)});`;
-};
-
-function useGetEmbedSnippetString(namespace: string | null) {
-  const bookerUrl = useEmbedBookerUrl();
-  // TODO: Import this string from @calcom/embed-snippet
-  // Right now the problem is that embed-snippet export is not minified and has comments which makes it unsuitable for giving it to users.
-  // If we can minify that during build time and then import the built code here, that could work
-  return `(function (C, A, L) { let p = function (a, ar) { a.q.push(ar); }; let d = C.document; C.Cal = C.Cal || function () { let cal = C.Cal; let ar = arguments; if (!cal.loaded) { cal.ns = {}; cal.q = cal.q || []; d.head.appendChild(d.createElement("script")).src = A; cal.loaded = true; } if (ar[0] === L) { const api = function () { p(api, arguments); }; const namespace = ar[1]; api.q = api.q || []; if(typeof namespace === "string"){cal.ns[namespace] = cal.ns[namespace] || api;p(cal.ns[namespace], ar);p(cal, ["initNamespace", namespace]);} else p(cal, ar); return;} p(cal, ar); }; })(window, "${embedLibUrl}", "init");
-Cal("init", ${namespace ? `"${namespace}",` : ""} {origin:"${bookerUrl}"});
-`;
-}
