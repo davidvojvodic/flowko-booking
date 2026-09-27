@@ -10,6 +10,8 @@ import {
   orgUserRoutePath,
   orgUserTypeEmbedRoutePath,
   orgUserTypeRoutePath,
+  topLevelRouteNamesWhitelistedForRewrite,
+  topLevelRoutesExcludedFromOrgRewrite,
 } from "./pagesAndRewritePaths";
 import { TRIGGER_VERSION } from "./trigger.version"; // adjust path as needed
 
@@ -380,25 +382,81 @@ const nextConfig = (phase: string): NextConfig => {
         value: "*",
       };
 
+      // Flowko (U13a, U13-08): framing protection against clickjacking. Every route may be framed only by
+      // this origin, except the embed routes, which clients' websites frame. Browsers that support CSP
+      // `frame-ancestors` ignore X-Frame-Options, so each group sends both with the same meaning.
+      // X-Frame-Options has no "allow" value, so the embed routes must never match the locked entry: its
+      // source excludes them with a negative lookahead instead of being overridden by a later entry.
+      // Next.js matches `source` against the request path before rewrites, case-insensitively, with an
+      // optional trailing slash. When several entries set the same key, the later entry wins.
+      const escapeForRouteRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // First path segments that are not a username: every top-level route and virtual route (the list
+      // upstream keeps out of the org rewrites, the names it whitelists there, and the rewrite-only
+      // prefixes) and every locale prefix (`/sl/...` is rewritten to `/...`). `/<one of these>/embed` and
+      // `/<one of these>/<x>/embed` are served by dashboard routes (e.g. `/getting-started/[[...step]]`,
+      // `/apps/installation/[[...step]]`) or by nothing, never by an embed page, so they stay locked.
+      // So does a locale-prefixed embed path (`/sl/<user>/<type>/embed`), which embed.js never requests.
+      // A percent-encoded name (`/%73ettings/embed`) escapes the list but reaches a booking page at most:
+      // dynamic routes match the raw path, and Next.js decodes a path only to look up static pages and
+      // files, of which only the empty `pages/router/embed` ends in `/embed`.
+      // The list comes from a file scan at build time. If the scan ever came back without the dashboard,
+      // the exemption would cover its pages, so the build fails instead.
+      const missingDashboardRoutes = [
+        "settings",
+        "event-types",
+        "apps",
+        "getting-started",
+        "bookings",
+      ].filter((name) => !topLevelRoutesExcludedFromOrgRewrite.includes(name));
+      if (missingDashboardRoutes.length > 0) {
+        throw new Error(
+          `Flowko U13a: the route scan in pagesAndRewritePaths.ts found no ${missingDashboardRoutes.join(", ")}, so the framing exemption for embed routes would cover dashboard pages.`
+        );
+      }
+      const reservedFirstSegments = Array.from(
+        new Set([
+          ...topLevelRoutesExcludedFromOrgRewrite,
+          ...topLevelRouteNamesWhitelistedForRewrite,
+          ...["forms", "router", "success", "cancel", "app", "_next", "public", "embed"],
+          ...["login", "routing", "routing-forms"],
+          ...locales,
+        ])
+      ).map(escapeForRouteRegex);
+      // Paths (after the leading slash) that any site may frame:
+      const embeddablePaths = [
+        // the static embed files: /embed/embed.js, /embed/preview.html and their assets
+        "embed/",
+        // the /embed.js rewrite to /embed/embed.js
+        "embed\\.js/?$",
+        // /booking/:uid/embed and /reschedule/:uid/embed
+        "(?:booking|reschedule)/[^/]+/embed/?$",
+        // /:user/embed and /:user/:type/embed
+        `(?!(?:${reservedFirstSegments.join("|")})/)[^/]+(?:/[^/]+)?/embed/?$`,
+      ];
+      const SAMEORIGIN_FRAMING_HEADERS = [
+        { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+      ];
+      // Sign-in and sign-up pages can't be framed at all, not even by this origin. `/login` is rewritten
+      // to `/auth/login`, and a locale prefix to the path without it.
+      const DENY_FRAMING_HEADERS = [
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+      ];
+      const denyFramingSources = [
+        "/auth/:path*",
+        "/signup",
+        "/login",
+        `/:locale(${locales.map(escapeForRouteRegex).join("|")})/:denyPath(auth(?:/.*)?|signup|login)`,
+      ];
+
       return [
+        // Must stay before the DENY entries, which override both keys on the sign-in and sign-up pages.
         {
-          source: "/auth/:path*",
-          headers: [
-            {
-              key: "X-Frame-Options",
-              value: "DENY",
-            },
-          ],
+          source: `/:path((?!${embeddablePaths.join("|")}).*)`,
+          headers: SAMEORIGIN_FRAMING_HEADERS,
         },
-        {
-          source: "/signup",
-          headers: [
-            {
-              key: "X-Frame-Options",
-              value: "DENY",
-            },
-          ],
-        },
+        ...denyFramingSources.map((source) => ({ source, headers: DENY_FRAMING_HEADERS })),
         {
           source: "/:path*",
           headers: [

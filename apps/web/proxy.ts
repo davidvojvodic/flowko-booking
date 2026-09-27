@@ -133,7 +133,10 @@ const contentSecurityPolicy = {
     }
     const cspHeader = getCspHeader({ shouldEnforceCsp: shouldEnforceCsp(req.nextUrl), nonce });
     if (cspHeader) {
-      res.headers.set(cspHeader.name, cspHeader.value);
+      // Flowko (U13a): this header replaces the `frame-ancestors 'none'` CSP that next.config.ts sets on
+      // the sign-in pages (Next.js applies proxy response headers after the config's), so it carries the
+      // directive itself. It is only sent on /auth/login and /login (`shouldEnforceCsp`), both DENY pages.
+      res.headers.set(cspHeader.name, `${cspHeader.value}; frame-ancestors 'none'`);
     }
     return res;
   },
