@@ -340,6 +340,33 @@ describe("Middleware Integration Tests", () => {
       }
     });
 
+    it("adds the sign-in CSP on the exact sign-in paths only (Flowko U13 hardening)", async () => {
+      for (const path of [
+        "/auth/login",
+        "/login",
+        "/auth/login/",
+        "/login/",
+        "/auth/login?callbackUrl=%2F",
+      ]) {
+        const res = await callProxy(createTestRequest({ url: `${WEBAPP_URL}${path}` }));
+        expect(getHeader(res, "content-security-policy"), path).toContain("frame-ancestors 'none'");
+      }
+      // Paths the proxy runs on (its matcher has /:path*/embed) that only start like a sign-in path:
+      // usernames such as "loginova" or "login-studio" keep a frameable embed.
+      for (const path of [
+        "/loginova/embed",
+        "/login-studio/ogled/embed",
+        "/loginfoo",
+        "/login/embed",
+        "/auth/loginx",
+        "/auth/login/embed",
+        "/auth/logout",
+      ]) {
+        const res = await callProxy(createTestRequest({ url: `${WEBAPP_URL}${path}` }));
+        expect(getHeader(res, "content-security-policy"), path).toBeNull();
+      }
+    });
+
     it("should not add CSP headers to non-login pages", async () => {
       const req = createTestRequest({
         url: `${WEBAPP_URL}/team/test`,

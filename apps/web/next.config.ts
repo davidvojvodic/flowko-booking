@@ -424,8 +424,14 @@ const nextConfig = (phase: string): NextConfig => {
       ).map(escapeForRouteRegex);
       // Paths (after the leading slash) that any site may frame:
       const embeddablePaths = [
-        // the static embed files: /embed/embed.js, /embed/preview.html and their assets
-        "embed/",
+        // the static loader /embed/embed.js, the only /embed/* file clients' websites load (a self-contained
+        // script with its CSS inlined). Flowko (U13 hardening): the rest of /embed/* is locked, above all
+        // /embed/preview.html, which only the app's own Embed dialog frames. It is an exact name, not a
+        // `embed/(?!preview)` exception, because Next.js also serves a public file under its percent-decoded
+        // path (`/embed/%70review.html`), and a path under /embed/ that is no file falls through to the
+        // `/[user]/[type]` booking page of a user named "embed". Framing headers never affect a script,
+        // style, font or image load, so locking any other /embed/* file can't break a client's embed.
+        "embed/embed\\.js/?$",
         // the /embed.js rewrite to /embed/embed.js
         "embed\\.js/?$",
         // /booking/:uid/embed and /reschedule/:uid/embed
@@ -467,6 +473,13 @@ const nextConfig = (phase: string): NextConfig => {
             {
               key: "Referrer-Policy",
               value: "strict-origin-when-cross-origin",
+            },
+            // Flowko (U13-18): HTTPS only for a year. No includeSubDomains or preload, because not every
+            // flowko.si subdomain is under this app's control. Browsers ignore it on plain-HTTP responses,
+            // so local http://localhost development is unaffected.
+            {
+              key: "Strict-Transport-Security",
+              value: "max-age=31536000",
             },
           ],
         },

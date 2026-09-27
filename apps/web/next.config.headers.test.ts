@@ -7,6 +7,8 @@ import { buildCustomRoute } from "next/dist/server/lib/router-utils/filesystem";
 import { compileNonPath, matchHas } from "next/dist/shared/lib/router/utils/prepare-destination";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { isReservedUsername } from "@calcom/features/auth/signup/utils/reservedUsernames";
+
 /**
  * Flowko (U13a, U13-08): framing protection. Evaluates the real `headers()` of next.config.ts with
  * Next.js's own route matcher (`buildCustomRoute`, as the router server builds it) and applies the
@@ -155,6 +157,25 @@ describe("next.config headers(): framing protection (U13-08)", () => {
     // percent-encoded paths that Next.js serves from the decoded static route
     "/%73ettings/admin/flags",
     "/%61pps/installed/calendar",
+    // Flowko (U13 hardening): only the app's own Embed dialog frames the preview page
+    "/embed/preview.html",
+    "/embed/preview.html/",
+    "/embed/PREVIEW.html",
+    "/embed/preview.js",
+    // Next.js serves a public file under its percent-decoded path too
+    "/embed/%70review.html",
+    "/embed/preview%2Ehtml",
+    // the default locale prefix, under which Next.js still serves public files
+    "/en/embed/preview.html",
+    "/sl/embed/preview.html",
+    // no /embed/* file: served by the /[user]/[type] booking page of a user named "embed"
+    "/embed/",
+    "/embed/ogled",
+    "/EMBED/ogled",
+    "/embed/ogled/extra",
+    "/embed/embed.jsx",
+    "/embed/embed.js/extra",
+    "/embed/x/embed.js",
   ])("locks %s to this origin", (pathname) => {
     expect(framing(pathname)).toEqual(LOCKED);
   });
@@ -166,7 +187,7 @@ describe("next.config headers(): framing protection (U13-08)", () => {
     "/booking/abc/embed",
     "/reschedule/abc/embed",
     "/embed/embed.js",
-    "/embed/preview.html",
+    "/embed/embed.js/",
     "/embed.js",
     // real username and slug shapes
     "/zobozdravnik-novak/pregled-30min/embed",
@@ -243,5 +264,68 @@ describe("next.config headers(): framing protection (U13-08)", () => {
     expect(resolveResponseHeaders("/auth/login")).toMatchObject({
       "x-content-type-options": "nosniff",
     });
+  });
+});
+
+describe("next.config headers(): HSTS (U13-18)", () => {
+  it.each([
+    "/",
+    "/event-types",
+    "/settings/admin/flags",
+    "/flowko-test/ogled",
+    "/flowko-test/ogled/embed",
+    "/booking/abc/embed",
+    "/embed/embed.js",
+    "/embed/preview.html",
+    "/embed.js",
+    "/auth/login",
+    "/signup",
+    "/api/auth/session",
+    "/api/book/event",
+    "/_next/static/chunks/main.js",
+    "/icons/sprite.svg",
+  ])("sends Strict-Transport-Security on %s", (pathname) => {
+    expect(resolveResponseHeaders(pathname)["strict-transport-security"]).toBe("max-age=31536000");
+  });
+
+  it("sets it in one entry, without includeSubDomains or preload", () => {
+    const hsts = rawHeaders.flatMap((route) =>
+      route.headers
+        .filter((header) => header.key.toLowerCase() === "strict-transport-security")
+        .map((header) => ({ source: route.source, value: header.value }))
+    );
+    expect(hsts).toEqual([{ source: "/:path*", value: "max-age=31536000" }]);
+  });
+});
+
+describe("reserved usernames follow the framing lock (U13 hardening)", () => {
+  // The lock's first-segment list comes from a route scan at build time; the username check can't run that
+  // scan, so it keeps a static list. A new top-level route fails here until reservedUsernames.ts has it.
+  function lockedFirstSegments(): string[] {
+    const locked = rawHeaders.find((route) =>
+      route.headers.some((header) => header.key === "X-Frame-Options" && header.value === "SAMEORIGIN")
+    );
+    const list = locked?.source.match(/\(\?!\(\?:(.+?)\)\/\)/)?.[1];
+    if (!list) throw new Error("no first-segment lookahead in the locked framing entry");
+    return list.split("|").map((name) => name.replace(/\\(.)/g, "$1"));
+  }
+
+  it("finds the scanned routes, the virtual routes and the locales in the lock", () => {
+    expect(lockedFirstSegments()).toEqual(
+      expect.arrayContaining([
+        "settings",
+        "event-types",
+        "apps",
+        "booking",
+        "reschedule",
+        "embed",
+        "sl",
+        "pt-BR",
+      ])
+    );
+  });
+
+  it("refuses as a username every first segment the lock treats as a route", () => {
+    expect(lockedFirstSegments().filter((name) => !isReservedUsername(name))).toEqual([]);
   });
 });

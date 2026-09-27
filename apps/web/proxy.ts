@@ -61,8 +61,14 @@ const isPagePathRequest = (url: URL) => {
   return !isNonPagePathPrefix.test(pathname) && !isFile.test(pathname);
 };
 
+// Flowko (U13 hardening): the sign-in pages only, matched exactly (an optional trailing slash aside).
+// Upstream's startsWith("/login") also matched a username such as /loginova, and the proxy runs on every
+// /:path*/embed, so with CSP_POLICY set /loginova/embed would get the sign-in CSP with
+// `frame-ancestors 'none'` and its embed would stop working.
+const CSP_ENFORCED_PATHNAMES = /^\/(?:auth\/)?login\/?$/;
+
 const shouldEnforceCsp = (url: URL) => {
-  return url.pathname.startsWith("/auth/login") || url.pathname.startsWith("/login");
+  return CSP_ENFORCED_PATHNAMES.test(url.pathname);
 };
 
 const proxy = async (req: NextRequest): Promise<NextResponse<unknown>> => {
