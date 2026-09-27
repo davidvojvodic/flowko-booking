@@ -26,10 +26,63 @@ const PRIVATE_BOOKING_KEYS = [
   "smsReminderNumber",
 ];
 
-/** Event type fields that list hosts with their user ids and emails. */
-const PRIVATE_EVENT_TYPE_KEYS = ["users", "hosts", "owner", "userId"];
+/**
+ * Flowko U13-12: the only booking fields an SDK event may carry, when the booking is and its status. embed.js re-fires
+ * every event as a window event on the embedding page, where every script on that page (tag managers, ad pixels, chat
+ * and session-replay tools) can read it. So nothing about the booker (answers, names, e-mails, phone numbers, notes,
+ * the cancellation reason) and not the uid, which cancels and reschedules the booking, may leave in an event. The
+ * booking and the V2 payloads are reduced to this allow-list; U7a only removed a deny-list of organizer fields.
+ */
+const PUBLIC_BOOKING_KEYS = [
+  "eventTypeId",
+  "startTime",
+  "endTime",
+  "status",
+  "confirmed",
+  "duration",
+  "paymentRequired",
+  "isRecurring",
+];
 
-// Same placeholder the booking events use when the organizer's email isn't known
+/** Flowko U13-12: the V2 booking events carry the booking's fields at the top level. */
+const BOOKING_EVENTS_V2: string[] = [
+  "bookingSuccessfulV2",
+  "rescheduleBookingSuccessfulV2",
+  "dryRunBookingSuccessfulV2",
+  "dryRunRescheduleBookingSuccessfulV2",
+];
+
+/**
+ * Flowko U13-12: the event type is named only by its id and slug, which the embedding page already knows (the embed's
+ * link and the bookerReady event carry both). Its title, description, locations and hosts stay out.
+ */
+const PUBLIC_EVENT_TYPE_KEYS = ["id", "slug"];
+
+/** Flowko U13-12: booking fields that no event may carry at its top level either. */
+const PRIVATE_TOP_LEVEL_KEYS = [
+  ...PRIVATE_BOOKING_KEYS,
+  "uid",
+  "title",
+  "description",
+  "location",
+  "responses",
+  "attendees",
+  "user",
+  "metadata",
+  "customInputs",
+  "cancellationReason",
+  "iCalUID",
+  "seatReferenceUid",
+  "paymentUid",
+  "fromReschedule",
+  "rescheduleUid",
+  "recurringEventId",
+  "rescheduledBy",
+  "cancelledBy",
+];
+
+// Same placeholders the booking events use when the organizer's name or email isn't known
+const ORGANIZER_NAME_PLACEHOLDER = "Nameless";
 const ORGANIZER_EMAIL_PLACEHOLDER = "Email-less";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -46,41 +99,64 @@ function withoutKeys(value: Record<string, unknown>, keys: string[]) {
   return copy;
 }
 
-function withoutPrivateBookingKeys(value: Record<string, unknown>) {
-  const copy = withoutKeys(value, PRIVATE_BOOKING_KEYS);
-  if (isPlainObject(copy.metadata) && "videoCallUrl" in copy.metadata) {
-    const { videoCallUrl: _videoCallUrl, ...metadata } = copy.metadata;
-    copy.metadata = metadata;
-  }
-  // The organizer's user row: only the name and time zone the booking UI shows
-  if (isPlainObject(copy.user)) {
-    copy.user = { name: copy.user.name, timeZone: copy.user.timeZone };
-  }
-  if (Array.isArray(copy.attendees)) {
-    copy.attendees = copy.attendees.map((attendee) =>
-      isPlainObject(attendee) ? withoutKeys(attendee, ["phoneNumber"]) : attendee
-    );
+function onlyKeys(value: Record<string, unknown>, keys: string[]) {
+  const copy: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      copy[key] = value[key];
+    }
   }
   return copy;
 }
 
+/** A nested object is reduced to the allow-list; anything that isn't one (a string, an array) is emptied. */
+function toPublicObject(value: unknown, keys: string[]) {
+  if (value === null || value === undefined) return value;
+  return isPlainObject(value) ? onlyKeys(value, keys) : {};
+}
+
+function toPublicBookingTimes(allBookings: unknown) {
+  if (!Array.isArray(allBookings)) return undefined;
+  return allBookings.map((booking) => toPublicObject(booking, ["startTime", "endTime"]));
+}
+
 /**
- * Removes the private booking, organizer and host fields from an event's data and from the booking
- * and event type it carries.
+ * Flowko U13-12: reduces an event's data to what the embedding page may learn: that a booking was made, cancelled or
+ * rescheduled, its time and its status. The booking, the event type and the V2 payloads are reduced to allow-lists,
+ * the organizer keeps only its time zone (the name and e-mail become the upstream placeholders, so a host reading
+ * `organizer.name` still gets a string), and the booking's private fields are removed from the top level of every
+ * other event. The deprecated bookingSuccessful and rescheduleBookingSuccessful keep their shape with the reduced
+ * booking, so a host page that listens for them keeps working.
  */
-export function sanitizeEventData<T>(data: T): T {
+export function sanitizeEventData<T>(data: T, eventName?: string): T {
   if (!isPlainObject(data)) {
     return data;
   }
-  const sanitized = withoutPrivateBookingKeys(data);
-  if (isPlainObject(sanitized.booking)) {
-    sanitized.booking = withoutPrivateBookingKeys(sanitized.booking);
+  if (eventName && BOOKING_EVENTS_V2.includes(eventName)) {
+    const sanitized = onlyKeys(data, PUBLIC_BOOKING_KEYS);
+    const allBookings = toPublicBookingTimes(data.allBookings);
+    if (allBookings) {
+      sanitized.allBookings = allBookings;
+    }
+    return sanitized as T;
   }
-  if (isPlainObject(sanitized.eventType)) {
-    sanitized.eventType = withoutKeys(sanitized.eventType, PRIVATE_EVENT_TYPE_KEYS);
+  const sanitized = withoutKeys(data, PRIVATE_TOP_LEVEL_KEYS);
+  if ("booking" in sanitized) {
+    sanitized.booking = toPublicObject(sanitized.booking, PUBLIC_BOOKING_KEYS);
   }
-  if (isPlainObject(sanitized.organizer) && "email" in sanitized.organizer) {
-    sanitized.organizer = { ...sanitized.organizer, email: ORGANIZER_EMAIL_PLACEHOLDER };
+  if ("eventType" in sanitized) {
+    sanitized.eventType = toPublicObject(sanitized.eventType, PUBLIC_EVENT_TYPE_KEYS);
+  }
+  if ("allBookings" in sanitized) {
+    sanitized.allBookings = toPublicBookingTimes(sanitized.allBookings);
+  }
+  if ("organizer" in sanitized && sanitized.organizer !== null && sanitized.organizer !== undefined) {
+    const timeZone = isPlainObject(sanitized.organizer) ? sanitized.organizer.timeZone : undefined;
+    sanitized.organizer = {
+      name: ORGANIZER_NAME_PLACEHOLDER,
+      email: ORGANIZER_EMAIL_PLACEHOLDER,
+      ...(typeof timeZone === "string" ? { timeZone } : {}),
+    };
   }
   return sanitized as T;
 }
@@ -411,7 +487,7 @@ export class SdkActionManager {
       type: name,
       namespace: this.namespace,
       fullType: fullName,
-      data: sanitizeEventData(data),
+      data: sanitizeEventData(data, name),
     };
 
     _fireEvent(fullName, detail);
