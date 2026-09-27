@@ -1041,8 +1041,8 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
       ref={dialogContentRef}
       className="rounded-lg p-0.5 sm:max-w-7xl!"
       type="creation">
-      {/* Flowko U13-22: one column below lg, so the dialog fits a narrow screen once it is open (on a phone the
-          event-type pages don't offer the Embed button yet; see the EmbedButton comment) */}
+      {/* Flowko U13-22: one column below lg, so the dialog fits a narrow screen once it is open (on a phone it
+          opens from the small-screen menus of the event-type pages; see the EmbedButton comment) */}
       <div className="flex flex-col lg:flex-row">
         <div className="bg-cal-muted flex w-full flex-col overflow-y-auto p-4 sm:p-8 lg:h-[95vh] lg:w-1/3">
           <h3
@@ -1583,8 +1583,8 @@ export const EmbedButton = <T extends React.ElementType = typeof Button>({
 }: EmbedButtonProps<T> & React.ComponentPropsWithoutRef<T>) => {
   const { gotoState } = useEmbedGoto(noQueryParamMode);
   // Flowko U13-22: the button's own class no longer hides it below 1024 px (was "hidden lg:inline-flex"). The
-  // event-type pages still hide their wrappers: it shows from 640 px on the listing and from 1024 px on the
-  // event-type page; phones need an Embed entry in both pages' small-screen menus (FLOWKO.md U13-22).
+  // event-type pages still hide their wrappers (the listing's row actions below 640 px, the event-type page's
+  // button group below 1024 px), so both pages' small-screen menus carry an Embed entry too (FLOWKO.md U13-22).
   className = classNames(className);
 
   const openEmbedModal = () => {
