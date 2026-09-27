@@ -330,6 +330,16 @@ describe("Middleware Integration Tests", () => {
       expect(cspHeader).toContain("script-src");
     });
 
+    it("keeps the sign-in page unframeable when its CSP replaces next.config's framing CSP (Flowko U13a)", async () => {
+      for (const path of ["/auth/login", "/login"]) {
+        const res = await callProxy(createTestRequest({ url: `${WEBAPP_URL}${path}` }));
+        const cspHeader = getHeader(res, "content-security-policy");
+
+        expect(cspHeader).toMatch(/; frame-ancestors 'none'$/);
+        expect(cspHeader?.match(/frame-ancestors/g)).toHaveLength(1);
+      }
+    });
+
     it("should not add CSP headers to non-login pages", async () => {
       const req = createTestRequest({
         url: `${WEBAPP_URL}/team/test`,
