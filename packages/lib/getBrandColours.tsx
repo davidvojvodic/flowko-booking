@@ -141,9 +141,13 @@ export const createColorMap = (brandColor: string) => {
   return response;
 };
 
-function getWCAGContrastColor(background: string): string {
+// Flowko U13-03: exported for the Embed dialog's floating button (its text colour follows the button colour),
+// and a 3-digit colour such as "#fff", which the dialog's colour input accepts, is expanded first instead of
+// throwing. The embed snippet builder has a pure copy (packages/features/embed/lib/buildCssVarsPerTheme.ts,
+// pinned to this one by its test).
+export function getWCAGContrastColor(background: string): string {
   // Convert the hex background color to RGB
-  const { r, g, b } = hexToRgb(background);
+  const { r, g, b } = hexToRgb(`#${normalizeHexCode(background, false).replace("#", "")}`);
   // Calculate the luminance of the background color
   const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 
