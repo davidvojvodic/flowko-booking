@@ -1,48 +1,32 @@
+import {
+  getAllowedBookerOrigin,
+  getPreviewButtonText,
+  isAllowedEmbedLibUrl,
+  isFramedByWebapp,
+  isMessageFromWebapp,
+} from "./lib/previewPage";
+
 // We can't import @calcom/lib/constants here yet as this file is compiled using Vite
 const WEBAPP_URL = process.env.EMBED_PUBLIC_WEBAPP_URL || "";
 if (!WEBAPP_URL) {
   throw new Error("WEBAPP_URL is not set");
 }
-const EMBED_LIB_URL = process.env.EMBED_PUBLIC_EMBED_LIB_URL || WEBAPP_URL;
+// Flowko U13-16: the same default as EMBED_LIB_URL in packages/lib/constants.ts, which is the value
+// the Embed dialog passes as embedLibUrl (upstream's default here was WEBAPP_URL itself)
+const EMBED_LIB_URL = process.env.EMBED_PUBLIC_EMBED_LIB_URL || `${WEBAPP_URL}/embed/embed.js`;
 const IS_E2E = process.env.NEXT_PUBLIC_IS_E2E === "1";
 
 // Because it is only used in Embed Snippet Generator preview that is accessible through dashboard only which has URL WEBAPP_URL, we are good with this strict restriction
-if (!IS_E2E && (window.self === window.top || !document.referrer.startsWith(WEBAPP_URL))) {
+// Flowko U13-16: the referrer's origin must equal WEBAPP_URL's; a prefix match let https://<host>.evil.com through
+if (
+  !IS_E2E &&
+  !isFramedByWebapp({
+    isTopLevel: window.self === window.top,
+    referrer: document.referrer,
+    webappUrl: WEBAPP_URL,
+  })
+) {
   throw new Error(`This page can only be accessed within an iframe from ${WEBAPP_URL}`);
-}
-
-// It is a copy of isSafeUrlToLoadResourceFrom in packages/lib/getSafeRedirectUrl. Keep it in sync
-// We can't import that here has it is loaded in a separate Vanilla JS page
-function isSafeUrlToLoadResourceFrom(urlString: string) {
-  try {
-    const url = new URL(urlString);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return false;
-    }
-
-    // Allow localhost for development
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-      return true;
-    }
-
-    const webappUrl = new URL(WEBAPP_URL);
-    const embedLibUrl = new URL(EMBED_LIB_URL);
-
-    const urlTldPlus1 = getTldPlus1(url.hostname);
-    const webappTldPlus1 = getTldPlus1(webappUrl.hostname);
-    const embedLibTldPlus1 = getTldPlus1(embedLibUrl.hostname);
-
-    // URLs must share the same TLD+1
-    return [webappTldPlus1, embedLibTldPlus1].includes(urlTldPlus1);
-  } catch {
-    return false;
-  }
-
-  function getTldPlus1(hostname: string) {
-    // Note: It doesn't support multipart tlds like .co.uk and thus makes only one part tld's safe like .com(and thus cal.com)
-    // If we want to use it elsewhere as well(apart from embed/preview.ts) we must consider Public Suffix List
-    return hostname.split(".").slice(-2).join(".");
-  }
 }
 
 const searchParams = new URL(document.URL).searchParams;
@@ -55,12 +39,22 @@ if (!bookerUrl || !embedLibUrl) {
   throw new Error('Can\'t Preview: Missing "bookerUrl" or "embedLibUrl" query parameter');
 }
 
-if (!isSafeUrlToLoadResourceFrom(embedLibUrl)) {
+// Flowko U13-16: exactly the app's embed.js and the app's own origin, instead of any URL on
+// localhost or on the same last two host labels
+if (!isAllowedEmbedLibUrl({ embedLibUrl, expectedEmbedLibUrl: EMBED_LIB_URL })) {
   throw new Error('Invalid "embedLibUrl".');
 }
 
-if (!isSafeUrlToLoadResourceFrom(bookerUrl)) {
+const bookerOrigin = getAllowedBookerOrigin({ bookerUrl, webappUrl: WEBAPP_URL });
+if (!bookerOrigin) {
   throw new Error('Invalid "bookerUrl".');
+}
+
+// Flowko U13-14: the embed's own texts follow the page's <html lang> (no lang: Slovenian). The dialog
+// may pass its interface language as `lang`.
+const previewLang = searchParams.get("lang");
+if (previewLang && /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(previewLang)) {
+  document.documentElement.lang = previewLang;
 }
 
 if (!calLink) {
@@ -112,7 +106,7 @@ previewWindow.Cal.fingerprint = process.env.EMBED_PUBLIC_EMBED_FINGER_PRINT as s
 previewWindow.Cal.version = process.env.EMBED_PUBLIC_EMBED_VERSION as string;
 
 previewWindow.Cal("init", {
-  origin: bookerUrl,
+  origin: bookerOrigin,
 });
 
 if (embedType === "inline") {
@@ -130,13 +124,18 @@ if (embedType === "inline") {
 } else if (embedType === "element-click") {
   const button = document.createElement("button");
   button.setAttribute("data-cal-link", calLink);
-  button.innerHTML = "I am a button that exists on your website";
+  // Flowko U13-14: the button the Embed dialog's code gives the client, in the page's language
+  button.textContent = getPreviewButtonText(document.documentElement.lang);
   document.body.appendChild(button);
 }
 
 previewWindow.addEventListener("message", (e) => {
+  // Flowko U13-16: only the Embed dialog (the parent page, on WEBAPP_URL) drives the preview
+  if (!isMessageFromWebapp({ origin: e.origin, source: e.source, parent: window.parent, webappUrl: WEBAPP_URL })) {
+    return;
+  }
   const data = e.data;
-  if (data.mode !== "cal:preview") {
+  if (!data || data.mode !== "cal:preview") {
     return;
   }
 
