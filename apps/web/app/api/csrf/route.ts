@@ -9,11 +9,11 @@ export async function GET(req: Request) {
 
   const useSecureCookies = WEBAPP_URL.startsWith("https://");
 
-  // Validate the param, default to "lax"
-  let sameSite: "lax" | "strict" | "none" = "lax";
-  if (sameSiteParam === "strict" || (sameSiteParam === "none" && useSecureCookies)) {
-    sameSite = sameSiteParam;
-  }
+  // Flowko: "none" is no longer honoured, only "strict" may tighten the default "lax". Upstream's only caller of
+  // ?sameSite=none was the cancel form inside an embed (a third-party frame, where Safari and Chrome Incognito
+  // refuse the cookie anyway). Since U13-11 that form only runs first-party, and its POST to /api/cancel is
+  // same-origin, so it carries a Lax cookie.
+  const sameSite: "lax" | "strict" = sameSiteParam === "strict" ? "strict" : "lax";
 
   const token = randomBytes(32).toString("hex");
   const res = NextResponse.json({ csrfToken: token });
