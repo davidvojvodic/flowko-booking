@@ -47,13 +47,6 @@ test.describe("Embed Code Generator Tests", () => {
           orgSlug: null,
         });
 
-        await goToReactCodeTab(page);
-        await expectToContainValidCode(page, {
-          language: "react",
-          embedType: "inline",
-          orgSlug: null,
-        });
-
         // To prevent early timeouts
         await page.waitForTimeout(1000);
         await expectToContainValidPreviewIframe(page, {
@@ -84,13 +77,6 @@ test.describe("Embed Code Generator Tests", () => {
           orgSlug: null,
         });
 
-        await goToReactCodeTab(page);
-        await expectToContainValidCode(page, {
-          language: "react",
-          embedType: "floating-popup",
-          orgSlug: null,
-        });
-
         // To prevent early timeouts
         await page.waitForTimeout(1000);
         await expectToContainValidPreviewIframe(page, {
@@ -117,13 +103,6 @@ test.describe("Embed Code Generator Tests", () => {
         });
         await expectToContainValidCode(page, {
           language: "html",
-          embedType: "element-click",
-          orgSlug: null,
-        });
-
-        await goToReactCodeTab(page);
-        await expectToContainValidCode(page, {
-          language: "react",
           embedType: "element-click",
           orgSlug: null,
         });
@@ -216,13 +195,6 @@ test.describe("Embed Code Generator Tests", () => {
           orgSlug: null,
         });
 
-        await goToReactCodeTab(page);
-        await expectToContainValidCode(page, {
-          language: "react",
-          embedType: "inline",
-          orgSlug: null,
-        });
-
         // To prevent early timeouts
         await page.waitForTimeout(1000);
         await expectToContainValidPreviewIframe(page, {
@@ -250,13 +222,6 @@ test.describe("Embed Code Generator Tests", () => {
         });
         await expectToContainValidCode(page, {
           language: "html",
-          embedType: "floating-popup",
-          orgSlug: null,
-        });
-
-        await goToReactCodeTab(page);
-        await expectToContainValidCode(page, {
-          language: "react",
           embedType: "floating-popup",
           orgSlug: null,
         });
@@ -291,13 +256,6 @@ test.describe("Embed Code Generator Tests", () => {
           orgSlug: null,
         });
 
-        await goToReactCodeTab(page);
-        await expectToContainValidCode(page, {
-          language: "react",
-          embedType: "element-click",
-          orgSlug: null,
-        });
-
         // To prevent early timeouts
         await page.waitForTimeout(1000);
         await expectToContainValidPreviewIframe(page, {
@@ -312,12 +270,6 @@ test.describe("Embed Code Generator Tests", () => {
 type EmbedType = "inline" | "floating-popup" | "element-click";
 function chooseEmbedType(page: Page, embedType: EmbedType) {
   page.locator(`[data-testid=${embedType}]`).click();
-}
-
-async function goToReactCodeTab(page: Page) {
-  // To prevent early timeo
-  await page.waitForTimeout(1000);
-  await page.locator("[data-testid=horizontal-tab-react]").click();
 }
 
 async function clickEmbedButton(page: Page) {
@@ -379,15 +331,9 @@ async function expectToBeNavigatingToEmbedCodeAndPreviewDialog(
 
 async function expectToContainValidCode(
   page: Page,
-  {
-    embedType,
-    language,
-    orgSlug,
-  }: { embedType: EmbedType; language: "html" | "react"; orgSlug: string | null }
+  { embedType, language, orgSlug }: { embedType: EmbedType; language: "html"; orgSlug: string | null }
 ) {
-  if (language === "react") {
-    return expectValidReactEmbedSnippet(page, { embedType, orgSlug });
-  }
+  // Flowko U13-05: the dialog offers HTML only (the React tabs are hidden)
   if (language === "html") {
     return expectValidHtmlEmbedSnippet(page, { embedType, orgSlug });
   }
@@ -400,7 +346,10 @@ async function expectValidHtmlEmbedSnippet(
 ) {
   const embedCode = await page.locator("[data-testid=embed-code]").inputValue();
   expect(embedCode).toContain("function (C, A, L)");
-  expect(embedCode).toContain(`Cal ${embedType} embed code begins`);
+  // Flowko U13-01/-04: Flowko's own snippet comments and loader attributes, and never cal.com
+  expect(embedCode).toContain("<!-- Flowko Rezervacije: ");
+  expect(embedCode).toContain('data-cfasync="false" nowprocket');
+  expect(embedCode).not.toMatch(/cal\.com/i);
   if (orgSlug) {
     expect(embedCode).toContain(orgSlug);
   }
@@ -436,48 +385,6 @@ function assertThatCodeIsValidVanillaJsCode(code: string) {
   }
 
   expect(result.status).toBe(0);
-}
-
-function assertThatCodeIsValidReactCode(code: string) {
-  // Use Biome to check if the code is syntactically valid JSX
-  const result = spawnSync("node", [biomeBin, "format", "--stdin-file-path", "snippet.jsx"], {
-    input: code,
-    encoding: "utf-8",
-  });
-
-  if (result.status !== 0) {
-    console.log(
-      JSON.stringify({
-        biomeError: result.stderr,
-        code,
-      })
-    );
-  }
-
-  expect(result.status).toBe(0);
-}
-
-async function expectValidReactEmbedSnippet(
-  page: Page,
-  { embedType, orgSlug }: { embedType: EmbedType; orgSlug: string | null }
-) {
-  const embedCode = await page.locator("[data-testid=embed-react]").inputValue();
-  expect(embedCode).toContain("export default function MyApp(");
-  expect(embedCode).toContain(
-    embedType === "floating-popup" ? "floatingButton" : embedType === "inline" ? `<Cal` : "data-cal-link"
-  );
-  // React embed doesn't need to access .ns to call an instruction
-  expect(embedCode).toContain('cal("ui"');
-  if (orgSlug) {
-    expect(embedCode).toContain(orgSlug);
-  }
-
-  assertThatCodeIsValidReactCode(embedCode);
-
-  return {
-    message: () => `passed`,
-    pass: true,
-  };
 }
 
 /**

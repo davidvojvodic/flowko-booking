@@ -772,6 +772,19 @@ export const InfiniteEventTypeList = ({
                                   {t("copy_link")}
                                 </DropdownItem>
                               </DropdownMenuItem>
+                              {/* Flowko U13-22: Embed on phones too */}
+                              <DropdownMenuItem className="outline-none">
+                                <EventTypeEmbedButton
+                                  namespace={type.slug}
+                                  as={DropdownItem}
+                                  type="button"
+                                  StartIcon="code"
+                                  className="w-full rounded-none"
+                                  embedUrl={encodeURIComponent(embedLink)}
+                                  eventId={type.id}>
+                                  {t("embed")}
+                                </EventTypeEmbedButton>
+                              </DropdownMenuItem>
                             </>
                           )}
                           {isNativeShare ? (

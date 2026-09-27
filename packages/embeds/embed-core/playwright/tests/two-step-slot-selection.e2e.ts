@@ -89,12 +89,12 @@ test.describe("Two Step Slot Selection", () => {
 
     const booking = (await response.json()) as { uid: string };
 
-    // Verify the booking was created with booker and prefilled guest
+    // Flowko U13-24: no guest prefill inside an embed, so the booking has the booker only
     const bookingFromDb = await getBooking(booking.uid);
-    expect(bookingFromDb.attendees.length).toBe(2);
+    expect(bookingFromDb.attendees.length).toBe(1);
     const attendeeEmails = bookingFromDb.attendees.map((a) => a.email);
     expect(attendeeEmails).toContain("john@booker.com");
-    expect(attendeeEmails).toContain("guest@example.com");
+    expect(attendeeEmails).not.toContain("guest@example.com");
   });
 
   test("should show confirm button next to slot when form is prefilled", async ({ page, embeds }) => {

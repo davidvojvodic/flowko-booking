@@ -3819,6 +3819,8 @@
   "recurring_event_seats_error": "Recurring event doesn't support seats feature. Disable seats feature or make the event non-recurring.",
   "seats_and_recurring_not_available_error": "Seats and recurring events aren't available.",
   "app_not_available_error": "This app isn't available.",
+  "success_redirect_not_available_error": "Sending bookers to another page after booking isn't available. Remove the redirect URL to save.",
+  "private_link_not_generated": "This private link was not made by the app. Reload the page and add the link again.",
   "segment": "Segment",
   "saved_filters": "Saved filters",
   "rename": "Rename",

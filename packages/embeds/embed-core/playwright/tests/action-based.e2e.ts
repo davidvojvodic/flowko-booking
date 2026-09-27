@@ -158,7 +158,8 @@ test.describe("Popup Tests", () => {
         await expect(html).toHaveClass(/light/);
         const { uid: bookingId } = await bookFirstEvent("pro", embedIframe, page);
         const booking = await getBooking(bookingId);
-        expect(booking.attendees.length).toBe(3);
+        // Flowko U13-24: no guest prefill inside an embed, so only the booker (the playground passes 2 guests)
+        expect(booking.attendees.length).toBe(1);
         await test.step("Close the modal", async () => {
           await page.locator("cal-modal-box .close").click();
           await expect(page.locator("cal-modal-box")).toBeHidden();

@@ -240,6 +240,21 @@ function EventTypeSingleLayout({
                   {t("copy_link")}
                 </DropdownItem>
               </DropdownMenuItem>
+              {/* Flowko U13-22: Embed below 1024 px too */}
+              {!isManagedEventType && !isPlatform && (
+                <DropdownMenuItem className="focus:ring-muted">
+                  <EventTypeEmbedButton
+                    as={DropdownItem}
+                    type="button"
+                    StartIcon="code"
+                    className="w-full rounded-none"
+                    embedUrl={encodeURIComponent(embedLink)}
+                    namespace={eventType.slug}
+                    eventId={formMethods.getValues("id")}>
+                    {t("embed")}
+                  </EventTypeEmbedButton>
+                </DropdownMenuItem>
+              )}
               {allowDelete && (
                 <DropdownMenuItem className="focus:ring-muted">
                   <DropdownItem

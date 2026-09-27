@@ -32,7 +32,8 @@ test.describe("React Embed", () => {
       await page.waitForLoadState();
       await embeds.gotoPlayground({ url: "/floating.html", calNamespace });
 
-      await page.click("text=Book my Cal");
+      // Flowko U13-14: embed.js's default button text follows <html lang> (none here, so Slovenian)
+      await page.click("text=Rezervirajte termin");
 
       const embedIframe = await getEmbedIframe({ calNamespace, page, pathname: "/pro" });
       await expect(embedIframe).toBeEmbedCalLink(calNamespace, embeds.getActionFiredDetails, {

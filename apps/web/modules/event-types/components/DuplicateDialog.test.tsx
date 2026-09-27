@@ -87,6 +87,13 @@ describe("DuplicateDialog onError", () => {
     expect(mockShowToast).toHaveBeenCalledWith(`t(${ErrorCode.SeatsAndRecurringNotAvailable})`, "error");
   });
 
+  it("shows the success-redirect refusal instead of a generic error (U13-20)", () => {
+    capturedOptions?.onError(trpcError("BAD_REQUEST", "success_redirect_not_available_error"));
+
+    expect(mockShowToast).toHaveBeenCalledTimes(1);
+    expect(mockShowToast).toHaveBeenCalledWith("t(success_redirect_not_available_error)", "error");
+  });
+
   it("keeps the generic message for any other bad request", () => {
     capturedOptions?.onError(trpcError("BAD_REQUEST", "something else"));
 

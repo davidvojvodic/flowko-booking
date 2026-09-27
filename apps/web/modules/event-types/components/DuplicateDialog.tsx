@@ -103,10 +103,12 @@ const DuplicateDialog = () => {
         return;
       }
 
-      // Flowko: say why the copy was refused (a disabled app, or seats and recurring off) instead of "try again"
+      // Flowko: say why the copy was refused (a disabled app, seats and recurring off, or a success redirect URL, U13-20)
+      // instead of "try again"
       if (
         err.message === ErrorCode.AppNotAvailable ||
-        err.message === ErrorCode.SeatsAndRecurringNotAvailable
+        err.message === ErrorCode.SeatsAndRecurringNotAvailable ||
+        err.message === "success_redirect_not_available_error"
       ) {
         showToast(t(err.message), "error");
         return;

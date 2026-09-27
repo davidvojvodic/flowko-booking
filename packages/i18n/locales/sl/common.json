@@ -4662,6 +4662,8 @@
   "recurring_event_seats_error": "Ponavljajoči se dogodek ne podpira mest. Onemogočite mesta ali odstranite ponavljanje dogodka.",
   "seats_and_recurring_not_available_error": "Mesta in ponavljajoči se dogodki niso na voljo.",
   "app_not_available_error": "Ta aplikacija ni na voljo.",
+  "success_redirect_not_available_error": "Preusmeritev na drugo stran po rezervaciji ni na voljo. Odstranite URL za preusmeritev, da lahko shranite.",
+  "private_link_not_generated": "Te zasebne povezave ni ustvarila aplikacija. Osvežite stran in povezavo dodajte znova.",
   "hide_team_profile_link": "Skrij povezavo do profila ekipe",
   "hide_team_profile_link_description": "Skrij povezavo do profila ekipe na straneh za rezervacijo",
   "whitelist_user_workflows": "Dovoli uporabniške delovne tokove",
