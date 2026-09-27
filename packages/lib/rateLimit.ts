@@ -48,11 +48,56 @@ export const IN_MEMORY_RATE_LIMITS: Record<RateLimitingType, { limit: number; du
 };
 
 /**
- * Flowko: at most this many live windows are kept. A live window is never dropped to make room, because
- * then anyone could reset every counter (a denying one included) by flooding the store with fresh
- * identifiers. A new identifier that finds the store full is counted in its namespace's overflow window.
+ * Flowko: the in-memory store's bounds. A live window is never dropped to make room, because then anyone could
+ * reset every counter (a denying one included) by flooding the store with fresh identifiers. A new identifier
+ * that finds no room is counted in its namespace's overflow window instead (fail closed).
+ *
+ * A namespace is one call site's limiter: the rate-limiting type plus the fixed labels in front of the
+ * identifier (see getRateLimitNamespace), e.g. "core:login" or "core:emailVerifyCode". Each has its own budget
+ * of live windows, so a flood of fresh identifiers at one limiter (random e-mails at the email-code or the
+ * sign-in check) can only degrade that limiter; a host signing in or a booker booking still gets a window of
+ * their own. U8e: before, one global budget of 50,000 was shared, and a flood in any namespace sent every new
+ * identifier of every other namespace into that namespace's shared overflow window.
+ *
+ * Memory: one window is about 330 bytes (V8, 2026-09-27). One namespace holds at most
+ * IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE windows (about 16 MB, the old global cap), all of them
+ * together IN_MEMORY_RATE_LIMIT_MAX_ENTRIES (about 33 MB) plus at most the reserve below for each namespace
+ * (IN_MEMORY_RATE_LIMIT_MAX_NAMESPACES plus one per rate-limiting type).
  */
-export const IN_MEMORY_RATE_LIMIT_MAX_ENTRIES = 50_000;
+export const IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE = 50_000;
+export const IN_MEMORY_RATE_LIMIT_MAX_ENTRIES = 100_000;
+/**
+ * Flowko: once all namespaces together hold IN_MEMORY_RATE_LIMIT_MAX_ENTRIES windows (floods in two or more
+ * namespaces at once), a namespace still gets this many windows of its own, so a quiet limiter keeps working.
+ */
+export const IN_MEMORY_RATE_LIMIT_RESERVED_ENTRIES_PER_NAMESPACE = 1_000;
+/**
+ * Flowko: the labels come from code, so the call sites make a few dozen namespaces. Past this many, a new
+ * namespace (a future call site that puts client-chosen text first) counts in its type's unlabelled namespace,
+ * which keeps the namespace bookkeeping, and with it the memory bound above, finite.
+ */
+export const IN_MEMORY_RATE_LIMIT_MAX_NAMESPACES = 64;
+
+// A label is a word: a hash, an id, an IP address or an e-mail has a digit, "@" or "." in it and ends the prefix.
+const NAMESPACE_LABEL = /^[A-Za-z][A-Za-z_-]{0,47}$/;
+const MAX_NAMESPACE_LABELS = 3;
+
+/**
+ * Flowko: the namespace an identifier is counted in: its rate-limiting type plus the word labels its call site
+ * puts in front of the variable part, split at ":" and ".":
+ * `login:<email hash>:<ip hash>` → "core:login", `api:cancel-ip:<ip hash>` → "core:api:cancel-ip",
+ * `emailVerifyCode.<email hash>` → "core:emailVerifyCode". The last segment is always the variable part, so a
+ * bare identifier (a hash, an IP address) is counted under its type alone.
+ */
+export function getRateLimitNamespace(rateLimitingType: RateLimitingType, identifier: string): string {
+  const segments = identifier.split(/[:.]/);
+  const labels: string[] = [];
+  for (let i = 0; i < segments.length - 1 && labels.length < MAX_NAMESPACE_LABELS; i++) {
+    if (!NAMESPACE_LABEL.test(segments[i])) break;
+    labels.push(segments[i]);
+  }
+  return [rateLimitingType, ...labels].join(":");
+}
 
 const DURATION_UNIT_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
@@ -66,40 +111,85 @@ function durationToMs(duration: string | number): number {
 
 export type InMemoryRateLimiter = (helper: RateLimitHelper) => Promise<RatelimitResponse>;
 
+// The live windows a namespace holds
+type Namespace = { size: number };
 type Window = { count: number; resetAt: number };
+type LiveWindow = Window & { namespace: Namespace };
 
 /**
  * Flowko: an in-process fixed-window limiter with the same limits, keys and response shape as the Unkey path.
  * Without it every checkRateLimitAndThrowError call site (booking, cancel, forgot/reset password, 2FA, email
  * codes, login) passes unconditionally when UNKEY_ROOT_KEY is unset. booking.flowko.si runs one web replica,
  * so per-process counters are exact there; they reset on every deploy. Memory stays bounded: expired windows
- * are pruned on every call, and past `maxEntries` new identifiers share one overflow window per namespace
- * (fail closed) instead of evicting anyone's live window.
- * Exported so tests can drive it with their own clock; production code gets it through rateLimiter().
+ * are pruned on every call, and a new identifier whose namespace is full (`maxEntriesPerNamespace`), or whose
+ * namespace has used its reserve while the whole store is full (`maxEntries`), shares its namespace's overflow
+ * window (fail closed) instead of evicting anyone's live window.
+ * Exported so tests can drive it with their own clock and bounds; production code gets it through rateLimiter().
  */
 export function createInMemoryRateLimiter({
   maxEntries = IN_MEMORY_RATE_LIMIT_MAX_ENTRIES,
+  maxEntriesPerNamespace = IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE,
+  reservedEntriesPerNamespace = IN_MEMORY_RATE_LIMIT_RESERVED_ENTRIES_PER_NAMESPACE,
+  maxNamespaces = IN_MEMORY_RATE_LIMIT_MAX_NAMESPACES,
   now = Date.now,
-}: { maxEntries?: number; now?: () => number } = {}): InMemoryRateLimiter & { size: () => number } {
+}: {
+  maxEntries?: number;
+  maxEntriesPerNamespace?: number;
+  reservedEntriesPerNamespace?: number;
+  maxNamespaces?: number;
+  now?: () => number;
+} = {}): InMemoryRateLimiter & { size: () => number } {
   // One Map per window length. Within one, insertion order is resetAt order (an expired window is deleted
   // before its key is set again), so expired windows sit at the front and pruning stops at the first live
-  // one: it costs only what it removes, which is why it can run on every call.
-  const windowsByDuration = new Map<number, Map<string, Window>>();
-  // At most one per namespace + limit + duration, all of which are fixed in code, so this stays tiny.
+  // one: it costs only what it removes, which is why it can run on every call. Each window points at its
+  // namespace, so pruning also keeps the namespace's count in O(1).
+  const windowsByDuration = new Map<number, Map<string, LiveWindow>>();
+  // At most one per namespace + limit + duration, all of which are bounded or fixed in code, so this stays small.
   const overflowWindows = new Map<string, Window>();
+  // Namespace key → its live-window count. Labelled namespaces are capped at maxNamespaces; the unlabelled
+  // one of each type (at most one per rate-limiting type) is always available.
+  const namespaces = new Map<string, Namespace>();
+  let labelledNamespaceCount = 0;
   let size = 0;
   let banListWarned = false;
+
+  function removeWindow(windows: Map<string, LiveWindow>, key: string, window: LiveWindow) {
+    windows.delete(key);
+    size--;
+    window.namespace.size--;
+  }
 
   function pruneExpired(t: number) {
     windowsByDuration.forEach((windows) => {
       const entries = windows.entries();
       let entry = entries.next();
       while (!entry.done && entry.value[1].resetAt <= t) {
-        windows.delete(entry.value[0]);
-        size--;
+        removeWindow(windows, entry.value[0], entry.value[1]);
         entry = entries.next();
       }
     });
+  }
+
+  function namespaceOf(type: RateLimitingType, identifier: string): { key: string; namespace: Namespace } {
+    let key = getRateLimitNamespace(type, identifier);
+    let namespace = namespaces.get(key);
+    if (namespace) return { key, namespace };
+    const isLabelled = key !== type;
+    if (isLabelled && labelledNamespaceCount >= maxNamespaces) {
+      key = type;
+      namespace = namespaces.get(key);
+      if (namespace) return { key, namespace };
+    } else if (isLabelled) {
+      labelledNamespaceCount++;
+    }
+    namespace = { size: 0 };
+    namespaces.set(key, namespace);
+    return { key, namespace };
+  }
+
+  function hasRoomFor(namespace: Namespace) {
+    if (namespace.size >= maxEntriesPerNamespace) return false;
+    return size < maxEntries || namespace.size < reservedEntriesPerNamespace;
   }
 
   function take(window: Window, limit: number, cost: number): RatelimitResponse {
@@ -127,17 +217,18 @@ export function createInMemoryRateLimiter({
     let window = windows.get(key);
     if (window && window.resetAt <= t) {
       // Only reachable if the clock stepped back and pruning stopped early.
-      windows.delete(key);
-      size--;
+      removeWindow(windows, key, window);
       window = undefined;
     }
     if (!window) {
-      if (size >= maxEntries) {
-        // Flowko: the store is full of live windows. Evicting one would reset its counter, so a flood of
+      const { key: namespaceKey, namespace: owner } = namespaceOf(namespace, identifier);
+      if (!hasRoomFor(owner)) {
+        // Flowko: no room for another live window. Evicting one would reset its counter, so a flood of
         // fresh identifiers could reset a denying login or code window. Fail closed instead: every
-        // identifier that is new while the store is full shares this namespace's overflow window, with the
-        // namespace's own limit, until pruning frees room (at most one window length).
-        const overflowKey = `${namespace}:__overflow__:${limit}:${durationMs}`;
+        // identifier that is new while its namespace has no room shares that namespace's overflow window,
+        // with the limiter's own limit, until pruning frees room (at most one window length). U8e: per
+        // namespace, so other limiters keep their own windows.
+        const overflowKey = `${namespaceKey}:__overflow__:${limit}:${durationMs}`;
         let overflow = overflowWindows.get(overflowKey);
         if (!overflow || overflow.resetAt <= t) {
           overflow = { count: 0, resetAt: t + durationMs };
@@ -145,9 +236,10 @@ export function createInMemoryRateLimiter({
         }
         return take(overflow, limit, cost);
       }
-      window = { count: 0, resetAt: t + durationMs };
+      window = { count: 0, resetAt: t + durationMs, namespace: owner };
       windows.set(key, window);
       size++;
+      owner.size++;
     }
     return take(window, limit, cost);
   }
