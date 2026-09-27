@@ -4,6 +4,10 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import z from "zod";
 
+import {
+  isReservedUsername,
+  RESERVED_USERNAME_MESSAGE,
+} from "@calcom/features/auth/signup/utils/reservedUsernames";
 import { hashPassword } from "@calcom/lib/auth/hashPassword";
 import { isPasswordValid } from "@calcom/lib/auth/isPasswordValid";
 import { emailRegex } from "@calcom/lib/emailSchema";
@@ -16,7 +20,9 @@ import { CreationSource } from "@calcom/prisma/enums";
 const querySchema = z.object({
   username: z
     .string()
-    .refine((val) => val.trim().length >= 1, { message: "Please enter at least one character" }),
+    .refine((val) => val.trim().length >= 1, { message: "Please enter at least one character" })
+    // Flowko (U13 hardening): not a reserved name (a top-level route, a locale, or a name ending in "embed")
+    .refine((val) => !isReservedUsername(slugify(val.trim())), { message: RESERVED_USERNAME_MESSAGE }),
   full_name: z.string().min(3, "Please enter at least 3 characters"),
   email_address: z.string().regex(emailRegex, { message: "Please enter a valid email" }),
   password: z.string().refine((val) => isPasswordValid(val.trim(), false, true), {
