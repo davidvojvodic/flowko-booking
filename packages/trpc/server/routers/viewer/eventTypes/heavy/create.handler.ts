@@ -12,6 +12,7 @@ import type { GetTokenParams } from "next-auth/jwt";
 import type { z } from "zod";
 import type { TrpcSessionUser } from "../../../../types";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
+import { ensureNoSuccessRedirect } from "../ensureNoSuccessRedirect";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import { ensureSchedulesBelongTo } from "../ensureSchedulesBelongTo";
 import type { TCreateInputSchema } from "./create.schema";
@@ -91,6 +92,8 @@ export const createHandler = async ({ ctx, input }: CreateOptions) => {
   }
 
   await ensureAppsEnabled(ctx.prisma, { metadata, locations: inputLocations });
+  // Flowko U13-20: the tRPC input schema has no successRedirectUrl, but API v2 passes its request body here unparsed
+  ensureNoSuccessRedirect((input as { successRedirectUrl?: unknown }).successRedirectUrl);
 
   // Flowko: scheduleId was connected with no check, so a new event type could publish another tenant's
   // working hours, date overrides and timezone in its slots

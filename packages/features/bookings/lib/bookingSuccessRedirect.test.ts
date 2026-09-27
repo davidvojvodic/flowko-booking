@@ -309,87 +309,70 @@ describe("useBookingSuccessRedirect", () => {
       });
     });
 
+    // Flowko U13-20: forwardParamsSuccessRedirect has no effect, so nothing about the booking or the booker is ever
+    // appended to a redirect URL, for event types saved with forwarding on before the handlers refused redirects
     describe("with forwardParamsSuccessRedirect", () => {
-      test.each([
-        {
-          name: "filters out embed params from query",
-          query: {
-            test: "value",
-            embed: "namespace",
-            layout: "month_view",
-            embedType: "inline",
-            "ui.color-scheme": "dark",
-          },
-          searchParams: "",
-          expectedPresent: { test: "value", uid: "test-booking-uid" },
-          expectedNull: ["embed", "layout", "embedType", "ui.color-scheme"],
-        },
-        {
-          name: "filters out webapp params from query",
-          query: {
-            test: "value",
-            overlayCalendar: "true",
-          },
-          searchParams: "",
-          expectedPresent: { test: "value", uid: "test-booking-uid" },
-          expectedNull: ["overlayCalendar"],
-        },
-        {
-          name: "filters out embed params from searchParams",
-          query: { additional: "param" },
-          searchParams: "embed=namespace&layout=month_view&embedType=inline&ui.color-scheme=dark&test=value",
-          expectedPresent: { test: "value", additional: "param", uid: "test-booking-uid" },
-          expectedNull: ["embed", "layout", "embedType", "ui.color-scheme"],
-        },
-        {
-          name: "filters out webapp params from searchParams",
-          query: { additional: "param" },
-          searchParams: "overlayCalendar=true&test=value",
-          expectedPresent: { test: "value", additional: "param", uid: "test-booking-uid" },
-          expectedNull: ["overlayCalendar"],
-        },
-      ])("$name", ({ query, searchParams, expectedPresent, expectedNull }) => {
-        if (searchParams) {
-          vi.mocked(useCompatSearchParams).mockReturnValue(new URLSearchParams(searchParams) as any);
-        }
+      it("redirects to the saved URL without the booking, the booker's details or the page's query", () => {
+        vi.mocked(useCompatSearchParams).mockReturnValue(
+          new URLSearchParams(
+            "name=Ana+Novak&email=ana%40example.com&guests=guest%40example.com&metadata[x]=1&cal.rerouting=true&embed=ns"
+          ) as any
+        );
+        vi.mocked(useIsEmbed).mockReturnValue(true);
 
         const bookingSuccessRedirect = useBookingSuccessRedirect();
 
         bookingSuccessRedirect({
-          successRedirectUrl: "https://example.com/success",
+          successRedirectUrl: "https://example.com/success?campaign=autumn",
           forwardParamsSuccessRedirect: true,
-          query,
+          query: {
+            isSuccessBookingPage: true,
+            email: "ana@example.com",
+            eventTypeSlug: "pregled",
+            seatReferenceUid: "seat-reference-uid",
+            rescheduledBy: "ana@example.com",
+          },
           booking: mockBooking,
         });
 
+        expect(navigateInTopWindow).toHaveBeenCalledTimes(1);
+        expect(navigateInTopWindow).toHaveBeenCalledWith("https://example.com/success?campaign=autumn");
         const calledUrl = vi.mocked(navigateInTopWindow).mock.calls[0][0];
-        const url = new URL(calledUrl);
-
-        // Check expected present params (allow for additional booking params)
-        Object.entries(expectedPresent).forEach(([key, value]) => {
-          expect(url.searchParams.get(key)).toBe(value);
-        });
-
-        // Check expected null params
-        expectedNull.forEach((param) => {
-          expect(url.searchParams.get(param)).toBeNull();
-        });
+        expect(calledUrl).not.toContain("test-booking-uid");
+        expect(calledUrl).not.toContain("%40");
+        expect(calledUrl).not.toContain("John");
+        expect(calledUrl).not.toContain("1234567890");
+        expect(mockPush).not.toHaveBeenCalled();
       });
 
-      it("includes cal.rerouting param from searchParams", () => {
-        vi.mocked(useCompatSearchParams).mockReturnValue(new URLSearchParams("cal.rerouting=true") as any);
+      it.each(["javascript:alert(document.domain)", "data:text/html,<p>x</p>", "   ", "not a url"])(
+        "shows the booking success page instead of following %s",
+        (successRedirectUrl) => {
+          const bookingSuccessRedirect = useBookingSuccessRedirect();
 
+          bookingSuccessRedirect({
+            successRedirectUrl,
+            forwardParamsSuccessRedirect: false,
+            query: { email: "ana@example.com" },
+            booking: mockBooking,
+          });
+
+          expect(navigateInTopWindow).not.toHaveBeenCalled();
+          expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/booking/test-booking-uid?"));
+        }
+      );
+
+      it("treats a missing forwardParamsSuccessRedirect (upstream's default of true) the same way", () => {
         const bookingSuccessRedirect = useBookingSuccessRedirect();
 
         bookingSuccessRedirect({
           successRedirectUrl: "https://example.com/success",
-          forwardParamsSuccessRedirect: true,
-          query: { test: "value" },
+          forwardParamsSuccessRedirect: null,
+          query: { email: "ana@example.com" },
           booking: mockBooking,
         });
 
-        const calledUrl = vi.mocked(navigateInTopWindow).mock.calls[0][0];
-        assertUrlSearchParams(calledUrl, { "cal.rerouting": "true" });
+        expect(navigateInTopWindow).toHaveBeenCalledWith("https://example.com/success");
       });
     });
   });

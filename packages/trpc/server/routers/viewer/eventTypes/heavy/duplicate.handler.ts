@@ -10,6 +10,7 @@ import { TRPCError } from "@trpc/server";
 import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
+import { ensureNoSuccessRedirect, SUCCESS_REDIRECT_NOT_AVAILABLE } from "../ensureNoSuccessRedirect";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import type { TDuplicateInputSchema } from "./duplicate.schema";
 
@@ -105,6 +106,8 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       locations: eventType.locations,
       price: eventType.price,
     });
+    // Flowko U13-20: the copy is new, so it may not take over the original's redirect URL either
+    ensureNoSuccessRedirect(eventType.successRedirectUrl);
 
     const {
       customInputs,
@@ -244,13 +247,14 @@ export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
       eventType: newEventType,
     };
   } catch (error) {
-    // Keep the seated or recurring and the disabled app refusals above a 400, and the ownership refusals a
-    // 403 (the dialog shows error_event_type_unauthorized_create for it), instead of wrapping them in a 500
+    // Keep the seated or recurring, the disabled app and the redirect refusals above a 400, and the ownership
+    // refusals a 403 (the dialog shows error_event_type_unauthorized_create for it), instead of wrapping them in a 500
     if (
       error instanceof TRPCError &&
       (error.code === "FORBIDDEN" ||
         error.message === ErrorCode.SeatsAndRecurringNotAvailable ||
-        error.message === ErrorCode.AppNotAvailable)
+        error.message === ErrorCode.AppNotAvailable ||
+        error.message === SUCCESS_REDIRECT_NOT_AVAILABLE)
     )
       throw error;
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

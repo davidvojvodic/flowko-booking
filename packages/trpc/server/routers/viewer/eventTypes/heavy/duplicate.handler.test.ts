@@ -170,4 +170,44 @@ describe("duplicateHandler", () => {
     await expect(duplicateHandler({ ctx, input })).resolves.toMatchObject({ eventType: { id: 456 } });
     expect(prismaMock.app.findMany).not.toHaveBeenCalled();
   });
+
+  // Flowko U13-20: an event type can't send its bookers to another page after booking, and the copy is a new
+  // event type, so it may not take over the original's redirect URL
+  it("should refuse to duplicate an event type with a redirect URL, and say so", async () => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn();
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({
+      ...eventType,
+      successRedirectUrl: "https://example.com/hvala",
+      forwardParamsSuccessRedirect: true,
+    });
+
+    // A 400 with its own message, not wrapped in the catch-all 500
+    await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "success_redirect_not_available_error",
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an empty", ""],
+    ["no", null],
+  ])("should still duplicate an event type with %s redirect URL", async (_kind, successRedirectUrl) => {
+    const { EventTypeRepository } = await import(
+      "@calcom/features/eventtypes/repositories/eventTypeRepository"
+    );
+    const create = vi.fn().mockResolvedValue({ id: 456, teamId: null });
+    vi.mocked(EventTypeRepository).mockImplementation(function () {
+      return { create } as unknown as InstanceType<typeof EventTypeRepository>;
+    });
+    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, successRedirectUrl, hashedLink: [] });
+
+    await expect(duplicateHandler({ ctx, input })).resolves.toMatchObject({ eventType: { id: 456 } });
+  });
 });
