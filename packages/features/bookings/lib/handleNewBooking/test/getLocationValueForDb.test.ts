@@ -33,6 +33,7 @@ describe("_getLocationValuesForDb", () => {
       },
     ];
     const result = _getLocationValuesForDb({
+      isDynamicEventType: true,
       dynamicUserList: ["alice"],
       users,
       location: "https://meet.example.com/alice",
@@ -60,6 +61,7 @@ describe("_getLocationValuesForDb", () => {
       },
     ];
     const result = _getLocationValuesForDb({
+      isDynamicEventType: true,
       dynamicUserList: ["bob", "carol"],
       users,
       location: "https://meet.example.com/group",
@@ -86,6 +88,7 @@ describe("_getLocationValuesForDb", () => {
       },
     ];
     const result = _getLocationValuesForDb({
+      isDynamicEventType: true,
       dynamicUserList: ["dave", "eve"],
       users,
       location: "https://meet.example.com/group",
@@ -108,6 +111,7 @@ describe("_getLocationValuesForDb", () => {
       },
     ];
     const result = _getLocationValuesForDb({
+      isDynamicEventType: true,
       dynamicUserList: ["frank", "grace"],
       users,
       location: "https://meet.example.com/group",
@@ -134,6 +138,7 @@ describe("_getLocationValuesForDb", () => {
       },
     ];
     const result = _getLocationValuesForDb({
+      isDynamicEventType: true,
       dynamicUserList: ["frank", "grace"],
       users,
       location: "https://meet.example.com/group",
@@ -162,6 +167,7 @@ describe("_getLocationValuesForDb", () => {
     ];
     // yanni is first in dynamicUserList, but zara is first in users array
     const result = _getLocationValuesForDb({
+      isDynamicEventType: true,
       dynamicUserList: ["yanni", "zara"],
       users,
       location: "https://meet.example.com/group",
@@ -169,5 +175,28 @@ describe("_getLocationValuesForDb", () => {
     // After sorting, yanni is first, has no preference, so fallback to location
     expect(result.locationBodyString).toBe("https://meet.example.com/group");
     expect(result.organizerOrFirstDynamicGroupMemberDefaultLocationUrl).toBeNull();
+  });
+
+  // Flowko (U8e): a `user` list with "+" sent with a stored event type's id is no dynamic group booking
+  it("keeps the booker's location for a stored event type whatever the user list says", () => {
+    const users: TestUser[] = [
+      {
+        username: "organizer",
+        metadata: {
+          defaultConferencingApp: { appSlug: "whereby", appLink: "https://whereby.com/secret-room" },
+        },
+        credentials: [
+          { __test__appLink: "https://meet.google.com/organizer" } as unknown as CredentialForCalendarService,
+        ],
+      },
+    ];
+    const result = _getLocationValuesForDb({
+      isDynamicEventType: false,
+      dynamicUserList: ["organizer", "someone"],
+      users,
+      location: "inPerson",
+    });
+    expect(result.locationBodyString).toBe("inPerson");
+    expect(result.organizerOrFirstDynamicGroupMemberDefaultLocationUrl).toBeUndefined();
   });
 });
