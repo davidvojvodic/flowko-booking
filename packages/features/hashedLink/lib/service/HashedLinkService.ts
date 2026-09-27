@@ -1,6 +1,8 @@
 import { MembershipService } from "@calcom/features/membership/services/membershipService";
 import { ErrorCode } from "@calcom/lib/errorCodes";
+import { isGeneratedHashedLink } from "@calcom/lib/generateHashedLink";
 import { validateHashedLinkData } from "@calcom/lib/hashedLinksUtils";
+import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 
@@ -12,6 +14,22 @@ type NormalizedLink = {
   expiresAt: Date | null;
   maxUsageCount?: number | null;
 };
+
+/**
+ * Flowko (U8e): the error for a new private link that generateHashedLink did not make. The event type form
+ * shows it as `BAD_REQUEST: t(message)`.
+ */
+export const PRIVATE_LINK_NOT_GENERATED = "private_link_not_generated";
+
+// Flowko (U8e): the client sends the private link, and the server stored whatever string it got ("abc", or the
+// uuidv5 of the user id and a millisecond that a tab still running the pre-U8d bundle makes, which an outsider
+// can compute). A NEW link must be one generateHashedLink made (a random v4 uuid in short form); links already
+// stored, legacy ones included, keep working and can still be updated or removed.
+function assertGeneratedLink(link: string) {
+  if (!isGeneratedHashedLink(link)) {
+    throw new HttpError({ statusCode: 400, message: PRIVATE_LINK_NOT_GENERATED });
+  }
+}
 
 interface HashedLinkServiceDeps {
   hashedLinkRepository: HashedLinkRepository;
@@ -69,12 +87,16 @@ export class HashedLinkService {
     const normalizedLinks = multiplePrivateLinks.map((input) => this.normalizeLinkInput(input));
     const currentLinks = normalizedLinks.map((l) => l.link);
 
+    const existingLinksSet = new Set(connectedMultiplePrivateLinks);
+    // Flowko (U8e): every new link is checked before anything is written
+    normalizedLinks
+      .filter((linkData) => !existingLinksSet.has(linkData.link))
+      .forEach((linkData) => assertGeneratedLink(linkData.link));
+
     const currentLinksSet = new Set(currentLinks);
 
     const linksToDelete = connectedMultiplePrivateLinks.filter((link) => !currentLinksSet.has(link));
     await this.hashedLinkRepository.deleteLinks(eventTypeId, linksToDelete);
-
-    const existingLinksSet = new Set(connectedMultiplePrivateLinks);
 
     for (const linkData of normalizedLinks) {
       const exists = existingLinksSet.has(linkData.link);
@@ -143,6 +165,8 @@ export class HashedLinkService {
 
   async createLinkForEventType(eventTypeId: number, input: string | HashedLinkInputType) {
     const normalized = this.normalizeLinkInput(input);
+    // Flowko (U8e): see assertGeneratedLink
+    assertGeneratedLink(normalized.link);
     return this.hashedLinkRepository.createLink(eventTypeId, normalized);
   }
 
