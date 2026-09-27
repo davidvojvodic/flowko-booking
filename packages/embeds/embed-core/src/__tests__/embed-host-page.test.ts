@@ -26,7 +26,9 @@ function calNs(namespace: string) {
 }
 
 function calInstance(namespace: string) {
-  return CalClass.instances.get(namespace);
+  const instances = CalClass.instancesByNamespace.get(namespace);
+  expect(instances).toHaveLength(1);
+  return instances[0];
 }
 
 /** The loader snippet from the Embed dialog, minus the <script src> it appends. */
@@ -361,6 +363,28 @@ describe("U13-15: the host page accepts messages only from its own embed iframes
       source: iframe.contentWindow,
     });
     expect(calInstance("ns2").iframeReady).toBe(true);
+  });
+
+  it("two instances of one namespace: each one's iframe reaches the host", () => {
+    const first = new CalClass("dup-ns", []);
+    const second = new CalClass("dup-ns", []);
+    const iframes = [first, second].map((cal) => {
+      const iframe = cal.createIframe({ calLink: "flowko-test/ogled", calOrigin: BOOKER_ORIGIN });
+      document.body.appendChild(iframe);
+      return iframe;
+    });
+    const callback = vi.fn();
+    window.addEventListener("CAL:dup-ns:linkReady", callback);
+
+    for (const iframe of iframes) {
+      postToHost({ data: calMessage("dup-ns", "linkReady"), origin: BOOKER_ORIGIN, source: iframe.contentWindow });
+    }
+    const foreignFrame = document.createElement("iframe");
+    document.body.appendChild(foreignFrame);
+    postToHost({ data: calMessage("dup-ns", "linkReady"), origin: BOOKER_ORIGIN, source: foreignFrame.contentWindow });
+
+    expect(callback).toHaveBeenCalledTimes(2);
+    window.removeEventListener("CAL:dup-ns:linkReady", callback);
   });
 
   it("an inline embed and a modal in one namespace: both iframes still reach the host", () => {

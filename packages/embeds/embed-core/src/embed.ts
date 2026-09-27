@@ -265,8 +265,8 @@ export class Cal {
   isPrerendering?: boolean;
 
   static actionsManagers: Record<Namespace, SdkActionManager>;
-  // Flowko U13-15: the instance per namespace, to check which iframes may send it messages
-  static instances: Map<Namespace, Cal>;
+  // Flowko U13-15: the instances per namespace (normally one), to check which iframes may send it messages
+  static instancesByNamespace: Map<Namespace, Cal[]>;
   // Store calLink separately and not rely on deriving it from iframe.src, because we could load different URL in iframe(derived from calLink e.g. calLink=Router -> redirects to eventBookingUrl and then we load that URL in iframe)
   calLink: string | null = null;
   embedConfig: PrefillAndIframeAttrsConfig | null = null;
@@ -481,8 +481,8 @@ export class Cal {
 
     Cal.actionsManagers = Cal.actionsManagers || {};
     Cal.actionsManagers[namespace] = this.actionManager;
-    Cal.instances = Cal.instances || new Map();
-    Cal.instances.set(namespace, this);
+    Cal.instancesByNamespace = Cal.instancesByNamespace || new Map();
+    Cal.instancesByNamespace.set(namespace, [...(Cal.instancesByNamespace.get(namespace) || []), this]);
 
     this.processQueue(q);
 
@@ -1629,8 +1629,10 @@ window.addEventListener("message", (e) => {
 
   // Flowko U13-15: only the namespace's own embed iframes, from the booking origin, may fire its
   // actions (see Cal.isMessageFromOwnIframe). Anything else is ignored, and no longer throws.
-  const cal = Cal.instances?.get(parsedAction.ns);
-  if (!cal || !cal.isMessageFromOwnIframe({ source: e.source, origin: e.origin })) {
+  const cal = Cal.instancesByNamespace
+    ?.get(parsedAction.ns)
+    ?.find((instance) => instance.isMessageFromOwnIframe({ source: e.source, origin: e.origin }));
+  if (!cal) {
     log("Ignoring a message that none of the namespace's embed iframes sent", {
       ...parsedAction,
       origin: e.origin,
