@@ -185,7 +185,7 @@ describe("duplicateHandler", () => {
       ...eventType,
       successRedirectUrl: "https://example.com/hvala",
       forwardParamsSuccessRedirect: true,
-    });
+    } as never);
 
     // A 400 with its own message, not wrapped in the catch-all 500
     await expect(duplicateHandler({ ctx, input })).rejects.toMatchObject({
@@ -206,7 +206,11 @@ describe("duplicateHandler", () => {
     vi.mocked(EventTypeRepository).mockImplementation(function () {
       return { create } as unknown as InstanceType<typeof EventTypeRepository>;
     });
-    prismaMock.eventType.findUnique.mockResolvedValue({ ...eventType, successRedirectUrl, hashedLink: [] });
+    prismaMock.eventType.findUnique.mockResolvedValue({
+      ...eventType,
+      successRedirectUrl,
+      hashedLink: [],
+    } as never);
 
     await expect(duplicateHandler({ ctx, input })).resolves.toMatchObject({ eventType: { id: 456 } });
   });
