@@ -641,14 +641,29 @@ describe("getBookings - booker view of rows the caller only attends", () => {
   ])("adds account data only to the caller's own attendee entry on %s", async (_label, organizerId) => {
     const row = bookingRow({ organizerId, hideOrganizerEmail: false });
     const kysely = createKyselyReturning([row]);
-    const builder = (kysely.selectFrom as ReturnType<typeof vi.fn>)() as Record<string, ReturnType<typeof vi.fn>>;
+    const builder = (kysely.selectFrom as ReturnType<typeof vi.fn>)() as Record<
+      string,
+      ReturnType<typeof vi.fn>
+    >;
     builder.execute = vi
       .fn()
       .mockResolvedValueOnce([row])
       .mockResolvedValueOnce([
-        { id: 100, name: "Caller Account", email: "user@example.com", avatarUrl: "/avatar/caller", username: "caller" },
+        {
+          id: 100,
+          name: "Caller Account",
+          email: "user@example.com",
+          avatarUrl: "/avatar/caller",
+          username: "caller",
+        },
         // The guest's address is another tenant's login
-        { id: 101, name: "Other Tenant", email: "guest@example.org", avatarUrl: null, username: "other-tenant" },
+        {
+          id: 101,
+          name: "Other Tenant",
+          email: "guest@example.org",
+          avatarUrl: null,
+          username: "other-tenant",
+        },
       ]);
 
     const { bookings } = await getBookings({
@@ -692,7 +707,10 @@ describe("getBookings - booker view of rows the caller only attends", () => {
       ],
     };
     const kysely = createKyselyReturning([row]);
-    const builder = (kysely.selectFrom as ReturnType<typeof vi.fn>)() as Record<string, ReturnType<typeof vi.fn>>;
+    const builder = (kysely.selectFrom as ReturnType<typeof vi.fn>)() as Record<
+      string,
+      ReturnType<typeof vi.fn>
+    >;
 
     const { bookings } = await getBookings({
       user: caller,

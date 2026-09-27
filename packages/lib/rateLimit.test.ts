@@ -244,7 +244,11 @@ describe("createInMemoryRateLimiter", () => {
 
     // An override in the same namespace overflows separately, with its own limit.
     const opts = { limit: { limit: 3, duration: "60s" as const } };
-    expect(await limiter({ identifier: "override", opts })).toMatchObject({ success: true, limit: 3, remaining: 2 });
+    expect(await limiter({ identifier: "override", opts })).toMatchObject({
+      success: true,
+      limit: 3,
+      remaining: 2,
+    });
     // Another namespace is not full: its identifiers get windows of their own.
     expect(await limiter({ rateLimitingType: "common", identifier: "eventTypes:list:7" })).toMatchObject({
       success: true,
@@ -278,7 +282,11 @@ describe("createInMemoryRateLimiter", () => {
 
   it("resets the overflow window after its duration while the store stays full", async () => {
     const clock = fakeClock();
-    const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntries: 1, reservedEntriesPerNamespace: 0 });
+    const limiter = createInMemoryRateLimiter({
+      now: clock.now,
+      maxEntries: 1,
+      reservedEntriesPerNamespace: 0,
+    });
     await limiter({ rateLimitingType: "ai", identifier: "long-lived" });
     for (let i = 0; i < 10; i++) await limiter({ identifier: `flood-${i}` });
     expect((await limiter({ identifier: "flood-x" })).success).toBe(false);
@@ -294,7 +302,8 @@ describe("createInMemoryRateLimiter", () => {
 
   // U8e: one namespace per call site, so random e-mails sent at one limiter can't lock everyone else out
   describe("per-namespace budgets", () => {
-    const hostLogin = "login:0f3a9c11d2b7e4a8c6f5d0e1b2a39485@flowko-test.example.com:9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e";
+    const hostLogin =
+      "login:0f3a9c11d2b7e4a8c6f5d0e1b2a39485@flowko-test.example.com:9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e";
     const booking = "createBooking:1a2b3c4d5e6f708192a3b4c5d6e7f809";
 
     it("names a namespace after the call site's fixed labels, never after the variable part", () => {
@@ -418,9 +427,10 @@ describe("createInMemoryRateLimiter", () => {
     expect(limiter.size()).toBe(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE + 1);
     expect((await limiter({ identifier: "admin-login" })).success).toBe(false);
     // A host signing in for the first time during the flood still gets a window of their own
-    expect(
-      await limiter({ identifier: "login:host-hash@flowko-test.example.com:ip-hash" })
-    ).toMatchObject({ success: true, remaining: 9 });
+    expect(await limiter({ identifier: "login:host-hash@flowko-test.example.com:ip-hash" })).toMatchObject({
+      success: true,
+      remaining: 9,
+    });
   });
 
   it("prunes expired windows", async () => {

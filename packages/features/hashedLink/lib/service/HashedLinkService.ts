@@ -15,11 +15,10 @@ type NormalizedLink = {
   maxUsageCount?: number | null;
 };
 
-/**
- * Flowko (U8e): the error for a new private link that generateHashedLink did not make. The event type form
- * shows it as `BAD_REQUEST: t(message)`.
- */
-export const PRIVATE_LINK_NOT_GENERATED = "private_link_not_generated";
+interface HashedLinkServiceDeps {
+  hashedLinkRepository: HashedLinkRepository;
+  membershipService: MembershipService;
+}
 
 // Flowko (U8e): the client sends the private link, and the server stored whatever string it got ("abc", or the
 // uuidv5 of the user id and a millisecond that a tab still running the pre-U8d bundle makes, which an outsider
@@ -31,10 +30,11 @@ function assertGeneratedLink(link: string) {
   }
 }
 
-interface HashedLinkServiceDeps {
-  hashedLinkRepository: HashedLinkRepository;
-  membershipService: MembershipService;
-}
+/**
+ * Flowko (U8e): the error for a new private link that generateHashedLink did not make. The event type form
+ * shows it as `BAD_REQUEST: t(message)`.
+ */
+export const PRIVATE_LINK_NOT_GENERATED = "private_link_not_generated";
 
 export class HashedLinkService {
   private readonly hashedLinkRepository: HashedLinkRepository;
@@ -89,9 +89,9 @@ export class HashedLinkService {
 
     const existingLinksSet = new Set(connectedMultiplePrivateLinks);
     // Flowko (U8e): every new link is checked before anything is written
-    normalizedLinks
-      .filter((linkData) => !existingLinksSet.has(linkData.link))
-      .forEach((linkData) => assertGeneratedLink(linkData.link));
+    for (const linkData of normalizedLinks) {
+      if (!existingLinksSet.has(linkData.link)) assertGeneratedLink(linkData.link);
+    }
 
     const currentLinksSet = new Set(currentLinks);
 

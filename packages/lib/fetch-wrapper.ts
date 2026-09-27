@@ -25,8 +25,7 @@ async function http<T>(path: string, config: RequestInit): Promise<T> {
     // instead of an HttpError. The message is still the body's `message`, else the status text.
     const errJson = await readErrorBody(response);
     throw new HttpError({
-      message:
-        typeof errJson.message === "string" && errJson.message ? errJson.message : response.statusText,
+      message: typeof errJson.message === "string" && errJson.message ? errJson.message : response.statusText,
       url: response.url || request.url,
       method: request.method,
       statusCode: response.status,

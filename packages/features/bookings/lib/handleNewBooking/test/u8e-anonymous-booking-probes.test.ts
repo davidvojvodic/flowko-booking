@@ -60,7 +60,9 @@ describe("U8e: anonymous probes of /api/book/event", () => {
         apps: [TestData.apps["google-calendar"], TestData.apps["daily-video"]],
       })
     );
-    await mockCalendarToHaveNoBusySlots("googlecalendar", { create: { id: "MOCKED_GOOGLE_CALENDAR_EVENT_ID" } });
+    await mockCalendarToHaveNoBusySlots("googlecalendar", {
+      create: { id: "MOCKED_GOOGLE_CALENDAR_EVENT_ID" },
+    });
   }
 
   const requestFor = (email: string, extra: Record<string, unknown> = {}) =>

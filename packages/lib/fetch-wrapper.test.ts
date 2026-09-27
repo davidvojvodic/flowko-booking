@@ -13,7 +13,11 @@ const respondWith = (response: Response, url?: string) => {
   return fetchMock;
 };
 
-const errorOf = (promise: Promise<unknown>) => promise.then(() => undefined, (error: unknown) => error);
+const errorOf = (promise: Promise<unknown>) =>
+  promise.then(
+    () => undefined,
+    (error: unknown) => error
+  );
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -22,7 +26,10 @@ afterEach(() => {
 describe("fetch-wrapper", () => {
   it("keeps the status, url, method and message of a JSON error answer (the booking form's 429)", async () => {
     const body = { message: "Rate limit exceeded. Try again in 42 seconds." };
-    respondWith(new Response(JSON.stringify(body), { status: 429, statusText: "Too Many Requests" }), BOOK_URL);
+    respondWith(
+      new Response(JSON.stringify(body), { status: 429, statusText: "Too Many Requests" }),
+      BOOK_URL
+    );
 
     const error = await errorOf(post(BOOK_URL, { eventTypeId: 1 }));
 
@@ -85,7 +92,9 @@ describe("fetch-wrapper", () => {
   });
 
   it("ignores a message that is not a string", async () => {
-    respondWith(new Response(JSON.stringify({ message: { nested: true } }), { status: 400, statusText: "Bad" }));
+    respondWith(
+      new Response(JSON.stringify({ message: { nested: true } }), { status: 400, statusText: "Bad" })
+    );
 
     expect(await errorOf(post(BOOK_URL, {}))).toMatchObject({ statusCode: 400, message: "Bad" });
   });

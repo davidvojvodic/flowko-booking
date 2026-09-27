@@ -24,7 +24,9 @@ describe("HashedLinkService: only links generateHashedLink made are created", ()
 
   // What a tab still running the pre-U8d bundle sends: uuidv5(`${userId}:${Date.now()}`) in short-uuid form,
   // the same alphabet and length as a random one
-  const LEGACY_DERIVED_LINK = short().fromUUID(uuidv5(`42:${Date.parse("2026-09-24T10:00:00Z")}`, uuidv5.URL));
+  const LEGACY_DERIVED_LINK = short().fromUUID(
+    uuidv5(`42:${Date.parse("2026-09-24T10:00:00Z")}`, uuidv5.URL)
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
