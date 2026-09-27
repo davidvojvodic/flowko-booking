@@ -294,12 +294,16 @@ export function buildFlowkoSnippet(input: BuildFlowkoSnippetInput): string {
   } else {
     // The client's own button links to the booking page; with this script the link opens the pop-up
     // (embed.ts's documented "modal" instruction), without it the link still opens the booking page.
+    // Flowko (U13 fix pass): a click on or inside a data-cal-link element (Webflow's custom attributes on the
+    // same link, guide §7.5) is left to embed.ts's own document listener, which opens the pop-up for it;
+    // handling it here as well opened two. Same test as embed.ts's getCalLinkEl: the target or an ancestor.
     lines.push(
       ...loader,
       uiLine,
       `  document.addEventListener("click", function (e) {`,
       `    var a = e.target instanceof Element ? e.target.closest("a[href]") : null;`,
       `    if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;`,
+      `    if (e.target.closest("[data-cal-link]")) return;`,
       `    var u; try { u = new URL(a.href); } catch (_) { return; }`,
       `    if (u.origin !== ${jsString(origin)} || u.pathname.replace(/\\/$/, "") !== ${jsString(
         bookingPath

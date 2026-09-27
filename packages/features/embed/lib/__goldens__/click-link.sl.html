@@ -23,6 +23,7 @@
   document.addEventListener("click", function (e) {
     var a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.target.closest("[data-cal-link]")) return;
     var u; try { u = new URL(a.href); } catch (_) { return; }
     if (u.origin !== "https://booking.flowko.si" || u.pathname.replace(/\/$/, "") !== "/flowko-test/ogled") return;
     e.preventDefault();

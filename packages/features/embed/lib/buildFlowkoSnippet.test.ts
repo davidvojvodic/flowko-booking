@@ -75,7 +75,8 @@ const PLAN_LOADER = `<script type="text/javascript" data-cfasync="false" nowproc
   })(window, "https://booking.flowko.si/embed/embed.js", "init");
   Cal("init", "ogled", { origin: "https://booking.flowko.si" });`;
 
-// Plan §3.3 and §3.4, verbatim (flowko-test/ogled, brand #0F766E).
+// Plan §3.3 and §3.4, verbatim (flowko-test/ogled, brand #0F766E). Flowko (U13 fix pass): §3.4 gained the
+// data-cal-link line; the plan is updated to match.
 const PLAN_OUTPUT: Record<FlowkoSnippetType, string> = {
   inline: `<!-- Flowko Rezervacije: koledar na strani (začetek) -->
 <div id="flowko-rezervacije-ogled" style="width:100%;height:100%;overflow:scroll"></div>
@@ -114,6 +115,7 @@ ${PLAN_LOADER}
   document.addEventListener("click", function (e) {
     var a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.target.closest("[data-cal-link]")) return;
     var u; try { u = new URL(a.href); } catch (_) { return; }
     if (u.origin !== "https://booking.flowko.si" || u.pathname.replace(/\\/$/, "") !== "/flowko-test/ogled") return;
     e.preventDefault();
@@ -409,6 +411,21 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
         { button: 1 },
       ]) {
         expect(click(byId("ok"), init).defaultPrevented).toBe(false);
+      }
+      expect(modalCalls()).toEqual([]);
+    });
+
+    // Flowko (U13 fix pass): embed.ts's own document listener opens the pop-up for a data-cal-link element
+    // (Webflow's custom attributes on the same link, guide §7.5); the script handled it too and opened two
+    it("leaves a link with data-cal-link, or inside or around one, to embed.js", () => {
+      const { win, modalCalls, click } = setup(
+        `<a id="on" href="https://booking.flowko.si/flowko-test/ogled" data-cal-link="flowko-test/ogled"
+            data-cal-namespace="ogled"><span id="on-inner">x</span></a>
+         <div data-cal-link="flowko-test/ogled"><a id="inside" href="https://booking.flowko.si/flowko-test/ogled">x</a></div>
+         <a href="https://booking.flowko.si/flowko-test/ogled"><span id="holds" data-cal-link="flowko-test/ogled">x</span></a>`
+      );
+      for (const id of ["on", "on-inner", "inside", "holds"]) {
+        expect(click(win.document.getElementById(id) as Element).defaultPrevented).toBe(false);
       }
       expect(modalCalls()).toEqual([]);
     });
