@@ -8,12 +8,16 @@ type SearchParamsReader = Pick<URLSearchParams, "get" | "getAll"> | null | undef
  * iframe's query (the snippet's config), so it could add a guest the booker doesn't notice, and every guest receives
  * the booking's details and the attendees' names and e-mails. The booker can still add guests in the form.
  */
-export function getBookerPrefillFormParams(searchParams: SearchParamsReader, { isEmbed }: { isEmbed: boolean }) {
+export function getBookerPrefillFormParams(
+  searchParams: SearchParamsReader,
+  { isEmbed }: { isEmbed: boolean }
+) {
   const firstNameQueryParam = searchParams?.get("firstName");
   const lastNameQueryParam = searchParams?.get("lastName");
   return {
     name:
-      searchParams?.get("name") || (firstNameQueryParam ? `${firstNameQueryParam} ${lastNameQueryParam}` : null),
+      searchParams?.get("name") ||
+      (firstNameQueryParam ? `${firstNameQueryParam} ${lastNameQueryParam}` : null),
     guests: isEmbed ? [] : ((searchParams?.getAll("guests") || searchParams?.getAll("guest")) ?? []),
   };
 }

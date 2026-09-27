@@ -101,9 +101,9 @@ function withoutKeys(value: Record<string, unknown>, keys: string[]) {
 
 function onlyKeys(value: Record<string, unknown>, keys: string[]) {
   const copy: Record<string, unknown> = {};
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(value, key)) {
-      copy[key] = value[key];
+  for (const [key, keyValue] of Object.entries(value)) {
+    if (keys.includes(key)) {
+      copy[key] = keyValue;
     }
   }
   return copy;

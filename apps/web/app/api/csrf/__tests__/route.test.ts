@@ -23,17 +23,20 @@ describe("GET /api/csrf", () => {
     constants.WEBAPP_URL = "https://booking.example.com";
   });
 
-  it.each(["", "?sameSite=none", "?sameSite=None", "?sameSite=lax", "?sameSite=anything"])(
-    "sets a Lax cookie for %j",
-    async (query) => {
-      const res = await getCookie(query);
-      const cookie = setCookieHeader(res);
+  it.each([
+    "",
+    "?sameSite=none",
+    "?sameSite=None",
+    "?sameSite=lax",
+    "?sameSite=anything",
+  ])("sets a Lax cookie for %j", async (query) => {
+    const res = await getCookie(query);
+    const cookie = setCookieHeader(res);
 
-      expect(cookie).toMatch(/^calcom\.csrf_token=[0-9a-f]{64};/);
-      expect(cookie.toLowerCase()).toContain("samesite=lax");
-      expect(cookie.toLowerCase()).not.toContain("samesite=none");
-    }
-  );
+    expect(cookie).toMatch(/^calcom\.csrf_token=[0-9a-f]{64};/);
+    expect(cookie.toLowerCase()).toContain("samesite=lax");
+    expect(cookie.toLowerCase()).not.toContain("samesite=none");
+  });
 
   it("still lets a caller tighten it to Strict", async () => {
     const cookie = setCookieHeader(await getCookie("?sameSite=strict"));

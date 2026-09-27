@@ -69,10 +69,10 @@ describe("CancelBooking CSRF token", () => {
   }
 
   it("asks for the default (Lax) cookie and sends its token with the cancel request", async () => {
-    fetchMock.mockResponses([JSON.stringify({ csrfToken: "token-from-cookie-route" }), { status: 200 }], [
-      JSON.stringify({ success: true }),
-      { status: 200 },
-    ]);
+    fetchMock.mockResponses(
+      [JSON.stringify({ csrfToken: "token-from-cookie-route" }), { status: 200 }],
+      [JSON.stringify({ success: true }), { status: 200 }]
+    );
     renderCancelBooking();
 
     fireEvent.click(screen.getByTestId("confirm_cancel"));

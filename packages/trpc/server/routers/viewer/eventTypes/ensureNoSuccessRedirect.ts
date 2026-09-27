@@ -13,7 +13,10 @@ export const SUCCESS_REDIRECT_NOT_AVAILABLE = "success_redirect_not_available_er
  * a value the event type already holds may be saved unchanged, so an event type saved before U13 can still be
  * edited; useBookingSuccessRedirect no longer forwards anything to such a URL.
  */
-export function ensureNoSuccessRedirect(successRedirectUrl: unknown, currentSuccessRedirectUrl?: string | null) {
+export function ensureNoSuccessRedirect(
+  successRedirectUrl: unknown,
+  currentSuccessRedirectUrl?: string | null
+) {
   if (successRedirectUrl === undefined || successRedirectUrl === null || successRedirectUrl === "") return;
   if (successRedirectUrl === currentSuccessRedirectUrl) return;
   throw new TRPCError({ code: "BAD_REQUEST", message: SUCCESS_REDIRECT_NOT_AVAILABLE });

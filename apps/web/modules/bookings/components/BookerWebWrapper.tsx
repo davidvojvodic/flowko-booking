@@ -22,11 +22,11 @@ import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useBookings } from "../hooks/useBookings";
-import { getBookerPrefillFormParams, isEmbedFrame } from "../lib/getBookerPrefillFormParams";
 import { useCalendars } from "../hooks/useCalendars";
 import { useSlots } from "../hooks/useSlots";
 import { useVerifyCode } from "../hooks/useVerifyCode";
 import { useVerifyEmail } from "../hooks/useVerifyEmail";
+import { getBookerPrefillFormParams, isEmbedFrame } from "../lib/getBookerPrefillFormParams";
 import { Booker as BookerComponent } from "./Booker";
 
 export type BookerWebWrapperAtomProps = BookerProps & {
