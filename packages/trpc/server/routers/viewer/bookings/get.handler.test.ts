@@ -330,7 +330,7 @@ describe("getBookings - stub PermissionCheckService behavior", () => {
 // account email) gets the booker's view, not the host-side record (BK-2)
 describe("getBookings - booker view of rows the caller only attends", () => {
   const caller = { id: 1, email: "user@example.com", orgId: null };
-  const hostEmail = "host@victim.si";
+  const hostEmail = "host@victim.example.com";
 
   const bookingRow = ({
     organizerId,
@@ -341,7 +341,7 @@ describe("getBookings - booker view of rows the caller only attends", () => {
   }) => ({
     id: 10,
     title: "Consultation",
-    userPrimaryEmail: "host-calendar@victim.si",
+    userPrimaryEmail: "host-calendar@victim.example.com",
     description: null,
     customInputs: null,
     startTime: new Date("2030-01-01T10:00:00.000Z"),
@@ -559,7 +559,7 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     const serialised = JSON.stringify(booking);
     for (const secret of [
       hostEmail,
-      "host-calendar@victim.si",
+      "host-calendar@victim.example.com",
       "host.private@gmail.com",
       "google-event-id",
       "credentialId",
@@ -591,7 +591,7 @@ describe("getBookings - booker view of rows the caller only attends", () => {
 
     expect(booking.user).not.toHaveProperty("id");
     expect(booking.user?.email).toBe(hostEmail);
-    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.example.com");
     expect(booking.cancelledBy).toBe(hostEmail);
     expect(booking.rescheduledBy).toBe(hostEmail);
     expect(booking.rescheduler).toBe(hostEmail);
@@ -622,7 +622,7 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     expect(booking.rescheduler).toBe("Victim Host");
     const serialised = JSON.stringify(booking);
     expect(serialised).not.toContain(hostEmail);
-    expect(serialised).not.toContain("host-calendar@victim.si");
+    expect(serialised).not.toContain("host-calendar@victim.example.com");
   });
 
   it("keeps the organizer's email on the organizer's own row after the event type was deleted", async () => {
@@ -630,7 +630,7 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     const booking = await listFor(row as unknown as ReturnType<typeof bookingRow>);
 
     expect(booking.user?.email).toBe(hostEmail);
-    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.example.com");
   });
 
   // Flowko (U8e): the enrichment joined every attendee to users by e-mail, an e-mail-to-account oracle for any
@@ -822,18 +822,18 @@ describe("getBookings - booker view of rows the caller only attends", () => {
 
   it("drops an attendee row under a host's email when the event type hides the organizer's email", async () => {
     const base = bookingRow({ organizerId: 2, hideOrganizerEmail: true });
-    const hostAsGuest = { ...base.attendees[1], id: 103, email: "Host@Victim.si", phoneNumber: null };
+    const hostAsGuest = { ...base.attendees[1], id: 103, email: "Host@Victim.example.com", phoneNumber: null };
     const booking = await listFor({ ...base, attendees: [...base.attendees, hostAsGuest] });
 
     expect(booking.attendees.map(({ email }) => email)).toEqual(["User@Example.com", "guest@example.org"]);
-    expect(JSON.stringify(booking)).not.toContain("Host@Victim.si");
+    expect(JSON.stringify(booking)).not.toContain("Host@Victim.example.com");
 
     const shown = bookingRow({ organizerId: 2, hideOrganizerEmail: false });
     const bookingShown = await listFor({ ...shown, attendees: [...shown.attendees, hostAsGuest] });
     expect(bookingShown.attendees.map(({ email }) => email)).toEqual([
       "User@Example.com",
       "guest@example.org",
-      "Host@Victim.si",
+      "Host@Victim.example.com",
     ]);
   });
 
@@ -875,7 +875,7 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     const booking = await listFor(row);
 
     expect(booking.user).toEqual(row.user);
-    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.example.com");
     expect(booking.cancelledBy).toBe(hostEmail);
     expect(booking.rescheduler).toBe(hostEmail);
     expect(booking.references).toEqual(row.references);
