@@ -27,7 +27,7 @@ const ServerPage = async ({ params, searchParams }: ServerPageProps) => {
   const context = buildLegacyCtx(await headers(), await cookies(), await params, await searchParams);
   const props = await getData(context);
 
-  // Flowko U13-25: the event type's interface language, else its owner's language instead of the visitor's browser
+  // Flowko U13-25: the event type's interface language; only with it off (null), the owner's instead of the visitor's browser
   const locale = await getEventTypePageLocale({
     interfaceLanguage: props.eventData?.interfaceLanguage,
     eventTypeId: props.eventData?.id,

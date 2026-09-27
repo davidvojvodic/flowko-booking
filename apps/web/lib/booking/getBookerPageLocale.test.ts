@@ -35,10 +35,17 @@ describe("getEventTypePageLocale", () => {
     });
   });
 
-  it("treats an empty interface language as none", async () => {
+  it("keeps the visitor's browser language for an explicit „Jezik brskalnika obiskovalca“ (\"\"), without asking for the owner's", async () => {
     findEventType.mockResolvedValue({ owner: { locale: "sl" } });
 
-    await expect(getEventTypePageLocale({ interfaceLanguage: "", eventTypeId: 5 })).resolves.toBe("sl");
+    await expect(getEventTypePageLocale({ interfaceLanguage: "", eventTypeId: 5 })).resolves.toBeNull();
+    expect(findEventType).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the owner's language when the interface language is undefined (not loaded)", async () => {
+    findEventType.mockResolvedValue({ owner: { locale: "sl" } });
+
+    await expect(getEventTypePageLocale({ eventTypeId: 5 })).resolves.toBe("sl");
   });
 
   it.each([
