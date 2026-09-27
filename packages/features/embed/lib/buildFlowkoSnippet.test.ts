@@ -421,8 +421,10 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
       const { win, modalCalls, click } = setup(
         `<a id="on" href="https://booking.flowko.si/flowko-test/ogled" data-cal-link="flowko-test/ogled"
             data-cal-namespace="ogled"><span id="on-inner">x</span></a>
-         <div data-cal-link="flowko-test/ogled"><a id="inside" href="https://booking.flowko.si/flowko-test/ogled">x</a></div>
-         <a href="https://booking.flowko.si/flowko-test/ogled"><span id="holds" data-cal-link="flowko-test/ogled">x</span></a>`
+         <div data-cal-link="flowko-test/ogled">
+           <a id="inside" href="https://booking.flowko.si/flowko-test/ogled">x</a></div>
+         <a href="https://booking.flowko.si/flowko-test/ogled">
+           <span id="holds" data-cal-link="flowko-test/ogled">x</span></a>`
       );
       for (const id of ["on", "on-inner", "inside", "holds"]) {
         expect(click(win.document.getElementById(id) as Element).defaultPrevented).toBe(false);

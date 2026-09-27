@@ -1471,9 +1471,9 @@ describe("Cancel Booking", () => {
     expect(result.bookingId).toBe(idOfBookingToBeCancelled);
   });
 
-  // Flowko (U13 fix pass): a booking outlives its event type (Booking.eventTypeId is ON DELETE SET NULL). Its
-  // cancellation e-mail to the attendee then hides the organizer's address, in the body, the ICS and Reply-To,
-  // as the bookings list and the booking page do (isOrganizerEmailHidden)
+  // Flowko (U13 fix pass): a booking outlives its event type (Booking.eventTypeId is ON DELETE SET NULL).
+  // Its cancellation e-mail to the attendee then hides the organizer's address, in the body, the ICS and
+  // Reply-To, as the bookings list and the booking page do (isOrganizerEmailHidden)
   describe("Organizer e-mail in the attendee's cancellation e-mail (Flowko U13 fix pass)", () => {
     const organizerEmail = "organizer@example.com";
 

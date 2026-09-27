@@ -11,8 +11,8 @@ import { buildLegacyCtx } from "@lib/buildLegacyCtx";
 import { getServerSideProps } from "@lib/d/[link]/[slug]/getServerSideProps";
 import { type PageProps } from "@lib/d/[link]/[slug]/getServerSideProps";
 
-// Flowko (U13 fix pass): the same module as "~/d/[link]/d-type-view"; vitest maps "~" to apps/api/v1, so the page's
-// test (apps/web/test/app/private-link-page.test.tsx) can only load it by this name
+// Flowko (U13 fix pass): the same module as "~/d/[link]/d-type-view"; vitest maps "~" to apps/api/v1, so
+// the page's test (apps/web/test/app/private-link-page.test.tsx) can only load it by this name
 import Type from "@calcom/web/modules/d/[link]/d-type-view";
 
 export const generateMetadata = async ({ params, searchParams }: _PageProps) => {

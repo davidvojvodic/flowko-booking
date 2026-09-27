@@ -353,11 +353,12 @@ describe("handleNoShowFee", () => {
       expect(result).toEqual({ success: true, paymentId: "pay_123" });
     });
 
-    // Flowko (U13 fix pass): a booking outlives its event type (Booking.eventTypeId is ON DELETE SET NULL); the
-    // attendee's e-mail then hides the organizer's address, as the bookings list and the booking page do
+    // Flowko (U13 fix pass): a booking outlives its event type (Booking.eventTypeId is ON DELETE SET NULL);
+    // the attendee's e-mail then hides the organizer's address, as the bookings list and the booking page do
+    const hidingEventType = { ...mockBooking.eventType, hideOrganizerEmail: true };
     it.each([
       { name: "deleted event type", eventType: null, hidden: true },
-      { name: "live event type that hides it", eventType: { ...mockBooking.eventType, hideOrganizerEmail: true }, hidden: true },
+      { name: "live event type that hides it", eventType: hidingEventType, hidden: true },
       { name: "live event type that shows it", eventType: mockBooking.eventType, hidden: false },
     ])("sets hideOrganizerEmail for a $name (Flowko U13 fix pass)", async ({ eventType, hidden }) => {
       mockPaymentService.chargeCard.mockResolvedValue({ success: true, paymentId: "pay_123" });

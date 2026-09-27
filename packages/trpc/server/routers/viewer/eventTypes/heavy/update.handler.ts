@@ -648,9 +648,9 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
   }
   // Handle multiple private links using the service
   // Flowko (U13 fix pass): only when the request carries the list. handleMultiplePrivateLinks deletes every
-  // stored link for a missing list, so a partial update (the listing's Hidden switch sends {id, hidden}, the app
-  // install flow {id, metadata} or {id, locations, bookingFields}) wiped the event type's private links. The
-  // event type page always sends the full list, and an explicit [] still removes them all.
+  // stored link for a missing list, so a partial update (the listing's Hidden switch sends {id, hidden}, the
+  // app install flow {id, metadata} or {id, locations, bookingFields}) wiped the event type's private links.
+  // The event type page always sends the full list, and an explicit [] still removes them all.
   if (multiplePrivateLinks !== undefined) {
     const privateLinksRepo = HashedLinkRepository.create();
     const connectedLinks = await privateLinksRepo.findLinksByEventTypeId(input.id);

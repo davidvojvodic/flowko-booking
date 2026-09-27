@@ -537,9 +537,9 @@ describe("U13-13: a data-cal-link on a link opens the modal instead of following
   });
 });
 
-// Flowko (U13 fix pass): the click-link script (plan §3.4, "Vaš gumb") and embed.js on one page. Webflow users
-// may add data-cal-link attributes (guide §7.5) to the very link the script matches; both the script's capture
-// listener and embed.js's document listener opened a modal for it.
+// Flowko (U13 fix pass): the click-link script (plan §3.4, "Vaš gumb") and embed.js on one page. Webflow
+// users may add data-cal-link attributes (guide §7.5) to the very link the script matches; both the script's
+// capture listener and embed.js's document listener opened a modal for it.
 describe("U13 fix pass: the click-link script and a data-cal-link on the same link", () => {
   const CAL_LINK = "flowko-test/dvojni";
   let removeClickLinkListener = () => undefined as void;
@@ -581,10 +581,12 @@ describe("U13 fix pass: the click-link script and a data-cal-link on the same li
     expect(new URL(iframe.src).pathname).toBe(`/${CAL_LINK}/embed`);
   }
 
+  const linkWithAttributes = (inner: string) =>
+    `<a href="${BOOKER_ORIGIN}/${CAL_LINK}" data-cal-link="${CAL_LINK}" data-cal-namespace="dvojni">` +
+    `${inner}</a>`;
+
   it("<a href> to the booking page with data-cal-link opens exactly one modal", () => {
-    const wrapper = appendHtml(
-      `<a href="${BOOKER_ORIGIN}/${CAL_LINK}" data-cal-link="${CAL_LINK}" data-cal-namespace="dvojni">Rezervirajte</a>`
-    );
+    const wrapper = appendHtml(linkWithAttributes("Rezervirajte"));
     const event = click(wrapper.querySelector("a") as Element);
 
     expect(event.defaultPrevented).toBe(true);
@@ -592,9 +594,7 @@ describe("U13 fix pass: the click-link script and a data-cal-link on the same li
   });
 
   it("a click on text inside such a link opens exactly one modal too", () => {
-    const wrapper = appendHtml(
-      `<a href="${BOOKER_ORIGIN}/${CAL_LINK}" data-cal-link="${CAL_LINK}" data-cal-namespace="dvojni"><span>Rezervirajte</span></a>`
-    );
+    const wrapper = appendHtml(linkWithAttributes("<span>Rezervirajte</span>"));
     const event = click(wrapper.querySelector("span") as Element);
 
     expect(event.defaultPrevented).toBe(true);

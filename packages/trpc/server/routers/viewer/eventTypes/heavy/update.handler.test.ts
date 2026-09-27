@@ -705,7 +705,10 @@ describe("update.handler", () => {
       storedEventType([KEPT, DROPPED]);
 
       await expect(
-        updateHandler({ ctx, input: { id: 1, multiplePrivateLinks: [KEPT, { link: ADDED, maxUsageCount: 3 }] } })
+        updateHandler({
+          ctx,
+          input: { id: 1, multiplePrivateLinks: [KEPT, { link: ADDED, maxUsageCount: 3 }] },
+        })
       ).rejects.toThrow("reached the update");
 
       expect(prismaMock.hashedLink.deleteMany).toHaveBeenCalledWith({

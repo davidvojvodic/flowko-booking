@@ -2,10 +2,10 @@ import { CustomI18nProvider } from "app/CustomI18nProvider";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Flowko (U13 fix pass): the private link's booking page (/d/<link>/<slug>) speaks the event type's language like
-// /:user/:type (U13-25). Before, a private-link booker saw it in their browser's language and the success page
-// (/booking/<uid>) in the owner's. This file lives outside apps/web/app on purpose: pagesAndRewritePaths.ts scans
-// the file names there as top-level routes.
+// Flowko (U13 fix pass): the private link's booking page (/d/<link>/<slug>) speaks the event type's
+// language like /:user/:type (U13-25). Before, a private-link booker saw it in their browser's language and
+// the success page (/booking/<uid>) in the owner's. This file lives outside apps/web/app on purpose:
+// pagesAndRewritePaths.ts scans the file names there as top-level routes.
 
 const mocks = vi.hoisted(() => ({
   getEventTypePageLocale: vi.fn(),
@@ -51,7 +51,7 @@ describe("/d/<link>/<slug> page language (Flowko U13 fix pass)", () => {
     expect(mocks.getEventTypePageLocale).toHaveBeenCalledWith({ interfaceLanguage: null, eventTypeId: 42 });
   });
 
-  it("wraps the booker in the event type's language (the owner's while the interface language is off)", async () => {
+  it("wraps the booker in the event type's language (the owner's while it is off)", async () => {
     mocks.getEventTypePageLocale.mockResolvedValue("sl");
     const page = await renderPage();
 
@@ -59,7 +59,8 @@ describe("/d/<link>/<slug> page language (Flowko U13 fix pass)", () => {
     expect(page.props.locale).toBe("sl");
     expect(page.props.translations).toEqual({ book: "Rezerviraj" });
     expect(mocks.loadTranslations).toHaveBeenCalledWith("sl", "common");
-    expect((page.props.children as ReactElement<typeof mocks.pageProps>).props).toMatchObject(mocks.pageProps);
+    const booker = page.props.children as ReactElement<typeof mocks.pageProps>;
+    expect(booker.props).toMatchObject(mocks.pageProps);
   });
 
   it("keeps the root layout's language when there is none (the visitor's browser language)", async () => {
