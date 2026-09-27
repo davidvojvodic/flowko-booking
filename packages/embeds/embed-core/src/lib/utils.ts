@@ -1,5 +1,7 @@
 import type { KnownConfig, PrefillAndIframeAttrsConfig } from "../types";
+import { getEmbedStrings } from "./i18n";
 
+// Flowko U13-14: in the host page's language (see ./i18n); a 404 says the booking page does not exist
 export const getErrorString = ({
   errorCode,
   errorMessage,
@@ -7,17 +9,14 @@ export const getErrorString = ({
   errorCode: string | undefined;
   errorMessage: string | undefined;
 }) => {
-  const defaultErrorMessage = "Something went wrong.";
+  const strings = getEmbedStrings();
   if (errorCode === "404") {
-    errorMessage = errorMessage ?? "Cal Link seems to be wrong.";
-    return `Error Code: 404. ${errorMessage}`;
-  } else if (errorCode === "routerError") {
-    errorMessage = errorMessage ?? defaultErrorMessage;
-    return `Error Code: routerError. ${errorMessage}`;
+    errorMessage = errorMessage ?? strings.bookingPageNotFound;
   } else {
-    errorMessage = errorMessage ?? defaultErrorMessage;
-    return `Error Code: ${errorCode}. ${errorMessage}`;
+    // routerError and every other code
+    errorMessage = errorMessage ?? strings.somethingWentWrong;
   }
+  return `${strings.errorCode}: ${errorCode}. ${errorMessage}`;
 };
 
 /**

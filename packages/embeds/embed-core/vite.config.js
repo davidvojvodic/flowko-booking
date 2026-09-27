@@ -10,6 +10,11 @@ module.exports = defineConfig((configEnv) => {
   const config = {
     ...viteBaseConfig,
     base: "/embed/",
+    // Flowko U13-14: embed.js carries Slovenian text (š, ž). Emit it as \u escapes so the file stays
+    // ASCII and reads the same whatever charset a client's page or a proxy assumes for it.
+    esbuild: {
+      charset: "ascii",
+    },
     plugins: [
       EnvironmentPlugin({
         EMBED_PUBLIC_EMBED_FINGER_PRINT: embedCoreEnvVars.EMBED_PUBLIC_EMBED_FINGER_PRINT,

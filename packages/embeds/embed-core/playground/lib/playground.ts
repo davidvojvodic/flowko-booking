@@ -46,13 +46,12 @@ if (themeInParam && !theme) {
 const calLink = searchParams.get("cal-link");
 
 function fakeEvent({ namespace, eventType, data }) {
-  window.postMessage({
-    fullType: `CAL:${namespace}:${eventType}`,
-    namespace,
-    originator: "CAL",
-    type: eventType,
-    data,
-  });
+  // Flowko U13-15: embed.js ignores a message the page posts to itself (only its embed iframes may
+  // post events), so fire the event the way the namespace's SdkActionManager does
+  const fullType = `CAL:${namespace}:${eventType}`;
+  const detail = { type: eventType, namespace, fullType, data };
+  window.dispatchEvent(new CustomEvent(fullType, { detail }));
+  window.dispatchEvent(new CustomEvent(`CAL:${namespace}:*`, { detail }));
 }
 
 window.heavilyCustomizeUi = ({ namespace }) => {
