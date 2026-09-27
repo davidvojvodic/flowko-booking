@@ -56,6 +56,18 @@ export function normaliseEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+/**
+ * Flowko (U8e): whether a viewer who isn't a host gets the organizer's e-mail hidden. Deleting an event type
+ * keeps its bookings (Booking.eventTypeId is ON DELETE SET NULL), and such a booking no longer knows the
+ * owner's hideOrganizerEmail choice. Reading "no event type" as "not hidden" showed the login e-mail the owner
+ * had hidden on the bookings list and the booking page; it now reads as hidden.
+ */
+export function isOrganizerEmailHidden(
+  eventType: { hideOrganizerEmail?: boolean | null } | null | undefined
+): boolean {
+  return !eventType || !!eventType.hideOrganizerEmail;
+}
+
 /** Every email under which a host of the booking can appear among its attendees. */
 export function getHostEmails({
   eventType,

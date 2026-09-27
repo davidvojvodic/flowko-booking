@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getHostEmails,
+  isOrganizerEmailHidden,
   normaliseEmail,
   toBookingInfoForViewer,
   toEventTypeForViewer,
@@ -280,5 +281,19 @@ describe("toHostForViewer", () => {
       isPlatformManaged: false,
     });
     expect(toHostForViewer(coHost, true)).toBe(coHost);
+  });
+});
+
+// Flowko (U8e): deleting an event type sets its bookings' eventTypeId to NULL
+describe("isOrganizerEmailHidden", () => {
+  it("follows the event type's choice", () => {
+    expect(isOrganizerEmailHidden({ hideOrganizerEmail: true })).toBe(true);
+    expect(isOrganizerEmailHidden({ hideOrganizerEmail: false })).toBe(false);
+    expect(isOrganizerEmailHidden({ hideOrganizerEmail: null })).toBe(false);
+  });
+
+  it("hides the e-mail of a booking whose event type is gone", () => {
+    expect(isOrganizerEmailHidden(null)).toBe(true);
+    expect(isOrganizerEmailHidden(undefined)).toBe(true);
   });
 });

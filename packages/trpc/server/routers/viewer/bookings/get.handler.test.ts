@@ -607,6 +607,32 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     expect(booking.attendees[1].phoneNumber).toBeNull();
   });
 
+  // Flowko (U8e): deleting an event type sets the booking's eventTypeId to NULL, and `!!eventType?.hideOrganizerEmail`
+  // then read as "not hidden", so the booker saw the login e-mail the owner had hidden
+  it("hides the organizer's email from a booker once the event type was deleted", async () => {
+    const prisma = createPrisma();
+    const row = { ...bookingRow({ organizerId: 2, hideOrganizerEmail: true }), eventType: null };
+    const booking = await listFor(row as unknown as ReturnType<typeof bookingRow>, prisma);
+
+    expect(booking.user?.email).toBeNull();
+    expect(booking.userPrimaryEmail).toBeNull();
+    // The host cancelled and rescheduled: the booker sees the organizer's name, as with hideOrganizerEmail
+    expect(booking.cancelledBy).toBe("Victim Host");
+    expect(booking.rescheduledBy).toBe("Victim Host");
+    expect(booking.rescheduler).toBe("Victim Host");
+    const serialised = JSON.stringify(booking);
+    expect(serialised).not.toContain(hostEmail);
+    expect(serialised).not.toContain("host-calendar@victim.si");
+  });
+
+  it("keeps the organizer's email on the organizer's own row after the event type was deleted", async () => {
+    const row = { ...bookingRow({ organizerId: caller.id, hideOrganizerEmail: true }), eventType: null };
+    const booking = await listFor(row as unknown as ReturnType<typeof bookingRow>);
+
+    expect(booking.user?.email).toBe(hostEmail);
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+  });
+
   // Hidden answers are what the booking page drops for anyone who isn't a host; phone answers are the booker's
   const bookerResponses = (bookerEmail: string) => ({
     name: "Booker X",

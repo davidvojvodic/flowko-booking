@@ -3,6 +3,7 @@ import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-util
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import {
   getHostEmails,
+  isOrganizerEmailHidden,
   normaliseEmail,
   toBookingInfoForViewer,
   toEventTypeForViewer,
@@ -257,8 +258,11 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
         (host) => !!host && normaliseEmail(host.email) === normaliseEmail(rescheduledBy)
       )
     : undefined;
+  // Flowko (U8e): a booking whose event type was deleted falls back to the default event, which never hides
+  // the organizer's e-mail; it counts as hiding it (see isOrganizerEmailHidden)
+  const hideOrganizerEmail = isOrganizerEmailHidden(bookingInfoRaw.eventTypeId ? eventType : null);
   const sanitizedPreviousBooking =
-    eventType.hideOrganizerEmail && previousBooking && rescheduledByHost
+    hideOrganizerEmail && previousBooking && rescheduledByHost
       ? { ...previousBooking, rescheduledBy: rescheduledByHost.name }
       : previousBooking;
 
@@ -287,7 +291,7 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
       dynamicEventName: bookingInfo?.eventType?.eventName || "",
       bookingInfo: toBookingInfoForViewer(bookingInfo, {
         canViewHostDetails,
-        hideOrganizerEmail: !!eventType.hideOrganizerEmail,
+        hideOrganizerEmail,
         hostEmails,
         viewerEmails,
         viewerSeatReferenceUid: seatReferenceUid,

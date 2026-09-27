@@ -1,5 +1,6 @@
 import dayjs from "@calcom/dayjs";
 import {
+  isOrganizerEmailHidden,
   normaliseEmail,
   toOrganizerForViewer,
   withoutAppCredentialIds,
@@ -805,11 +806,12 @@ export async function getBookings({
   // caller's own email stays, a host's becomes the organizer's name (as the booking page shows the
   // rescheduler) and anyone else's is dropped
   const toActorForBooker = (booking: (typeof plainBookings)[number], email: string | null) => {
-    if (!booking.eventType?.hideOrganizerEmail || !email || isViewerEmail(email)) return email;
+    // Flowko (U8e): a booking whose event type was deleted counts as hiding (see isOrganizerEmailHidden)
+    if (!isOrganizerEmailHidden(booking.eventType) || !email || isViewerEmail(email)) return email;
     return getHostEmailsOfRow(booking).has(normaliseEmail(email)) ? (booking.user?.name ?? null) : null;
   };
   const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
-    const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
+    const hideOrganizerEmail = isOrganizerEmailHidden(booking.eventType);
     const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
     // Flowko: a host added as a guest is an attendee under their own email, which the event type may hide
     // (U7a nulls it on the booking page). The row is dropped rather than nulled, so Attendee.email stays a string
