@@ -1,3 +1,4 @@
+import { getEmbedStrings } from "../lib/i18n";
 import type { AllPossibleLayouts, EmbedPageType } from "../types";
 import { generateSkeleton } from "../ui/skeleton";
 import { type ExternalThemeClass, getInternalThemeClass } from "../ui/themeClass";
@@ -16,6 +17,8 @@ const html = ({
   });
 
   const themeClass = getInternalThemeClass(externalThemeClass);
+  // Flowko U13-14: in the host page's language
+  const strings = getEmbedStrings();
   return `
 <div id="skeleton-container" style="${skeletonContainerStyle}" ${themeClass ? `class="${themeClass}"` : ""}>
   <div id="skeleton" style="${skeletonStyle}" class="absolute z-highest">
@@ -26,7 +29,7 @@ const html = ({
       <span class="loader-inner bg-brand dark:bg-darkmodebrand"></span>
     </div>
     <div id="error" style="transform:translate(-50%,-50%)" class="hidden">
-      Something went wrong.
+      ${strings.somethingWentWrong}
     </div>
   </div>
 </div>

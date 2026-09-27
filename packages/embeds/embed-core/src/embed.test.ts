@@ -258,33 +258,34 @@ describe("Cal", () => {
         expect(iframe.src).toContain("email=test%40example.com");
       });
 
-      it("should set allow='payment' attribute by default to allow Payment Apps to acccept payments", () => {
+      // Flowko U13-17: Flowko takes no payments, so the iframe gets no allow="payment"
+      it("should not set an allow attribute (no Payment Request permission)", () => {
         const iframe = calInstance.createIframe({
           calLink: "john-doe/meeting",
           config: {},
           calOrigin: null,
         });
 
-        expect(iframe.getAttribute("allow")).toBe("payment");
+        expect(iframe.hasAttribute("allow")).toBe(false);
       });
 
-      it("should set allow='payment' even when no config is provided", () => {
+      it("should not set an allow attribute when no config is provided", () => {
         const iframe = calInstance.createIframe({
           calLink: "john-doe/meeting",
           calOrigin: null,
         });
 
-        expect(iframe.getAttribute("allow")).toBe("payment");
+        expect(iframe.hasAttribute("allow")).toBe(false);
       });
 
-      it("should set allow='payment' when iframeAttrs is empty", () => {
+      it("should not set an allow attribute when iframeAttrs is empty", () => {
         const iframe = calInstance.createIframe({
           calLink: "john-doe/meeting",
           config: { iframeAttrs: {} },
           calOrigin: null,
         });
 
-        expect(iframe.getAttribute("allow")).toBe("payment");
+        expect(iframe.hasAttribute("allow")).toBe(false);
       });
 
       it("should only apply id from iframeAttrs and ignore other attributes", () => {
@@ -304,8 +305,8 @@ describe("Cal", () => {
         // Other attributes should not be applied
         expect(iframe.getAttribute("data-custom")).toBeNull();
         expect(iframe.getAttribute("class")).toBe("cal-embed");
-        // Allow attribute should always be set
-        expect(iframe.getAttribute("allow")).toBe("payment");
+        // Flowko U13-17: and no allow attribute
+        expect(iframe.hasAttribute("allow")).toBe(false);
       });
 
       it("should respect forwardQueryParams setting to disable sending page query params but still send the ones in the config", () => {

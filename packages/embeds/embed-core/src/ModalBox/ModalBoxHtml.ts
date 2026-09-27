@@ -1,3 +1,4 @@
+import { getEmbedStrings } from "../lib/i18n";
 import type { AllPossibleLayouts, EmbedPageType } from "../types";
 import { generateSkeleton } from "../ui/skeleton";
 import { type ExternalThemeClass, getInternalThemeClass } from "../ui/themeClass";
@@ -78,13 +79,15 @@ const html = ({
   });
 
   const themeClass = getInternalThemeClass(externalThemeClass);
+  // Flowko U13-14: in the host page's language
+  const strings = getEmbedStrings();
 
   // Keep message-container outside modal-box as that restricts the content to be shown through its overflow:auto unnecessarily
   return `
 ${getStyle()}
 <div class="my-backdrop">
   <div class="header">
-    <button type="button" class="close" aria-label="Close">&times;</button>
+    <button type="button" class="close" aria-label="${strings.close}">&times;</button>
   </div>
   <div id="message-container" style="left: 50%; top: 50%; transform: translate(-50%, -50%);" class="message-container flex items-center p-24 justify-center dark:bg-cal-muted rounded-md border-subtle border bg-default text-default  absolute z-highest">
     <div id="message"></div>

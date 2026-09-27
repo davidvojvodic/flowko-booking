@@ -11,6 +11,7 @@ import { FloatingButton } from "./FloatingButton/FloatingButton";
 import { Inline } from "./Inline/inline";
 import { getScrollableAncestor } from "./lib/domUtils";
 import { getScrollByDistanceHandler } from "./lib/eventHandlers/scrollByDistanceEventHandler";
+import { getEmbedStrings } from "./lib/i18n";
 import {
   buildConfigWithPrerenderRelatedFields,
   fromEntriesWithDuplicateKeys,
@@ -214,8 +215,31 @@ type PrefillAndIframeAttrsConfigWithGuestAndColorScheme = PrefillAndIframeAttrsC
   "ui.color-scheme"?: string | null;
 };
 
+/**
+ * The origin of an http(s) URL, or null for anything else (unparsable, about:blank, data:, ...).
+ * Flowko U13-15: the origin the booking page in an embed iframe runs at.
+ */
+function getHttpOrigin(url: string | null | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    const urlObject = new URL(url);
+    return urlObject.protocol === "https:" || urlObject.protocol === "http:" ? urlObject.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export class Cal {
   iframe?: HTMLIFrameElement;
+
+  /**
+   * Flowko U13-15: every iframe this namespace created, so that a message is accepted only from one of
+   * them. `iframe` holds only the latest: each opened modal creates a new iframe (the closed modal and
+   * its iframe stay in the page), and an inline embed and a modal can share one namespace.
+   */
+  embedIframes: HTMLIFrameElement[] = [];
 
   __config: CalConfig;
 
@@ -241,6 +265,8 @@ export class Cal {
   isPrerendering?: boolean;
 
   static actionsManagers: Record<Namespace, SdkActionManager>;
+  // Flowko U13-15: the instances per namespace (normally one), to check which iframes may send it messages
+  static instancesByNamespace: Map<Namespace, Cal[]>;
   // Store calLink separately and not rely on deriving it from iframe.src, because we could load different URL in iframe(derived from calLink e.g. calLink=Router -> redirects to eventBookingUrl and then we load that URL in iframe)
   calLink: string | null = null;
   embedConfig: PrefillAndIframeAttrsConfig | null = null;
@@ -310,10 +336,31 @@ export class Cal {
     const iframe = (this.iframe = document.createElement("iframe"));
     iframe.className = "cal-embed";
     iframe.name = `cal-embed=${this.namespace}`;
-    iframe.title = `Book a call`;
+    // Flowko U13-14: in the host page's language
+    iframe.title = getEmbedStrings().iframeTitle;
+    this.embedIframes.push(iframe);
 
     this.loadInIframe({ calLink, config, calOrigin, iframe });
     return iframe;
+  }
+
+  /**
+   * Flowko U13-15: a message counts as this namespace's only if one of its iframes sent it
+   * (`source` is that iframe's window) from the origin the iframe was loaded from. Any other frame
+   * on the host page, or a page one of its iframes navigated to, could otherwise fake events such
+   * as bookingSuccessful, resize the embed or close the modal. The iframe's contentWindow is read
+   * at message time, so an iframe that the host page moves (and the browser reloads) still counts.
+   */
+  isMessageFromOwnIframe({ source, origin }: { source: MessageEventSource | null; origin: string }): boolean {
+    if (!source) {
+      return false;
+    }
+    const iframe = this.embedIframes.find((embedIframe) => embedIframe.contentWindow === source);
+    if (!iframe) {
+      return false;
+    }
+    const iframeOrigin = getHttpOrigin(iframe.src);
+    return !!iframeOrigin && origin === iframeOrigin;
   }
 
   loadInIframe({
@@ -336,7 +383,8 @@ export class Cal {
       iframe.setAttribute("id", iframeAttrs.id);
     }
 
-    iframe.setAttribute("allow", "payment");
+    // Flowko U13-17: no allow="payment". Flowko takes no payments, so the booking page gets no
+    // Payment Request API permission on the client's site.
 
     const searchParams = this.buildFilteredQueryParams(queryParamsFromConfig);
 
@@ -398,12 +446,14 @@ export class Cal {
     if (!this.iframe) {
       throw new Error("iframe doesn't exist. `createIframe` must be called before `doInIframe`");
     }
-    if (this.iframe.contentWindow) {
-      // TODO: Ensure that targetOrigin is as defined by user(and not *). Generally it would be cal.com but in case of self hosting it can be anything.
-      // Maybe we can derive targetOrigin from __config.origin
+    // Flowko U13-15: post only to the origin the iframe was loaded from, never "*". The prefill
+    // (`connect`) can carry the visitor's name and e-mail; if the iframe has navigated to another
+    // origin, the browser drops the message instead of handing it to that page.
+    const targetOrigin = getHttpOrigin(this.iframe.src);
+    if (this.iframe.contentWindow && targetOrigin) {
       this.iframe.contentWindow.postMessage(
         { originator: "CAL", method: doInIframeArg.method, arg: doInIframeArg.arg },
-        "*"
+        targetOrigin
       );
     }
   }
@@ -431,6 +481,8 @@ export class Cal {
 
     Cal.actionsManagers = Cal.actionsManagers || {};
     Cal.actionsManagers[namespace] = this.actionManager;
+    Cal.instancesByNamespace = Cal.instancesByNamespace || new Map();
+    Cal.instancesByNamespace.set(namespace, [...(Cal.instancesByNamespace.get(namespace) || []), this]);
 
     this.processQueue(q);
 
@@ -977,7 +1029,8 @@ class CalApi {
 
   floatingButton({
     calLink,
-    buttonText = "Book my Cal",
+    // Flowko U13-14: „Rezervirajte termin“ / "Book an appointment", by the host page's language
+    buttonText = getEmbedStrings().bookButton,
     hideButtonIcon = false,
     attributes,
     buttonPosition = "bottom-right",
@@ -1564,21 +1617,34 @@ for (const [ns, api] of Object.entries(globalCal.ns)) {
  */
 window.addEventListener("message", (e) => {
   const detail = e.data;
+  // Flowko U13-15: any frame on the host page can post here (and `null` or a string used to throw)
+  if (!detail || typeof detail !== "object" || typeof detail.fullType !== "string") {
+    return;
+  }
   const fullType = detail.fullType;
   const parsedAction = SdkActionManager.parseAction(fullType);
   if (!parsedAction) {
     return;
   }
 
-  const actionManager = Cal.actionsManagers[parsedAction.ns];
+  // Flowko U13-15: only the namespace's own embed iframes, from the booking origin, may fire its
+  // actions (see Cal.isMessageFromOwnIframe). Anything else is ignored, and no longer throws.
+  const cal = Cal.instancesByNamespace
+    ?.get(parsedAction.ns)
+    ?.find((instance) => instance.isMessageFromOwnIframe({ source: e.source, origin: e.origin }));
+  if (!cal) {
+    log("Ignoring a message that none of the namespace's embed iframes sent", {
+      ...parsedAction,
+      origin: e.origin,
+    });
+    return;
+  }
+
   globalCal.__logQueue = globalCal.__logQueue || [];
   globalCal.__logQueue.push({ ...parsedAction, data: detail.data });
 
-  if (!actionManager) {
-    throw new Error(`Unhandled Action ${parsedAction}`);
-  }
   // @ts-expect-error
-  actionManager.fire(parsedAction.type, detail.data);
+  cal.actionManager.fire(parsedAction.type, detail.data);
 });
 
 document.addEventListener("click", (e) => {
@@ -1587,6 +1653,15 @@ document.addEventListener("click", (e) => {
   const calLinkEl = getCalLinkEl(targetEl);
   const path = calLinkEl?.dataset?.calLink;
   if (!path) {
+    return;
+  }
+
+  // Flowko U13-13: a data-cal-link element that is a link, sits inside one or holds one (e.g. a
+  // client's <a href="https://booking.flowko.si/..." data-cal-link>). The modal replaces the link's
+  // navigation, so a visitor without JavaScript still reaches the booking page. A click with a
+  // modifier key opens the link in a new tab or window, as the visitor asked, and no modal.
+  const linkEl = getLinkInClickPath(e);
+  if (linkEl && (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
     return;
   }
 
@@ -1610,18 +1685,38 @@ document.addEventListener("click", (e) => {
     throw new Error(`Namespace ${namespace} isn't defined`);
   }
 
+  if (linkEl) {
+    e.preventDefault();
+  }
+
   api("modal", {
     calLink: path,
     config,
     calOrigin,
   });
 
+  /**
+   * The link (<a href> or <area href>) the click would follow: the target itself or its nearest link
+   * ancestor, looking through open shadow roots too (a web component can render its link inside one).
+   */
+  function getLinkInClickPath(event: MouseEvent) {
+    const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    for (const node of eventPath) {
+      if (node instanceof Element && node.matches("a[href], area[href]")) {
+        return node;
+      }
+    }
+    return null;
+  }
+
   function getCalLinkEl(target: EventTarget | null) {
     let calLinkEl: HTMLElement | Element | undefined;
-    if (!(target instanceof HTMLElement)) {
+    // Flowko U13-13: any Element, so that a click on an SVG icon inside the element (an SVGElement,
+    // not an HTMLElement) opens the modal too
+    if (!(target instanceof Element)) {
       return null;
     }
-    if (target?.dataset.calLink) {
+    if (target instanceof HTMLElement && target.dataset.calLink) {
       calLinkEl = target;
     } else {
       // If the element clicked is a child of the cal-link element, then return the cal-link element
