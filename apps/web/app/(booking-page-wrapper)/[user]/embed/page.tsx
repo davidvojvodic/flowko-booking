@@ -27,7 +27,7 @@ const ServerPage = async ({ params, searchParams }: ServerPageProps) => {
   const context = buildLegacyCtx(await headers(), await cookies(), await params, await searchParams);
   const props = await getData(context);
 
-  // Flowko U13-25: the user's own language instead of the visitor's browser, as their event types' embeds have
+  // Flowko U13-25: in the user's own language, not the visitor's browser language, like their event types' embeds
   const locale = await getUserPageLocale(props.profile?.username);
   if (locale) {
     const ns = "common";
