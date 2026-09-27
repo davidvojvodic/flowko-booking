@@ -1,5 +1,6 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { trpc } from "@calcom/trpc/react";
@@ -32,8 +33,14 @@ export function WebPushProvider({ children }: ProviderProps) {
   const { mutate: removeSubscription } =
     trpc.viewer.loggedInViewerRouter.removeNotificationsSubscription.useMutation();
 
+  // Flowko (U13, David 2026-09-27): push notifications are for signed-in hosts, so the service worker is registered
+  // only with a session. Visitors, on a booking page opened directly and in an embed on a client's website (whose
+  // SessionProvider has session={null}, U13-10), get no service worker in their browser.
+  const { status } = useSession();
+  const isSignedIn = status === "authenticated";
+
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
+    if (!isSignedIn || !("serviceWorker" in navigator)) return;
 
     navigator.serviceWorker
       .register("/service-worker.js")
@@ -47,7 +54,7 @@ export function WebPushProvider({ children }: ProviderProps) {
       .catch((error) => {
         console.error("Service Worker registration failed:", error);
       });
-  }, []);
+  }, [isSignedIn]);
 
   const contextValue = useMemo(
     () => ({
