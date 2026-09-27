@@ -26,6 +26,7 @@ import { useCalendars } from "../hooks/useCalendars";
 import { useSlots } from "../hooks/useSlots";
 import { useVerifyCode } from "../hooks/useVerifyCode";
 import { useVerifyEmail } from "../hooks/useVerifyEmail";
+import { getBookerPrefillFormParams, isEmbedFrame } from "../lib/getBookerPrefillFormParams";
 import { Booker as BookerComponent } from "./Booker";
 
 export type BookerWebWrapperAtomProps = BookerProps & {
@@ -91,8 +92,6 @@ const BookerWebWrapperComponent = (props: BookerWebWrapperAtomProps): JSX.Elemen
   const { data: session } = useSession();
   const routerQuery = useRouterQuery();
   const hasSession = !!session;
-  const firstNameQueryParam = searchParams?.get("firstName");
-  const lastNameQueryParam = searchParams?.get("lastName");
   const metadata = Object.keys(routerQuery)
     .filter((key) => key.startsWith("metadata"))
     .reduce(
@@ -102,14 +101,12 @@ const BookerWebWrapperComponent = (props: BookerWebWrapperAtomProps): JSX.Elemen
       }),
       {}
     );
-  const prefillFormParams = useMemo(() => {
-    return {
-      name:
-        searchParams?.get("name") ||
-        (firstNameQueryParam ? `${firstNameQueryParam} ${lastNameQueryParam}` : null),
-      guests: (searchParams?.getAll("guests") || searchParams?.getAll("guest")) ?? [],
-    };
-  }, [searchParams, firstNameQueryParam, lastNameQueryParam]);
+  // Flowko U13-24: inside an embed the guests are not prefilled from the query the embedding page writes
+  const isEmbedPage = isEmbedFrame();
+  const prefillFormParams = useMemo(
+    () => getBookerPrefillFormParams(searchParams, { isEmbed: isEmbedPage }),
+    [searchParams, isEmbedPage]
+  );
 
   const bookerForm = useBookingForm({
     event: event.data,

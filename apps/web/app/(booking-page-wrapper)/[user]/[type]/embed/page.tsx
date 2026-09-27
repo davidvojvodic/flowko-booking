@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers";
 
 import { loadTranslations } from "@calcom/i18n/server";
 
+import { getEventTypePageLocale } from "@lib/booking/getBookerPageLocale";
 import { buildLegacyCtx } from "@lib/buildLegacyCtx";
 
 import { getServerSideProps } from "@server/lib/[user]/[type]/getServerSideProps";
@@ -26,7 +27,11 @@ const ServerPage = async ({ params, searchParams }: ServerPageProps) => {
   const context = buildLegacyCtx(await headers(), await cookies(), await params, await searchParams);
   const props = await getData(context);
 
-  const locale = props.eventData?.interfaceLanguage;
+  // Flowko U13-25: the event type's interface language; only with it off (null), the owner's instead of the visitor's browser
+  const locale = await getEventTypePageLocale({
+    interfaceLanguage: props.eventData?.interfaceLanguage,
+    eventTypeId: props.eventData?.id,
+  });
   if (locale) {
     const ns = "common";
     const translations = await loadTranslations(locale, ns);

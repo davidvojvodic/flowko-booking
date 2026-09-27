@@ -269,3 +269,38 @@ describe("createHandler with a schedule", () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ schedule: undefined }));
   });
 });
+
+// Flowko U13-20: an event type can't send its bookers to another page after booking. The tRPC input schema has no
+// successRedirectUrl, so these calls stand for API v2, which passes its request body to the handler.
+describe("createHandler with the success redirect locked", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockGetDefaultLocations.mockReset();
+  });
+
+  it("refuses to create an event type with a redirect URL", async () => {
+    await expect(
+      createHandler({
+        ctx,
+        input: {
+          ...input,
+          successRedirectUrl: "https://example.com/hvala",
+          forwardParamsSuccessRedirect: true,
+        } as TCreateInputSchema,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "success_redirect_not_available_error" });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an empty", ""],
+    ["no", null],
+  ])("creates an event type with %s redirect URL", async (_kind, successRedirectUrl) => {
+    mockCreate.mockResolvedValue({ id: 10, slug: "haircut" });
+
+    await createHandler({ ctx, input: { ...input, successRedirectUrl } as unknown as TCreateInputSchema });
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});

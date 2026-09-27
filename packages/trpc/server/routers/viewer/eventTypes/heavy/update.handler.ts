@@ -20,6 +20,7 @@ import type { GetServerSidePropsContext, NextApiResponse } from "next";
 import type { TrpcSessionUser } from "../../../../types";
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
+import { ensureNoSuccessRedirect } from "../ensureNoSuccessRedirect";
 import { ensureNotSeatedOrRecurring } from "../ensureNotSeatedOrRecurring";
 import { ensureSchedulesBelongTo } from "../ensureSchedulesBelongTo";
 import {
@@ -119,6 +120,8 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
       // Flowko: ensureAppsEnabled compares the price with this one, so a price the event type already holds
       // stays allowed (without it, every non-zero price would count as changed)
       price: true,
+      // Flowko U13-20: ensureNoSuccessRedirect lets an event type keep a redirect URL it already holds
+      successRedirectUrl: true,
       description: true,
       seatsPerTimeSlot: true,
       recurringEvent: true,
@@ -201,6 +204,7 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
 
   // Flowko: a new or changed non-zero price turns the legacy stripe app on, so it is checked with the rest (N2)
   await ensureAppsEnabled(ctx.prisma, { metadata: rest.metadata, locations, price: rest.price }, eventType);
+  ensureNoSuccessRedirect(rest.successRedirectUrl, eventType.successRedirectUrl);
 
   const finalSeatsPerTimeSlot =
     seatsPerTimeSlot === undefined ? eventType.seatsPerTimeSlot : seatsPerTimeSlot;

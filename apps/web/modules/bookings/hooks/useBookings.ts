@@ -190,6 +190,9 @@ export const useBookings = ({ event, hashedLink, bookingForm, metadata, isBookin
           ? duration
           : event.data?.length;
 
+      // Flowko U13-12: fire() reduces every booking event to the booking's time and status (sanitizeEventData in
+      // sdk-action-manager.ts), so the whole booking, the event type and the V2 payloads' uid and title passed here
+      // never reach the embedding page or the analytics apps
       if (isRescheduling) {
         sdkActionManager?.fire("rescheduleBookingSuccessful", {
           booking: booking,
@@ -353,6 +356,7 @@ export const useBookings = ({ event, hashedLink, bookingForm, metadata, isBookin
           isRescheduling && bookingData?.startTime ? dayjs(bookingData.startTime).toString() : undefined,
       };
 
+      // Flowko U13-12: reduced to the time and status by fire() like the single booking's events above
       if (isRescheduling) {
         // NOTE: It is recommended to define the event payload in the argument itself to provide a better type safety.
         sdkActionManager?.fire("rescheduleBookingSuccessfulV2", {

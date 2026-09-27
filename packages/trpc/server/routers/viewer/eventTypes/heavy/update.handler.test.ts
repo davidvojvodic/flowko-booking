@@ -520,4 +520,99 @@ describe("update.handler", () => {
       expect(updateData().hosts.create).toEqual([expect.objectContaining({ scheduleId: OWN_SCHEDULE })]);
     });
   });
+
+  // Flowko U13-20: an event type can't send its bookers to another page after booking (David, Q11 (a))
+  describe("with the success redirect locked", () => {
+    const ctx = {
+      user: {
+        id: 1,
+        username: "owner",
+        profile: { id: 1 },
+        userLevelSelectedCalendars: [],
+        organizationId: null,
+        email: "owner@example.com",
+        locale: "en",
+      },
+      prisma: prismaMock,
+    } as unknown as Parameters<typeof updateHandler>[0]["ctx"];
+
+    // Returns only the columns the handler selects, as Prisma does, so a successRedirectUrl left out of the
+    // select is undefined here too
+    function storedEventType(stored: { successRedirectUrl: string | null }) {
+      const row: Record<string, unknown> = {
+        title: "Pregled",
+        description: null,
+        metadata: null,
+        locations: [],
+        price: 0,
+        team: null,
+        hosts: [],
+        children: [],
+        hostGroups: [],
+        fieldTranslations: [],
+        calVideoSettings: null,
+        ...stored,
+      };
+      prismaMock.eventType.findUniqueOrThrow.mockImplementation((async (args: {
+        select: Record<string, unknown>;
+      }) => Object.fromEntries(Object.keys(args.select).map((key) => [key, row[key]]))) as never);
+      prismaMock.hashedLink.findMany.mockResolvedValue([]);
+      prismaMock.eventType.update.mockRejectedValue(new Error("reached the update"));
+    }
+
+    it.each(["https://example.com/hvala", "http://example.com/hvala", "javascript:alert(1)"])(
+      "refuses to set a redirect URL (%s)",
+      async (successRedirectUrl) => {
+        storedEventType({ successRedirectUrl: null });
+
+        await expect(
+          updateHandler({
+            ctx,
+            input: { id: 1, successRedirectUrl, forwardParamsSuccessRedirect: false },
+          })
+        ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "success_redirect_not_available_error" });
+
+        expect(prismaMock.eventType.update).not.toHaveBeenCalled();
+      }
+    );
+
+    it("refuses to change the redirect URL an event type already holds", async () => {
+      storedEventType({ successRedirectUrl: "https://example.com/hvala" });
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, successRedirectUrl: "https://example.com/drugje" } })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "success_redirect_not_available_error" });
+
+      expect(prismaMock.eventType.update).not.toHaveBeenCalled();
+    });
+
+    it.each(["", null])("lets the owner switch the redirect off (%j)", async (successRedirectUrl) => {
+      storedEventType({ successRedirectUrl: "https://example.com/hvala" });
+
+      await expect(updateHandler({ ctx, input: { id: 1, successRedirectUrl } })).rejects.toThrow(
+        "reached the update"
+      );
+
+      expect(prismaMock.eventType.update.mock.calls[0][0].data).toMatchObject({ successRedirectUrl });
+    });
+
+    it("lets the owner save an event type that already holds a redirect URL", async () => {
+      storedEventType({ successRedirectUrl: "https://example.com/hvala" });
+
+      await expect(updateHandler({ ctx, input: { id: 1, hidden: true } })).rejects.toThrow(
+        "reached the update"
+      );
+      await expect(
+        updateHandler({ ctx, input: { id: 1, successRedirectUrl: "https://example.com/hvala" } })
+      ).rejects.toThrow("reached the update");
+    });
+
+    it("leaves forwardParamsSuccessRedirect alone, because booking never forwards anything", async () => {
+      storedEventType({ successRedirectUrl: null });
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, forwardParamsSuccessRedirect: true } })
+      ).rejects.toThrow("reached the update");
+    });
+  });
 });

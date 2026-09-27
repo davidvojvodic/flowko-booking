@@ -1,7 +1,5 @@
-import dayjs from "@calcom/dayjs";
 import { useIsEmbed } from "@calcom/embed-core/embed-iframe";
 import type { BookingResponse } from "@calcom/features/bookings/types";
-import { getSafe } from "@calcom/lib/getSafe";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { navigateInTopWindow } from "@calcom/lib/navigateInTopWindow";
 import type { EventType } from "@calcom/prisma/client";
@@ -59,124 +57,19 @@ type SuccessRedirectBookingType = Pick<
   "uid" | "title" | "description" | "startTime" | "endTime" | "location" | "attendees" | "user" | "responses"
 >;
 
-type BookingResponseKey = keyof SuccessRedirectBookingType;
-
-type ResultType = {
-  [key in BookingResponseKey]?: SuccessRedirectBookingType[key];
-} & {
-  hostName?: string[];
-  attendeeName?: string | null;
-  hostStartTime?: string | null;
-  attendeeStartTime?: string | null;
-  guestEmails?: string[] | null;
-  phone?: string | null;
-  attendeeFirstName?: string | null;
-  attendeeLastName?: string | null;
-};
-
-export const getBookingRedirectExtraParams = (booking: SuccessRedirectBookingType) => {
-  const redirectQueryParamKeys: BookingResponseKey[] = [
-    "title",
-    "description",
-    "startTime",
-    "endTime",
-    "location",
-    "attendees",
-    "user",
-    "responses",
-  ];
-
-  // Helper function to extract response details (e.g., phone, attendee's first and last name)
-  function extractResponseDetails(booking: SuccessRedirectBookingType, obj: ResultType): ResultType {
-    const result: ResultType = { ...obj };
-    const phone = getSafe<string>(booking.responses, ["phone"]);
-    const firstName = getSafe<string>(booking.responses, ["name", "firstName"]);
-    const lastName = getSafe<string>(booking.responses, ["name", "lastName"]);
-    const name = getSafe<string>(booking.responses, ["name"]);
-
-    if (phone) result.phone = phone;
-    if (firstName) result.attendeeFirstName = firstName;
-    if (lastName) result.attendeeLastName = lastName;
-    else if (name && typeof name === "string") result.attendeeName = name; // Fallback if `name` is a string instead of an object
-
-    return result;
+/**
+ * Flowko U13-20: only an http(s) URL is followed. The event type update schema accepts any string, so a stored value
+ * could be a javascript: URL or not a URL at all (which made new URL() throw after the booking was made); the booker
+ * then gets the booking success page instead.
+ */
+function toHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
   }
-
-  // Helper function to extract user details (e.g., host name and time zone)
-  function extractUserDetails(booking: SuccessRedirectBookingType, obj: ResultType): ResultType {
-    if (booking.user?.name) {
-      const hostStartTime = dayjs(booking.startTime).tz(booking.user.timeZone).format();
-      return {
-        ...obj,
-        hostName: [...(obj.hostName || []), booking.user.name],
-        hostStartTime,
-      };
-    }
-    return obj;
-  }
-
-  // Helper function to extract attendee and guest details
-  function extractAttendeesAndGuests(booking: SuccessRedirectBookingType, obj: ResultType): ResultType {
-    if (!Array.isArray(booking.attendees) || booking.attendees.length === 0) return obj;
-
-    const attendeeName = booking.attendees[0]?.name || null;
-    const attendeeTimeZone = booking.attendees[0]?.timeZone || "UTC";
-    const attendeeStartTime = dayjs(booking.startTime).tz(attendeeTimeZone).format();
-
-    const { hostNames, guestEmails } = booking.attendees.slice(1).reduce(
-      (acc, attendee) => {
-        if (attendee.name) {
-          acc.hostNames.push(attendee.name);
-        } else if (attendee.email) {
-          acc.guestEmails.push(attendee.email);
-        }
-        return acc;
-      },
-      { hostNames: [], guestEmails: [] } as { hostNames: string[]; guestEmails: string[] }
-    );
-
-    return {
-      ...obj,
-      attendeeName,
-      attendeeStartTime,
-      hostName: [...(obj.hostName || []), ...hostNames],
-      guestEmails: guestEmails.length > 0 ? guestEmails : undefined,
-    };
-  }
-
-  const bookingParams = (Object.keys(booking) as BookingResponseKey[])
-    .filter((key) => redirectQueryParamKeys.includes(key))
-    .reduce<ResultType>(
-      (obj, key) => {
-        if (key === "responses") return extractResponseDetails(booking, obj);
-        if (key === "user") return extractUserDetails(booking, obj);
-        if (key === "attendees") return extractAttendeesAndGuests(booking, obj);
-        return { ...obj, [key]: booking[key] };
-      },
-      { uid: booking.uid }
-    );
-
-  const queryCompatibleParams: Record<string, string | boolean | null | undefined> = {
-    ...Object.fromEntries(
-      Object.entries(bookingParams).map(([key, value]) => {
-        if (Array.isArray(value)) {
-          return [key, value.join(", ")];
-        }
-        if (typeof value === "object" && value !== null) {
-          // Skip complex objects (user, attendees) as we are extracting only needed fields
-          return [key, undefined];
-        }
-        return [key, value];
-      })
-    ),
-    hostName: bookingParams.hostName?.join(", "),
-    attendeeName: bookingParams.attendeeName || undefined,
-    hostStartTime: bookingParams.hostStartTime || undefined,
-    attendeeStartTime: bookingParams.attendeeStartTime || undefined,
-  };
-
-  return queryCompatibleParams;
-};
+}
 
 export const useBookingSuccessRedirect = () => {
   const router = useRouter();
@@ -186,7 +79,7 @@ export const useBookingSuccessRedirect = () => {
     successRedirectUrl,
     query,
     booking,
-    forwardParamsSuccessRedirect,
+    forwardParamsSuccessRedirect: _forwardParamsSuccessRedirect,
   }: {
     successRedirectUrl: EventType["successRedirectUrl"];
     forwardParamsSuccessRedirect: EventType["forwardParamsSuccessRedirect"];
@@ -199,34 +92,15 @@ export const useBookingSuccessRedirect = () => {
       "cal.rerouting": searchParams.get("cal.rerouting"),
     };
 
-    if (successRedirectUrl) {
-      const url = new URL(successRedirectUrl);
+    // Flowko U13-20: the redirect URL is opened as it was saved, whatever forwardParamsSuccessRedirect says. Upstream
+    // appended the booker's name, e-mail, phone number and answers, the page's own query (prefilled details
+    // included) and the booking's uid, which cancels the booking, to a page on another site, where its analytics
+    // and ad tags read them. The event type handlers refuse a new redirect URL (ensureNoSuccessRedirect); this
+    // covers event types saved before that.
+    const redirectUrl = successRedirectUrl ? toHttpUrl(successRedirectUrl) : null;
+    if (redirectUrl) {
       // Using parent ensures, Embed iframe would redirect outside of the iframe.
-      if (!forwardParamsSuccessRedirect) {
-        navigateInTopWindow(url.toString());
-        return;
-      }
-
-      const bookingExtraParams = getBookingRedirectExtraParams(booking);
-
-      // Filter internal Cal.diy params when redirecting to external URLs.
-      // - It prevents leaking internal state.
-      // - Certain websites might break due to the presence of certain params e.g. Wordpress has different meaning for `embed` param and an embed param passed by Cal.diy breaks a wordpress webpage
-      const newSearchParams = getNewSearchParams({
-        query: {
-          ...query,
-          ...bookingExtraParams,
-          isEmbed,
-        },
-        searchParams: new URLSearchParams(searchParams.toString()),
-        filterInternalParams: true,
-      });
-
-      newSearchParams.forEach((value, key) => {
-        url.searchParams.append(key, value);
-      });
-
-      navigateInTopWindow(url.toString());
+      navigateInTopWindow(redirectUrl);
       return;
     }
 

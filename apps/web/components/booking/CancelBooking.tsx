@@ -282,7 +282,10 @@ export default function CancelBooking(props: Props) {
                 onClick={async () => {
                   setLoading(true);
 
-                  const response = await fetch("/api/csrf?sameSite=none", { cache: "no-store" });
+                  // Flowko: the default SameSite=Lax double-submit cookie. Upstream asked for SameSite=None so the
+                  // form worked inside an embed (a third-party frame); since U13-11 an embed never shows this form and
+                  // opens cancel on booking.flowko.si in a new tab, where the same-origin POST below carries Lax.
+                  const response = await fetch("/api/csrf", { cache: "no-store" });
                   const { csrfToken } = await response.json();
 
                   const res = await fetch("/api/cancel", {
