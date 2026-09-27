@@ -46,6 +46,7 @@ import type {
   HandleCancelBookingResponse,
 } from "./dto/BookingCancel";
 import { getAllCredentialsIncludeServiceAccountKey } from "./getAllCredentialsForUsersOnEvent/getAllCredentials";
+import { isOrganizerEmailHidden } from "./bookingPageForViewer";
 import { getBookingToDelete } from "./getBookingToDelete";
 import cancelAttendeeSeat from "./handleSeats/cancel/cancelAttendeeSeat";
 import type { IBookingCancelService } from "./interfaces/IBookingCancelService";
@@ -294,7 +295,8 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
     platformClientId,
     platformRescheduleUrl,
     platformCancelUrl,
-    hideOrganizerEmail: bookingToDelete.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(bookingToDelete.eventType),
     platformBookingUrl,
     customReplyToEmail: bookingToDelete.eventType?.customReplyToEmail,
     schedulingType: bookingToDelete.eventType?.schedulingType,

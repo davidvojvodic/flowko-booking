@@ -4,7 +4,9 @@
  */
 import "../../test/__mocks__/windowMatchMedia";
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { buildFlowkoSnippet } from "@calcom/features/embed/lib/buildFlowkoSnippet";
 
 vi.mock("../tailwindCss", () => ({
   default: "mockedTailwindCss",
@@ -532,6 +534,79 @@ describe("U13-13: a data-cal-link on a link opens the modal instead of following
 
     expect(event.defaultPrevented).toBe(false);
     expect(modalBoxes()).toHaveLength(0);
+  });
+});
+
+// Flowko (U13 fix pass): the click-link script (plan §3.4, "Vaš gumb") and embed.js on one page. Webflow
+// users may add data-cal-link attributes (guide §7.5) to the very link the script matches; both the script's
+// capture listener and embed.js's document listener opened a modal for it.
+describe("U13 fix pass: the click-link script and a data-cal-link on the same link", () => {
+  const CAL_LINK = "flowko-test/dvojni";
+  let removeClickLinkListener = () => undefined as void;
+
+  beforeAll(() => {
+    const html = buildFlowkoSnippet({
+      type: "click-link",
+      calLink: CAL_LINK,
+      namespace: "dvojni",
+      origin: BOOKER_ORIGIN,
+      embedLibUrl: `${BOOKER_ORIGIN}/embed/embed.js`,
+    });
+    const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1];
+    if (!script) throw new Error("the click-link snippet has no script");
+    const addEventListener = vi.spyOn(document, "addEventListener");
+    // Runs as the pasted <script> would; the loader finds window.Cal already there, as on a page where
+    // embed.js has loaded
+    new Function(script)();
+    const call = addEventListener.mock.calls.find(([type]) => type === "click");
+    addEventListener.mockRestore();
+    if (!call) throw new Error("the click-link script added no click listener");
+    const [type, listener, options] = call;
+    removeClickLinkListener = () => document.removeEventListener(type, listener, options);
+  });
+
+  afterAll(() => removeClickLinkListener());
+
+  function appendHtml(html: string) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper);
+    return wrapper;
+  }
+
+  function expectOneModal() {
+    const boxes = modalBoxes();
+    expect(boxes).toHaveLength(1);
+    const iframe = boxes[0].querySelector("iframe") as HTMLIFrameElement;
+    expect(new URL(iframe.src).pathname).toBe(`/${CAL_LINK}/embed`);
+  }
+
+  const linkWithAttributes = (inner: string) =>
+    `<a href="${BOOKER_ORIGIN}/${CAL_LINK}" data-cal-link="${CAL_LINK}" data-cal-namespace="dvojni">` +
+    `${inner}</a>`;
+
+  it("<a href> to the booking page with data-cal-link opens exactly one modal", () => {
+    const wrapper = appendHtml(linkWithAttributes("Rezervirajte"));
+    const event = click(wrapper.querySelector("a") as Element);
+
+    expect(event.defaultPrevented).toBe(true);
+    expectOneModal();
+  });
+
+  it("a click on text inside such a link opens exactly one modal too", () => {
+    const wrapper = appendHtml(linkWithAttributes("<span>Rezervirajte</span>"));
+    const event = click(wrapper.querySelector("span") as Element);
+
+    expect(event.defaultPrevented).toBe(true);
+    expectOneModal();
+  });
+
+  it("a plain <a href> to the booking page still opens one modal through the script", () => {
+    const wrapper = appendHtml(`<a href="${BOOKER_ORIGIN}/${CAL_LINK}">Rezervirajte</a>`);
+    const event = click(wrapper.querySelector("a") as Element);
+
+    expect(event.defaultPrevented).toBe(true);
+    expectOneModal();
   });
 });
 

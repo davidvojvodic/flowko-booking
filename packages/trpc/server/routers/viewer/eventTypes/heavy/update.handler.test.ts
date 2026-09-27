@@ -3,6 +3,7 @@ import prismaMock from "@calcom/testing/lib/__mocks__/prismaMock";
 import { describe, it, expect } from "vitest";
 
 import { ErrorCode } from "@calcom/lib/errorCodes";
+import { generateHashedLink } from "@calcom/lib/generateHashedLink";
 import { Prisma } from "@calcom/prisma/client";
 
 import { updateHandler } from "./update.handler";
@@ -132,6 +133,10 @@ describe("update.handler", () => {
         locations: [],
         team: null,
         hosts: [],
+        children: [],
+        hostGroups: [],
+        fieldTranslations: [],
+        calVideoSettings: null,
         ...stored,
       } as never);
     }
@@ -168,7 +173,8 @@ describe("update.handler", () => {
 
     it("lets the owner save an event type that already has a disabled app on", async () => {
       storedEventType({ metadata: ga4On, locations: [meetLocation] });
-      prismaMock.hashedLink.findMany.mockRejectedValue(new Error("got past the app check"));
+      // Flowko (U13 fix pass): a request without multiplePrivateLinks no longer reads the private links
+      prismaMock.eventType.update.mockRejectedValue(new Error("got past the app check"));
 
       await expect(
         updateHandler({ ctx, input: { id: 1, metadata: ga4On, locations: [meetLocation] } })
@@ -179,7 +185,7 @@ describe("update.handler", () => {
 
     it("lets the owner turn a disabled app off", async () => {
       storedEventType({ metadata: ga4On });
-      prismaMock.hashedLink.findMany.mockRejectedValue(new Error("got past the app check"));
+      prismaMock.eventType.update.mockRejectedValue(new Error("got past the app check"));
 
       await expect(
         updateHandler({ ctx, input: { id: 1, metadata: { apps: { ga4: { enabled: false } } } } })
@@ -613,6 +619,108 @@ describe("update.handler", () => {
       await expect(
         updateHandler({ ctx, input: { id: 1, forwardParamsSuccessRedirect: true } })
       ).rejects.toThrow("reached the update");
+    });
+  });
+
+  // Flowko (U13 fix pass): handleMultiplePrivateLinks deletes every stored link when it gets no list, and the
+  // event-types listing's Hidden switch sends only {id, hidden}, so hiding a secret event type deleted its
+  // private links. Only a request that carries multiplePrivateLinks touches them now.
+  describe("with private links", () => {
+    const ctx = {
+      user: {
+        id: 1,
+        username: "owner",
+        profile: { id: 1 },
+        userLevelSelectedCalendars: [],
+        organizationId: null,
+        email: "owner@example.com",
+        locale: "en",
+      },
+      prisma: prismaMock,
+    } as unknown as Parameters<typeof updateHandler>[0]["ctx"];
+
+    const KEPT = generateHashedLink();
+    const DROPPED = generateHashedLink();
+    const ADDED = generateHashedLink();
+
+    function storedEventType(links: string[]) {
+      prismaMock.eventType.findUniqueOrThrow.mockResolvedValue({
+        title: "Pregled",
+        description: null,
+        metadata: null,
+        locations: [],
+        price: 0,
+        successRedirectUrl: null,
+        team: null,
+        hosts: [],
+        children: [],
+        hostGroups: [],
+        fieldTranslations: [],
+        calVideoSettings: null,
+      } as never);
+      prismaMock.hashedLink.findMany.mockResolvedValue(
+        links.map((link) => ({ link, expiresAt: null, maxUsageCount: null, usageCount: 0 })) as never
+      );
+      prismaMock.eventType.update.mockRejectedValue(new Error("reached the update"));
+    }
+
+    it("keeps the links when the listing's Hidden switch sends {id, hidden}", async () => {
+      storedEventType([KEPT, DROPPED]);
+
+      await expect(updateHandler({ ctx, input: { id: 1, hidden: true } })).rejects.toThrow(
+        "reached the update"
+      );
+
+      expect(prismaMock.hashedLink.findMany).not.toHaveBeenCalled();
+      expect(prismaMock.hashedLink.deleteMany).not.toHaveBeenCalled();
+      expect(prismaMock.hashedLink.create).not.toHaveBeenCalled();
+      expect(prismaMock.hashedLink.updateMany).not.toHaveBeenCalled();
+      expect(prismaMock.eventType.update.mock.calls[0][0].data).toMatchObject({ hidden: true });
+    });
+
+    it("keeps the links for the app install flow's partial updates", async () => {
+      storedEventType([KEPT]);
+
+      await expect(
+        updateHandler({ ctx, input: { id: 1, locations: [{ type: "inPerson", address: "Main street 1" }] } })
+      ).rejects.toThrow("reached the update");
+
+      expect(prismaMock.hashedLink.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("removes every link for an explicit []", async () => {
+      storedEventType([KEPT, DROPPED]);
+
+      await expect(updateHandler({ ctx, input: { id: 1, multiplePrivateLinks: [] } })).rejects.toThrow(
+        "reached the update"
+      );
+
+      expect(prismaMock.hashedLink.deleteMany).toHaveBeenCalledWith({
+        where: { eventTypeId: 1, link: { in: [KEPT, DROPPED] } },
+      });
+      expect(prismaMock.hashedLink.create).not.toHaveBeenCalled();
+    });
+
+    it("still diffs a list: removes the missing link, keeps the sent one and adds the new one", async () => {
+      storedEventType([KEPT, DROPPED]);
+
+      await expect(
+        updateHandler({
+          ctx,
+          input: { id: 1, multiplePrivateLinks: [KEPT, { link: ADDED, maxUsageCount: 3 }] },
+        })
+      ).rejects.toThrow("reached the update");
+
+      expect(prismaMock.hashedLink.deleteMany).toHaveBeenCalledWith({
+        where: { eventTypeId: 1, link: { in: [DROPPED] } },
+      });
+      expect(prismaMock.hashedLink.updateMany).toHaveBeenCalledWith({
+        where: { eventTypeId: 1, link: KEPT },
+        data: { expiresAt: null },
+      });
+      expect(prismaMock.hashedLink.create).toHaveBeenCalledWith({
+        data: { eventTypeId: 1, link: ADDED, expiresAt: null, maxUsageCount: 3 },
+      });
     });
   });
 });

@@ -5,6 +5,7 @@ import {
 } from "@calcom/app-store/delegationCredential";
 import dayjs from "@calcom/dayjs";
 import { sendRequestRescheduleEmailAndSMS } from "@calcom/emails/email-manager";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
 import { deleteMeeting } from "@calcom/features/conferencing/lib/videoClient";
@@ -127,7 +128,8 @@ export const requestRescheduleHandler = async ({ ctx, input, source }: RequestRe
     type: event?.slug ? event.slug : bookingToReschedule.title,
     startTime: bookingToReschedule.startTime.toISOString(),
     endTime: bookingToReschedule.endTime.toISOString(),
-    hideOrganizerEmail: eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(eventType),
     attendees: usersToPeopleType(
       // username field doesn't exist on attendee but could be added in the future
       bookingToReschedule.attendees as unknown as PersonAttendeeCommonFields[],

@@ -1,4 +1,5 @@
 import dayjs from "@calcom/dayjs";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import type { Prisma } from "@calcom/prisma/client";
 
 import { parseRecurringEvent } from "./isRecurringEvent";
@@ -100,7 +101,8 @@ export const buildCalEventFromBooking = async ({
       language: { translate: tOrganizer, locale: organizer.locale ?? "en" },
     },
     attendees: attendeesList,
-    hideOrganizerEmail: booking.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(booking.eventType),
     uid: booking.uid,
     recurringEvent: parseRecurringEvent(booking.eventType?.recurringEvent),
     location,
