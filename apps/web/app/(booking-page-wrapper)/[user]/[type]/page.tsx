@@ -1,5 +1,6 @@
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { loadTranslations } from "@calcom/i18n/server";
+import { getEventTypePageLocale } from "@lib/booking/getBookerPageLocale";
 import { buildLegacyCtx, decodeParams } from "@lib/buildLegacyCtx";
 import { getServerSideProps } from "@server/lib/[user]/[type]/getServerSideProps";
 import type { PageProps } from "app/_types";
@@ -19,7 +20,11 @@ const ServerPage = async ({ params, searchParams }: PageProps): Promise<JSX.Elem
   const legacyCtx = buildLegacyCtx(await headers(), await cookies(), await params, await searchParams);
   const props = await getData(legacyCtx);
 
-  const locale = props.eventData?.interfaceLanguage;
+  // Flowko U13-25: the event type's interface language, else its owner's language instead of the visitor's browser
+  const locale = await getEventTypePageLocale({
+    interfaceLanguage: props.eventData?.interfaceLanguage,
+    eventTypeId: props.eventData?.id,
+  });
   if (locale) {
     const ns = "common";
     const translations = await loadTranslations(locale, ns);

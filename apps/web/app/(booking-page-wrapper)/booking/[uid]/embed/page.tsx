@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers";
 
 import { loadTranslations } from "@calcom/i18n/server";
 
+import { getEventTypePageLocale } from "@lib/booking/getBookerPageLocale";
 import { buildLegacyCtx } from "@lib/buildLegacyCtx";
 
 import OldPage from "~/bookings/views/bookings-single-view";
@@ -26,7 +27,11 @@ const ServerPage = async ({ params, searchParams }: ServerPageProps) => {
   const context = buildLegacyCtx(await headers(), await cookies(), await params, await searchParams);
   const props = await getEmbedData(context);
 
-  const eventLocale = props.eventType?.interfaceLanguage;
+  // Flowko U13-25: the event type's interface language, else its owner's language instead of the visitor's browser
+  const eventLocale = await getEventTypePageLocale({
+    interfaceLanguage: props.eventType?.interfaceLanguage,
+    eventTypeId: props.eventType?.id,
+  });
   if (eventLocale) {
     const ns = "common";
     const translations = await loadTranslations(eventLocale, ns);
