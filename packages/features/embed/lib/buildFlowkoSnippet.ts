@@ -5,7 +5,8 @@
 // ts-node outside the app). The golden files in __goldens__/ pin the exact output.
 //
 // Output (plan §3.3/§3.4):
-// - a multi-line copy of upstream's loader IIFE (same logic, every line <= 90 chars) on a <script> that
+// - a multi-line copy of upstream's loader IIFE (same logic; with the booking.flowko.si origin every loader
+//   line is <= 90 chars for event-type slugs of up to 73 characters) on a <script> that
 //   caching/optimisation plugins leave alone (data-cfasync="false" for Cloudflare Rocket Loader, nowprocket
 //   for WP Rocket); no data-cookieconsent attribute;
 // - theme "light" by default (a dark-mode visitor on a white site would otherwise get a dark booker);
@@ -82,6 +83,9 @@ const LABELS: Record<FlowkoSnippetLang, Record<FlowkoSnippetType | "start" | "en
   },
 };
 
+/** Plan §3.3: the loader is emitted on lines of at most this many characters. */
+const MAX_LOADER_LINE = 90;
+
 const SNIPPET_TYPES: FlowkoSnippetType[] = ["inline", "floating-popup", "element-click", "click-link"];
 const THEMES: FlowkoSnippetTheme[] = ["light", "dark", "auto"];
 const LAYOUTS: FlowkoSnippetLayout[] = ["month_view", "week_view", "column_view"];
@@ -157,6 +161,14 @@ function loaderLines({
   namespace: string;
   origin: string;
 }) {
+  // A long event-type slug would push the init line past 90 characters: its options then go on a line of
+  // their own (still one statement). With the booking.flowko.si origin that keeps every loader line at 90 or
+  // less for slugs of up to 73 characters.
+  const init = `  Cal("init", ${jsString(namespace)}, { origin: ${jsString(origin)} });`;
+  const initLines =
+    init.length <= MAX_LOADER_LINE
+      ? [init]
+      : [`  Cal("init", ${jsString(namespace)},`, `    { origin: ${jsString(origin)} });`];
   // Upstream's snippet (packages/embeds/embed-snippet, EmbedTabs.tsx) statement for statement, on several lines.
   return [
     `<script type="text/javascript" data-cfasync="false" nowprocket>`,
@@ -178,7 +190,7 @@ function loaderLines({
     `      p(cal, ar);`,
     `    };`,
     `  })(window, ${jsString(embedLibUrl)}, "init");`,
-    `  Cal("init", ${jsString(namespace)}, { origin: ${jsString(origin)} });`,
+    ...initLines,
   ];
 }
 
@@ -192,8 +204,10 @@ export function buildFlowkoSnippet(input: BuildFlowkoSnippetInput): string {
   const layout = input.layout ?? "month_view";
   if (!LAYOUTS.includes(layout)) throw new Error(`Unknown layout: ${layout}`);
 
+  // A path relative to the origin (`<username>/<slug>`, or a team link): not empty, no leading or trailing
+  // slash, no whitespace, query, fragment or scheme. It doesn't check the number of segments.
   const calLink = input.calLink.trim();
-  if (!calLink || calLink.startsWith("/") || /[\s?#]|:\/\//.test(calLink)) {
+  if (!calLink || calLink.startsWith("/") || calLink.endsWith("/") || /[\s?#]|:\/\//.test(calLink)) {
     throw new Error(`calLink must be "<username>/<event-type slug>": ${input.calLink}`);
   }
   const namespace = input.namespace?.trim() || calLink.split("/").pop() || "";

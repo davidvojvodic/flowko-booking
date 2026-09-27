@@ -38,13 +38,20 @@ function golden(name: string, output: string) {
   expect(`${output}\n`).toBe(readFileSync(file, "utf8"));
 }
 
-// The loader lines: from the <script> tag through Cal("init", …).
+// The loader lines: from the <script> tag through the end of the Cal("init", …) statement (one line, or two
+// for a long slug).
 function loaderLines(output: string) {
   const lines = output.split("\n");
   const start = lines.findIndex((line) => line.startsWith("<script"));
-  const end = lines.findIndex((line) => line.startsWith('  Cal("init"'));
+  let end = lines.findIndex((line) => line.startsWith('  Cal("init"'));
+  while (!lines[end].endsWith("});")) end++;
   return lines.slice(start, end + 1);
 }
+
+// Long Slovenian slugs (the init line wraps past 31 characters): 49 characters, and 73, the longest that keeps
+// every loader line at 90 or less on booking.flowko.si.
+const LONG_SLUG = "brezplacni-uvodni-posvet-za-nove-stranke-30-minut";
+const LONGEST_SLUG = "prvi-pregled-in-posvet-za-nove-paciente-z-napotnico-osebnega-zdravnika-30";
 
 // Plan §3.3 LOADER, verbatim.
 const PLAN_LOADER = `<script type="text/javascript" data-cfasync="false" nowprocket>
@@ -219,6 +226,30 @@ describe("buildFlowkoSnippet", () => {
       golden("inline.en.brand-differs-both-themes", output);
     });
 
+    it("a long slug puts the init options on their own line", () => {
+      const output = buildFlowkoSnippet({
+        type: "inline",
+        calLink: `vase-podjetje/${LONG_SLUG}`,
+        origin: ORIGIN,
+        embedLibUrl: EMBED_LIB_URL,
+      });
+      expect(loaderLines(output).slice(-2)).toEqual([
+        `  Cal("init", "${LONG_SLUG}",`,
+        '    { origin: "https://booking.flowko.si" });',
+      ]);
+      expect(output.match(/Cal\("init"/g)).toHaveLength(1);
+      // A slug over 73 characters still gives working code; only its init line is longer than 90.
+      const longer = buildFlowkoSnippet({
+        type: "inline",
+        calLink: `vase-podjetje/${LONGEST_SLUG}-x`,
+        origin: ORIGIN,
+        embedLibUrl: EMBED_LIB_URL,
+      });
+      expect(loaderLines(longer).filter((line) => line.length > 90)).toEqual([
+        `  Cal("init", "${LONGEST_SLUG}-x",`,
+      ]);
+    });
+
     it("hyphenated slug uses bracket notation", () => {
       const output = buildFlowkoSnippet({
         type: "inline",
@@ -239,7 +270,14 @@ describe("buildFlowkoSnippet", () => {
     for (const type of TYPES)
       for (const lang of LANGS)
         for (const theme of ["light", "dark", "auto"] as const)
-          for (const calLink of ["flowko-test/ogled", "vase-podjetje/pregled-zob", "a/b.c"])
+          for (const calLink of [
+            "flowko-test/ogled",
+            "vase-podjetje/pregled-zob",
+            "a/b.c",
+            "vase-podjetje/brezplacni-uvodni-posvet-30-minut",
+            `vase-podjetje/${LONG_SLUG}`,
+            `vase-podjetje/${LONGEST_SLUG}`,
+          ])
             matrix.push({ type, lang, theme, calLink, origin: ORIGIN, embedLibUrl: EMBED_LIB_URL });
 
     it.each(
@@ -254,7 +292,8 @@ describe("buildFlowkoSnippet", () => {
       expect(output.startsWith("<!-- Flowko Rezervacije: ")).toBe(true);
       expect(output.endsWith(input.lang === "sl" ? "(konec) -->" : "(end) -->")).toBe(true);
       const loader = loaderLines(output);
-      expect(loader).toHaveLength(20);
+      const slug = input.calLink.split("/").pop() as string;
+      expect(loader).toHaveLength(slug.length > 31 ? 21 : 20);
       for (const line of loader) expect(line.length).toBeLessThanOrEqual(90);
       if (input.theme === "auto") expect(output).not.toContain('"theme"');
       else expect(output).toContain(`"theme": "${input.theme}"`);
@@ -274,7 +313,7 @@ describe("buildFlowkoSnippet", () => {
   });
 
   describe("the loader behaves like upstream's", () => {
-    it.each(["ogled", "a-b"])("queues the same instructions (namespace %s)", (namespace) => {
+    it.each(["ogled", "a-b", LONG_SLUG])("queues the same instructions (namespace %s)", (namespace) => {
       const ours = runInPage(
         buildFlowkoSnippet({
           ...base,
@@ -453,6 +492,7 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
     it.each([
       [{ calLink: "" }],
       [{ calLink: "/flowko-test/ogled" }],
+      [{ calLink: "flowko-test/ogled/" }],
       [{ calLink: "https://booking.flowko.si/flowko-test/ogled" }],
       [{ calLink: "flowko-test/ogled?x=1" }],
       [{ origin: "booking.flowko.si" }],

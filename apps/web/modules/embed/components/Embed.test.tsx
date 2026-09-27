@@ -362,8 +362,10 @@ describe("Embed dialog (Flowko U13)", () => {
   });
 });
 
+// U13-22: only the button's own class. Whether a page shows it at a width depends on the page's wrappers
+// (event-types-listing-view.tsx, EventTypeLayout.tsx), which this test does not render.
 describe("EmbedButton (U13-22)", () => {
-  it("is not hidden below 1024 px", () => {
+  it("its own class no longer hides it below 1024 px", () => {
     mocks.query = "";
     render(
       <EmbedButton embedUrl="flowko-test%2Fogled" namespace="ogled" className="w-full">
