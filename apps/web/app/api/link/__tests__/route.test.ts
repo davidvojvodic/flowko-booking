@@ -1,4 +1,5 @@
 import { LINK_TOKEN_KEY_LABEL, symmetricEncrypt, symmetricEncryptAuthenticated } from "@calcom/lib/crypto";
+import { BookingStatus } from "@calcom/prisma/enums";
 import { confirmHandler } from "@calcom/trpc/server/routers/viewer/bookings/confirm.handler";
 import type { NextRequest } from "next/server";
 import type { Mock } from "vitest";
@@ -32,12 +33,27 @@ vi.mock("next/server", () => ({
   },
 }));
 
-// Two tenants: booking-a belongs to user 1 (organizer A), booking-b to user 2 (organizer B).
-const BOOKINGS: Record<string, { id: number; uid: string; userId: number | null; recurringEventId: null }> = {
-  "booking-a": { id: 11, uid: "booking-a", userId: 1, recurringEventId: null },
-  "booking-b": { id: 22, uid: "booking-b", userId: 2, recurringEventId: null },
-  "booking-orphan": { id: 33, uid: "booking-orphan", userId: null, recurringEventId: null },
+// Two tenants: booking-a belongs to user 1 (organizer A), booking-b to user 2 (organizer B). All wait for the
+// organizer's decision; U8e tests change their status.
+type BookingRow = {
+  id: number;
+  uid: string;
+  userId: number | null;
+  recurringEventId: string | null;
+  status: BookingStatus;
 };
+const INITIAL_BOOKINGS: Record<string, BookingRow> = {
+  "booking-a": { id: 11, uid: "booking-a", userId: 1, recurringEventId: null, status: BookingStatus.PENDING },
+  "booking-b": { id: 22, uid: "booking-b", userId: 2, recurringEventId: null, status: BookingStatus.PENDING },
+  "booking-orphan": {
+    id: 33,
+    uid: "booking-orphan",
+    userId: null,
+    recurringEventId: null,
+    status: BookingStatus.PENDING,
+  },
+};
+let BOOKINGS: Record<string, BookingRow> = {};
 const USERS: Record<number, Record<string, unknown>> = {
   1: {
     id: 1,
@@ -130,6 +146,9 @@ describe("link route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("CALENDSO_ENCRYPTION_KEY", TEST_KEY);
+    BOOKINGS = Object.fromEntries(
+      Object.entries(INITIAL_BOOKINGS).map(([uid, booking]) => [uid, { ...booking }])
+    );
     vi.mocked(prisma.booking.findUnique).mockImplementation(
       (async (args: { where: { uid: string } }) => BOOKINGS[args.where.uid] ?? null) as never
     );
@@ -293,6 +312,7 @@ describe("link route", () => {
         uid: "booking-a",
         userId: 1,
         recurringEventId: "recurring-123",
+        status: BookingStatus.PENDING,
       } as Awaited<ReturnType<typeof prisma.booking.findUnique>>);
 
       await callLink({ action: "accept", token: validToken() });
@@ -530,6 +550,56 @@ describe("link route", () => {
       const token = validToken();
       vi.stubEnv("CALENDSO_ENCRYPTION_KEY", "");
       expectInvalidLink(await callLink({ action: "accept", token }));
+    });
+  });
+
+  // Flowko (U8e): the token is multi-use for 30 days and reaches the booker when the organizer replies to the
+  // request email, so it may decide a booking only while the booking is still waiting for that decision
+  describe("U8e - acts only on a pending booking", () => {
+    const BOOKING_PAGE = `${EXPECTED_REDIRECT_ORIGIN}/booking/booking-a`;
+
+    it("reads the booking's status", async () => {
+      await callLink({ action: "accept", token: validToken() });
+
+      expect(prisma.booking.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ select: expect.objectContaining({ status: true }) })
+      );
+    });
+
+    it.each([
+      [BookingStatus.REJECTED, "accept"],
+      [BookingStatus.CANCELLED, "accept"],
+      [BookingStatus.ACCEPTED, "reject"],
+      [BookingStatus.ACCEPTED, "accept"],
+      [BookingStatus.AWAITING_HOST, "accept"],
+      [BookingStatus.REJECTED, "reject"],
+    ])("leaves a %s booking as it is on %s and opens its page", async (status, action) => {
+      BOOKINGS["booking-a"].status = status;
+
+      const res = await callLink({ action, token: validToken() });
+
+      expect(responseShape(res)).toEqual({ status: 302, location: BOOKING_PAGE });
+      expect(mockConfirmHandler).not.toHaveBeenCalled();
+    });
+
+    it("can't turn the organizer's rejection into an acceptance with the same link", async () => {
+      const token = validToken();
+      mockConfirmHandler.mockImplementation((async ({ input }: { input: { confirmed: boolean } }) => {
+        BOOKINGS["booking-a"].status = input.confirmed ? BookingStatus.ACCEPTED : BookingStatus.REJECTED;
+        return { message: "", status: BOOKINGS["booking-a"].status };
+      }) as never);
+
+      await callLink({ action: "reject", token });
+      expect(mockConfirmHandler).toHaveBeenCalledTimes(1);
+      expect(BOOKINGS["booking-a"].status).toBe(BookingStatus.REJECTED);
+
+      // The quoted link, opened later by whoever received the organizer's reply
+      const res = await callLink({ action: "accept", token });
+      await callLink({ action: "reject", token });
+
+      expect(responseShape(res)).toEqual({ status: 302, location: BOOKING_PAGE });
+      expect(mockConfirmHandler).toHaveBeenCalledTimes(1);
+      expect(BOOKINGS["booking-a"].status).toBe(BookingStatus.REJECTED);
     });
   });
 });
