@@ -1,5 +1,6 @@
 import process from "node:process";
 import { enrichUserWithDelegationCredentials } from "@calcom/app-store/delegationCredential";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import {
   type EventTypeBrandingData,
@@ -193,7 +194,8 @@ export async function getBooking(bookingId: number) {
       language: { translate: t, locale: user.locale ?? "en" },
       id: user.id,
     },
-    hideOrganizerEmail: booking.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(booking.eventType),
     team: booking.eventType?.team
       ? {
           name: booking.eventType.team.name,

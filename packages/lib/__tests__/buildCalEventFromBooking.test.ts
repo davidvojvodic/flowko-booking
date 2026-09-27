@@ -124,7 +124,7 @@ describe("buildCalEventFromBooking", () => {
       seatsPerTimeSlot: booking.eventType?.seatsPerTimeSlot,
       seatsShowAttendees: true,
       customReplyToEmail: undefined,
-      hideOrganizerEmail: undefined,
+      hideOrganizerEmail: false,
       iCalSequence: 0,
       iCalUID: booking.iCalUID,
       organizationId: null,
@@ -181,7 +181,8 @@ describe("buildCalEventFromBooking", () => {
       seatsPerTimeSlot: undefined,
       seatsShowAttendees: undefined,
       customReplyToEmail: undefined,
-      hideOrganizerEmail: undefined,
+      // Flowko (U13 fix pass): no event type (deleted) counts as hiding the organizer's e-mail
+      hideOrganizerEmail: true,
       iCalSequence: 0,
       iCalUID: "icaluid",
       organizationId: null,

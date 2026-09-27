@@ -1471,6 +1471,109 @@ describe("Cancel Booking", () => {
     expect(result.bookingId).toBe(idOfBookingToBeCancelled);
   });
 
+  // Flowko (U13 fix pass): a booking outlives its event type (Booking.eventTypeId is ON DELETE SET NULL). Its
+  // cancellation e-mail to the attendee then hides the organizer's address, in the body, the ICS and Reply-To,
+  // as the bookings list and the booking page do (isOrganizerEmailHidden)
+  describe("Organizer e-mail in the attendee's cancellation e-mail (Flowko U13 fix pass)", () => {
+    const organizerEmail = "organizer@example.com";
+
+    async function cancelAndGetAttendeeEmail({
+      eventTypeId,
+      hideOrganizerEmail,
+      emails,
+    }: {
+      eventTypeId: number | null;
+      hideOrganizerEmail: boolean;
+      emails: { get: () => { to: string; html: string; icalEvent?: { content: string } }[] };
+    }) {
+      const handleCancelBooking = (await import("@calcom/features/bookings/lib/handleCancelBooking")).default;
+      const booker = getBooker({ email: "booker@example.com", name: "Booker" });
+      const organizer = getOrganizer({
+        name: "Organizer",
+        email: organizerEmail,
+        id: 101,
+        schedules: [TestData.schedules.IstWorkHours],
+      });
+      const { dateString: plus1DateString } = getDate({ dateIncrement: 1 });
+
+      await createBookingScenario(
+        getScenarioData({
+          eventTypes: [
+            {
+              id: 1,
+              slotInterval: 30,
+              length: 30,
+              hideOrganizerEmail,
+              users: [{ id: 101 }],
+            },
+          ],
+          bookings: [
+            {
+              id: 7090,
+              uid: "booking-hide-organizer-email",
+              attendees: [{ email: booker.email, name: booker.name, timeZone: "Europe/Ljubljana" }],
+              eventTypeId,
+              userId: 101,
+              responses: { email: booker.email, name: booker.name },
+              status: BookingStatus.ACCEPTED,
+              startTime: `${plus1DateString}T05:00:00.000Z`,
+              endTime: `${plus1DateString}T05:30:00.000Z`,
+            },
+          ],
+          organizer,
+        })
+      );
+
+      await handleCancelBooking({
+        bookingData: {
+          id: 7090,
+          uid: "booking-hide-organizer-email",
+          cancelledBy: booker.email,
+          cancellationReason: "No reason",
+        },
+      });
+
+      const attendeeEmail = emails.get().find((email) => email.to.includes(booker.email));
+      expect(attendeeEmail).toBeDefined();
+      return attendeeEmail as NonNullable<typeof attendeeEmail> & { replyTo?: string };
+    }
+
+    test("hides it for a booking whose event type was deleted", async ({ emails }) => {
+      const attendeeEmail = await cancelAndGetAttendeeEmail({
+        eventTypeId: null,
+        hideOrganizerEmail: false,
+        emails,
+      });
+
+      expect(attendeeEmail.html).not.toContain(organizerEmail);
+      expect(attendeeEmail.icalEvent?.content).toBeDefined();
+      expect(attendeeEmail.icalEvent?.content).not.toContain(organizerEmail);
+      expect(attendeeEmail.replyTo ?? "").not.toContain(organizerEmail);
+    });
+
+    test("hides it for a live event type that hides it", async ({ emails }) => {
+      const attendeeEmail = await cancelAndGetAttendeeEmail({
+        eventTypeId: 1,
+        hideOrganizerEmail: true,
+        emails,
+      });
+
+      expect(attendeeEmail.html).not.toContain(organizerEmail);
+      expect(attendeeEmail.icalEvent?.content).not.toContain(organizerEmail);
+    });
+
+    test("still shows it for a live event type that doesn't hide it", async ({ emails }) => {
+      const attendeeEmail = await cancelAndGetAttendeeEmail({
+        eventTypeId: 1,
+        hideOrganizerEmail: false,
+        emails,
+      });
+
+      expect(attendeeEmail.html).toContain(organizerEmail);
+      expect(attendeeEmail.icalEvent?.content).toContain(organizerEmail);
+    });
+  });
+
   describe("Cancellation Reason Requirement", () => {
     test("Should block host cancellation without reason when requiresCancellationReason is MANDATORY_BOTH", async () => {
       const handleCancelBooking = (await import("@calcom/features/bookings/lib/handleCancelBooking")).default;

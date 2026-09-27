@@ -2,6 +2,7 @@ import { PaymentServiceMap } from "@calcom/app-store/payment.services.generated"
 import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-utils";
 import dayjs from "@calcom/dayjs";
 import { sendNoShowFeeChargedEmail } from "@calcom/emails/billing-email-service";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import {
   type EventTypeBrandingData,
@@ -105,7 +106,8 @@ export const handleNoShowFee= async ({
       language: { translate: tOrganizer, locale: booking.user?.locale ?? "en" },
     },
     attendees: [attendee],
-    hideOrganizerEmail: booking.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(booking.eventType),
     paymentInfo: {
       amount: payment.amount,
       currency: payment.currency,

@@ -1,4 +1,5 @@
 import { sendScheduledEmailsAndSMS } from "@calcom/emails/email-manager";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import { scheduleNoShowTriggers } from "@calcom/features/bookings/lib/handleNewBooking/scheduleNoShowTriggers";
 import {
@@ -222,7 +223,8 @@ export const Handler = async ({ ctx, input }: Options) => {
       timeFormat: getTimeFormatStringFromUserTimeFormat(user.timeFormat),
       language: { translate: tOrganizer, locale: user.locale ?? "en" },
     },
-    hideOrganizerEmail: updatedBooking.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(updatedBooking.eventType),
     attendees: attendeesList,
     location: updatedBooking.location ?? "",
     uid: updatedBooking.uid,

@@ -3,6 +3,7 @@ import { getUsersCredentialsIncludeServiceAccountKey } from "@calcom/app-store/d
 import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-utils";
 import dayjs from "@calcom/dayjs";
 import { BookingEmailSmsHandler } from "@calcom/features/bookings/lib/BookingEmailSmsHandler";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import EventManager from "@calcom/features/bookings/lib/EventManager";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
 import {
@@ -289,7 +290,8 @@ export async function buildCalendarEvent(
       timeZone: organizer.timeZone,
       language: { translate: tOrganizer, locale: organizer.locale ?? "en" },
     },
-    hideOrganizerEmail: booking.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(booking.eventType),
     attendees: attendeesList,
     uid: booking.uid,
     iCalUID: booking.iCalUID,

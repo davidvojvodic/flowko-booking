@@ -2,6 +2,7 @@ import { getUsersCredentialsIncludeServiceAccountKey } from "@calcom/app-store/d
 import type { LocationObject } from "@calcom/app-store/locations";
 import { getLocationValueForDB } from "@calcom/app-store/locations";
 import { sendDeclinedEmailsAndSMS } from "@calcom/emails/email-manager";
+import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getAllCredentialsIncludeServiceAccountKey } from "@calcom/features/bookings/lib/getAllCredentialsForUsersOnEvent/getAllCredentials";
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { getAssignmentReasonCategory } from "@calcom/features/bookings/lib/getAssignmentReasonCategory";
@@ -262,7 +263,8 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
         ? [booking.user?.destinationCalendar]
         : [],
     requiresConfirmation: booking?.eventType?.requiresConfirmation ?? false,
-    hideOrganizerEmail: booking.eventType?.hideOrganizerEmail,
+    // Flowko (U13 fix pass): a booking whose event type was deleted counts as hiding the organizer's e-mail
+    hideOrganizerEmail: isOrganizerEmailHidden(booking.eventType),
     hideCalendarNotes: booking.eventType?.hideCalendarNotes,
     hideCalendarEventDetails: booking.eventType?.hideCalendarEventDetails,
     eventTypeId: booking.eventType?.id,
