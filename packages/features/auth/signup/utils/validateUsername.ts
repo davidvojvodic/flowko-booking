@@ -1,4 +1,5 @@
 import { getOrgUsernameFromEmail } from "@calcom/features/auth/signup/utils/getOrgUsernameFromEmail";
+import { isReservedUsername } from "@calcom/features/auth/signup/utils/reservedUsernames";
 import prisma from "@calcom/prisma";
 
 export const getUsernameForOrgMember = async ({
@@ -36,7 +37,9 @@ export const validateAndGetCorrectedUsernameAndEmail = async ({
   orgAutoAcceptEmail?: string;
   isSignup: boolean;
 }) => {
-  if (username.includes("+")) {
+  // Flowko (U13 hardening): a reserved name (a top-level route, a locale, or a name ending in "embed")
+  // can't be a username; see reservedUsernames.ts.
+  if (username.includes("+") || isReservedUsername(username)) {
     return { isValid: false, username: undefined, email };
   }
   // There is an existingUser if, within an org context or not, the username matches
@@ -73,6 +76,10 @@ export const validateAndGetCorrectedUsernameAndEmail = async ({
       orgAutoAcceptEmail,
       isSignup,
     });
+    // Flowko (U13 hardening): the name derived from the e-mail can't be reserved either.
+    if (isReservedUsername(validatedUsername)) {
+      return { isValid: false, username: undefined, email };
+    }
   }
 
   return { isValid: !existingUser, username: validatedUsername, email: existingUser?.email };

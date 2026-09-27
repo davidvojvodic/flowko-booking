@@ -1,3 +1,7 @@
+import {
+  isReservedUsername,
+  RESERVED_USERNAME_MESSAGE,
+} from "@calcom/features/auth/signup/utils/reservedUsernames";
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { CreationSource, RedirectType } from "@calcom/prisma/enums";
 import { UserSchema } from "@calcom/prisma/zod/modelSchema/UserSchema";
@@ -31,6 +35,14 @@ const userBodySchema = UserSchema.pick({
   avatarUrl: true,
 });
 
+// Flowko (U13 hardening): an admin can't give a user a reserved name either (a top-level route, a locale,
+// or a name ending in "embed"; see reservedUsernames.ts). These procedures store the username as given.
+const refuseReservedUsername = (input: { username?: string | null }, ctx: z.RefinementCtx) => {
+  if (isReservedUsername(input.username)) {
+    ctx.addIssue({ code: "custom", path: ["username"], message: RESERVED_USERNAME_MESSAGE });
+  }
+};
+
 /** Reusable logic that checks for admin permissions and if the requested user exists */
 //const authedAdminWithUserMiddleware = middleware();
 
@@ -60,13 +72,15 @@ export const userAdminRouter = router({
     const users = await prisma.user.findMany();
     return users;
   }),
-  add: authedAdminProcedure.input(userBodySchema).mutation(async ({ ctx, input }) => {
-    const { prisma } = ctx;
-    const user = await prisma.user.create({ data: { ...input, creationSource: CreationSource.WEBAPP } });
-    return { user, message: `User with id: ${user.id} added successfully` };
-  }),
+  add: authedAdminProcedure
+    .input(userBodySchema.superRefine(refuseReservedUsername))
+    .mutation(async ({ ctx, input }) => {
+      const { prisma } = ctx;
+      const user = await prisma.user.create({ data: { ...input, creationSource: CreationSource.WEBAPP } });
+      return { user, message: `User with id: ${user.id} added successfully` };
+    }),
   update: authedAdminProcedureWithRequestedUser
-    .input(userBodySchema.partial())
+    .input(userBodySchema.partial().superRefine(refuseReservedUsername))
     .mutation(async ({ ctx, input }) => {
       const { prisma, requestedUser } = ctx;
 

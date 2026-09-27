@@ -1,4 +1,5 @@
 import dayjs from "@calcom/dayjs";
+import { isReservedUsername } from "@calcom/features/auth/signup/utils/reservedUsernames";
 import { validateAndGetCorrectedUsernameInTeam } from "@calcom/features/auth/signup/utils/validateUsername";
 import { HttpError } from "@calcom/lib/http-error";
 import { prisma } from "@calcom/prisma";
@@ -46,6 +47,14 @@ export async function validateAndGetCorrectedUsernameForTeam({
   teamId: number | null;
   isSignup: boolean;
 }) {
+  // Flowko (U13 hardening): a signup token without a team skips the team validation below, so the
+  // reserved names (reservedUsernames.ts) are refused here, with the answer an unavailable name gets.
+  if (isReservedUsername(username)) {
+    throw new HttpError({
+      statusCode: 409,
+      message: "Username or email is already taken",
+    });
+  }
   if (!teamId) return username;
 
   const teamUserValidation = await validateAndGetCorrectedUsernameInTeam(username, email, teamId, isSignup);
