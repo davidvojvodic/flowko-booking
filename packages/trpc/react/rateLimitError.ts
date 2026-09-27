@@ -8,8 +8,9 @@ const hasRateLimitMessage = (message: unknown): boolean =>
  * Flowko: tells whether an error the client got is the rate limiter's refusal, so a view can show
  * t("rate_limit_exceeded") in the user's language instead of the server's English text. It takes a tRPC
  * client error (TOO_MANY_REQUESTS / 429), an HttpError (429), the JSON body of a fetch() answer, or a bare
- * message (next-auth's signIn() gives the thrown message as res.error). A fetch-wrapper HttpError loses the
- * status (HttpError.fromRequest spreads a Response, whose status is a getter), so the message counts too.
+ * message (next-auth's signIn() gives the thrown message as res.error). The message counts on its own too,
+ * because a JSON body and next-auth's error carry no status. (Before U8e a fetch-wrapper HttpError lost its
+ * status as well.)
  */
 export function isRateLimitError(error: unknown): boolean {
   if (typeof error === "string") return hasRateLimitMessage(error);
