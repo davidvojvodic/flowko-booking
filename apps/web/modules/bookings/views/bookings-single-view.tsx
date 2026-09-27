@@ -1188,7 +1188,16 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
                         description={t("no_show_description")}
                         buttonRaw={
                           !props.recurringBookings ? (
-                            <Button href={`/reschedule/${seatReferenceUid || bookingInfo?.uid}`}>
+                            // Flowko U13-11: in an embed this Reschedule opens first-party in a new tab too
+                            <Button
+                              href={
+                                isEmbed
+                                  ? getFirstPartyRescheduleUrl({ uid: bookingInfo.uid, seatReferenceUid })
+                                  : `/reschedule/${seatReferenceUid || bookingInfo?.uid}`
+                              }
+                              {...(isEmbed
+                                ? { ...FIRST_PARTY_NEW_TAB_LINK_PROPS, "data-testid": "no-show-reschedule-link" }
+                                : {})}>
                               {t("reschedule")}
                             </Button>
                           ) : undefined

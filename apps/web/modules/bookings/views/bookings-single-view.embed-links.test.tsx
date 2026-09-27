@@ -244,6 +244,13 @@ describe("booking success page links (U13-11)", () => {
         `${WEBAPP_URL}/auth/login?callbackUrl=%2Fbooking%2Fbooking-uid`
       );
     });
+
+    it("opens the host-no-show page's Reschedule on the first-party site in a new tab", async () => {
+      mocks.query = { ...mocks.query, noShow: "true" };
+      await renderPage({ ...baseProps, isEmbed: true });
+
+      expectFirstPartyNewTab(link("no-show-reschedule-link"), `${WEBAPP_URL}/reschedule/booking-uid`);
+    });
   });
 
   describe("outside an embed", () => {
@@ -296,6 +303,16 @@ describe("booking success page links (U13-11)", () => {
       expect(link("reschedule-link").getAttribute("href")).toBe(
         `/reschedule/booking-uid?rescheduledBy=${encodeURIComponent(BOOKER_EMAIL)}`
       );
+    });
+
+    it("keeps the host-no-show page's relative same-tab Reschedule", async () => {
+      mocks.query = { ...mocks.query, noShow: "true" };
+      await renderPage(baseProps);
+
+      expect(screen.queryByTestId("no-show-reschedule-link")).not.toBeInTheDocument();
+      const reschedule = screen.getByText("reschedule").closest("a") as HTMLAnchorElement;
+      expect(reschedule.getAttribute("href")).toBe("/reschedule/booking-uid");
+      expect(reschedule.getAttribute("target")).toBeNull();
     });
   });
 });
