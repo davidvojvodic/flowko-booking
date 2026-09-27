@@ -744,10 +744,23 @@ async function handler(
     bookerEmail,
   });
 
+  // /api/book/event passes -1 for a caller without a session
+  const isCallerHostOfEventType =
+    !!userId &&
+    userId > 0 &&
+    (eventType.owner?.id === userId ||
+      eventType.users.some((user) => user.id === userId) ||
+      eventType.hosts.some((host) => host.user.id === userId));
+
   // For unconfirmed bookings or round robin bookings with the same attendee and timeslot, return the original booking
+  // Flowko (U8e): not in a dry run by anyone but a host. A dry run writes nothing, so it can't duplicate a
+  // booking, and its 409 only told the caller, silently, that this e-mail or phone number has a pending
+  // booking at this time, which the public slots don't show (a pending booking leaves its slot free unless
+  // the event type blocks it). Such a dry run now goes on as for any other booker.
   if (
-    (!isConfirmedByDefault && !userReschedulingIsOwner) ||
-    eventType.schedulingType === SchedulingType.ROUND_ROBIN
+    ((!isConfirmedByDefault && !userReschedulingIsOwner) ||
+      eventType.schedulingType === SchedulingType.ROUND_ROBIN) &&
+    !(isDryRun && !isCallerHostOfEventType)
   ) {
     const requiresPayment = !Number.isNaN(paymentAppData.price) && paymentAppData.price > 0;
 
@@ -765,14 +778,8 @@ async function handler(
       // attendee's form answers and the payment link to whoever knows them, so only the booking's
       // organizer or a host of the event type gets it back. The booker has it in their confirmation email,
       // and a pending payment's link is emailed to them (sendAwaitingPaymentEmail).
-      // /api/book/event passes -1 for a caller without a session
       const isCallerOrganizerOrHost =
-        !!userId &&
-        userId > 0 &&
-        (existingBooking.userId === userId ||
-          eventType.owner?.id === userId ||
-          eventType.users.some((user) => user.id === userId) ||
-          eventType.hosts.some((host) => host.user.id === userId));
+        isCallerHostOfEventType || (!!userId && userId > 0 && existingBooking.userId === userId);
       if (!isCallerOrganizerOrHost) {
         throw new HttpError({ statusCode: 409, message: ErrorCode.BookingAlreadyExists });
       }
@@ -896,6 +903,7 @@ async function handler(
 
   let { locationBodyString, organizerOrFirstDynamicGroupMemberDefaultLocationUrl } = getLocationValuesForDb({
     dynamicUserList,
+    isDynamicEventType: !!eventType.isDynamic,
     users,
     location,
   });

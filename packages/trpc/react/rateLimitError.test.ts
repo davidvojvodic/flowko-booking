@@ -26,8 +26,7 @@ describe("isRateLimitError", () => {
     expect(isRateLimitError(error)).toBe(true);
   });
 
-  it("recognises the limiter's message without a status (fetch-wrapper, fetch JSON body, next-auth)", () => {
-    // fetch-wrapper's HttpError.fromRequest spreads a Response, so statusCode ends up undefined
+  it("recognises the limiter's message without a status (fetch JSON body, next-auth)", () => {
     expect(isRateLimitError({ message: "Rate limit exceeded. Try again in 42 seconds." })).toBe(true);
     expect(isRateLimitError("Rate limit exceeded. Try again in 42 seconds.")).toBe(true);
   });

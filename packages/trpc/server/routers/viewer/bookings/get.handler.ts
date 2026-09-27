@@ -1,5 +1,6 @@
 import dayjs from "@calcom/dayjs";
 import {
+  isOrganizerEmailHidden,
   normaliseEmail,
   toOrganizerForViewer,
   withoutAppCredentialIds,
@@ -805,11 +806,12 @@ export async function getBookings({
   // caller's own email stays, a host's becomes the organizer's name (as the booking page shows the
   // rescheduler) and anyone else's is dropped
   const toActorForBooker = (booking: (typeof plainBookings)[number], email: string | null) => {
-    if (!booking.eventType?.hideOrganizerEmail || !email || isViewerEmail(email)) return email;
+    // Flowko (U8e): a booking whose event type was deleted counts as hiding (see isOrganizerEmailHidden)
+    if (!isOrganizerEmailHidden(booking.eventType) || !email || isViewerEmail(email)) return email;
     return getHostEmailsOfRow(booking).has(normaliseEmail(email)) ? (booking.user?.name ?? null) : null;
   };
   const toBookingForBooker = (booking: (typeof plainBookings)[number]): (typeof plainBookings)[number] => {
-    const hideOrganizerEmail = !!booking.eventType?.hideOrganizerEmail;
+    const hideOrganizerEmail = isOrganizerEmailHidden(booking.eventType);
     const organizer = booking.user ? toOrganizerForViewer(booking.user, hideOrganizerEmail) : null;
     // Flowko: a host added as a guest is an attendee under their own email, which the event type may hide
     // (U7a nulls it on the booking page). The row is dropped rather than nulled, so Attendee.email stays a string
@@ -901,7 +903,11 @@ export async function getBookings({
   );
 
   // Enrich attendees with user data
-  const enrichedBookings = await enrichAttendeesWithUserData(bookings, kysely);
+  // Flowko (U8e): only the caller's own attendee rows. Every attendee was joined to users by e-mail and came back
+  // with that account's name, username and avatar, on the host's rows too. Any tenant could book their own event
+  // type with candidate addresses as booker or guests and learn which are Flowko accounts, and under which
+  // name and username.
+  const enrichedBookings = await enrichAttendeesWithUserData(bookings, kysely, isViewerEmail);
 
   return { bookings: enrichedBookings, recurringInfo, totalCount };
 }
@@ -923,13 +929,15 @@ type EnrichedUserData = {
  *
  * @param bookings - Array of bookings with attendees to enrich
  * @param kysely - Kysely database client instance
+ * @param isEnriched - Flowko (U8e): which attendees to enrich (the caller's own); the others get `user: null`
  * @returns Bookings with attendees enriched with user data (name, email, avatarUrl, username)
  */
 async function enrichAttendeesWithUserData<
   TBooking extends { attendees: ReadonlyArray<{ id: number; email: string }> },
 >(
   bookings: TBooking[],
-  kysely: Kysely<DB>
+  kysely: Kysely<DB>,
+  isEnriched: (email: string) => boolean
 ): Promise<
   Array<
     Omit<TBooking, "attendees"> & {
@@ -938,7 +946,9 @@ async function enrichAttendeesWithUserData<
   >
 > {
   // Extract all unique attendee emails from bookings
-  const allAttendees = bookings.flatMap((booking) => booking.attendees);
+  const allAttendees = bookings
+    .flatMap((booking) => booking.attendees)
+    .filter((attendee) => isEnriched(attendee.email));
   const uniqueAttendeeIds = Array.from(new Set(allAttendees.map((attendee) => attendee.id)));
 
   // Query attendees with left join to users table
@@ -970,7 +980,7 @@ async function enrichAttendeesWithUserData<
     ...booking,
     attendees: booking.attendees.map((attendee) => ({
       ...attendee,
-      user: attendeeUserDataMap.get(attendee.id) || null,
+      user: (isEnriched(attendee.email) && attendeeUserDataMap.get(attendee.id)) || null,
     })),
   }));
 }

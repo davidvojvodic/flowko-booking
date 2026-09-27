@@ -3,6 +3,7 @@ import { WEBAPP_URL } from "@calcom/lib/constants";
 import { LINK_TOKEN_KEY_LABEL, symmetricDecryptAuthenticated } from "@calcom/lib/crypto";
 import { distributedTracing } from "@calcom/lib/tracing/factory";
 import prisma from "@calcom/prisma";
+import { BookingStatus } from "@calcom/prisma/enums";
 import { confirmHandler } from "@calcom/trpc/server/routers/viewer/bookings/confirm.handler";
 import { TRPCError } from "@trpc/server";
 import { defaultResponderForAppDir } from "app/api/defaultResponderForAppDir";
@@ -65,7 +66,7 @@ async function resolveLink(searchParams: URLSearchParams) {
 
   const booking = await prisma.booking.findUnique({
     where: { uid: bookingUid },
-    select: { id: true, uid: true, userId: true, recurringEventId: true },
+    select: { id: true, uid: true, userId: true, recurringEventId: true, status: true },
   });
 
   // Flowko: the link must name the booking's own organizer; booking A with user B's id is refused.
@@ -118,6 +119,15 @@ async function handler(request: NextRequest) {
     platformBookingUrl,
   } = link;
   const bookingUid = booking.uid;
+
+  // Flowko (U8e): the link decides a booking only while the booking waits for that decision. The token is
+  // not consumed and stays valid for 30 days, and the organizer's reply to the request email quotes it to the
+  // booker (Reply-To is the attendees). confirmHandler refuses only an ACCEPTED booking, so the same link
+  // turned the organizer's rejection into an acceptance, or brought back a cancelled booking. Any other
+  // status now opens the booking as it is, without acting.
+  if (booking.status !== BookingStatus.PENDING) {
+    return NextResponse.redirect(new URL(`/booking/${bookingUid}`, WEBAPP_URL));
+  }
 
   try {
     await confirmHandler({

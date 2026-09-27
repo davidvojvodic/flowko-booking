@@ -29,7 +29,7 @@ const renderError = (dataError: unknown) => {
 
 describe("BookEventForm getError", () => {
   it("shows the rate-limit refusal in the booker's language, not the server's English text", () => {
-    // What createBooking's fetch-wrapper throws for a 429 of /api/book/event: no status, the message kept
+    // An error that carries the limiter's message but no status (fetch-wrapper's before U8e)
     const error = new HttpError({
       statusCode: undefined as unknown as number,
       message: "Rate limit exceeded. Try again in 42 seconds.",

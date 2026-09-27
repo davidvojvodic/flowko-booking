@@ -29,7 +29,11 @@ import { checkRateLimitAndThrowError } from "./checkRateLimitAndThrowError";
 import { HttpError } from "./http-error";
 import {
   createInMemoryRateLimiter,
+  getRateLimitNamespace,
   IN_MEMORY_RATE_LIMIT_MAX_ENTRIES,
+  IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE,
+  IN_MEMORY_RATE_LIMIT_MAX_NAMESPACES,
+  IN_MEMORY_RATE_LIMIT_RESERVED_ENTRIES_PER_NAMESPACE,
   IN_MEMORY_RATE_LIMITS,
   rateLimiter,
 } from "./rateLimit";
@@ -201,7 +205,7 @@ describe("createInMemoryRateLimiter", () => {
   });
 
   it("never evicts a live window: a denying identifier stays denied however many new ones arrive", async () => {
-    const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntries: 3 });
+    const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntriesPerNamespace: 3 });
     for (let i = 0; i < 10; i++) await limiter({ identifier: "target" });
     expect((await limiter({ identifier: "target" })).success).toBe(false);
     await limiter({ identifier: "b" });
@@ -216,8 +220,8 @@ describe("createInMemoryRateLimiter", () => {
     expect(await limiter({ identifier: "b" })).toMatchObject({ success: true, remaining: 8 });
   });
 
-  it("counts identifiers that are new while the store is full in one overflow window per namespace", async () => {
-    const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntries: 2 });
+  it("counts identifiers that are new while their namespace is full in that namespace's overflow window", async () => {
+    const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntriesPerNamespace: 2 });
     await limiter({ identifier: "a" });
     await limiter({ identifier: "b" });
 
@@ -238,21 +242,27 @@ describe("createInMemoryRateLimiter", () => {
     });
     expect(limiter.size()).toBe(2);
 
-    // Other namespaces and overrides overflow separately, with their own limits.
+    // An override in the same namespace overflows separately, with its own limit.
+    const opts = { limit: { limit: 3, duration: "60s" as const } };
+    expect(await limiter({ identifier: "override", opts })).toMatchObject({
+      success: true,
+      limit: 3,
+      remaining: 2,
+    });
+    // Another namespace is not full: its identifiers get windows of their own.
     expect(await limiter({ rateLimitingType: "common", identifier: "eventTypes:list:7" })).toMatchObject({
       success: true,
       limit: 200,
       remaining: 199,
     });
-    const opts = { limit: { limit: 3, duration: "60s" as const } };
-    expect(await limiter({ identifier: "override", opts })).toMatchObject({ success: true, limit: 3, remaining: 2 });
+    expect(limiter.size()).toBe(3);
     // Identifiers that already had a window are unaffected.
     expect(await limiter({ identifier: "a" })).toMatchObject({ success: true, remaining: 8 });
   });
 
   it("gives new identifiers their own window again as soon as expired ones are pruned", async () => {
     const clock = fakeClock();
-    const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntries: 2 });
+    const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntriesPerNamespace: 2 });
     await limiter({ identifier: "a" });
     clock.advance(30_000);
     await limiter({ identifier: "b" });
@@ -272,7 +282,11 @@ describe("createInMemoryRateLimiter", () => {
 
   it("resets the overflow window after its duration while the store stays full", async () => {
     const clock = fakeClock();
-    const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntries: 1 });
+    const limiter = createInMemoryRateLimiter({
+      now: clock.now,
+      maxEntries: 1,
+      reservedEntriesPerNamespace: 0,
+    });
     await limiter({ rateLimitingType: "ai", identifier: "long-lived" });
     for (let i = 0; i < 10; i++) await limiter({ identifier: `flood-${i}` });
     expect((await limiter({ identifier: "flood-x" })).success).toBe(false);
@@ -286,17 +300,137 @@ describe("createInMemoryRateLimiter", () => {
     expect(limiter.size()).toBe(1);
   });
 
-  it("never holds more than 50k windows by default, and a flood past the cap resets no counter", async () => {
-    expect(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES).toBe(50_000);
+  // U8e: one namespace per call site, so random e-mails sent at one limiter can't lock everyone else out
+  describe("per-namespace budgets", () => {
+    const hostLogin =
+      "login:0f3a9c11d2b7e4a8c6f5d0e1b2a39485@flowko-test.example.com:9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e";
+    const booking = "createBooking:1a2b3c4d5e6f708192a3b4c5d6e7f809";
+
+    it("names a namespace after the call site's fixed labels, never after the variable part", () => {
+      const hash = "0f3a9c11d2b7e4a8c6f5d0e1b2a39485";
+      const cases: Array<[Parameters<typeof getRateLimitNamespace>[0], string, string]> = [
+        ["core", `login:${hash}@example.com:${hash}`, "core:login"],
+        ["core", "login-failures:42", "core:login-failures"],
+        ["core", `emailVerifyCode.${hash}@example.com`, "core:emailVerifyCode"],
+        ["core", `verifyCode-ip:${hash}`, "core:verifyCode-ip"],
+        ["core", `sendVerifyEmailCode:${hash}`, "core:sendVerifyEmailCode"],
+        ["core", `sendVerifyEmailCode:to:${hash}@example.com`, "core:sendVerifyEmailCode:to"],
+        ["core", `createBooking:${hash}`, "core:createBooking"],
+        ["core", `api:cancel-ip:${hash}`, "core:api:cancel-ip"],
+        ["core", "api:cancel-user:7", "core:api:cancel-user"],
+        ["common", "eventTypes:getActiveOnOptions.handler:7", "common:eventTypes:getActiveOnOptions:handler"],
+        // No labels: a bare e-mail hash (verifyEmail), an IP address, a single word
+        ["core", `${hash}@example.com`, "core"],
+        ["forcedSlowMode", "203.0.113.9", "forcedSlowMode"],
+        ["core", "2001:db8::1", "core"],
+        ["core", "admin-login", "core"],
+      ];
+      for (const [type, identifier, expected] of cases) {
+        expect(getRateLimitNamespace(type, identifier)).toBe(expected);
+      }
+    });
+
+    it("keeps windows for a host signing in and a booker while random e-mails flood the email-code check", async () => {
+      const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntriesPerNamespace: 5 });
+      for (let i = 0; i < 50; i++) await limiter({ identifier: `emailVerifyCode.random-${i}@example.com` });
+      expect(limiter.size()).toBe(5);
+      // The flood is capped and fails closed in its own namespace
+      expect((await limiter({ identifier: "emailVerifyCode.one-more@example.com" })).success).toBe(false);
+
+      // Other limiters are untouched: their new identifiers get windows of their own, not an overflow window
+      expect(await limiter({ identifier: hostLogin })).toMatchObject({ success: true, remaining: 9 });
+      expect(await limiter({ identifier: booking })).toMatchObject({ success: true, remaining: 9 });
+      expect(limiter.size()).toBe(7);
+    });
+
+    it("confines a flood at the sign-in check to the sign-in check", async () => {
+      const limiter = createInMemoryRateLimiter({ now: fakeClock().now, maxEntriesPerNamespace: 5 });
+      for (let i = 0; i < 50; i++) await limiter({ identifier: `login:random-${i}@example.com:ip` });
+
+      expect((await limiter({ identifier: hostLogin })).success).toBe(false);
+      expect(await limiter({ identifier: booking })).toMatchObject({ success: true, remaining: 9 });
+      expect(await limiter({ identifier: "emailVerifyCode.booker@example.com" })).toMatchObject({
+        success: true,
+        remaining: 9,
+      });
+    });
+
+    it("still gives a quiet namespace its reserve once floods in other namespaces fill the whole store", async () => {
+      const limiter = createInMemoryRateLimiter({
+        now: fakeClock().now,
+        maxEntries: 6,
+        maxEntriesPerNamespace: 4,
+        reservedEntriesPerNamespace: 1,
+      });
+      for (let i = 0; i < 20; i++) await limiter({ identifier: `emailVerifyCode.random-${i}@example.com` });
+      for (let i = 0; i < 20; i++) await limiter({ identifier: `login:random-${i}@example.com:ip` });
+      // 4 in the first namespace, then the second one stops at the store-wide cap
+      expect(limiter.size()).toBe(6);
+
+      expect(await limiter({ identifier: booking })).toMatchObject({ success: true, remaining: 9 });
+      expect(limiter.size()).toBe(7);
+      // Past its reserve the quiet namespace shares its own overflow window, fail closed
+      for (let i = 0; i < 10; i++) {
+        expect((await limiter({ identifier: `createBooking:ip-${i}` })).success).toBe(true);
+      }
+      expect((await limiter({ identifier: "createBooking:ip-x" })).success).toBe(false);
+      expect(limiter.size()).toBe(7);
+    });
+
+    it("keeps the number of namespaces bounded: past the cap a new label counts under its type", async () => {
+      const limiter = createInMemoryRateLimiter({
+        now: fakeClock().now,
+        maxEntriesPerNamespace: 1,
+        maxNamespaces: 2,
+      });
+      expect((await limiter({ identifier: "alpha:1" })).success).toBe(true);
+      expect((await limiter({ identifier: "beta:1" })).success).toBe(true);
+      // "gamma" finds the cap reached and counts in "core", which still has room
+      expect((await limiter({ identifier: "gamma:1" })).success).toBe(true);
+      expect(limiter.size()).toBe(3);
+      // "delta" also lands in "core", now full: it shares core's overflow window with bare identifiers
+      for (let i = 0; i < 9; i++) expect((await limiter({ identifier: `delta:${i}` })).success).toBe(true);
+      expect((await limiter({ identifier: "bare-identifier" })).success).toBe(true);
+      expect((await limiter({ identifier: "delta:x" })).success).toBe(false);
+      expect(limiter.size()).toBe(3);
+      // The namespaces made before the cap keep working
+      expect((await limiter({ identifier: "alpha:1" })).success).toBe(true);
+    });
+
+    it("counts pruned windows out of their namespace, so the namespace gets room back", async () => {
+      const clock = fakeClock();
+      const limiter = createInMemoryRateLimiter({ now: clock.now, maxEntriesPerNamespace: 2 });
+      await limiter({ identifier: "login:a1@example.com:ip" });
+      await limiter({ identifier: "login:b1@example.com:ip" });
+      expect((await limiter({ identifier: hostLogin })).success).toBe(true); // overflow window
+      for (let i = 0; i < 9; i++) await limiter({ identifier: `login:c${i}@example.com:ip` });
+      expect((await limiter({ identifier: hostLogin })).success).toBe(false);
+
+      clock.advance(60_000);
+      expect(await limiter({ identifier: hostLogin })).toMatchObject({ success: true, remaining: 9 });
+      expect(limiter.size()).toBe(1);
+    });
+  });
+
+  it("holds at most 50k windows per namespace by default; a flood past it resets no counter and locks out no other limiter", async () => {
+    expect(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE).toBe(50_000);
+    expect(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES).toBe(100_000);
+    expect(IN_MEMORY_RATE_LIMIT_RESERVED_ENTRIES_PER_NAMESPACE).toBe(1_000);
+    expect(IN_MEMORY_RATE_LIMIT_MAX_NAMESPACES).toBe(64);
     const limiter = createInMemoryRateLimiter({ now: fakeClock().now });
     for (let i = 0; i < 10; i++) await limiter({ identifier: "admin-login" });
     expect((await limiter({ identifier: "admin-login" })).success).toBe(false);
 
-    for (let i = 0; i < IN_MEMORY_RATE_LIMIT_MAX_ENTRIES + 500; i++) {
+    for (let i = 0; i < IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE + 500; i++) {
       await limiter({ identifier: `emailVerifyCode.${i}` });
     }
-    expect(limiter.size()).toBe(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES);
+    expect(limiter.size()).toBe(IN_MEMORY_RATE_LIMIT_MAX_ENTRIES_PER_NAMESPACE + 1);
     expect((await limiter({ identifier: "admin-login" })).success).toBe(false);
+    // A host signing in for the first time during the flood still gets a window of their own
+    expect(await limiter({ identifier: "login:host-hash@flowko-test.example.com:ip-hash" })).toMatchObject({
+      success: true,
+      remaining: 9,
+    });
   });
 
   it("prunes expired windows", async () => {

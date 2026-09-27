@@ -607,6 +607,125 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     expect(booking.attendees[1].phoneNumber).toBeNull();
   });
 
+  // Flowko (U8e): deleting an event type sets the booking's eventTypeId to NULL, and `!!eventType?.hideOrganizerEmail`
+  // then read as "not hidden", so the booker saw the login e-mail the owner had hidden
+  it("hides the organizer's email from a booker once the event type was deleted", async () => {
+    const prisma = createPrisma();
+    const row = { ...bookingRow({ organizerId: 2, hideOrganizerEmail: true }), eventType: null };
+    const booking = await listFor(row as unknown as ReturnType<typeof bookingRow>, prisma);
+
+    expect(booking.user?.email).toBeNull();
+    expect(booking.userPrimaryEmail).toBeNull();
+    // The host cancelled and rescheduled: the booker sees the organizer's name, as with hideOrganizerEmail
+    expect(booking.cancelledBy).toBe("Victim Host");
+    expect(booking.rescheduledBy).toBe("Victim Host");
+    expect(booking.rescheduler).toBe("Victim Host");
+    const serialised = JSON.stringify(booking);
+    expect(serialised).not.toContain(hostEmail);
+    expect(serialised).not.toContain("host-calendar@victim.si");
+  });
+
+  it("keeps the organizer's email on the organizer's own row after the event type was deleted", async () => {
+    const row = { ...bookingRow({ organizerId: caller.id, hideOrganizerEmail: true }), eventType: null };
+    const booking = await listFor(row as unknown as ReturnType<typeof bookingRow>);
+
+    expect(booking.user?.email).toBe(hostEmail);
+    expect(booking.userPrimaryEmail).toBe("host-calendar@victim.si");
+  });
+
+  // Flowko (U8e): the enrichment joined every attendee to users by e-mail, an e-mail-to-account oracle for any
+  // tenant who books their own event type with candidate addresses
+  it.each([
+    ["the caller's own row (the caller organizes it)", 1],
+    ["a row the caller only attends", 2],
+  ])("adds account data only to the caller's own attendee entry on %s", async (_label, organizerId) => {
+    const row = bookingRow({ organizerId, hideOrganizerEmail: false });
+    const kysely = createKyselyReturning([row]);
+    const builder = (kysely.selectFrom as ReturnType<typeof vi.fn>)() as Record<
+      string,
+      ReturnType<typeof vi.fn>
+    >;
+    builder.execute = vi
+      .fn()
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([
+        {
+          id: 100,
+          name: "Caller Account",
+          email: "user@example.com",
+          avatarUrl: "/avatar/caller",
+          username: "caller",
+        },
+        // The guest's address is another tenant's login
+        {
+          id: 101,
+          name: "Other Tenant",
+          email: "guest@example.org",
+          avatarUrl: null,
+          username: "other-tenant",
+        },
+      ]);
+
+    const { bookings } = await getBookings({
+      user: caller,
+      prisma: createPrisma(),
+      kysely,
+      bookingListingByStatus: ["upcoming"],
+      filters: {},
+      take: 10,
+      skip: 0,
+    });
+
+    const [own, guest] = bookings[0].attendees;
+    expect(own.user).toEqual({
+      name: "Caller Account",
+      email: "user@example.com",
+      avatarUrl: "/avatar/caller",
+      username: "caller",
+    });
+    expect(guest.email).toBe("guest@example.org");
+    expect(guest.user).toBeNull();
+    // The enrichment query asks only for the caller's own attendee row
+    expect(builder.where).toHaveBeenCalledWith("Attendee.id", "in", [100]);
+    expect(builder.where).not.toHaveBeenCalledWith("Attendee.id", "in", expect.arrayContaining([101]));
+  });
+
+  it("does not run the enrichment query when the caller is none of the attendees", async () => {
+    const row = {
+      ...bookingRow({ organizerId: caller.id, hideOrganizerEmail: false }),
+      attendees: [
+        {
+          id: 101,
+          email: "guest@example.org",
+          name: "Guest",
+          timeZone: "Europe/Ljubljana",
+          phoneNumber: null,
+          locale: "sl",
+          bookingId: 10,
+          noShow: false,
+        },
+      ],
+    };
+    const kysely = createKyselyReturning([row]);
+    const builder = (kysely.selectFrom as ReturnType<typeof vi.fn>)() as Record<
+      string,
+      ReturnType<typeof vi.fn>
+    >;
+
+    const { bookings } = await getBookings({
+      user: caller,
+      prisma: createPrisma(),
+      kysely,
+      bookingListingByStatus: ["upcoming"],
+      filters: {},
+      take: 10,
+      skip: 0,
+    });
+
+    expect(bookings[0].attendees[0].user).toBeNull();
+    expect(builder.where).not.toHaveBeenCalledWith("Attendee.id", "in", expect.anything());
+  });
+
   // Hidden answers are what the booking page drops for anyone who isn't a host; phone answers are the booker's
   const bookerResponses = (bookerEmail: string) => ({
     name: "Booker X",

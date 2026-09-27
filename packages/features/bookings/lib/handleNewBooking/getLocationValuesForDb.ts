@@ -23,14 +23,22 @@ export const _getLocationValuesForDb = <
   },
 >({
   dynamicUserList,
+  isDynamicEventType,
   users,
   location: locationBodyString,
 }: {
   dynamicUserList: string[];
+  /** The booking is for a dynamic group link's default event type (eventType.isDynamic), not a stored one */
+  isDynamicEventType: boolean;
   users: TUser[];
   location: string;
 }) => {
-  const isDynamicGroupBookingCase = dynamicUserList.length > 1;
+  // Flowko (U8e): dynamicUserList comes from the request body's `user` ("a+b"), which any booker can send
+  // with a stored event type's id. Counting that as a dynamic group booking replaced the event type's own
+  // location (an in-person address) with the organizer's default conferencing link, and a dry run handed the
+  // link back. Only a real dynamic group booking, which has no stored event type, takes the first member's
+  // default; it is off in this fork (IS_DYNAMIC_GROUP_BOOKING_ENABLED).
+  const isDynamicGroupBookingCase = isDynamicEventType && dynamicUserList.length > 1;
   let firstDynamicGroupMemberDefaultLocationUrl;
   // TODO: It's definition should be moved to getLocationValueForDb
   if (isDynamicGroupBookingCase) {
