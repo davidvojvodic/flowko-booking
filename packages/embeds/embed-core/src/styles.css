@@ -2,21 +2,11 @@
 @import "@coss/ui/styles.css";
 @import "../../../config/theme/tokens.css";
 
-@font-face {
-  font-family: "Cal Sans";
-  src: url("https://cal.com/cal.ttf");
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  font-family: "Cal Sans";
-  font-weight: normal;
-  letter-spacing: normal;
-}
+/*
+ * Flowko: no web-font declaration and no remote URL here. This CSS ships inside embed.js, which runs on
+ * clients' websites, so a remote font would send every visitor's IP address to its host.
+ * Upstream loaded a remote heading font here for h1-h6; the system font stack below is used instead.
+ */
 
 html,
 body,
