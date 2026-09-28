@@ -18,8 +18,8 @@
       p(cal, ar);
     };
   })(window, "https://booking.flowko.si/embed/embed.js", "init");
-  Cal("init", "ogled", { origin: "https://booking.flowko.si" });
-  Cal.ns.ogled("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
+  Cal("init", "ogled_povezava", { origin: "https://booking.flowko.si" });
+  Cal.ns.ogled_povezava("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
   document.addEventListener("click", function (e) {
     var a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -27,7 +27,7 @@
     var u; try { u = new URL(a.href); } catch (_) { return; }
     if (u.origin !== "https://booking.flowko.si" || u.pathname.replace(/\/$/, "") !== "/flowko-test/ogled") return;
     e.preventDefault();
-    Cal.ns.ogled("modal", { calLink: "flowko-test/ogled", config: { "layout": "month_view", "theme": "light" } });
+    Cal.ns.ogled_povezava("modal", { calLink: "flowko-test/ogled", config: { "layout": "month_view", "theme": "light" } });
   }, true);
 </script>
 <!-- Flowko Rezervacije: vaši gumbi odprejo okno za rezervacijo (konec) -->

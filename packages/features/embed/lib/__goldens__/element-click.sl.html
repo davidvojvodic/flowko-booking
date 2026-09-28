@@ -1,5 +1,5 @@
 <!-- Flowko Rezervacije: gumb, ki odpre okno za rezervacijo (začetek) -->
-<button type="button" data-cal-link="flowko-test/ogled" data-cal-namespace="ogled"
+<button type="button" data-cal-link="flowko-test/ogled" data-cal-namespace="ogled_gumb"
   data-cal-config='{"layout":"month_view","theme":"light"}'>Rezervirajte termin</button>
 <script type="text/javascript" data-cfasync="false" nowprocket>
   (function (C, A, L) {
@@ -20,7 +20,7 @@
       p(cal, ar);
     };
   })(window, "https://booking.flowko.si/embed/embed.js", "init");
-  Cal("init", "ogled", { origin: "https://booking.flowko.si" });
-  Cal.ns.ogled("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
+  Cal("init", "ogled_gumb", { origin: "https://booking.flowko.si" });
+  Cal.ns.ogled_gumb("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
 </script>
 <!-- Flowko Rezervacije: gumb, ki odpre okno za rezervacijo (konec) -->

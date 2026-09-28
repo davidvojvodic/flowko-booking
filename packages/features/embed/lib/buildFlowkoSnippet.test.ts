@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_LIGHT_BRAND_COLOR } from "@calcom/lib/constants";
+import slugify from "@calcom/lib/slugify";
 
 import { buildCssVarsPerTheme, getPinnedBrandColors } from "./buildCssVarsPerTheme";
 import type { BuildFlowkoSnippetInput, FlowkoSnippetLang, FlowkoSnippetType } from "./buildFlowkoSnippet";
@@ -12,6 +13,8 @@ import {
   buildFlowkoSnippet,
   FLOWKO_BOOK_BUTTON_TEXT,
   FLOWKO_DEFAULT_BUTTON_COLOR,
+  FLOWKO_NAMESPACE_SUFFIX,
+  getFlowkoNamespace,
 } from "./buildFlowkoSnippet";
 import { getApiNameWithNamespace } from "./getApiName";
 
@@ -53,8 +56,8 @@ function loaderLines(output: string) {
 const LONG_SLUG = "brezplacni-uvodni-posvet-za-nove-stranke-30-minut";
 const LONGEST_SLUG = "prvi-pregled-in-posvet-za-nove-paciente-z-napotnico-osebnega-zdravnika-30";
 
-// Plan §3.3 LOADER, verbatim.
-const PLAN_LOADER = `<script type="text/javascript" data-cfasync="false" nowprocket>
+// Plan §3.3 LOADER, verbatim; Flowko P0: the init line names the type's own namespace.
+const planLoader = (namespace: string) => `<script type="text/javascript" data-cfasync="false" nowprocket>
   (function (C, A, L) {
     let p = function (a, ar) { a.q.push(ar); };
     let d = C.document;
@@ -73,14 +76,16 @@ const PLAN_LOADER = `<script type="text/javascript" data-cfasync="false" nowproc
       p(cal, ar);
     };
   })(window, "https://booking.flowko.si/embed/embed.js", "init");
-  Cal("init", "ogled", { origin: "https://booking.flowko.si" });`;
+  Cal("init", "${namespace}", { origin: "https://booking.flowko.si" });`;
 
 // Plan §3.3 and §3.4, verbatim (flowko-test/ogled, brand #0F766E). Flowko (U13 fix pass): §3.4 gained the
-// data-cal-link line; the plan is updated to match.
+// data-cal-link line; the plan is updated to match. Flowko P0 (plan 2026-09-28-p0-builder-namespaces): the
+// calendar keeps "ogled", the floating button, our button and the client's own link use "ogled_lebdeci",
+// "ogled_gumb" and "ogled_povezava".
 const PLAN_OUTPUT: Record<FlowkoSnippetType, string> = {
   inline: `<!-- Flowko Rezervacije: koledar na strani (začetek) -->
 <div id="flowko-rezervacije-ogled" style="width:100%;height:100%;overflow:scroll"></div>
-${PLAN_LOADER}
+${planLoader("ogled")}
   Cal.ns.ogled("inline", {
     elementOrSelector: "#flowko-rezervacije-ogled",
     config: { "layout": "month_view", "useSlotsViewOnSmallScreen": "true", "theme": "light" },
@@ -90,8 +95,8 @@ ${PLAN_LOADER}
 </script>
 <!-- Flowko Rezervacije: koledar na strani (konec) -->`,
   "floating-popup": `<!-- Flowko Rezervacije: lebdeči gumb (začetek) -->
-${PLAN_LOADER}
-  Cal.ns.ogled("floatingButton", {
+${planLoader("ogled_lebdeci")}
+  Cal.ns.ogled_lebdeci("floatingButton", {
     "calLink": "flowko-test/ogled",
     "config": { "layout": "month_view", "useSlotsViewOnSmallScreen": "true", "theme": "light" },
     "buttonText": "Rezervirajte termin",
@@ -99,19 +104,19 @@ ${PLAN_LOADER}
     "buttonTextColor": "#FFFFFF",
     "buttonPosition": "bottom-right"
   });
-  Cal.ns.ogled("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
+  Cal.ns.ogled_lebdeci("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
 </script>
 <!-- Flowko Rezervacije: lebdeči gumb (konec) -->`,
   "element-click": `<!-- Flowko Rezervacije: gumb, ki odpre okno za rezervacijo (začetek) -->
-<button type="button" data-cal-link="flowko-test/ogled" data-cal-namespace="ogled"
+<button type="button" data-cal-link="flowko-test/ogled" data-cal-namespace="ogled_gumb"
   data-cal-config='{"layout":"month_view","theme":"light"}'>Rezervirajte termin</button>
-${PLAN_LOADER}
-  Cal.ns.ogled("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
+${planLoader("ogled_gumb")}
+  Cal.ns.ogled_gumb("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
 </script>
 <!-- Flowko Rezervacije: gumb, ki odpre okno za rezervacijo (konec) -->`,
   "click-link": `<!-- Flowko Rezervacije: vaši gumbi odprejo okno za rezervacijo (začetek) -->
-${PLAN_LOADER}
-  Cal.ns.ogled("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
+${planLoader("ogled_povezava")}
+  Cal.ns.ogled_povezava("ui", { "theme": "light", "hideEventTypeDetails": false, "layout": "month_view" });
   document.addEventListener("click", function (e) {
     var a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -119,7 +124,7 @@ ${PLAN_LOADER}
     var u; try { u = new URL(a.href); } catch (_) { return; }
     if (u.origin !== "https://booking.flowko.si" || u.pathname.replace(/\\/$/, "") !== "/flowko-test/ogled") return;
     e.preventDefault();
-    Cal.ns.ogled("modal", { calLink: "flowko-test/ogled", config: { "layout": "month_view", "theme": "light" } });
+    Cal.ns.ogled_povezava("modal", { calLink: "flowko-test/ogled", config: { "layout": "month_view", "theme": "light" } });
   }, true);
 </script>
 <!-- Flowko Rezervacije: vaši gumbi odprejo okno za rezervacijo (konec) -->`,
@@ -162,7 +167,7 @@ describe("buildFlowkoSnippet", () => {
     });
 
     it("the loader is the plan's LOADER", () => {
-      expect(loaderLines(buildFlowkoSnippet({ ...base, type: "inline" })).join("\n")).toBe(PLAN_LOADER);
+      expect(loaderLines(buildFlowkoSnippet({ ...base, type: "inline" })).join("\n")).toBe(planLoader("ogled"));
     });
   });
 
@@ -252,6 +257,18 @@ describe("buildFlowkoSnippet", () => {
       ]);
     });
 
+    // Flowko P0: the bound is on the namespace, so a pop-up code's slug may be as long as 73 minus its suffix
+    it("every loader line stays at 90 or less for slugs of up to 73, 65, 68 and 64 characters", () => {
+      const maxSlug = TYPES.map((type) => 73 - FLOWKO_NAMESPACE_SUFFIX[type].length);
+      expect(maxSlug).toEqual([73, 65, 68, 64]);
+      TYPES.forEach((type, i) => {
+        const build = (slug: string) =>
+          buildFlowkoSnippet({ type, calLink: `vase-podjetje/${slug}`, origin: ORIGIN, embedLibUrl: EMBED_LIB_URL });
+        expect(loaderLines(build("a".repeat(maxSlug[i]))).filter((line) => line.length > 90)).toEqual([]);
+        expect(loaderLines(build("a".repeat(maxSlug[i] + 1))).filter((line) => line.length > 90)).toHaveLength(1);
+      });
+    });
+
     it("hyphenated slug uses bracket notation", () => {
       const output = buildFlowkoSnippet({
         type: "inline",
@@ -294,9 +311,13 @@ describe("buildFlowkoSnippet", () => {
       expect(output.startsWith("<!-- Flowko Rezervacije: ")).toBe(true);
       expect(output.endsWith(input.lang === "sl" ? "(konec) -->" : "(end) -->")).toBe(true);
       const loader = loaderLines(output);
-      const slug = input.calLink.split("/").pop() as string;
-      expect(loader).toHaveLength(slug.length > 31 ? 21 : 20);
-      for (const line of loader) expect(line.length).toBeLessThanOrEqual(90);
+      const namespace = getFlowkoNamespace(input.type, input.calLink.split("/").pop() as string);
+      expect(loader).toHaveLength(namespace.length > 31 ? 21 : 20);
+      // Flowko P0: only the init line grows with the namespace; up to 73 characters every loader line is 90 or
+      // less (slugs of up to 73 for the calendar, 64 to 68 for the pop-up types)
+      expect(loader.filter((line) => line.length > 90)).toEqual(
+        namespace.length > 73 ? [`  Cal("init", "${namespace}",`] : []
+      );
       if (input.theme === "auto") expect(output).not.toContain('"theme"');
       else expect(output).toContain(`"theme": "${input.theme}"`);
     });
@@ -315,19 +336,20 @@ describe("buildFlowkoSnippet", () => {
   });
 
   describe("the loader behaves like upstream's", () => {
-    it.each(["ogled", "a-b", LONG_SLUG])("queues the same instructions (namespace %s)", (namespace) => {
+    it.each(["ogled", "a-b", LONG_SLUG])("queues the same instructions (namespace %s)", (slug) => {
+      const namespace = getFlowkoNamespace("floating-popup", slug);
       const ours = runInPage(
         buildFlowkoSnippet({
           ...base,
           type: "floating-popup",
-          calLink: `flowko-test/${namespace}`,
-          namespace,
+          calLink: `flowko-test/${slug}`,
+          namespace: slug,
         })
       );
       const theirs = runInPage(`<script>${UPSTREAM_LOADER}
 Cal("init", ${JSON.stringify(namespace)}, { origin: "${ORIGIN}" });
 Cal.ns[${JSON.stringify(namespace)}]("floatingButton", ${JSON.stringify({
-        calLink: `flowko-test/${namespace}`,
+        calLink: `flowko-test/${slug}`,
         config: { layout: "month_view", useSlotsViewOnSmallScreen: "true", theme: "light" },
         buttonText: "Rezervirajte termin",
         buttonColor: "#0F766E",
@@ -354,8 +376,17 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
         ].join("\n")
       );
       expect(queues(win).scripts).toEqual([EMBED_LIB_URL]);
-      expect(Object.keys(win.Cal.ns)).toEqual(["ogled", "posvet"]);
+      expect(Object.keys(win.Cal.ns)).toEqual(["ogled", "posvet_lebdeci"]);
       expect(win.document.getElementById("flowko-rezervacije-ogled")).not.toBeNull();
+    });
+
+    // Flowko P0: embed.js keeps one iframe per namespace, so the four codes of one event type must not share one
+    it("all four codes of one event type on one page: one embed.js, four namespaces", () => {
+      const win = runInPage(TYPES.map((type) => buildFlowkoSnippet({ ...base, type })).join("\n"));
+      expect(queues(win).scripts).toEqual([EMBED_LIB_URL]);
+      expect(Object.keys(win.Cal.ns)).toEqual(["ogled", "ogled_lebdeci", "ogled_gumb", "ogled_povezava"]);
+      expect(queues(win).q).toEqual(Object.keys(win.Cal.ns).map((namespace) => ["initNamespace", namespace]));
+      expect(win.document.querySelector('button[data-cal-namespace="ogled_gumb"]')).not.toBeNull();
     });
   });
 
@@ -365,7 +396,7 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
       const modalCalls = () =>
         JSON.parse(
           JSON.stringify(
-            win.Cal.ns.ogled.q.filter((args) => args[0] === "modal").map((args) => Array.from(args))
+            win.Cal.ns.ogled_povezava.q.filter((args) => args[0] === "modal").map((args) => Array.from(args))
           )
         );
       const click = (el: Element, init: MouseEventInit = {}) => {
@@ -446,7 +477,7 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
         `"buttonText": "Book \\u003c/script>\\u003cimg src=x onerror=alert(1)> \\"now\\" & 'today'"`
       );
       const win = runInPage(floating);
-      expect(win.Cal.ns.ogled.q[1][1]).toMatchObject({ buttonText: text });
+      expect(win.Cal.ns.ogled_lebdeci.q[1][1]).toMatchObject({ buttonText: text });
     });
 
     it("blank button text falls back to the default for the language", () => {
@@ -543,15 +574,33 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
       expect(FLOWKO_DEFAULT_BUTTON_COLOR).toBe(DEFAULT_LIGHT_BRAND_COLOR);
     });
 
-    it.each([
-      "ogled",
-      "a-b",
-      "a$b",
-      "pregled.zob",
-      "_x1",
-    ])("namespace API for %s = getApiName.tsx", (namespace) => {
-      const output = buildFlowkoSnippet({ ...base, type: "inline", calLink: `u/${namespace}`, namespace });
+    it.each(
+      ["ogled", "a-b", "a$b", "pregled.zob", "_x1", "30-minut"].flatMap((slug) =>
+        TYPES.map((type) => [slug, type] as const)
+      )
+    )("namespace API for %s (%s) = getApiName.tsx", (slug, type) => {
+      const output = buildFlowkoSnippet({ ...base, type, calLink: `u/${slug}`, namespace: slug });
+      const namespace = getFlowkoNamespace(type, slug);
+      expect(output).toContain(`  Cal("init", ${JSON.stringify(namespace)}, {`);
       expect(output).toContain(`  ${getApiNameWithNamespace({ namespace, mainApiName: "Cal" })}("ui", `);
+    });
+
+    // Flowko P0: the calendar keeps the slug; each pop-up type adds its own suffix, which starts with "_"
+    it("namespace per type: the slug for the calendar, a distinct _suffix for each pop-up type", () => {
+      expect(TYPES.map((type) => getFlowkoNamespace(type, "ogled"))).toEqual([
+        "ogled",
+        "ogled_lebdeci",
+        "ogled_gumb",
+        "ogled_povezava",
+      ]);
+      expect(FLOWKO_NAMESPACE_SUFFIX.inline).toBe("");
+      for (const type of TYPES.filter((t) => t !== "inline")) {
+        const namespace = getFlowkoNamespace(type, "pregled-zob");
+        expect(namespace).toMatch(/^pregled-zob_[a-z]+$/);
+        // slugify (the app's forms, the create input) turns "_" into "-", and update and duplicate refuse a slug
+        // with "_" (reservedSlug.test.ts), so no stored slug is another code's namespace
+        expect(slugify(namespace)).toBe(namespace.replace("_", "-"));
+      }
     });
   });
 });

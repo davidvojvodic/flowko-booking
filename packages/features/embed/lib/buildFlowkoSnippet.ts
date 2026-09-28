@@ -6,7 +6,8 @@
 //
 // Output (plan §3.3/§3.4):
 // - a multi-line copy of upstream's loader IIFE (same logic; with the booking.flowko.si origin every loader
-//   line is <= 90 chars for event-type slugs of up to 73 characters) on a <script> that
+//   line is <= 90 chars for namespaces of up to 73 characters (calendar), 65 (floating), 68 (our button) or
+//   64 (click-link)) on a <script> that
 //   caching/optimisation plugins leave alone (data-cfasync="false" for Cloudflare Rocket Loader, nowprocket
 //   for WP Rocket); no data-cookieconsent attribute;
 // - theme "light" by default (a dark-mode visitor on a white site would otherwise get a dark booker);
@@ -14,7 +15,9 @@
 //   follows Settings -> Appearance live;
 // - element-click writes a real <button>, and "click-link" turns the client's own link to the booking page
 //   into a pop-up (it stays a plain link when the script doesn't run);
-// - Slovenian or English comments and default button text.
+// - Slovenian or English comments and default button text;
+// - Flowko P0: each type has its own namespace (FLOWKO_NAMESPACE_SUFFIX), so the calendar and a pop-up of the
+//   same event type work on one page.
 import type { CssVarsPerTheme } from "./buildCssVarsPerTheme";
 import { getContrastTextColor, isValidBrandColor } from "./buildCssVarsPerTheme";
 
@@ -27,7 +30,10 @@ export type BuildFlowkoSnippetInput = {
   type: FlowkoSnippetType;
   /** `<username>/<event-type slug>`, as in the booking page URL. */
   calLink: string;
-  /** Defaults to the last segment of calLink (the event-type slug), as in the dialog. */
+  /**
+   * The event type's namespace; defaults to the last segment of calLink (the event-type slug), as in the
+   * dialog. The inline code uses it as it is, the other types add their FLOWKO_NAMESPACE_SUFFIX.
+   */
   namespace?: string;
   /** The booker's origin, e.g. https://booking.flowko.si. */
   origin: string;
@@ -63,6 +69,26 @@ export const FLOWKO_BOOK_BUTTON_TEXT: Record<FlowkoSnippetLang, string> = {
 
 /** DEFAULT_LIGHT_BRAND_COLOR from @calcom/lib/constants (not imported: it reads env). A test keeps them equal. */
 export const FLOWKO_DEFAULT_BUTTON_COLOR = "#292929";
+
+/**
+ * Flowko P0 (David, 2026-09-28): what each type adds to the event type's namespace. embed.js keeps one `iframe`
+ * per namespace (the newest), so while every type used the slug, a calendar's resize messages went to the
+ * pop-up's iframe once a pop-up of the same event type had opened on that page. The calendar keeps the bare
+ * slug (its <div> id, the reserved-slug rules and codes already pasted stay as they are). The pop-up types add
+ * "_" and a word. No stored slug contains "_": slugify (the app's forms, the create input) turns it into "-",
+ * and the update and duplicate inputs refuse it (reservedSlug.ts), so no slug is another code's namespace.
+ */
+export const FLOWKO_NAMESPACE_SUFFIX: Record<FlowkoSnippetType, string> = {
+  inline: "",
+  "floating-popup": "_lebdeci",
+  "element-click": "_gumb",
+  "click-link": "_povezava",
+};
+
+/** The namespace a code of this type uses for an event type's namespace (by default its slug). */
+export function getFlowkoNamespace(type: FlowkoSnippetType, namespace: string): string {
+  return `${namespace}${FLOWKO_NAMESPACE_SUFFIX[type]}`;
+}
 
 const LABELS: Record<FlowkoSnippetLang, Record<FlowkoSnippetType | "start" | "end", string>> = {
   sl: {
@@ -161,9 +187,9 @@ function loaderLines({
   namespace: string;
   origin: string;
 }) {
-  // A long event-type slug would push the init line past 90 characters: its options then go on a line of
+  // A long namespace would push the init line past 90 characters: its options then go on a line of
   // their own (still one statement). With the booking.flowko.si origin that keeps every loader line at 90 or
-  // less for slugs of up to 73 characters.
+  // less for namespaces of up to 73 characters (calendar), 65 (floating), 68 (our button) or 64 (click-link).
   const init = `  Cal("init", ${jsString(namespace)}, { origin: ${jsString(origin)} });`;
   const initLines =
     init.length <= MAX_LOADER_LINE
@@ -210,8 +236,9 @@ export function buildFlowkoSnippet(input: BuildFlowkoSnippetInput): string {
   if (!calLink || calLink.startsWith("/") || calLink.endsWith("/") || /[\s?#]|:\/\//.test(calLink)) {
     throw new Error(`calLink must be "<username>/<event-type slug>": ${input.calLink}`);
   }
-  const namespace = input.namespace?.trim() || calLink.split("/").pop() || "";
-  if (!namespace) throw new Error(`No namespace for calLink ${calLink}`);
+  const eventTypeNamespace = input.namespace?.trim() || calLink.split("/").pop() || "";
+  if (!eventTypeNamespace) throw new Error(`No namespace for calLink ${calLink}`);
+  const namespace = getFlowkoNamespace(type, eventTypeNamespace);
   const origin = httpUrl(input.origin, "origin").origin;
   const embedLibUrl = httpUrl(input.embedLibUrl, "embedLibUrl").href;
   // The booking page's path as the browser reports it (percent-encoded), for the click-link match.
