@@ -738,6 +738,12 @@ describe("P0: a calendar and a pop-up of the same event type on one page", () =>
     },
   };
 
+  const MODAL_NAMESPACE: Record<Exclude<FlowkoSnippetType, "inline">, string> = {
+    "floating-popup": "kombinacija_lebdeci",
+    "element-click": "kombinacija_gumb",
+    "click-link": "kombinacija_povezava",
+  };
+
   it.each(["floating-popup", "element-click", "click-link"] as const)(
     "calendar + %s: each iframe follows its own booking page's height",
     (type) => {
@@ -755,11 +761,7 @@ describe("P0: a calendar and a pop-up of the same event type on one page", () =>
       expect(inlineIframe.style.height).toBe("660px");
       expect(modalIframe.style.height).toBe("490px");
       expect(namespaceOf(inlineIframe)).toBe("kombinacija");
-      expect(namespaceOf(modalIframe)).toBe(
-        { "floating-popup": "kombinacija_lebdeci", "element-click": "kombinacija_gumb", "click-link": "kombinacija_povezava" }[
-          type
-        ]
-      );
+      expect(namespaceOf(modalIframe)).toBe(MODAL_NAMESPACE[type]);
       expect([...errorsModal, ...errorsInline]).toEqual([]);
     }
   );

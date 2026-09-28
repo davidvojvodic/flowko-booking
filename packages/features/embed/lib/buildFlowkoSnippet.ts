@@ -6,7 +6,8 @@
 //
 // Output (plan §3.3/§3.4):
 // - a multi-line copy of upstream's loader IIFE (same logic; with the booking.flowko.si origin every loader
-//   line is <= 90 chars for event-type slugs of up to 73 characters) on a <script> that
+//   line is <= 90 chars for namespaces of up to 73 characters (calendar), 65 (floating), 68 (our button) or
+//   64 (click-link)) on a <script> that
 //   caching/optimisation plugins leave alone (data-cfasync="false" for Cloudflare Rocket Loader, nowprocket
 //   for WP Rocket); no data-cookieconsent attribute;
 // - theme "light" by default (a dark-mode visitor on a white site would otherwise get a dark booker);
@@ -186,9 +187,9 @@ function loaderLines({
   namespace: string;
   origin: string;
 }) {
-  // A long event-type slug would push the init line past 90 characters: its options then go on a line of
+  // A long namespace would push the init line past 90 characters: its options then go on a line of
   // their own (still one statement). With the booking.flowko.si origin that keeps every loader line at 90 or
-  // less for slugs of up to 73 characters.
+  // less for namespaces of up to 73 characters (calendar), 65 (floating), 68 (our button) or 64 (click-link).
   const init = `  Cal("init", ${jsString(namespace)}, { origin: ${jsString(origin)} });`;
   const initLines =
     init.length <= MAX_LOADER_LINE

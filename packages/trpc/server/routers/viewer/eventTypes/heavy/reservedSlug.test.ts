@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FlowkoSnippetType } from "@calcom/features/embed/lib/buildFlowkoSnippet";
 import { buildFlowkoSnippet, getFlowkoNamespace } from "@calcom/features/embed/lib/buildFlowkoSnippet";
+import slugify from "@calcom/lib/slugify";
 
 import { ZCreateInputSchema } from "./create.schema";
 import { ZDuplicateInputSchema } from "./duplicate.schema";
@@ -151,7 +152,8 @@ describe("event type create/update/duplicate inputs refuse a reserved slug", () 
       expect(slugIssues(result).map((issue) => issue.message)).toEqual([RESERVED_EVENT_TYPE_SLUG_MESSAGE]);
     }
     const created = create(slug);
-    expect(created.success && isReservedEventTypeSlug(created.data.slug)).toBe(false);
+    expect(created.success).toBe(true);
+    expect(created.success && created.data.slug).toBe(slugify(slug));
   });
 
   it.each(ALLOWED)("accepts %j", (slug) => {
