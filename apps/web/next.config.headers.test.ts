@@ -93,6 +93,9 @@ describe("next.config headers(): framing protection (U13-08)", () => {
     "/flowko-test/ogled",
     "/booking/abc",
     "/reschedule/abc",
+    // Flowko (U8f): the organizer's confirm page and the link it comes from carry the token in the URL
+    "/booking/link",
+    "/api/link",
     // more dashboard and public pages
     "/",
     "/event-types/12",
