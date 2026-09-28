@@ -1,116 +1,84 @@
-import process from "node:process";
 import { WEBAPP_URL } from "@calcom/lib/constants";
-import { LINK_TOKEN_KEY_LABEL, symmetricDecryptAuthenticated } from "@calcom/lib/crypto";
 import { distributedTracing } from "@calcom/lib/tracing/factory";
 import prisma from "@calcom/prisma";
 import { BookingStatus } from "@calcom/prisma/enums";
 import { confirmHandler } from "@calcom/trpc/server/routers/viewer/bookings/confirm.handler";
 import { TRPCError } from "@trpc/server";
 import { defaultResponderForAppDir } from "app/api/defaultResponderForAppDir";
+import { parseRequestData } from "app/api/parseRequestData";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  DirectAction,
+  ORGANIZER_LINK_PAGE_PATH,
+  REJECTION_REASON_MAX_LENGTH,
+  resolveOrganizerLink,
+} from "./organizerLink";
 
-enum DirectAction {
-  ACCEPT = "accept",
-  REJECT = "reject",
-}
+// Flowko (U8f): every answer is a 303, so the browser follows it with a GET. NextResponse.redirect's default
+// 307 would repeat the form POST against the booking page.
+const seeOther = (path: string) => NextResponse.redirect(new URL(path, WEBAPP_URL), 303);
 
-const querySchema = z.object({
-  action: z.nativeEnum(DirectAction),
-  token: z.string(),
-  reason: z.string().optional(),
-});
+// Flowko: NAR-1. Every invalid link gets this one response, whatever failed, so no failure is distinguishable
+// from another. Flowko (U8f): it opens the confirm page without a token, which says the link is not valid.
+const invalidLinkResponse = () => seeOther(ORGANIZER_LINK_PAGE_PATH);
 
-const decryptedSchema = z.object({
-  bookingUid: z.string(),
-  userId: z.number().int(),
-  // Flowko: issued-at in epoch seconds, set by OrganizerRequestEmail (see LINK_TOKEN_MAX_AGE_SECONDS).
-  iat: z.number().int(),
-  platformClientId: z.string().optional(),
-  platformRescheduleUrl: z.string().optional(),
-  platformCancelUrl: z.string().optional(),
-  platformBookingUrl: z.string().optional(),
-});
-
-// Flowko: an emailed confirm/reject link stays usable for 30 days; after that the organizer confirms in-app.
-const LINK_TOKEN_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
-
-// Flowko: NAR-1. Every invalid link gets this one response, whatever failed (query, token encoding, auth
-// tag, JSON, schema, expiry, booking lookup, organizer mismatch), so no failure is distinguishable from
-// another and no crypto or parse error reaches defaultResponderForAppDir (it would echo error.message).
-const invalidLinkResponse = (): NextResponse =>
-  NextResponse.redirect(new URL("/bookings/unconfirmed", WEBAPP_URL));
-
-async function resolveLink(searchParams: URLSearchParams) {
-  const { action, token, reason } = querySchema.parse(Object.fromEntries(searchParams.entries()));
-
-  // Flowko: the token is AES-256-GCM authenticated (tampered, forged and legacy CBC tokens throw here).
-  const decryptedData = JSON.parse(
-    symmetricDecryptAuthenticated(token, process.env.CALENDSO_ENCRYPTION_KEY || "", LINK_TOKEN_KEY_LABEL)
-  );
-
-  const {
-    bookingUid,
-    userId,
-    iat,
-    platformClientId,
-    platformRescheduleUrl,
-    platformCancelUrl,
-    platformBookingUrl,
-  } = decryptedSchema.parse(decryptedData);
-
-  // Flowko: expired links, and links issued in the future, are refused.
-  const now = Math.floor(Date.now() / 1000);
-  if (iat > now + 5 * 60 || now - iat > LINK_TOKEN_MAX_AGE_SECONDS) return null;
-
-  const booking = await prisma.booking.findUnique({
-    where: { uid: bookingUid },
-    select: { id: true, uid: true, userId: true, recurringEventId: true, status: true },
+/**
+ * Flowko (U8f, David 2026-09-28): a GET never decides a booking. Mail scanners (Outlook Safe Links, Mimecast,
+ * Proofpoint) and link previews open every link in an e-mail, so the e-mailed accept/reject link used to accept
+ * or reject a pending booking before the organizer saw it. The GET only checks the link (nothing is consumed or
+ * written) and opens the confirm page, whose button POSTs the same token and action back here. The e-mails keep
+ * their URLs, so links sent before U8f land on the confirm page too.
+ */
+async function getHandler(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const link = await resolveOrganizerLink({
+    token: searchParams.get("token") ?? undefined,
+    action: searchParams.get("action") ?? undefined,
   });
-
-  // Flowko: the link must name the booking's own organizer; booking A with user B's id is refused.
-  if (!booking || booking.userId === null || booking.userId !== userId) return null;
-
-  // Flowko: act as the organizer loaded from the booking row, never as an id taken from the token alone.
-  const user = await prisma.user.findUnique({
-    where: { id: booking.userId },
-    select: {
-      id: true,
-      uuid: true,
-      email: true,
-      username: true,
-      role: true,
-      destinationCalendar: true,
-    },
-  });
-  if (!user) return null;
-
-  return {
-    action,
-    reason,
-    booking,
-    user,
-    platformClientId,
-    platformRescheduleUrl,
-    platformCancelUrl,
-    platformBookingUrl,
-  };
-}
-
-async function handler(request: NextRequest) {
-  let link: Awaited<ReturnType<typeof resolveLink>>;
-  // Flowko: one try around parse + decrypt + schema + both lookups; every failure is the same response.
-  try {
-    link = await resolveLink(request.nextUrl.searchParams);
-  } catch {
-    link = null;
-  }
   if (!link) return invalidLinkResponse();
 
+  // The page checks the link again and shows the booking's title and time, or that it no longer waits for a
+  // decision. The token stays in the URL as it was in the e-mail's; nothing else is added.
+  const page = new URL(ORGANIZER_LINK_PAGE_PATH, WEBAPP_URL);
+  page.searchParams.set("token", link.token);
+  page.searchParams.set("action", link.action);
+  return NextResponse.redirect(page, 303);
+}
+
+const reasonSchema = z.string().max(REJECTION_REASON_MAX_LENGTH).optional();
+
+/** Flowko (U8f): ids of the bookings a POST is deciding right now, in this process. */
+const bookingIdsBeingDecided = new Set<number>();
+
+/**
+ * Flowko (U8f): the confirm page's button. The token and action come from the body only (form-encoded, as the
+ * page's form sends them, or JSON); a token in the query is ignored. The token in the body is the authorisation,
+ * so there is no cookie or session to forge: a cross-site form can only submit a token its author already holds.
+ */
+async function postHandler(request: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await parseRequestData(request);
+    body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    body = {};
+  }
+
+  const link = await resolveOrganizerLink({ token: body.token, action: body.action });
+  if (!link) return invalidLinkResponse();
+
+  // Flowko (U8f): a rejection's optional reason goes into the booker's e-mail. It is ignored on accept.
+  let reason: string | undefined;
+  if (link.action === DirectAction.REJECT) {
+    const reasonResult = reasonSchema.safeParse(body.reason);
+    if (!reasonResult.success) return invalidLinkResponse();
+    reason = reasonResult.data?.trim() || undefined;
+  }
+
   const {
     action,
-    reason,
     booking,
     user,
     platformClientId,
@@ -126,10 +94,19 @@ async function handler(request: NextRequest) {
   // turned the organizer's rejection into an acceptance, or brought back a cancelled booking. Any other
   // status now opens the booking as it is, without acting.
   if (booking.status !== BookingStatus.PENDING) {
-    return NextResponse.redirect(new URL(`/booking/${bookingUid}`, WEBAPP_URL));
+    return seeOther(`/booking/${bookingUid}`);
   }
 
+  // Flowko (U8f): one decision per booking at a time. A double click before the page has hydrated (its button
+  // disables itself only after that) sends two POSTs that both read PENDING above; the second would reject
+  // again and e-mail the booker twice. Inside the slot the status is read again, after any earlier decision
+  // has been written. The slot is per process, which covers the single replica this app runs on.
+  if (bookingIdsBeingDecided.has(booking.id)) return seeOther(`/booking/${bookingUid}`);
+  bookingIdsBeingDecided.add(booking.id);
   try {
+    const current = await prisma.booking.findUnique({ where: { id: booking.id }, select: { status: true } });
+    if (current?.status !== BookingStatus.PENDING) return seeOther(`/booking/${bookingUid}`);
+
     await confirmHandler({
       ctx: {
         user: {
@@ -161,12 +138,13 @@ async function handler(request: NextRequest) {
   } catch (e) {
     let message = "Error confirming booking";
     if (e instanceof TRPCError) message = (e as TRPCError).message;
-    return NextResponse.redirect(
-      new URL(`/booking/${bookingUid}?error=${encodeURIComponent(message)}`, WEBAPP_URL)
-    );
+    return seeOther(`/booking/${bookingUid}?error=${encodeURIComponent(message)}`);
+  } finally {
+    bookingIdsBeingDecided.delete(booking.id);
   }
 
-  return NextResponse.redirect(new URL(`/booking/${bookingUid}`, WEBAPP_URL));
+  return seeOther(`/booking/${bookingUid}`);
 }
 
-export const GET = defaultResponderForAppDir(handler);
+export const GET = defaultResponderForAppDir(getHandler);
+export const POST = defaultResponderForAppDir(postHandler);
