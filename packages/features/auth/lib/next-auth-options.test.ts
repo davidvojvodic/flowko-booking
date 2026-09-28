@@ -1,4 +1,4 @@
-import { createInMemoryRateLimiter } from "@calcom/lib/rateLimit";
+import { createInMemoryRateLimiter, getRateLimitNamespace } from "@calcom/lib/rateLimit";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { hashEmail, piiHasher } from "@calcom/lib/server/PiiHasher";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
@@ -815,6 +815,7 @@ describe("CredentialsProvider authorize", () => {
       await outcome(authorizeCredentials(creds({ email: " Owner@Salon.si" }), reqFrom("203.0.113.7")));
 
       expect(identifiers).toEqual([
+        `login-ip:${piiHasher.hash("203.0.113.7")}`,
         `login:${hashEmail("owner@salon.si")}:${piiHasher.hash("203.0.113.7")}`,
         "login-failures:42",
         "login-failures:42",
@@ -826,6 +827,254 @@ describe("CredentialsProvider authorize", () => {
       mockFindByEmailAndIncludeProfilesAndPassword.mockResolvedValue(createMockUser());
       for (let i = 0; i < 10; i++) await outcome(authorizeCredentials(creds()));
       expect(await outcome(authorizeCredentials(creds({ password: CORRECT }), {}))).toBe("RATE_LIMITED");
+    });
+
+    // Flowko (U8f, David 2026-09-28): a per-IP limit (30 per 60 s, across all e-mails) in front of the
+    // per-email one, so one IP flooding random e-mails can't fill the sign-in limiter's in-memory budget.
+    describe("per-IP limit (U8f)", () => {
+      const HOST = "host@example.com";
+      const randomEmail = (i: number) => `random-${i}@example.com`;
+      const host = createMockUser({ id: 7, email: HOST });
+      // Only HOST has an account; every other e-mail is unknown.
+      const lookUpHostOnly = () =>
+        mockFindByEmailAndIncludeProfilesAndPassword.mockImplementation(
+          async ({ email }: { email: string }) => (email === HOST ? host : null)
+        );
+
+      beforeEach(() => {
+        lookUpHostOnly();
+      });
+
+      it("is 30 attempts per 60 s, in a namespace of its own in the in-memory store", async () => {
+        const { LOGIN_IP_LIMIT } = await import("./next-auth-options");
+        expect(LOGIN_IP_LIMIT).toEqual({ limit: 30, duration: "60s" });
+        const ipHash = piiHasher.hash("203.0.113.7");
+        expect(getRateLimitNamespace("core", `login-ip:${ipHash}`)).toBe("core:login-ip");
+        expect(getRateLimitNamespace("core", `login:${hashEmail(HOST)}:${ipHash}`)).toBe("core:login");
+        expect(getRateLimitNamespace("core", "login-failures:7")).toBe("core:login-failures");
+      });
+
+      it("refuses the 31st attempt from one IP within 60 s, before the e-mail limit and the lookup", async () => {
+        const req = reqFrom("203.0.113.7");
+        for (let i = 0; i < 30; i++) {
+          expect(await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), req))).toBe(
+            ErrorCode.IncorrectEmailPassword
+          );
+        }
+        expect(mockFindByEmailAndIncludeProfilesAndPassword).toHaveBeenCalledTimes(30);
+
+        // A new e-mail with the right password: refused like any rate-limited sign-in, and nothing is looked up
+        await expect(authorizeCredentials(creds({ email: HOST, password: CORRECT }), req)).rejects.toThrow(
+          /^Rate limit exceeded\. Try again in \d+ seconds\.$/
+        );
+        expect(mockFindByEmailAndIncludeProfilesAndPassword).toHaveBeenCalledTimes(30);
+        expect(verifyPassword).not.toHaveBeenCalled();
+
+        rateLimitState.now += 59_999;
+        expect(await outcome(authorizeCredentials(creds({ email: HOST, password: CORRECT }), req))).toBe(
+          "RATE_LIMITED"
+        );
+        rateLimitState.now += 1;
+        await expect(
+          authorizeCredentials(creds({ email: HOST, password: CORRECT }), req)
+        ).resolves.toMatchObject({ id: 7 });
+      });
+
+      it("counts each IP on its own", async () => {
+        const attacker = reqFrom("203.0.113.66");
+        for (let i = 0; i < 40; i++)
+          await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), attacker));
+        expect(await outcome(authorizeCredentials(creds({ email: randomEmail(99) }), attacker))).toBe(
+          "RATE_LIMITED"
+        );
+
+        // Another IP still has all 30 of its own attempts, and the host signs in from a third one
+        const other = reqFrom("198.51.100.23");
+        const results: string[] = [];
+        for (let i = 0; i < 31; i++) {
+          results.push(await outcome(authorizeCredentials(creds({ email: randomEmail(100 + i) }), other)));
+        }
+        expect(results).toEqual([...times(30, ErrorCode.IncorrectEmailPassword), "RATE_LIMITED"]);
+        await expect(
+          authorizeCredentials(creds({ email: HOST, password: CORRECT }), reqFrom("192.0.2.10"))
+        ).resolves.toMatchObject({ id: 7 });
+      });
+
+      it("gives a client no fresh IP bucket per spoofed cf-connecting-ip or true-client-ip", async () => {
+        vi.stubEnv("TRUST_CLOUDFLARE_IP_HEADERS", "");
+        try {
+          for (let i = 0; i < 30; i++) {
+            const spoofed = reqFrom("203.0.113.7", {
+              "cf-connecting-ip": `10.0.0.${i}`,
+              "true-client-ip": `10.0.1.${i}`,
+            });
+            await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), spoofed));
+          }
+          const next = reqFrom("203.0.113.7", { "cf-connecting-ip": "10.0.0.99" });
+          expect(await outcome(authorizeCredentials(creds({ email: randomEmail(99) }), next))).toBe(
+            "RATE_LIMITED"
+          );
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it("lets an IP flooding random e-mails create at most 30 sign-in windows, so a host still gets one of their own", async () => {
+        // A store small enough that, without the per-IP limit, the flood would fill the sign-in namespace and
+        // the host's first attempt would share its overflow window, which the flood keeps used up.
+        const limiter = createInMemoryRateLimiter({
+          now: () => rateLimitState.now,
+          maxEntriesPerNamespace: 40,
+        });
+        rateLimitState.limiter = limiter;
+        const attacker = reqFrom("203.0.113.66");
+
+        const results: string[] = [];
+        for (let i = 0; i < 500; i++) {
+          results.push(await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), attacker)));
+        }
+        expect(results).toEqual([
+          ...times(30, ErrorCode.IncorrectEmailPassword),
+          ...times(470, "RATE_LIMITED"),
+        ]);
+        // One IP window plus 30 per-email windows; the 470 refused attempts added none
+        expect(limiter.size()).toBe(31);
+
+        await expect(
+          authorizeCredentials(creds({ email: HOST, password: CORRECT }), reqFrom("192.0.2.10"))
+        ).resolves.toMatchObject({ id: 7 });
+      });
+
+      it("uses none of the e-mail's own attempts when it refuses", async () => {
+        const req = reqFrom("203.0.113.7");
+        // t0: 21 attempts at other e-mails start the IP window (it resets at t0 + 60 s)
+        for (let i = 0; i < 21; i++)
+          await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), req));
+        // t0 + 30 s: 9 wrong passwords for the host fill the IP window; the host's e-mail window has 9 of 10
+        rateLimitState.now += 30_000;
+        for (let i = 0; i < 9; i++) {
+          expect(await outcome(authorizeCredentials(creds({ email: HOST }), req))).toBe(
+            ErrorCode.IncorrectEmailPassword
+          );
+        }
+        // Refused by the IP limit: these must not reach the host's e-mail window
+        for (let i = 0; i < 5; i++) {
+          expect(await outcome(authorizeCredentials(creds({ email: HOST }), req))).toBe("RATE_LIMITED");
+        }
+
+        // t0 + 60 s: the IP window resets, the e-mail window (until t0 + 90 s) still has its 10th attempt
+        rateLimitState.now += 30_000;
+        await expect(
+          authorizeCredentials(creds({ email: HOST, password: CORRECT }), req)
+        ).resolves.toMatchObject({ id: 7 });
+        expect(await outcome(authorizeCredentials(creds({ email: HOST, password: CORRECT }), req))).toBe(
+          "RATE_LIMITED"
+        );
+      });
+
+      it("counts no login failure for the account when it refuses", async () => {
+        // 99 failures from other IPs: one more would fill the account's hourly cap
+        for (let i = 0; i < 99; i++)
+          await outcome(authorizeCredentials(creds({ email: HOST }), reqFrom(freshIp())));
+
+        const req = reqFrom("203.0.113.7");
+        for (let i = 0; i < 30; i++)
+          await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), req));
+        vi.mocked(verifyPassword).mockClear();
+        for (let i = 0; i < 20; i++) {
+          expect(await outcome(authorizeCredentials(creds({ email: HOST }), req))).toBe("RATE_LIMITED");
+        }
+        expect(verifyPassword).not.toHaveBeenCalled();
+
+        // The cap still has room for this sign-in, so none of the 20 refused attempts counted as a failure
+        await expect(
+          authorizeCredentials(creds({ email: HOST, password: CORRECT }), reqFrom(freshIp()))
+        ).resolves.toMatchObject({ id: 7 });
+      });
+
+      it("sends the limiter the IP check first, with its own limit, and only that check for a refused attempt", async () => {
+        const calls: Array<{ identifier: string; opts?: unknown }> = [];
+        const limiter = rateLimitState.limiter;
+        rateLimitState.limiter = async (helper) => {
+          calls.push(helper as { identifier: string; opts?: unknown });
+          return limiter?.(helper);
+        };
+        const req = reqFrom("203.0.113.7");
+        const ipIdentifier = `login-ip:${piiHasher.hash("203.0.113.7")}`;
+
+        await outcome(authorizeCredentials(creds({ email: randomEmail(0) }), req));
+        expect(calls).toEqual([
+          {
+            rateLimitingType: "core",
+            identifier: ipIdentifier,
+            opts: { limit: { limit: 30, duration: "60s" } },
+          },
+          {
+            rateLimitingType: "core",
+            identifier: `login:${hashEmail(randomEmail(0))}:${piiHasher.hash("203.0.113.7")}`,
+          },
+        ]);
+
+        for (let i = 1; i < 30; i++)
+          await outcome(authorizeCredentials(creds({ email: randomEmail(i) }), req));
+        calls.length = 0;
+        expect(await outcome(authorizeCredentials(creds({ email: HOST, password: CORRECT }), req))).toBe(
+          "RATE_LIMITED"
+        );
+        expect(calls.map((call) => call.identifier)).toEqual([ipIdentifier]);
+      });
+
+      describe("an office NAT and the second factor", () => {
+        const originalKey = process.env.CALENDSO_ENCRYPTION_KEY;
+
+        beforeEach(async () => {
+          process.env.CALENDSO_ENCRYPTION_KEY = "test";
+          const { symmetricDecrypt } = await import("@calcom/lib/crypto");
+          vi.mocked(symmetricDecrypt).mockImplementation((value: string) =>
+            value === "encrypted_backup_codes" ? JSON.stringify(["abcde12345"]) : "a".repeat(32)
+          );
+          const { totpAuthenticatorCheck } = await import("@calcom/lib/totp");
+          vi.mocked(totpAuthenticatorCheck).mockImplementation((code: string) => code === "123456");
+        });
+
+        afterEach(() => {
+          process.env.CALENDSO_ENCRYPTION_KEY = originalKey;
+        });
+
+        it("lets 15 hosts behind one IP sign in with 2FA in the same minute (two attempts each)", async () => {
+          const staff = Array.from({ length: 15 }, (_, i) =>
+            createMockUser({
+              id: 100 + i,
+              email: `staff-${i}@example.com`,
+              twoFactorEnabled: true,
+              twoFactorSecret: "encrypted_secret",
+              backupCodes: "encrypted_backup_codes",
+            })
+          );
+          mockFindByEmailAndIncludeProfilesAndPassword.mockImplementation(
+            async ({ email }: { email: string }) => staff.find((user) => user.email === email) ?? null
+          );
+          const office = reqFrom("203.0.113.40");
+
+          for (let i = 0; i < staff.length; i++) {
+            const user = staff[i];
+            // The code-less first step asks for the second factor, then the code (or a backup code) signs in
+            expect(
+              await outcome(authorizeCredentials(creds({ email: user.email, password: CORRECT }), office))
+            ).toBe(ErrorCode.SecondFactorRequired);
+            const secondFactor = i % 5 === 0 ? { backupCode: "abcde-12345" } : { totpCode: "123456" };
+            await expect(
+              authorizeCredentials(creds({ email: user.email, password: CORRECT, ...secondFactor }), office)
+            ).resolves.toMatchObject({ id: user.id });
+          }
+
+          // A 31st attempt from the office within the minute is refused, even with the right code
+          const late = creds({ email: staff[1].email, password: CORRECT, totpCode: "123456" });
+          expect(await outcome(authorizeCredentials(late, office))).toBe("RATE_LIMITED");
+          rateLimitState.now += 60_000;
+          await expect(authorizeCredentials(late, office)).resolves.toMatchObject({ id: 101 });
+        });
+      });
     });
   });
 });

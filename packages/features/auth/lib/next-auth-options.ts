@@ -154,6 +154,14 @@ const checkIfUserShouldBelongToOrg = async (idP: IdentityProvider, email: string
  */
 export const LOGIN_ACCOUNT_FAILURE_LIMIT = { limit: 100, duration: "1h" } as const;
 
+/**
+ * Flowko (U8f): sign-in attempts allowed per client IP per minute, across all e-mails (David's decision,
+ * 2026-09-28). Every attempt counts, successful ones too: a sign-in is one attempt, two with 2FA (the
+ * code-less first step and the step with the code). 30 a minute is enough for a small business whose staff
+ * share one office NAT, and for a host behind a mobile carrier's CGNAT, since only hosts sign in here.
+ */
+export const LOGIN_IP_LIMIT = { limit: 30, duration: "60s" } as const;
+
 // Flowko: the error checkRateLimitAndThrowError throws, so a capped attempt looks like any rate-limited one.
 const loginRateLimitError = (reset: number) => {
   const secondsToWait = Math.max(0, Math.floor((reset - Date.now()) / 1000));
@@ -201,15 +209,26 @@ export async function authorizeCredentials(
     throw new Error(ErrorCode.InternalServerError);
   }
 
-  // Flowko: the login limit is keyed by the typed email (normalised like the lookup below) plus the client
-  // IP, and runs before the lookup, so it treats unknown emails exactly like accounts (the limit reveals
-  // nothing about whether one exists) and a stranger who knows an email can no longer lock its owner out
-  // from another IP. getIP ignores client-sent Cloudflare headers. NextAuth always passes req; a call
-  // without headers counts under one shared "unknown" IP.
+  // Flowko: both login limits run before the lookup, so they treat unknown emails exactly like accounts (they
+  // reveal nothing about whether one exists). getIP ignores client-sent Cloudflare headers. NextAuth always
+  // passes req; a call without headers counts under one shared "unknown" IP.
   const loginEmail = String(credentials.email ?? "").trim().toLowerCase();
   const clientIp = req?.headers ? getIP(req as unknown as NextApiRequest) : "unknown";
+  const clientIpHash = piiHasher.hash(clientIp);
+  // Flowko (U8f): one IP may try at most LOGIN_IP_LIMIT sign-ins a minute, whatever e-mails it types. Without
+  // this cap one IP could send random e-mails at ~833 a second, each with a window of its own, fill the login
+  // limiter's in-memory budget and push a real host's first attempt into its overflow window for up to a
+  // minute (FLOWKO.md U8e residual). It runs first, so a refused attempt uses none of the e-mail's attempts,
+  // is not counted as a failure for any account and throws the error every rate-limited sign-in throws. The
+  // "login-ip" label gives these windows their own namespace ("core:login-ip") in the in-memory store.
   await checkRateLimitAndThrowError({
-    identifier: `login:${hashEmail(loginEmail)}:${piiHasher.hash(clientIp)}`,
+    identifier: `login-ip:${clientIpHash}`,
+    opts: { limit: LOGIN_IP_LIMIT },
+  });
+  // Flowko: the per-email limit is keyed by the typed email (normalised like the lookup below) plus the client
+  // IP, so a stranger who knows an email can no longer lock its owner out from another IP.
+  await checkRateLimitAndThrowError({
+    identifier: `login:${hashEmail(loginEmail)}:${clientIpHash}`,
   });
 
   // Flowko: a missing or non-string email or password gets the answer an unknown email gets, before any lookup.
