@@ -31,11 +31,18 @@ const OBJECT_PROTOTYPE_NAMES = new Set(
  *   "constructor" `cal.ns[namespace] || api` finds Object, `a.q.push` throws and the snippet stops there.
  *   Of these names only "constructor" and "__proto__" can be a lowercase slug, but the update and duplicate
  *   inputs are not slugified, so "toString" could be stored as sent and breaks the loader the same way.
+ * - Flowko P0: any slug containing "_". The floating button, our button and the client's own link use the slug
+ *   plus "_lebdeci", "_gumb" or "_povezava" as their namespace (FLOWKO_NAMESPACE_SUFFIX in
+ *   packages/features/embed/lib/buildFlowkoSnippet.ts), and embed.js keeps one iframe per namespace, so the
+ *   calendar code of an event type with the slug "ogled_lebdeci" would share a namespace with the floating button
+ *   of "ogled". slugify turns "_" into "-", so the app's forms and the create input never store one; the update
+ *   and duplicate inputs store the slug as sent, so they refuse it here.
  * Compared without case, as the slug is stored and as slugify would store it: the update and duplicate
  * inputs are not slugified server-side, and Next.js matches the framing lock without case.
  */
 export function isReservedEventTypeSlug(slug: string | null | undefined): boolean {
   if (!slug) return false;
+  if (slug.includes("_")) return true;
   return [slug.trim().toLowerCase(), slugify(slug)].some(
     (candidate) =>
       candidate.endsWith("embed") || candidate === "avatar.png" || OBJECT_PROTOTYPE_NAMES.has(candidate)
@@ -43,8 +50,8 @@ export function isReservedEventTypeSlug(slug: string | null | undefined): boolea
 }
 
 export const RESERVED_EVENT_TYPE_SLUG_MESSAGE =
-  'This URL is reserved: it can\'t end in "embed" or be "avatar.png", "constructor" or another name ' +
-  "that every JavaScript object has.";
+  'This URL is reserved: it can\'t contain "_", end in "embed", or be "avatar.png", "constructor" ' +
+  "or another name that every JavaScript object has.";
 
 /** A `superRefine` for an input object with an optional `slug`. */
 export function refuseReservedEventTypeSlug(input: { slug?: string | null }, ctx: z.RefinementCtx) {

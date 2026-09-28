@@ -6,7 +6,8 @@ import "../../test/__mocks__/windowMatchMedia";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildFlowkoSnippet } from "@calcom/features/embed/lib/buildFlowkoSnippet";
+import type { FlowkoSnippetType } from "@calcom/features/embed/lib/buildFlowkoSnippet";
+import { buildFlowkoSnippet, getFlowkoNamespace } from "@calcom/features/embed/lib/buildFlowkoSnippet";
 
 vi.mock("../tailwindCss", () => ({
   default: "mockedTailwindCss",
@@ -542,6 +543,8 @@ describe("U13-13: a data-cal-link on a link opens the modal instead of following
 // capture listener and embed.js's document listener opened a modal for it.
 describe("U13 fix pass: the click-link script and a data-cal-link on the same link", () => {
   const CAL_LINK = "flowko-test/dvojni";
+  // Flowko P0: Webflow's data-cal-namespace must name the click-link code's namespace (guide §7.5)
+  const NAMESPACE = getFlowkoNamespace("click-link", "dvojni");
   let removeClickLinkListener = () => undefined as void;
 
   beforeAll(() => {
@@ -582,7 +585,7 @@ describe("U13 fix pass: the click-link script and a data-cal-link on the same li
   }
 
   const linkWithAttributes = (inner: string) =>
-    `<a href="${BOOKER_ORIGIN}/${CAL_LINK}" data-cal-link="${CAL_LINK}" data-cal-namespace="dvojni">` +
+    `<a href="${BOOKER_ORIGIN}/${CAL_LINK}" data-cal-link="${CAL_LINK}" data-cal-namespace="${NAMESPACE}">` +
     `${inner}</a>`;
 
   it("<a href> to the booking page with data-cal-link opens exactly one modal", () => {
@@ -673,4 +676,91 @@ describe("U13-14: embed.js speaks the host page's language", () => {
       "Koda napake: 500. Nekaj je šlo narobe."
     );
   });
+});
+
+// Flowko P0: the calendar and a pop-up of the same event type on one page, pasted exactly as the builder writes
+// them. Cal keeps one `iframe` per namespace (the newest), so while every type used the slug as its namespace,
+// the calendar's resize messages went to the pop-up's iframe once it had opened (booking.flowko.si, 2026-09-28:
+// the window took the calendar's 660 px and the calendar frame stayed at 490 px).
+describe("P0: a calendar and a pop-up of the same event type on one page", () => {
+  const CAL_LINK = "flowko-test/kombinacija";
+  const undo: (() => void)[] = [];
+
+  afterEach(() => {
+    for (const fn of undo.splice(0)) fn();
+  });
+
+  const snippet = (type: FlowkoSnippetType) =>
+    buildFlowkoSnippet({
+      type,
+      calLink: CAL_LINK,
+      origin: BOOKER_ORIGIN,
+      embedLibUrl: `${BOOKER_ORIGIN}/embed/embed.js`,
+    });
+
+  /** Pastes the builder's HTML as a page would: its elements into the body, then its script runs. */
+  function paste(html: string) {
+    const wrapper = document.createElement("div");
+    // A <script> added through innerHTML does not run, so it is run below, as the browser would
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper);
+    const addEventListener = vi.spyOn(document, "addEventListener");
+    for (const script of Array.from(wrapper.querySelectorAll("script"))) {
+      new Function(script.textContent ?? "")();
+    }
+    // The click-link script listens on the document; later tests must not see it
+    for (const [type, listener, options] of addEventListener.mock.calls) {
+      undo.push(() => document.removeEventListener(type, listener, options));
+    }
+    addEventListener.mockRestore();
+  }
+
+  /** The namespace the booking page in this iframe puts in its messages (embed-iframe reads ?embed=). */
+  const namespaceOf = (iframe: HTMLIFrameElement) => new URL(iframe.src).searchParams.get("embed") as string;
+
+  /** The booking page in this iframe reports its content height, as embed-iframe does after every render. */
+  const reportHeight = (iframe: HTMLIFrameElement, iframeHeight: number) =>
+    postToHost({
+      data: calMessage(namespaceOf(iframe), "__dimensionChanged", { iframeHeight }),
+      origin: BOOKER_ORIGIN,
+      source: iframe.contentWindow,
+    });
+
+  const openers: Record<Exclude<FlowkoSnippetType, "inline">, () => void> = {
+    "floating-popup": () => click(document.querySelector("cal-floating-button") as Element),
+    "element-click": () => click(document.querySelector("button[data-cal-link]") as Element),
+    "click-link": () => {
+      const link = document.createElement("a");
+      link.href = `${BOOKER_ORIGIN}/${CAL_LINK}`;
+      link.textContent = "Rezervirajte";
+      document.body.appendChild(link);
+      click(link);
+    },
+  };
+
+  it.each(["floating-popup", "element-click", "click-link"] as const)(
+    "calendar + %s: each iframe follows its own booking page's height",
+    (type) => {
+      paste(snippet("inline"));
+      paste(snippet(type));
+      const inlineIframe = document.querySelector("cal-inline iframe") as HTMLIFrameElement;
+      openers[type]();
+      const boxes = modalBoxes();
+      expect(boxes).toHaveLength(1);
+      const modalIframe = boxes[0].querySelector("iframe") as HTMLIFrameElement;
+
+      const errorsModal = reportHeight(modalIframe, 490);
+      const errorsInline = reportHeight(inlineIframe, 660);
+
+      expect(inlineIframe.style.height).toBe("660px");
+      expect(modalIframe.style.height).toBe("490px");
+      expect(namespaceOf(inlineIframe)).toBe("kombinacija");
+      expect(namespaceOf(modalIframe)).toBe(
+        { "floating-popup": "kombinacija_lebdeci", "element-click": "kombinacija_gumb", "click-link": "kombinacija_povezava" }[
+          type
+        ]
+      );
+      expect([...errorsModal, ...errorsInline]).toEqual([]);
+    }
+  );
 });

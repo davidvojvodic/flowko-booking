@@ -2,7 +2,8 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import { buildFlowkoSnippet } from "@calcom/features/embed/lib/buildFlowkoSnippet";
+import type { FlowkoSnippetType } from "@calcom/features/embed/lib/buildFlowkoSnippet";
+import { buildFlowkoSnippet, getFlowkoNamespace } from "@calcom/features/embed/lib/buildFlowkoSnippet";
 
 import { ZCreateInputSchema } from "./create.schema";
 import { ZDuplicateInputSchema } from "./duplicate.schema";
@@ -35,7 +36,17 @@ const RESERVED = [
 ];
 // Flowko (U13 fix pass): refused as sent by update and duplicate, which store the slug unslugified; create
 // slugifies first ("__proto__" becomes "proto"), so it stores a harmless slug instead
-const RESERVED_UNLESS_SLUGIFIED = ["__proto__", "__defineGetter__", "__lookupSetter__"];
+// Flowko P0: a slug with "_" could be another event type's pop-up namespace ("ogled_lebdeci" is the floating
+// button of "ogled"); slugify turns "_" into "-"
+const RESERVED_UNLESS_SLUGIFIED = [
+  "__proto__",
+  "__defineGetter__",
+  "__lookupSetter__",
+  "ogled_lebdeci",
+  "ogled_gumb",
+  "ogled_povezava",
+  "Pregled_Zob",
+];
 const ALLOWED = [
   "ogled",
   "pregled-30min",
@@ -69,12 +80,14 @@ describe("isReservedEventTypeSlug", () => {
   });
 
   // Flowko (U13 fix pass): the slug is the snippet's namespace, and the loader keeps namespaces in a plain
-  // object (cal.ns = {}), so a name every object has finds the inherited property instead of a new queue
+  // object (cal.ns = {}), so a name every object has finds the inherited property instead of a new queue.
+  // Flowko P0: the pop-up codes add a suffix to the slug, but the calendar (inline) code still uses the bare
+  // slug, so the rule stays.
   describe("names the embed loader can't take as a namespace", () => {
-    /** Runs the element-click snippet's script for this namespace, as a client's page would. */
-    function runSnippet(namespace: string) {
+    /** Runs the snippet's script for this namespace, as a client's page would. */
+    function runSnippet(namespace: string, type: FlowkoSnippetType = "inline") {
       const html = buildFlowkoSnippet({
-        type: "element-click",
+        type,
         calLink: `flowko-test/${namespace}`,
         namespace,
         origin: "https://booking.flowko.si",
@@ -82,7 +95,12 @@ describe("isReservedEventTypeSlug", () => {
       });
       const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
       const window: Record<string, unknown> = {
-        document: { head: { appendChild: (el: object) => el }, createElement: () => ({}) },
+        // addEventListener takes the click-link script's listener
+        document: {
+          head: { appendChild: (el: object) => el },
+          createElement: () => ({}),
+          addEventListener: () => undefined,
+        },
       };
       window.window = window;
       runInNewContext(script, window);
@@ -91,12 +109,16 @@ describe("isReservedEventTypeSlug", () => {
 
     it("a normal slug gets its own queue", () => {
       const cal = runSnippet("ogled");
-      expect(cal.ns.ogled.q.map((args) => Array.from(args)[0])).toEqual(["init", "ui"]);
+      expect(cal.ns.ogled.q.map((args) => Array.from(args)[0])).toEqual(["init", "inline", "ui"]);
     });
 
     it.each(Object.getOwnPropertyNames(Object.prototype))("%s breaks the loader and is reserved", (name) => {
       // The TypeError comes from the vm's realm, so it is not this realm's TypeError
       expect(() => runSnippet(name)).toThrow(/push/);
+      // The pop-up codes' suffixed namespaces are ordinary keys; the calendar's bare slug is what breaks
+      for (const type of ["floating-popup", "element-click", "click-link"] as const) {
+        expect(() => runSnippet(name, type)).not.toThrow();
+      }
       expect(isReservedEventTypeSlug(name)).toBe(true);
       expect(isReservedEventTypeSlug(name.toLowerCase())).toBe(true);
     });
@@ -136,6 +158,16 @@ describe("event type create/update/duplicate inputs refuse a reserved slug", () 
     expect(create(slug).success).toBe(true);
     expect(update(slug).success).toBe(true);
     expect(duplicate(slug).success).toBe(true);
+  });
+
+  // Flowko P0: the pop-up codes' namespaces are the slug plus "_" and a word, so no stored slug may contain "_"
+  const POP_UP_TYPES = ["floating-popup", "element-click", "click-link"] as const;
+  it.each(POP_UP_TYPES)("no stored slug can be the %s code's namespace", (type) => {
+    const namespace = getFlowkoNamespace(type, "ogled");
+    expect(update(namespace).success).toBe(false);
+    expect(duplicate(namespace).success).toBe(false);
+    const created = create(namespace);
+    expect(created.success && created.data.slug).toBe(namespace.replace("_", "-"));
   });
 
   it("still slugifies the created slug", () => {

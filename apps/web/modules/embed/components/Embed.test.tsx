@@ -204,7 +204,9 @@ describe("Embed dialog (Flowko U13)", () => {
       expect(snippet).toContain('"buttonPosition": "bottom-right"');
       expect(snippet).toContain('"theme": "light"');
       expect(snippet).toContain(`})(window, "${EMBED_LIB_URL}", "init");`);
-      expect(snippet).toContain(`Cal("init", "ogled", { origin: "${new URL(WEBAPP_URL).origin}" });`);
+      // Flowko P0: the floating button has its own namespace, so it can share a page with the calendar
+      expect(snippet).toContain(`Cal("init", "ogled_lebdeci", { origin: "${new URL(WEBAPP_URL).origin}" });`);
+      expect(snippet).toContain('  Cal.ns.ogled_lebdeci("floatingButton", {');
       expect(snippet).toContain('data-cfasync="false" nowprocket');
       expect(snippet).not.toContain("cssVarsPerTheme");
       expect(snippet.match(/cal\.com/gi)).toBeNull();
@@ -306,6 +308,8 @@ describe("Embed dialog (Flowko U13)", () => {
       expect(code()).toContain(
         '<div id="flowko-rezervacije-ogled" style="width:100%;height:100%;overflow:scroll"></div>'
       );
+      // Flowko P0: the calendar keeps the event type's slug as its namespace
+      expect(code()).toContain('  Cal.ns.ogled("inline", {');
       expect(screen.getByTestId("embed-code-hint").textContent).toBe(
         "Kodo prilepite na mesto na strani, kjer naj se prikaže koledar."
       );
@@ -316,7 +320,7 @@ describe("Embed dialog (Flowko U13)", () => {
     it("our button by default, the client's own button as the other choice", () => {
       openDialog("element-click");
       expect(code()).toContain(
-        `<button type="button" data-cal-link="flowko-test/ogled" data-cal-namespace="ogled"\n  data-cal-config='{"layout":"month_view","theme":"light"}'>Rezervirajte termin</button>`
+        `<button type="button" data-cal-link="flowko-test/ogled" data-cal-namespace="ogled_gumb"\n  data-cal-config='{"layout":"month_view","theme":"light"}'>Rezervirajte termin</button>`
       );
       expect(code()).not.toContain("Click me");
       expect(screen.getByTestId("embed-code-hint").textContent).toBe("Kodo prilepite tja, kjer naj bo gumb.");
@@ -331,6 +335,7 @@ describe("Embed dialog (Flowko U13)", () => {
         snippet.startsWith("<!-- Flowko Rezervacije: vaši gumbi odprejo okno za rezervacijo (začetek) -->")
       ).toBe(true);
       expect(snippet).toContain('document.addEventListener("click", function (e) {');
+      expect(snippet).toContain('    Cal.ns.ogled_povezava("modal", { calLink: "flowko-test/ogled",');
       expect(snippet).not.toContain("<button");
       expect(screen.getByTestId("embed-code-hint").textContent).toContain(
         `Vaš gumb naj vodi na ${WEBAPP_URL}/flowko-test/ogled.`
