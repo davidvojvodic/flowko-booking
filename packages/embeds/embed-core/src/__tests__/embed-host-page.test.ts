@@ -678,6 +678,41 @@ describe("U13-14: embed.js speaks the host page's language", () => {
   });
 });
 
+// Flowko C1: the floating button sits under cookie-consent banners (z-index 998, inline on the shadow <button>)
+describe("C1: the floating button's layer on a client's page", () => {
+  function shadowButton(el: Element | null): HTMLButtonElement {
+    const button = el?.shadowRoot?.querySelector("button");
+    if (!button) throw new Error("cal-floating-button rendered no <button>");
+    return button;
+  }
+
+  it("after floatingButton, and after its position changes to bottom-left", () => {
+    calNs("fb")("floatingButton", { calLink: "flowko-test/ogled", attributes: { id: "c1-floating" } });
+    const button = shadowButton(document.querySelector("cal-floating-button"));
+    expect(button.style.zIndex).toBe("998");
+    expect(button.classList.contains("right-4")).toBe(true);
+
+    // The same element again: floatingButton updates its dataset, FloatingButton rewrites the class list
+    calNs("fb")("floatingButton", {
+      calLink: "flowko-test/ogled",
+      attributes: { id: "c1-floating" },
+      buttonPosition: "bottom-left",
+    });
+    expect(document.querySelectorAll("cal-floating-button")).toHaveLength(1);
+    expect(button.classList.contains("left-4")).toBe(true);
+    expect(button.classList.contains("right-4")).toBe(false);
+    expect(button.style.zIndex).toBe("998");
+  });
+
+  it("created at bottom-left", () => {
+    calNs("fb")("floatingButton", { calLink: "flowko-test/ogled", buttonPosition: "bottom-left" });
+    const button = shadowButton(document.querySelector("cal-floating-button"));
+    expect(button.classList.contains("left-4")).toBe(true);
+    expect(button.classList.contains("right-4")).toBe(false);
+    expect(button.style.zIndex).toBe("998");
+  });
+});
+
 // Flowko P0: the calendar and a pop-up of the same event type on one page, pasted exactly as the builder writes
 // them. Cal keeps one `iframe` per namespace (the newest), so while every type used the slug as its namespace,
 // the calendar's resize messages went to the pop-up's iframe once it had opened (booking.flowko.si, 2026-09-28:
