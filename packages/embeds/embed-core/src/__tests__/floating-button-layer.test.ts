@@ -8,8 +8,10 @@ import { describe, expect, it } from "vitest";
 import getFloatingButtonHtml, { FLOATING_BUTTON_Z_INDEX } from "../FloatingButton/FloatingButtonHtml";
 import modalBoxHtml from "../ModalBox/ModalBoxHtml";
 
-// The highest layer among the surveyed consent banners (Complianz's banner)
-const HIGHEST_CONSENT_LAYER = 99999;
+// The highest z-index browsers apply; larger values are clamped to it. Some surveyed consent layers use it.
+const MAX_LAYER = 2147483647;
+// Complianz's banner, the one the button covered on the test rig
+const COMPLIANZ_BANNER_LAYER = 99999;
 
 function parseButton(html: string): HTMLButtonElement {
   const template = document.createElement("template");
@@ -52,7 +54,9 @@ describe("C1: the floating button's layer", () => {
     expect(button.classList.contains("fixed")).toBe(true);
   });
 
-  it("keeps the z-index when the colours are undefined (the dataset can lack them)", () => {
+  // floatingButton creates the element before it sets the dataset, so the constructor always renders
+  // the template with undefined colours; both colours come later from attributeChangedCallback.
+  it("keeps the z-index with undefined colours, the template floatingButton always renders", () => {
     const button = parseButton(
       getFloatingButtonHtml({
         buttonText: "Rezervirajte termin",
@@ -67,9 +71,10 @@ describe("C1: the floating button's layer", () => {
     expect(button.style.zIndex).toBe("998");
   });
 
-  it("the booking window's backdrop stays above every consent layer and above the button", () => {
+  it("the booking window's backdrop stays at the maximum layer, above Complianz's banner and the button", () => {
     const zIndex = backdropZIndex();
-    expect(zIndex).toBeGreaterThan(HIGHEST_CONSENT_LAYER);
+    expect(Math.min(zIndex, MAX_LAYER)).toBe(MAX_LAYER);
+    expect(zIndex).toBeGreaterThan(COMPLIANZ_BANNER_LAYER);
     expect(zIndex).toBeGreaterThan(FLOATING_BUTTON_Z_INDEX);
   });
 });
