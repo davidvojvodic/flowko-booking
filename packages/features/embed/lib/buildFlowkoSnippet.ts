@@ -328,8 +328,8 @@ export function buildFlowkoSnippet(input: BuildFlowkoSnippetInput): string {
     // that runs after it (embed.js replaced Cal.q.push); the loader above only queues. Before that, or when
     // embed.js never loads (blocked, a CSP script-src without the booking origin, a network error), the click
     // is an ordinary link (its own target applies) and no "modal" is queued, so no window pops up later.
-    // The guard is written without "&&": no line inside a Flowko code's <script> has a &, < or >, because an
-    // editor that entity-encodes them on save would break the whole code (buildFlowkoSnippet.test.ts).
+    // The guard is written without "&&": in the tested codes no <script> line has a &, < or > (a button text
+    // typed by the host can add them); an editor that entity-encodes them on save breaks the whole code.
     // Flowko (U13 fix pass): a click on or inside a data-cal-link element (Webflow's custom attributes on the
     // same link, guide §7.5) is left to embed.ts's own document listener, which opens the pop-up for it;
     // handling it here as well opened two. Same test as embed.ts's getCalLinkEl: the target or an ancestor.
