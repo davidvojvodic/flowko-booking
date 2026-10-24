@@ -14,7 +14,8 @@
 // - no brand colours unless the caller passes cssVarsPerTheme (see buildCssVarsPerTheme.ts), so the booker
 //   follows Settings -> Appearance live;
 // - element-click writes a real <button>, and "click-link" turns the client's own link to the booking page
-//   into a pop-up (it stays a plain link when the script doesn't run);
+//   into a pop-up once embed.js has run (Flowko C2: until then, and when the script or embed.js doesn't load,
+//   it stays a plain link);
 // - Slovenian or English comments and default button text;
 // - Flowko P0: each type has its own namespace (FLOWKO_NAMESPACE_SUFFIX), so the calendar and a pop-up of the
 //   same event type work on one page.
@@ -321,6 +322,14 @@ export function buildFlowkoSnippet(input: BuildFlowkoSnippetInput): string {
   } else {
     // The client's own button links to the booking page; with this script the link opens the pop-up
     // (embed.ts's documented "modal" instruction), without it the link still opens the booking page.
+    // Flowko C2 (David, 2026-10-17, "Plain link until embed.js runs"): the script takes the click only once
+    // embed.js has run. embed.ts's initNamespace() sets Cal.ns[<namespace>].instance synchronously: while
+    // embed.js runs, for a code that ran before it, or inside the code's own Cal("init", …) call, for a code
+    // that runs after it (embed.js replaced Cal.q.push); the loader above only queues. Before that, or when
+    // embed.js never loads (blocked, a CSP script-src without the booking origin, a network error), the click
+    // is an ordinary link (its own target applies) and no "modal" is queued, so no window pops up later.
+    // The guard is written without "&&": no line inside a Flowko code's <script> has a &, < or >, because an
+    // editor that entity-encodes them on save would break the whole code (buildFlowkoSnippet.test.ts).
     // Flowko (U13 fix pass): a click on or inside a data-cal-link element (Webflow's custom attributes on the
     // same link, guide §7.5) is left to embed.ts's own document listener, which opens the pop-up for it;
     // handling it here as well opened two. Same test as embed.ts's getCalLinkEl: the target or an ancestor.
@@ -335,6 +344,7 @@ export function buildFlowkoSnippet(input: BuildFlowkoSnippetInput): string {
       `    if (u.origin !== ${jsString(origin)} || u.pathname.replace(/\\/$/, "") !== ${jsString(
         bookingPath
       )}) return;`,
+      `    var ns = Cal.ns ? ${api} : null; if (!ns || !ns.instance) return;`,
       `    e.preventDefault();`,
       `    ${api}("modal", { calLink: ${jsString(calLink)}, config: ${inlineObject([
         ["layout", layout],
