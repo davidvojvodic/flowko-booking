@@ -335,6 +335,10 @@ describe("Embed dialog (Flowko U13)", () => {
         snippet.startsWith("<!-- Flowko Rezervacije: vaši gumbi odprejo okno za rezervacijo (začetek) -->")
       ).toBe(true);
       expect(snippet).toContain('document.addEventListener("click", function (e) {');
+      // Flowko C2: the script takes the click only once embed.js has run
+      expect(snippet).toContain(
+        "    var ns = Cal.ns ? Cal.ns.ogled_povezava : null; if (!ns || !ns.instance) return;\n    e.preventDefault();"
+      );
       expect(snippet).toContain('    Cal.ns.ogled_povezava("modal", { calLink: "flowko-test/ogled",');
       expect(snippet).not.toContain("<button");
       expect(screen.getByTestId("embed-code-hint").textContent).toContain(

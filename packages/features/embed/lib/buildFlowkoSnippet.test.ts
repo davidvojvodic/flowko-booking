@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { JSDOM } from "jsdom";
@@ -123,6 +123,7 @@ ${planLoader("ogled_povezava")}
     if (e.target.closest("[data-cal-link]")) return;
     var u; try { u = new URL(a.href); } catch (_) { return; }
     if (u.origin !== "https://booking.flowko.si" || u.pathname.replace(/\\/$/, "") !== "/flowko-test/ogled") return;
+    var ns = Cal.ns ? Cal.ns.ogled_povezava : null; if (!ns || !ns.instance) return;
     e.preventDefault();
     Cal.ns.ogled_povezava("modal", { calLink: "flowko-test/ogled", config: { "layout": "month_view", "theme": "light" } });
   }, true);
@@ -143,7 +144,8 @@ function runInPage(html: string) {
     typeof globalThis & {
       Cal: {
         q: unknown[][];
-        ns: Record<string, { q: unknown[][] }>;
+        // Flowko C2: embed.ts's initNamespace() sets `instance` once embed.js has run; the loader never does
+        ns: Record<string, { q: unknown[][]; instance?: unknown }>;
         loaded: boolean;
       };
     };
@@ -322,6 +324,31 @@ describe("buildFlowkoSnippet", () => {
       else expect(output).toContain(`"theme": "${input.theme}"`);
     });
 
+    // Flowko C2 (review C2-F1): an editor or CMS filter that entity-encodes &, < or > on save (&#038;, &amp;)
+    // would make the whole script a SyntaxError: no loader, no embed.js, no pop-up, and nothing tells the
+    // client. Checked over the matrix and the 12 goldens only: the escaping test below puts a button text with
+    // & and > into a floating code's script on purpose.
+    it("no line inside the <script> contains &, < or > (an editor that entity-encodes them would break the whole code)", () => {
+      const scriptLines = (output: string) => {
+        const lines = output.split("\n");
+        const start = lines.findIndex((line) => line.startsWith("<script"));
+        const end = lines.indexOf("</script>");
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(end).toBeGreaterThan(start + 1);
+        return lines.slice(start + 1, end);
+      };
+      const goldens = readdirSync(GOLDEN_DIR).filter((file) => file.endsWith(".html"));
+      expect(goldens).toHaveLength(12);
+      const outputs = [
+        ...matrix.map((input) => buildFlowkoSnippet(input)),
+        ...goldens.map((file) => readFileSync(path.join(GOLDEN_DIR, file), "utf8")),
+      ];
+      expect(outputs).toHaveLength(156);
+      for (const output of outputs) {
+        expect(scriptLines(output).filter((line) => /[&<>]/.test(line))).toEqual([]);
+      }
+    });
+
     it("defaults to the light theme, month view and Slovenian", () => {
       const output = buildFlowkoSnippet({
         type: "inline",
@@ -391,8 +418,12 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
   });
 
   describe("click-link (the client's own button)", () => {
-    const setup = (links: string) => {
+    // Flowko C2: `embedJsRan` stands for embed.js having run: embed.ts's initNamespace() sets
+    // Cal.ns.<namespace>.instance (embed-host-page.test.ts runs the real embed.ts). runInPage never fetches
+    // embed.js, so without it the page is in the state of a visitor whose browser hasn't run embed.js (yet).
+    const setup = (links: string, { embedJsRan = true }: { embedJsRan?: boolean } = {}) => {
       const win = runInPage(`${links}\n${buildFlowkoSnippet({ ...base, type: "click-link" })}`);
+      if (embedJsRan) win.Cal.ns.ogled_povezava.instance = {};
       const modalCalls = () =>
         JSON.parse(
           JSON.stringify(
@@ -407,11 +438,11 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
       return { win, modalCalls, click };
     };
 
-    it("opens the pop-up for a link to the booking page and keeps the visitor on the page", () => {
-      const { win, modalCalls, click } = setup(
-        `<a id="a" href="https://booking.flowko.si/flowko-test/ogled"><span id="inner">Rezervirajte termin</span></a>
-         <a id="slash" href="https://booking.flowko.si/flowko-test/ogled/?utm_source=site" target="_blank">x</a>`
-      );
+    const LINKS = `<a id="a" href="https://booking.flowko.si/flowko-test/ogled"><span id="inner">Rezervirajte termin</span></a>
+         <a id="slash" href="https://booking.flowko.si/flowko-test/ogled/?utm_source=site" target="_blank">x</a>`;
+
+    it("once embed.js has run, opens the pop-up for a link to the booking page and keeps the visitor on the page", () => {
+      const { win, modalCalls, click } = setup(LINKS);
       const event = click(win.document.getElementById("inner") as Element);
       expect(event.defaultPrevented).toBe(true);
       expect(click(win.document.getElementById("slash") as Element).defaultPrevented).toBe(true);
@@ -419,6 +450,46 @@ Cal.ns[${JSON.stringify(namespace)}]("ui", { theme: "light", hideEventTypeDetail
         ["modal", { calLink: "flowko-test/ogled", config: { layout: "month_view", theme: "light" } }],
         ["modal", { calLink: "flowko-test/ogled", config: { layout: "month_view", theme: "light" } }],
       ]);
+    });
+
+    // Flowko C2 (R29): when only embed.js fails to load, the click used to be stopped and the button did nothing
+    it("before embed.js has run, or when it never loads, the link stays an ordinary link and queues no pop-up", () => {
+      const { win, modalCalls, click } = setup(LINKS, { embedJsRan: false });
+      expect(win.Cal.ns.ogled_povezava.instance).toBeUndefined();
+      expect(click(win.document.getElementById("inner") as Element).defaultPrevented).toBe(false);
+      expect(click(win.document.getElementById("slash") as Element).defaultPrevented).toBe(false);
+      expect(modalCalls()).toEqual([]);
+      // embed.js arrives later: from then on the script takes the click
+      win.Cal.ns.ogled_povezava.instance = {};
+      expect(click(win.document.getElementById("inner") as Element).defaultPrevented).toBe(true);
+      expect(modalCalls()).toHaveLength(1);
+    });
+
+    it("only its own namespace counts, and a page without Cal.ns keeps the link without an error", () => {
+      const { win, click } = setup(LINKS, { embedJsRan: false });
+      const errors: unknown[] = [];
+      win.addEventListener("error", (e) => errors.push(e.error));
+      win.Cal.ns.ogled = { q: [], instance: {} };
+      win.Cal.ns.ogled_gumb = { q: [], instance: {} };
+      expect(click(win.document.getElementById("inner") as Element).defaultPrevented).toBe(false);
+      (win.Cal as { ns?: unknown }).ns = undefined;
+      expect(click(win.document.getElementById("inner") as Element).defaultPrevented).toBe(false);
+      expect(errors).toEqual([]);
+    });
+
+    it("a namespace that isn't a JS identifier is checked by its own name", () => {
+      const win = runInPage(
+        `<a id="b" href="https://booking.flowko.si/flowko-test/pregled-zob">x</a>
+${buildFlowkoSnippet({ ...base, type: "click-link", calLink: "flowko-test/pregled-zob", namespace: "pregled-zob" })}`
+      );
+      const click = () => {
+        const event = new win.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+        (win.document.getElementById("b") as Element).dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      expect(click()).toBe(false);
+      win.Cal.ns["pregled-zob_povezava"].instance = {};
+      expect(click()).toBe(true);
     });
 
     it("leaves other links, modified clicks and other mouse buttons alone", () => {
