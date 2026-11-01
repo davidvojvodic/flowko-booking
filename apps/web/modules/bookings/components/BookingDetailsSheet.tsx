@@ -1,5 +1,6 @@
 "use client";
 
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import dayjs from "@calcom/dayjs";
 import { useBookingLocation } from "@calcom/features/bookings/hooks";
 import { shouldShowFieldInCustomResponses } from "@calcom/lib/bookings/SystemField";
@@ -554,9 +555,18 @@ function DisplayTimestamp({
 
   return (
     <>
-      <span>{start.format("dddd, MMMM D, YYYY")}</span>
       <span>
-        {start.format("h:mma")} - {end.format("h:mma")} ({localizedTimezone})
+        {formatLocalizedDay(
+          start,
+          language,
+          { weekday: "long", day: "numeric", month: "long", year: "numeric" },
+          timeZone ?? null
+        )}
+      </span>
+      <span>
+        {formatLocalizedDay(start, language, { hour: "numeric", minute: "2-digit" }, timeZone ?? null)} -{" "}
+        {formatLocalizedDay(end, language, { hour: "numeric", minute: "2-digit" }, timeZone ?? null)} (
+        {localizedTimezone})
       </span>
     </>
   );

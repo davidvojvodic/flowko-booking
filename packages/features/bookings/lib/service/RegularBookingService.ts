@@ -478,7 +478,7 @@ async function validateRescheduleRestrictions({
     ) {
       throw new HttpError({
         statusCode: 403,
-        message: "Rescheduling is not allowed within the minimum notice period before the event",
+        message: "reschedule_within_notice_error",
       });
     }
   } catch (error) {

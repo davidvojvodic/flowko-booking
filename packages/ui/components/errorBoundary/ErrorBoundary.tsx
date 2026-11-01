@@ -1,6 +1,14 @@
 import type { ErrorInfo } from "react";
 import React from "react";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+
+// Flowko: a class component cannot use the locale hook, so the default message is a small function component.
+function DefaultErrorMessage() {
+  const { t } = useLocale();
+  return <>{t("something_went_wrong")}</>;
+}
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode; message?: string },
   { error: Error | null; errorInfo: ErrorInfo | null }
@@ -30,7 +38,7 @@ class ErrorBoundary extends React.Component<
       // Error path
       return (
         <div>
-          <h2>{this.props.message || "Something went wrong."}</h2>
+          <h2>{this.props.message || <DefaultErrorMessage />}</h2>
           <details style={{ whiteSpace: "pre-wrap" }}>
             {this.state.error && this.state.error.toString()}
           </details>

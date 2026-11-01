@@ -137,7 +137,7 @@ describe("Booking Validation Specifications", () => {
           bookingData: mockBookingData,
         })
       ).rejects.toThrow(
-        "Attendee email has been blocked. Make sure to login as organizer@example.com to use this email for creating a booking."
+        "booker_email_requires_login"
       );
 
       // Should allow booking when the user who owns the blacklisted email is logged in
@@ -215,7 +215,7 @@ describe("Booking Validation Specifications", () => {
         handleNewBooking({
           bookingData: mockBookingData,
         })
-      ).rejects.toThrow("Cannot use this email to create the booking.");
+      ).rejects.toThrow("booker_email_blocked");
     });
   });
 
@@ -732,7 +732,7 @@ describe("Booking Validation Specifications", () => {
           bookingData: mockBookingData,
         })
       ).rejects.toThrow(
-        "Attendee email has been blocked. Make sure to login as user@example.com to use this email for creating a booking."
+        "booker_email_requires_login"
       );
     });
 
@@ -960,7 +960,7 @@ describe("Booking Validation Specifications", () => {
           bookingData: mockBookingData,
         })
       ).rejects.toThrow(
-        "Attendee email has been blocked. Make sure to login as secondary@example.com to use this email for creating a booking."
+        "booker_email_requires_login"
       );
     });
 
@@ -1214,7 +1214,7 @@ describe("Booking Validation Specifications", () => {
         handleNewBooking({
           bookingData: mockBookingData,
         })
-      ).rejects.toThrow("Attendee email has been blocked");
+      ).rejects.toThrow("booker_email_requires_login");
     });
 
     test("should filter only guests requiring verification from multiple guests", async () => {
@@ -1403,7 +1403,7 @@ describe("Booking Validation Specifications", () => {
         handleNewBooking({
           bookingData: mockBookingData,
         })
-      ).rejects.toThrow("Invalid verification code");
+      ).rejects.toThrow("invalid_verification_code");
 
       expect(verifyCodeUnAuthenticated).toHaveBeenCalledWith("user@example.com", "invalid-code");
     });

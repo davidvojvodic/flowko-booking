@@ -476,7 +476,7 @@ describe("handleMarkNoShow", () => {
           bookingUid: "non-existent",
           noShowHost: true,
         })
-      ).rejects.toThrow(/Failed to update no-show status/);
+      ).rejects.toThrow(/no_show_update_failed/);
     });
 
     it("should throw 403 when user lacks access", async () => {
@@ -538,7 +538,7 @@ describe("handleMarkNoShow", () => {
 
         await expect(
           handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost, userId: 999 })
-        ).rejects.toThrow(/Failed to update no-show status/);
+        ).rejects.toThrow(/no_show_update_failed/);
 
         expect(mockDoesUserIdHaveAccessToBooking).toHaveBeenCalledWith({ userId: 999, bookingUid });
         expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
@@ -553,7 +553,7 @@ describe("handleMarkNoShow", () => {
 
       await expect(
         handleMarkAttendeesAndHostNoShow({ bookingUid, attendees: [], noShowHost: true, userId: 999 })
-      ).rejects.toThrow(/Failed to update no-show status/);
+      ).rejects.toThrow(/no_show_update_failed/);
       expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
     });
 
@@ -595,7 +595,7 @@ describe("handleMarkNoShow", () => {
 
       await expect(
         handleMarkAttendeesAndHostNoShow({ bookingUid, noShowHost: true, userId: 123 })
-      ).rejects.toThrow(/Failed to update no-show status/);
+      ).rejects.toThrow(/no_show_update_failed/);
       expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
     });
 
@@ -619,7 +619,7 @@ describe("handleMarkNoShow", () => {
         )
       );
 
-      expect(errors[0]).toEqual({ statusCode: 500, message: "Failed to update no-show status" });
+      expect(errors[0]).toEqual({ statusCode: 500, message: "no_show_update_failed" });
       expect(errors[1]).toEqual(errors[0]);
       expect(errors[2]).toEqual(errors[0]);
       expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
@@ -630,7 +630,7 @@ describe("handleMarkNoShow", () => {
       createMockBooking({ uid: bookingUid });
 
       await expect(handleMarkNoShow({ bookingUid, noShowHost: true })).rejects.toThrow(
-        /Failed to update no-show status/
+        /no_show_update_failed/
       );
       expect(mockUpdateNoShowHost).not.toHaveBeenCalled();
     });

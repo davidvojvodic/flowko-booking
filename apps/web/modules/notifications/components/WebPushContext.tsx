@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { showToast } from "@calcom/ui/components/toast";
 
@@ -21,6 +22,7 @@ interface ProviderProps {
 }
 
 export function WebPushProvider({ children }: ProviderProps) {
+  const { t } = useLocale();
   const [permission, setPermission] = useState<NotificationPermission>(() =>
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "denied"
   );
@@ -74,7 +76,7 @@ export function WebPushProvider({ children }: ProviderProps) {
             });
             addSubscription({ subscription: JSON.stringify(subscription) });
             setIsSubscribed(true);
-            showToast("Notifications enabled successfully", "success");
+            showToast(t("notifications_enabled_success"), "success");
           }
         } catch (error) {
           console.error("Failed to subscribe:", error);
@@ -83,9 +85,9 @@ export function WebPushProvider({ children }: ProviderProps) {
             error.name === "InvalidAccessError" &&
             error.message.includes("applicationServerKey")
           ) {
-            showToast("Please enable Google services for push messaging and try again", "error");
+            showToast(t("enable_google_services_push"), "error");
           } else {
-            showToast("Failed to enable notifications", "error");
+            showToast(t("notifications_enable_failed"), "error");
           }
         } finally {
           setIsLoading(false);
@@ -101,17 +103,17 @@ export function WebPushProvider({ children }: ProviderProps) {
             await subscription.unsubscribe();
             removeSubscription({ subscription: subscriptionJson });
             setIsSubscribed(false);
-            showToast("Notifications disabled successfully", "success");
+            showToast(t("notifications_disabled_success"), "success");
           }
         } catch (error) {
           console.error("Failed to unsubscribe:", error);
-          showToast("Failed to disable notifications", "error");
+          showToast(t("notifications_disable_failed"), "error");
         } finally {
           setIsLoading(false);
         }
       },
     }),
-    [permission, isLoading, isSubscribed, pushManager, addSubscription, removeSubscription]
+    [permission, isLoading, isSubscribed, pushManager, addSubscription, removeSubscription, t]
   );
 
   return <WebPushContext.Provider value={contextValue}>{children}</WebPushContext.Provider>;

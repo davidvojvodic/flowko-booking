@@ -1,4 +1,5 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import { useState } from "react";
 import { Controller, useFormContext } from "react-hook-form";
 
@@ -31,7 +32,7 @@ export const MultiplePrivateLinksController = ({
   userTimeZone?: string;
 }): JSX.Element => {
   const formMethods = useFormContext<FormValues>();
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const { copyToClipboard } = useCopy();
   const [animateRef] = useAutoAnimate<HTMLUListElement>();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -175,7 +176,7 @@ export const MultiplePrivateLinksController = ({
             const usageCount = latestUsageCount ?? (link.usageCount || 0);
 
             if (link.expiresAt) {
-              const expiryDate = dayjs.utc(link.expiresAt).format("MMM DD, YYYY");
+              const expiryDate = formatLocalizedDay(link.expiresAt, i18n.language);
               return isExpired
                 ? t("link_expired_on_date", { date: expiryDate })
                 : t("expires_on_date", { date: expiryDate });
@@ -393,7 +394,7 @@ export const MultiplePrivateLinksController = ({
                 {selectedType !== "time"
                   ? t("time_based_generic_expiration_description")
                   : t("time_based_expiration_description", {
-                      date: dayjs(expiryDate).format("MMM DD, YYYY"),
+                      date: formatLocalizedDay(expiryDate, i18n.language, undefined, null),
                     })}
                 {selectedType === "time" && (
                   <div className="mt-2 w-[180px]">

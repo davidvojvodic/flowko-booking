@@ -4,6 +4,7 @@ import { captureException } from "@sentry/nextjs";
 import React from "react";
 
 import { getErrorFromUnknown } from "@calcom/lib/errors";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { redactError } from "@calcom/lib/redactError";
@@ -20,6 +21,8 @@ export type ErrorProps = {
 };
 
 export default function Error({ error, reset }: ErrorProps) {
+  // Flowko: outside an i18n provider (global-error.tsx) t() falls back to the English default.
+  const { t } = useLocale();
   React.useEffect(() => {
     log.error(error);
 
@@ -45,11 +48,11 @@ export default function Error({ error, reset }: ErrorProps) {
 
     return {
       statusCode: 500,
-      title: "Internal Server Error",
-      name: "Internal Server Error",
-      message: "An unexpected error occurred.",
+      title: t("internal_server_error", { defaultValue: "Internal Server Error" }),
+      name: t("internal_server_error", { defaultValue: "Internal Server Error" }),
+      message: t("unexpected_error_occurred", { defaultValue: "An unexpected error occurred." }),
     };
-  }, [error]);
+  }, [error, t]);
 
   return (
     <ErrorPage

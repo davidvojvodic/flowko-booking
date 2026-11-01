@@ -1,5 +1,6 @@
 import { useSession } from "next-auth/react";
 
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
 import dayjs from "@calcom/dayjs";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -47,7 +48,7 @@ type AppAction = {
 const getApps: AppAction[] = Object.values(appStoreMetadata).map(({ name, slug }) => ({
   id: slug,
   name,
-  section: "Installable Apps",
+  section: "installable_apps",
   keywords: `app ${name}`,
 }));
 
@@ -201,7 +202,7 @@ const KBAR_ACTION_CONFIGS: ActionConfig[] = [
 const ADMIN_KBAR_ACTION_CONFIGS: ActionConfig[] = [
   {
     id: "webhooks",
-    name: "Webhooks",
+    name: "webhooks",
     section: "developer",
     shortcut: ["w", "h"],
     keywords: "webhook automation",
@@ -268,6 +269,7 @@ function useEventTypesAction(): void {
 
 function useUpcomingBookingsAction(): void {
   const router = useRouter();
+  const { i18n } = useLocale();
   const session = useSession();
   const userId = session.data?.user.id;
 
@@ -292,8 +294,8 @@ function useUpcomingBookingsAction(): void {
 
     return data.bookings.map((booking) => {
       const startTime = dayjs(booking.startTime);
-      const formattedDate = startTime.format("MMM D");
-      const formattedTime = startTime.format("h:mm A");
+      const formattedDate = formatLocalizedDay(startTime, i18n.language, { day: "numeric", month: "short" }, null);
+      const formattedTime = formatLocalizedDay(startTime, i18n.language, { hour: "numeric", minute: "2-digit" }, null);
       const attendeeNames = (booking.attendees ?? []).map((a) => a.name).join(" ");
 
       return {
@@ -304,7 +306,7 @@ function useUpcomingBookingsAction(): void {
         perform: () => router.push(`/booking/${booking.uid}`),
       };
     });
-  }, [data?.bookings, router]);
+  }, [data?.bookings, router, i18n.language]);
 
   useRegisterActions(bookingActions, [bookingActions]);
 }

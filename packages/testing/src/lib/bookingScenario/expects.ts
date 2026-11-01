@@ -491,7 +491,7 @@ export function expectSuccessfulBookingCreationEmails({
               }?cancel=true&allRemainingBookings=true&cancelledBy=${encodeURIComponent(
                 destinationEmail ?? organizer.email
               )}`,
-              text: "cancel",
+              text: "cancel_booking_link",
             },
           ]
         : [
@@ -552,7 +552,7 @@ export function expectSuccessfulBookingCreationEmails({
               href: `${bookingUrlOrigin}/booking/${
                 booking.uid
               }?cancel=true&allRemainingBookings=true&cancelledBy=${encodeURIComponent(booker.email)}`,
-              text: "cancel",
+              text: "cancel_booking_link",
             },
           ]
         : [
@@ -602,7 +602,7 @@ export function expectSuccessfulBookingCreationEmails({
               }?cancel=true&allRemainingBookings=false&cancelledBy=${encodeURIComponent(
                 otherTeamMember.email
               )}`,
-              text: "cancel",
+              text: "cancel_booking_link",
             },
           ],
         },

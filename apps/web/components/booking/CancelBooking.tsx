@@ -5,6 +5,7 @@ import { isCancellationReasonRequired } from "@calcom/features/bookings/lib/canc
 import { shouldChargeNoShowCancellationFee } from "@calcom/features/bookings/lib/payment/shouldChargeNoShowCancellationFee";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { useRefreshData } from "@calcom/lib/hooks/useRefreshData";
+import { translateServerMessage } from "@calcom/lib/translateServerMessage";
 import type { CancellationReasonRequirement } from "@calcom/prisma/enums";
 import type { RecurringEvent } from "@calcom/types/Calendar";
 import classNames from "@calcom/ui/classNames";
@@ -318,7 +319,7 @@ export default function CancelBooking(props: Props) {
                     const data = await res.json();
                     setLoading(false);
                     const errorMessage =
-                      data.message ||
+                      translateServerMessage(t, data.message) ||
                       `${t("error_with_status_code_occured", { status: res.status })} ${t(
                         "please_try_again"
                       )}`;

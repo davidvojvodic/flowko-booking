@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
@@ -19,6 +21,7 @@ const toHours = (value: number): Hours => {
 };
 
 export const OnboardingCalendarBrowserView = () => {
+  const { i18n } = useLocale();
   const pathname = usePathname();
   const { startDate, endDate } = useMemo(() => {
     return weekdayDates(0, new Date(), 6);
@@ -94,9 +97,9 @@ export const OnboardingCalendarBrowserView = () => {
         }}>
         <div className="flex items-center gap-2 px-4 py-3">
           <span className="text-default text-sm font-semibold">
-            {dayjs(startDate).format("MMM D")}
+            {formatLocalizedDay(startDate, i18n.language, { day: "numeric", month: "short" }, null)}
             <span className="mx-1">–</span>
-            {dayjs(endDate).format("MMM D, YYYY")}
+            {formatLocalizedDay(endDate, i18n.language, { day: "numeric", month: "short", year: "numeric" }, null)}
           </span>
         </div>
         {/* Calendar View */}

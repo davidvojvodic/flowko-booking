@@ -1,6 +1,6 @@
 "use client";
 
-import getAppCategoryTitle from "@calcom/app-store/_utils/getAppCategoryTitle";
+import { getAppCategoryLabel, getCategoryAppsTitle, getNoCategoryAppsHeadline } from "@calcom/lib/appCategoryLabels";
 import { AppList, type HandleDisconnect } from "@calcom/features/apps/components/AppList";
 import type { UpdateUsersDefaultConferencingAppParams } from "@calcom/features/apps/components/AppSetDefaultLinkDialog";
 import type { RemoveAppParams } from "@calcom/features/apps/components/DisconnectIntegrationModal";
@@ -121,14 +121,11 @@ const IntegrationsContainer = ({
       success={({ data }) => {
         if (!data.items.length) {
           const resolvedVariant = resolveEmptyStateVariant(variant);
-          const emptyHeaderCategory = getAppCategoryTitle(resolvedVariant, true);
 
           return (
             <EmptyScreen
               Icon={APP_CATEGORY_ENTRIES[resolvedVariant].icon}
-              headline={t("no_category_apps", {
-                category: emptyHeaderCategory,
-              })}
+              headline={getNoCategoryAppsHeadline(t, resolvedVariant)}
               description={t(`no_category_apps_description_${resolvedVariant}`)}
               buttonRaw={
                 <Button

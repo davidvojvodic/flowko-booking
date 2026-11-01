@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { translateServerMessage } from "@calcom/lib/translateServerMessage";
 import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import type { inferSSRProps } from "@calcom/types/inferSSRProps";
 import { Button } from "@calcom/ui/components/button";
@@ -110,7 +111,11 @@ function PasswordResetForm({
       // if the request fails, we want to force refresh of the CSRF token - this allows resubmit
       forceRefresh();
       // Flowko: the rate limiter answers in English; say it in the user's language
-      const message = res.status === 429 || isRateLimitError(json) ? t("rate_limit_exceeded") : json.message;
+      const message = res.status === 429 || isRateLimitError(json)
+          ? t("rate_limit_exceeded")
+          : typeof json.message === "string" && json.message.includes("password_requirements_error")
+            ? t("password_requirements_error")
+            : translateServerMessage(t, json.message);
       return setError("newPassword", { type: "server", message });
     }
   };
@@ -146,7 +151,7 @@ function PasswordResetForm({
               value: 7, // We don't have user here so we can't check if they are admin or not
             },
             pattern: {
-              message: "Should contain a number, uppercase and lowercase letters",
+              message: t("password_hint_complexity"),
               value: /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[a-zA-Z]).*$/gm,
             },
           })}

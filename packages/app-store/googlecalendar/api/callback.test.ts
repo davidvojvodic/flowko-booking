@@ -319,6 +319,19 @@ describe("googlecalendar callback: credential keyring", () => {
     mocks.getToken.mockResolvedValue({ tokens: freshTokens });
   });
 
+  it("sends a host who unticked a permission back with the reason, not to a JSON error page (U14)", async () => {
+    mocks.getToken.mockResolvedValue({ tokens: { ...freshTokens, scope: "openid" } });
+
+    const res = await connect({}, NOT_FROM_APP);
+
+    expect(res._getStatusCode()).toBe(302);
+    const url = new URL(res._getRedirectUrl());
+    expect(`${url.origin}${url.pathname}`).toBe(`${WEBAPP_URL}/apps/installed/calendar`);
+    expect(url.searchParams.get("error")).toBe("google_calendar_scopes_missing");
+    expect(mocks.credentialCreate).not.toHaveBeenCalled();
+    expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalled();
+  });
+
   it("sends the host back with the reason, before redeeming the code, when the credential keyring is not configured", async () => {
     mocks.isCredentialKeyringConfigured.mockReturnValue(false);
 

@@ -373,7 +373,7 @@ describe("Handler: requestReschedule", () => {
             },
           })
         )
-      ).rejects.toThrow("User isn't owner of the current booking");
+      ).rejects.toThrow("not_booking_owner");
     });
 
     test.todo("Verify that the email should go to organizer as well as the team members");

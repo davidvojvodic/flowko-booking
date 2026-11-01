@@ -252,7 +252,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
   const mutation = trpc.viewer.public.submitRating.useMutation({
     onSuccess: async () => {
       setIsFeedbackSubmitted(true);
-      showToast("Thank you, feedback submitted", "success");
+      showToast(t("feedback_submitted_thanks"), "success");
     },
     onError: (err) => {
       showToast(err.message, "error");
@@ -261,7 +261,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
 
   const hostNoShowMutation = trpc.viewer.public.markHostAsNoShow.useMutation({
     onSuccess: async () => {
-      showToast("Thank you, feedback submitted", "success");
+      showToast(t("feedback_submitted_thanks"), "success");
     },
     onError: (err) => {
       // Flowko: the server's message is English ("Failed to update no-show status", the rate limiter's "Rate
@@ -304,7 +304,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
     attendeeName: bookingInfo.responses.name as z.infer<typeof nameObjectSchema> | string,
     eventType: eventType.title,
     eventName: evtName,
-    host: props.profile.name || "Nameless",
+    host: props.profile.name || t("nameless"),
     location: location,
     bookingFields: bookingInfo.responses,
     eventDuration: dayjs(bookingInfo.endTime).diff(bookingInfo.startTime, "minutes"),
@@ -369,7 +369,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
     }
     if (bookingInfo.user) {
       const isAttendee = bookingInfo.attendees.find((attendee) => attendee.email === session?.user?.email);
-      const attendee = bookingInfo.attendees[0]?.name || bookingInfo.attendees[0]?.email || "Nameless";
+      const attendee = bookingInfo.attendees[0]?.name || bookingInfo.attendees[0]?.email || t("nameless");
       const host = bookingInfo.user.name || bookingInfo.user.email;
       if (isHost) {
         return t(`${titlePrefix}emailed_host_and_attendee${titleSuffix}`, {
@@ -421,7 +421,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
   const bookingCancelledEventProps = {
     booking: bookingInfo,
     organizer: {
-      name: bookingInfo?.user?.name || "Nameless",
+      name: bookingInfo?.user?.name || t("nameless"),
       email: bookingInfo?.userPrimaryEmail || bookingInfo?.user?.email || "Email-less",
       timeZone: bookingInfo?.user?.timeZone,
     },

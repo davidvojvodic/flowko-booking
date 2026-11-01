@@ -90,7 +90,7 @@ describe("Tests for EventTypeAppCard component", () => {
     });
 
     render(<EventTypeAppCard {...mockProps} />);
-    const errorMessage = screen.getByText(`There is some problem with ${mockProps.app.name} App`);
+    const errorMessage = screen.getByText("app_card_error");
     expect(errorMessage).toBeInTheDocument();
   });
 });

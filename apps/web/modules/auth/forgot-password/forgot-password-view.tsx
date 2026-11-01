@@ -8,6 +8,7 @@ import React from "react";
 
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { translateServerMessage } from "@calcom/lib/translateServerMessage";
 import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import { Button } from "@calcom/ui/components/button";
 import { EmailField } from "@calcom/ui/components/form";
@@ -48,7 +49,11 @@ export default function ForgotPassword(props: PageProps) {
       if (!res.ok) {
         // Flowko: the rate limiter answers in English ("Rate limit exceeded. Try again in N seconds."); say
         // it in the user's language
-        setError(res.status === 429 || isRateLimitError(json) ? { message: t("rate_limit_exceeded") } : json);
+        setError(
+          res.status === 429 || isRateLimitError(json)
+            ? { message: t("rate_limit_exceeded") }
+            : { ...json, message: translateServerMessage(t, json.message) ?? t("unexpected_error_try_again") }
+        );
       } else {
         setSuccess(true);
       }

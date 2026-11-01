@@ -15,7 +15,7 @@ export const generateMetadata = async ({ params, searchParams }: _PageProps) => 
   const { sessionId } = querySchema.parse(p);
 
   return await _generateMetadata(
-    () => (sessionId ? "Payment Page" : `Verify your email`),
+    (t) => (sessionId ? t("payment") : t("verify_your_email")),
     () => "",
     undefined,
     undefined,

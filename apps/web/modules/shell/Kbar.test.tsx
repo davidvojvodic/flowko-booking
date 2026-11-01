@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
-  useLocale: () => ({ t: (key: string) => key }),
+  useLocale: () => ({ t: (key: string) => key, i18n: { language: "sl" } }),
 }));
 
 vi.mock("@calcom/app-store/appStoreMetaData", () => ({ appStoreMetadata: {} }));

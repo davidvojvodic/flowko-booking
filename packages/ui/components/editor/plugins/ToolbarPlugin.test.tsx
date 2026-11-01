@@ -9,6 +9,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import ToolbarPlugin from "./ToolbarPlugin";
 
+// Flowko U14: the toolbar says its labels in the UI language, with the app's real en and sl files
+const localeMock = vi.hoisted(() => ({ lang: "en" as "en" | "sl" }));
+vi.mock("@calcom/lib/hooks/useLocale", async () => {
+  const { realTranslator } = await import("@calcom/lib/testUtils/realTranslator");
+  return { useLocale: () => realTranslator(localeMock.lang) };
+});
+
 // Mocks
 vi.mock("../../icon", () => ({
   Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`}>{name}</span>,
@@ -64,6 +71,23 @@ describe("ToolbarPlugin", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localeMock.lang = "en";
+  });
+
+  it("says the block types in Slovene with the sl file, with no English left over", () => {
+    localeMock.lang = "sl";
+    render(
+      <TestWrapper>
+        <ToolbarPlugin {...defaultProps} />
+      </TestWrapper>
+    );
+
+    for (const label of ["Navadno besedilo", "Oštevilčen seznam", "Seznam s pikami", "Velik naslov", "Majhen naslov"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    for (const english of ["Normal", "Numbered List", "Bulleted List", "Large Heading", "Small Heading"]) {
+      expect(screen.queryByText(english)).toBeNull();
+    }
   });
 
   it("renders correctly with default props", () => {
@@ -123,7 +147,7 @@ describe("ToolbarPlugin", () => {
       expect(screen.getByTestId("dropdown-content")).toBeDefined();
     });
 
-    const h1Button = screen.getByText("Large Heading");
+    const h1Button = screen.getByText("Large heading");
     fireEvent.click(h1Button);
   });
 

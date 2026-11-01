@@ -1,5 +1,6 @@
 "use client";
 
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import dayjs from "@calcom/dayjs";
 import { ColumnFilterType, ZDateRangeFilterValue } from "@calcom/features/data-table";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
@@ -100,7 +101,7 @@ function OutOfOfficeEntriesListContent({
   onOpenCreateDialog: () => void;
   onOpenEditDialog: (entry: BookingRedirectForm) => void;
 }) {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [deletedEntry, setDeletedEntry] = useState(0);
 
@@ -142,7 +143,7 @@ function OutOfOfficeEntriesListContent({
       setDeletedEntry((previousValue) => previousValue + 1);
     },
     onError: () => {
-      showToast(`An error occurred`, "error");
+      showToast(t("something_went_wrong"), "error");
     },
   });
 
@@ -183,7 +184,7 @@ function OutOfOfficeEntriesListContent({
 
                   <div className="flex flex-col">
                     <p className="font-bold">
-                      {dayjs.utc(item.start).format("ll")} - {dayjs.utc(item.end).format("ll")}
+                      {formatLocalizedDay(item.start, i18n.language)} - {formatLocalizedDay(item.end, i18n.language)}
                     </p>
                     <p>
                       {item.toUser?.username ? (

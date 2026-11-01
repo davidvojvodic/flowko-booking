@@ -1,4 +1,5 @@
 import { AppSettings } from "@calcom/app-store/_components/AppSettings";
+import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import type { ConnectedApps } from "@calcom/app-store/_utils/getConnectedApps";
 import { InstallAppButton } from "@calcom/app-store/InstallAppButton";
 import { type EventLocationType, getLocationFromApp } from "@calcom/app-store/locations";
@@ -67,14 +68,15 @@ export const AppList = ({
   handleBulkEditDialogToggle,
   AppListCardComponent,
 }: AppListProps) => {
+  const { t } = useLocale();
   const [bulkUpdateModal, setBulkUpdateModal] = useState(false);
   const [locationType, setLocationType] = useState<(EventLocationType & { slug: string }) | undefined>(
     undefined
   );
   const onSuccessCallback = useCallback(() => {
     setBulkUpdateModal(true);
-    showToast("Default app updated successfully", "success");
-  }, []);
+    showToast(t("default_app_updated_successfully"), "success");
+  }, [t]);
 
   const ChildAppCard = ({ item }: { item: AppCardApp }) => {
     const appSlug = item?.slug;
@@ -84,7 +86,7 @@ export const AppList = ({
     return (
       <AppListCardComponent
         key={item.name}
-        description={item.description}
+        description={getAppDescription(item, t)}
         title={item.name}
         logo={item.logo}
         isDefault={appIsDefault}
@@ -176,7 +178,6 @@ export const AppList = ({
     return appCards;
   });
 
-  const { t } = useLocale();
   return (
     <>
       <List className={listClassName}>

@@ -3,6 +3,7 @@ import type z from "zod";
 import type { GetAppData, SetAppData } from "@calcom/app-store/EventTypeAppContext";
 import EventTypeAppContext from "@calcom/app-store/EventTypeAppContext";
 import { EventTypeAddonMap } from "@calcom/app-store/apps.browser.generated";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import { ErrorBoundary } from "@calcom/ui/components/errorBoundary";
 
@@ -22,9 +23,10 @@ export const EventTypeAppCard = (props: {
   eventTypeFormMetadata: z.infer<typeof EventTypeMetaDataSchema>;
   disabled?: boolean;
 }) => {
+  const { t } = useLocale();
   const { app, getAppData, setAppData, LockedIcon, disabled, onAppInstallSuccess } = props;
   return (
-    <ErrorBoundary message={`There is some problem with ${app.name} App`}>
+    <ErrorBoundary message={t("app_card_error", { appName: app.name })}>
       <EventTypeAppContext.Provider value={{ getAppData, setAppData, LockedIcon, disabled }}>
         <DynamicComponent
           slug={app.slug === "stripe" ? "stripepayment" : app.slug}

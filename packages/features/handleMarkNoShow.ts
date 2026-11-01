@@ -186,7 +186,7 @@ const markNoShow = async ({
     });
 
     if (!booking) {
-      throw new HttpError({ statusCode: 404, message: "Booking not found" });
+      throw new HttpError({ statusCode: 404, message: "booking_not_found" });
     }
 
     const emailToAttendeeMap = await getBookingAttendeesFromEmails(bookingUid, attendeeEmails);
@@ -239,7 +239,7 @@ const markNoShow = async ({
     if (error instanceof Error) {
       logger.error(error.message);
     }
-    throw new HttpError({ statusCode: 500, message: "Failed to update no-show status" });
+    throw new HttpError({ statusCode: 500, message: "no_show_update_failed" });
   }
 };
 
@@ -299,7 +299,7 @@ const assertCanAccessBooking = async (bookingUid: string, userId?: number) => {
   });
 
   if (!isAuthorized)
-    throw new HttpError({ statusCode: 403, message: "You are not allowed to access this booking" });
+    throw new HttpError({ statusCode: 403, message: "no_access_to_booking" });
 
   const isUpcoming = new Date(booking.endTime) >= new Date();
   const isOngoing = isUpcoming && new Date() >= new Date(booking.startTime);
@@ -307,7 +307,7 @@ const assertCanAccessBooking = async (bookingUid: string, userId?: number) => {
   if (!isBookingInPast && !isOngoing) {
     throw new HttpError({
       statusCode: 403,
-      message: "Cannot mark no-show before the meeting has started.",
+      message: "no_show_before_start_error",
     });
   }
 };

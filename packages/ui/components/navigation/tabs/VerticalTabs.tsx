@@ -1,5 +1,6 @@
 import classNames from "@calcom/ui/classNames";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { VerticalTabItemProps } from "./VerticalTabItem";
 import VerticalTabItem from "./VerticalTabItem";
 
@@ -28,6 +29,7 @@ const NavTabs = function ({
   iconClassName,
   ...props
 }: NavTabProps) {
+  const { t } = useLocale();
   return (
     <nav
       className={classNames(`no-scrollbar flex flex-col stack-y-1 overflow-scroll ${className}`, sticky && "sticky")}
@@ -35,7 +37,7 @@ const NavTabs = function ({
         maxWidth: "256px",
         ...(sticky ? { top: stickyOffset } : {}),
       }}
-      aria-label="Tabs"
+      aria-label={t("tabs")}
       {...props}>
       {props.children}
       {tabs.map((tab, idx) => (

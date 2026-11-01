@@ -43,7 +43,7 @@ function validatePhoneInput(value: string | boolean | undefined, errorMessage: s
     errorMap: () => ({ message: errorMessage }),
   })
     .refine((val) => isValidPhoneNumber(val), {
-      message: "Phone number is invalid",
+      message: "phone_number_invalid",
     })
     .parse(value);
 }

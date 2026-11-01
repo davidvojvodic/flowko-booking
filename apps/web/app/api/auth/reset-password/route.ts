@@ -16,7 +16,7 @@ import { IdentityProvider } from "@calcom/prisma/enums";
 const passwordResetRequestSchema = z.object({
   csrfToken: z.string(),
   password: z.string().refine(validPassword, () => ({
-    message: "Password does not meet the requirements",
+    message: "password_requirements_error",
   })),
   requestId: z.string(), // format doesn't matter.
 });

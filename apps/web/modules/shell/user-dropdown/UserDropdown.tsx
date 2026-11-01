@@ -65,7 +65,7 @@ export function UserDropdown({ small }: UserDropdownProps) {
           <Avatar
             size={small ? "xs" : "xsm"}
             imageSrc={user?.avatarUrl ?? user?.avatar}
-            alt={user?.username ? `${user.username} Avatar` : "Nameless User Avatar"}
+            alt={user?.username ? t("user_avatar_alt", { username: user.username }) : t("nameless_user_avatar")}
             className="overflow-hidden"
           />
           <span
@@ -79,7 +79,7 @@ export function UserDropdown({ small }: UserDropdownProps) {
           <span className="flex grow items-center gap-2">
             <span className="w-24 shrink-0 text-sm leading-none">
               <span className="text-emphasis block truncate py-0.5 font-medium leading-normal">
-                {isPending ? "Loading..." : (user?.name ?? "Nameless User")}
+                {isPending ? t("loading") : (user?.name ?? t("nameless_user"))}
               </span>
             </span>
             {menuOpen ? (

@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppCategoryLabel, getCategoryAppsTitle, getNoCategoryAppsHeadline } from "@calcom/lib/appCategoryLabels";
 import { InstallAppButton } from "@calcom/app-store/InstallAppButton";
 import { getAppDescription } from "@calcom/app-store/_utils/getAppDescription";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
@@ -166,9 +167,7 @@ export function CalendarListContainer({
     content = (
       <EmptyScreen
         Icon="calendar"
-        headline={t("no_category_apps", {
-          category: t("calendar").toLowerCase(),
-        })}
+        headline={getNoCategoryAppsHeadline(t, "calendar")}
         description={t(`no_category_apps_description_calendar`)}
         buttonRaw={
           <Button

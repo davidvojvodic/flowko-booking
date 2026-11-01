@@ -108,7 +108,7 @@ describe("reportBookingHandler", () => {
           })
       ).rejects.toMatchObject({
         code: "NOT_FOUND",
-        message: "Booking not found",
+        message: "booking_not_found",
       });
     });
   });
@@ -131,7 +131,7 @@ describe("reportBookingHandler", () => {
           })
       ).rejects.toMatchObject({
         code: "BAD_REQUEST",
-        message: "This booking has already been reported",
+        message: "booking_already_reported",
       });
     });
   });

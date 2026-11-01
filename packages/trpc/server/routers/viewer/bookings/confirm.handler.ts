@@ -161,7 +161,7 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
 
   const user = booking.user;
   if (!user) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Booking must have an organizer" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "booking_needs_organizer_error" });
   }
 
   const bookingAccessService = new BookingAccessService(prisma);
@@ -173,14 +173,14 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
   if (!isUserAuthorizedToConfirmBooking) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
-      message: "User is not authorized to confirm this booking",
+      message: "not_authorized_to_confirm_booking",
     });
   }
 
   // Do not move this before authorization check.
   // This is done to avoid exposing extra information to the requester.
   if (booking.status === BookingStatus.ACCEPTED) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Booking already confirmed" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "booking_already_confirmed" });
   }
 
   // If booking requires payment and is not paid, we don't allow confirmation

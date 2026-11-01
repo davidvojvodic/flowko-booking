@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppCategoryLabel, getCategoryAppsTitle, getNoCategoryAppsHeadline } from "@calcom/lib/appCategoryLabels";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import type { UIEvent } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -81,11 +82,7 @@ function CategoryTab({ selectedCategory, categories, searchText, onCategoryChang
       <h2 className="text-emphasis hidden text-base font-semibold leading-none sm:block">
         {searchText
           ? t("search")
-          : t("category_apps", {
-              category:
-                (selectedCategory && selectedCategory[0].toUpperCase() + selectedCategory.slice(1)) ||
-                t("all"),
-            })}
+          : getCategoryAppsTitle(t, selectedCategory)}
       </h2>
       {leftVisible && (
         <button onClick={handleLeft} className="absolute bottom-0 flex  lg:left-1/2">
@@ -123,7 +120,7 @@ function CategoryTab({ selectedCategory, categories, searchText, onCategoryChang
               selectedCategory === cat ? "bg-emphasis text-default" : "bg-cal-muted text-emphasis",
               "hover:bg-emphasis rounded-md px-4 py-2.5 text-sm font-medium transition hover:cursor-pointer"
             )}>
-            {cat === "crm" ? cat.toUpperCase() : cat[0].toUpperCase() + cat.slice(1)}
+            {getAppCategoryLabel(t, cat)}
           </li>
         ))}
       </ul>

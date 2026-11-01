@@ -16,7 +16,7 @@ const configMap: Record<FieldType, Omit<z.infer<typeof fieldTypeConfigSchema>, "
     isTextType: true,
     systemOnly: true,
     variantsConfig: {
-      toggleLabel: 'Split "Full name" into "First name" and "Last name"',
+      toggleLabel: "split_full_name_toggle",
       defaultVariant: "fullName",
       variants: {
         firstAndLastName: {

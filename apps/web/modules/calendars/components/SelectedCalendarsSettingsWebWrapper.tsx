@@ -255,8 +255,8 @@ const SelectedCalendarsSettingsHeading = (props: {
 }) => {
   const { t } = useLocale();
   const optionsToSwitchScope = [
-    { label: "User", value: SelectedCalendarSettingsScope.User },
-    { label: "Event Type", value: SelectedCalendarSettingsScope.EventType },
+    { label: t("user"), value: SelectedCalendarSettingsScope.User },
+    { label: t("event_type"), value: SelectedCalendarSettingsScope.EventType },
   ];
   const switchScopeSelectValue = optionsToSwitchScope.find((option) => option.value === props.scope);
   return (
@@ -279,7 +279,7 @@ const SelectedCalendarsSettingsHeading = (props: {
       </div>
       {props.showScopeSelector && (
         <div className="mt-2 flex flex-row items-center space-x-2">
-          <span className="text-default text-sm">Using</span>
+          <span className="text-default text-sm">{t("using")}</span>
           <Select
             onChange={(option) => {
               if (!option) return;

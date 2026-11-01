@@ -24,7 +24,7 @@ const _validateEventLength = ({
   const validEventLengths = eventTypeMultipleDuration?.length ? eventTypeMultipleDuration : [eventTypeLength];
   if (!validEventLengths.includes(reqEventLength)) {
     logger.warn({ message: "NewBooking: Invalid event length" });
-    throw new HttpError({ statusCode: 400, message: "Invalid event length" });
+    throw new HttpError({ statusCode: 400, message: "invalid_event_length_error" });
   }
 };
 

@@ -477,7 +477,7 @@ export function BookingActionsDropdown({
         bookingCancelledEventProps={{
           booking: booking,
           organizer: {
-            name: booking.user?.name || "Nameless",
+            name: booking.user?.name || t("nameless"),
             email: booking.userPrimaryEmail || booking.user?.email || "Email-less",
             timeZone: booking.user?.timeZone,
           },
