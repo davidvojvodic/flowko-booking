@@ -112,6 +112,36 @@ describe("editLocationHandler with a switched-off app", () => {
     );
   });
 
+  it("gives the e-mails the event type's name fields, so the booker's title can follow the booker's language", async () => {
+    withEnabledApps("google-calendar", "daily-video");
+
+    await editLocationHandler({
+      ctx: {
+        user: { id: 101, email: "organizer@example.com", locale: "en" },
+        booking: {
+          id: 1,
+          userId: 101,
+          location: "inPerson",
+          metadata: {},
+          responses: {},
+          references: [],
+          eventType: { title: "Ogled", eventName: null, metadata: {} },
+        },
+      } as unknown as Parameters<typeof editLocationHandler>[0]["ctx"],
+      input: ZEditLocationInputSchema.parse({ bookingId: 1, newLocation: "", credentialId: null }),
+      actionSource: "WEBAPP",
+    });
+
+    expect(sendLocationChangeEmailsAndSMS).toHaveBeenCalledWith(
+      expect.anything(),
+      {},
+      {
+        eventType: "Ogled",
+        eventName: null,
+      }
+    );
+  });
+
   it.each([
     ["google-meet", undefined],
     ["daily-video", undefined],

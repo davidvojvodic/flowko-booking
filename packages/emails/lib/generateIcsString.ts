@@ -87,7 +87,7 @@ const generateIcsString = ({
     start: toICalDateArray(event.startTime),
     end: toICalDateArray(event.endTime),
     startInputType: "utc",
-    productId: "calcom/ics",
+    productId: "-//Flowko//Rezervacije//SL",
     title: event.title,
     description: getRichDescription(event, t),
     organizer: {

@@ -23,6 +23,7 @@ export default class AttendeeWasRequestedToRescheduleEmail extends OrganizerSche
         calEvent: this.calEvent,
         role: GenerateIcsRole.ATTENDEE,
         status: "CANCELLED",
+        t: this.t,
       }),
       from: `${EMAIL_FROM_NAME} <${this.getMailerOptions().from}>`,
       to: toAddresses.join(","),

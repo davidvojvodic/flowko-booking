@@ -666,7 +666,7 @@ async function handler(
   }
 
   const fullName = getFullName(bookerName);
-  // Why are we only using "en" locale
+  // Flowko: only for matching a location label in English (isBookerLocationOffered); guests get the booker's language
   const tGuests = await getTranslation("en", "common");
 
   const dynamicUserList = Array.isArray(reqBody.user) ? reqBody.user : getUsernameList(reqBody.user);
@@ -1388,7 +1388,7 @@ async function handler(
       firstName: "",
       lastName: "",
       timeZone: attendeeTimezone,
-      language: { translate: tGuests, locale: "en" },
+      language: { translate: tAttendees, locale: attendeeLanguage ?? "en" },
     });
     return guestArray;
   }, [] as Invitee);

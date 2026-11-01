@@ -41,6 +41,8 @@ export async function handleConfirmation(args: {
       requiresConfirmation: boolean;
       metadata?: Prisma.JsonValue;
       title: string;
+      /** Left out (the payment path), a booker's title stays as stored */
+      eventName?: string | null;
       team?: {
         parentId: number | null;
       } | null;
@@ -128,7 +130,8 @@ export async function handleConfirmation(args: {
           undefined,
           isHostConfirmationEmailsDisabled,
           isAttendeeConfirmationEmailDisabled,
-          eventTypeMetadata
+          eventTypeMetadata,
+          { eventType: eventType?.title, eventName: eventType?.eventName }
         );
       }
     } catch (error) {

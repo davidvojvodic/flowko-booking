@@ -524,7 +524,7 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
     if (!platformClientId || (platformClientId && arePlatformEmailsEnabled))
       await sendCancelledEmailsAndSMS(
         evt,
-        { eventName: bookingToDelete?.eventType?.eventName },
+        { eventType: bookingToDelete?.eventType?.title, eventName: bookingToDelete?.eventType?.eventName },
         bookingToDelete?.eventType?.metadata as EventTypeMetadata
       );
   } catch (error) {

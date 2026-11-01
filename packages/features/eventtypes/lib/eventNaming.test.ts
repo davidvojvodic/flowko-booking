@@ -357,7 +357,7 @@ describe("event tests", () => {
   });
 
   it("should support templating of event duration", () => {
-    const tFunc = vi.fn(() => "foo");
+    const tFunc = vi.fn((key: string, options?: { count?: number }) => `${options?.count} ${key}`);
 
     const result = event.getEventName({
       attendeeName: "example attendee",
@@ -365,9 +365,27 @@ describe("event tests", () => {
       host: "example host",
       eventName: "event duration: {Event duration}",
       eventDuration: 15,
-      t: tFunc as TFunction,
+      t: tFunc as unknown as TFunction,
     });
-    expect(result).toBe("event duration: 15 mins");
+    expect(result).toBe("event duration: 15 multiple_duration_mins");
+  });
+
+  it.each([
+    ["sl", "trajanje: 30 min"],
+    ["en", "trajanje: 30 mins"],
+  ])("writes the event duration in the recipient's language (%s)", async (locale, expected) => {
+    const { getTranslation } =
+      await vi.importActual<typeof import("@calcom/i18n/server")>("@calcom/i18n/server");
+
+    const result = event.getEventName({
+      attendeeName: "example attendee",
+      eventType: "example event type",
+      host: "example host",
+      eventName: "trajanje: {Event duration}",
+      eventDuration: 30,
+      t: await getTranslation(locale, "common"),
+    });
+    expect(result).toBe(expected);
   });
 
   it("should support templating of Scheduler first name", () => {

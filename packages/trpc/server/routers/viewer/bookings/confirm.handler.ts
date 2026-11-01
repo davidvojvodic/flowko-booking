@@ -82,6 +82,7 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
           teamId: true,
           recurringEvent: true,
           title: true,
+          eventName: true,
           slug: true,
           requiresConfirmation: true,
           currency: true,
@@ -440,7 +441,10 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
     }
 
     if (emailsEnabled) {
-      await sendDeclinedEmailsAndSMS(evt, booking.eventType?.metadata as EventTypeMetadata);
+      await sendDeclinedEmailsAndSMS(evt, booking.eventType?.metadata as EventTypeMetadata, {
+        eventType: booking.eventType?.title,
+        eventName: booking.eventType?.eventName,
+      });
     }
 
     const teamId = await getTeamIdFromEventType({

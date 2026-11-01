@@ -12,6 +12,7 @@ export default class AttendeeCancelledEmail extends AttendeeScheduledEmail {
         calEvent: this.calEvent,
         role: GenerateIcsRole.ATTENDEE,
         status: "CANCELLED",
+        t: this.t,
       }),
       to: `${this.attendee.name} <${this.attendee.email}>`,
       from: `${this.calEvent.organizer.name} <${this.getMailerOptions().from}>`,

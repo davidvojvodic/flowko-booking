@@ -1,7 +1,6 @@
 import { default as cloneDeep } from "lodash/cloneDeep";
 import type { z } from "zod";
 
-import dayjs from "@calcom/dayjs";
 import type BaseEmail from "@calcom/emails/templates/_base-email";
 import type { EventNameObjectType } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
@@ -23,6 +22,7 @@ import EventRequestToRescheduleSMS from "../sms/attendee/event-request-to-resche
 import EventSuccessfullyReScheduledSMS from "../sms/attendee/event-rescheduled-sms";
 import EventSuccessfullyScheduledSMS from "../sms/attendee/event-scheduled-sms";
 import { EmailType } from "./email-types";
+import { type BookerTitleSource, getBookerEventTitle } from "./lib/getBookerEventTitle";
 import AttendeeAddGuestsEmail from "./templates/attendee-add-guests-email";
 import AttendeeAwaitingPaymentEmail from "./templates/attendee-awaiting-payment-email";
 import AttendeeCancelledEmail from "./templates/attendee-cancelled-email";
@@ -81,7 +81,8 @@ const _sendScheduledEmailsAndSMS = async (
   eventNameObject?: EventNameObjectType,
   hostEmailDisabled?: boolean,
   attendeeEmailDisabled?: boolean,
-  eventTypeMetadata?: EventTypeMetadata
+  eventTypeMetadata?: EventTypeMetadata,
+  titleSource?: BookerTitleSource
 ) => {
   const formattedCalEvent = formatCalEvent(calEvent);
   const emailsToSend: Promise<unknown>[] = [];
@@ -111,9 +112,9 @@ const _sendScheduledEmailsAndSMS = async (
               {
                 ...formattedCalEvent,
                 ...(formattedCalEvent.hideCalendarNotes && { additionalNotes: undefined }),
-                ...(eventNameObject && {
-                  title: getEventName({ ...eventNameObject, t: attendee.language.translate }),
-                }),
+                title: eventNameObject
+                  ? getEventName({ ...eventNameObject, t: attendee.language.translate })
+                  : getBookerEventTitle(formattedCalEvent, attendee, titleSource),
               },
               attendee
             )
@@ -282,7 +283,8 @@ export const sendReassignedEmailsAndSMS = async (args: {
 
 const _sendRescheduledEmailsAndSMS = async (
   calEvent: CalendarEvent,
-  eventTypeMetadata?: EventTypeMetadata
+  eventTypeMetadata?: EventTypeMetadata,
+  titleSource?: BookerTitleSource
 ) => {
   const calendarEvent = formatCalEvent(calEvent);
   const emailsToSend: Promise<unknown>[] = [];
@@ -309,6 +311,7 @@ const _sendRescheduledEmailsAndSMS = async (
               {
                 ...calendarEvent,
                 ...(calendarEvent.hideCalendarNotes && { additionalNotes: undefined }),
+                title: getBookerEventTitle(calendarEvent, attendee, titleSource),
               },
               attendee
             )
@@ -461,13 +464,20 @@ export const sendOrganizerRequestEmail = withReporting(
 const _sendAttendeeRequestEmailAndSMS = async (
   calEvent: CalendarEvent,
   attendee: Person,
-  eventTypeMetadata?: EventTypeMetadata
+  eventTypeMetadata?: EventTypeMetadata,
+  titleSource?: BookerTitleSource
 ) => {
   const organizationSettings = await fetchOrganizationEmailSettings(calEvent.organizationId);
   if (shouldSkipAttendeeEmailWithSettings(eventTypeMetadata, organizationSettings, EmailType.REQUEST)) return;
 
   const calendarEvent = formatCalEvent(calEvent);
-  await sendEmail(() => new AttendeeRequestEmail(calendarEvent, attendee));
+  await sendEmail(
+    () =>
+      new AttendeeRequestEmail(
+        { ...calendarEvent, title: getBookerEventTitle(calendarEvent, attendee, titleSource) },
+        attendee
+      )
+  );
   const eventRequestSms = new EventRequestSMS(calendarEvent);
   await eventRequestSms.sendSMSToAttendee(attendee);
 };
@@ -479,7 +489,8 @@ export const sendAttendeeRequestEmailAndSMS = withReporting(
 
 export const sendDeclinedEmailsAndSMS = async (
   calEvent: CalendarEvent,
-  eventTypeMetadata?: EventTypeMetadata
+  eventTypeMetadata?: EventTypeMetadata,
+  titleSource?: BookerTitleSource
 ) => {
   const organizationSettings = await fetchOrganizationEmailSettings(calEvent.organizationId);
   if (shouldSkipAttendeeEmailWithSettings(eventTypeMetadata, organizationSettings, EmailType.REQUEST)) return;
@@ -489,7 +500,13 @@ export const sendDeclinedEmailsAndSMS = async (
 
   emailsToSend.push(
     ...calendarEvent.attendees.map((attendee) => {
-      return sendEmail(() => new AttendeeDeclinedEmail(calendarEvent, attendee));
+      return sendEmail(
+        () =>
+          new AttendeeDeclinedEmail(
+            { ...calendarEvent, title: getBookerEventTitle(calendarEvent, attendee, titleSource) },
+            attendee
+          )
+      );
     })
   );
 
@@ -500,13 +517,12 @@ export const sendDeclinedEmailsAndSMS = async (
 
 export const sendCancelledEmailsAndSMS = async (
   calEvent: CalendarEvent,
-  eventNameObject: Pick<EventNameObjectType, "eventName">,
+  titleSource: BookerTitleSource,
   eventTypeMetadata?: EventTypeMetadata
 ) => {
   const calendarEvent = formatCalEvent(calEvent);
   const emailsToSend: Promise<unknown>[] = [];
   const calEventLength = calendarEvent.length;
-  const eventDuration = dayjs(calEvent.endTime).diff(calEvent.startTime, "minutes");
   const organizationSettings = await fetchOrganizationEmailSettings(calEvent.organizationId);
 
   if (typeof calEventLength !== "number") {
@@ -537,16 +553,7 @@ export const sendCancelledEmailsAndSMS = async (
             new AttendeeCancelledEmail(
               {
                 ...calendarEvent,
-                title: getEventName({
-                  ...eventNameObject,
-                  t: attendee.language.translate,
-                  attendeeName: attendee.name,
-                  host: calendarEvent.organizer.name,
-                  eventType: calendarEvent.title,
-                  eventDuration,
-                  ...(calendarEvent.responses && { bookingFields: calendarEvent.responses }),
-                  ...(calendarEvent.location && { location: calendarEvent.location }),
-                }),
+                title: getBookerEventTitle(calendarEvent, attendee, titleSource),
               },
               attendee
             )
@@ -631,7 +638,8 @@ export const sendRequestRescheduleEmailAndSMS = async (
 
 export const sendLocationChangeEmailsAndSMS = async (
   calEvent: CalendarEvent,
-  eventTypeMetadata?: EventTypeMetadata
+  eventTypeMetadata?: EventTypeMetadata,
+  titleSource?: BookerTitleSource
 ) => {
   const calendarEvent = formatCalEvent(calEvent);
 
@@ -655,7 +663,13 @@ export const sendLocationChangeEmailsAndSMS = async (
   ) {
     emailsToSend.push(
       ...calendarEvent.attendees.map((attendee) => {
-        return sendEmail(() => new AttendeeLocationChangeEmail(calendarEvent, attendee));
+        return sendEmail(
+          () =>
+            new AttendeeLocationChangeEmail(
+              { ...calendarEvent, title: getBookerEventTitle(calendarEvent, attendee, titleSource) },
+              attendee
+            )
+        );
       })
     );
   }
@@ -695,8 +709,9 @@ export const sendAddGuestsEmailsAndSMS = async (args: {
   calEvent: CalendarEvent;
   newGuests: string[];
   eventTypeMetadata?: EventTypeMetadata;
+  titleSource?: BookerTitleSource;
 }) => {
-  const { calEvent, newGuests, eventTypeMetadata } = args;
+  const { calEvent, newGuests, eventTypeMetadata, titleSource } = args;
   const calendarEvent = formatCalEvent(calEvent);
 
   const emailsAndSMSToSend: Promise<unknown>[] = [];
@@ -717,12 +732,16 @@ export const sendAddGuestsEmailsAndSMS = async (args: {
   const organizationSettings = await fetchOrganizationEmailSettings(calEvent.organizationId);
 
   for (const attendee of calendarEvent.attendees) {
+    const attendeeEvent = {
+      ...calendarEvent,
+      title: getBookerEventTitle(calendarEvent, attendee, titleSource),
+    };
     if (newGuests.includes(attendee.email)) {
       // New guests get confirmation emails
       if (
         !shouldSkipAttendeeEmailWithSettings(eventTypeMetadata, organizationSettings, EmailType.CONFIRMATION)
       ) {
-        emailsAndSMSToSend.push(sendEmail(() => new AttendeeScheduledEmail(calendarEvent, attendee)));
+        emailsAndSMSToSend.push(sendEmail(() => new AttendeeScheduledEmail(attendeeEvent, attendee)));
 
         if (attendee.phoneNumber) {
           emailsAndSMSToSend.push(eventScheduledSMS.sendSMSToAttendee(attendee));
@@ -732,7 +751,7 @@ export const sendAddGuestsEmailsAndSMS = async (args: {
       if (
         !shouldSkipAttendeeEmailWithSettings(eventTypeMetadata, organizationSettings, EmailType.NEW_EVENT)
       ) {
-        emailsAndSMSToSend.push(sendEmail(() => new AttendeeAddGuestsEmail(calendarEvent, attendee)));
+        emailsAndSMSToSend.push(sendEmail(() => new AttendeeAddGuestsEmail(attendeeEvent, attendee)));
       }
     }
   }

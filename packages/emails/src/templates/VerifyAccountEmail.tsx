@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 
 import { APP_NAME, SENDER_NAME, SUPPORT_MAIL_ADDRESS } from "@calcom/lib/constants";
 
-import { BaseEmailHtml, CallToAction } from "../components";
+import { BaseEmailHtml, CallToAction, getEmailLang } from "../components";
 
 export type EmailVerifyLink = {
   language: TFunction;
@@ -17,7 +17,9 @@ export const VerifyAccountEmail = (
   props: EmailVerifyLink & Partial<React.ComponentProps<typeof BaseEmailHtml>>
 ) => {
   return (
-    <BaseEmailHtml subject={props.language("verify_email_subject", { appName: APP_NAME })}>
+    <BaseEmailHtml
+      lang={getEmailLang(props.language)}
+      subject={props.language("verify_email_subject", { appName: APP_NAME })}>
       <p
         style={{
           fontWeight: 600,

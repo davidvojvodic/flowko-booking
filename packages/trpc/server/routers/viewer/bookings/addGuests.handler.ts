@@ -361,6 +361,8 @@ async function sendGuestNotifications(
     eventType: {
       metadata: eventTypeMetaDataSchemaWithTypedApps.parse(booking?.eventType?.metadata),
       schedulingType: booking.eventType?.schedulingType || null,
+      title: booking.eventType?.title,
+      eventName: booking.eventType?.eventName,
     },
     newGuests: uniqueGuests,
   });

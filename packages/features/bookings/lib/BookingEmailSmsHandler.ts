@@ -28,6 +28,9 @@ type EmailAndSmsPayload = {
   eventType: {
     metadata?: EventTypeMetadata;
     schedulingType: SchedulingType | null;
+    /** What a booker's title is rebuilt from, see getBookerEventTitle. Left out, the title stays as stored. */
+    title?: string | null;
+    eventName?: string | null;
   };
 };
 
@@ -111,7 +114,7 @@ export class BookingEmailSmsHandler {
   private async _handleRescheduled(data: RescheduleEmailAndSmsPayload) {
     const {
       evt,
-      eventType: { metadata },
+      eventType: { metadata, title, eventName },
       rescheduleReason,
       additionalNotes,
       additionalInformation,
@@ -125,7 +128,8 @@ export class BookingEmailSmsHandler {
         additionalNotes,
         cancellationReason: `$RCH$${rescheduleReason || ""}`,
       },
-      metadata
+      metadata,
+      { eventType: title, eventName }
     );
   }
 
@@ -291,7 +295,7 @@ export class BookingEmailSmsHandler {
   private async _handleRequested(data: RequestedEmailAndSmsPayload) {
     const {
       evt,
-      eventType: { metadata },
+      eventType: { metadata, title, eventName },
       attendees,
       additionalNotes,
     } = data;
@@ -313,7 +317,10 @@ export class BookingEmailSmsHandler {
     try {
       await Promise.all([
         sendOrganizerRequestEmail(eventWithNotes, metadata),
-        sendAttendeeRequestEmailAndSMS(eventWithNotes, attendees[0], metadata),
+        sendAttendeeRequestEmailAndSMS(eventWithNotes, attendees[0], metadata, {
+          eventType: title,
+          eventName,
+        }),
       ]);
     } catch (err) {
       this.log.error("Failed to send requested event related emails", err);
@@ -326,7 +333,7 @@ export class BookingEmailSmsHandler {
   public async handleAddAttendee(data: AddGuestsEmailAndSmsPayload) {
     const {
       evt,
-      eventType: { metadata },
+      eventType: { metadata, title, eventName },
       newGuests,
     } = data;
 
@@ -342,6 +349,7 @@ export class BookingEmailSmsHandler {
         calEvent: evt,
         newGuests,
         eventTypeMetadata: metadata,
+        titleSource: { eventType: title, eventName },
       });
     } catch (err) {
       this.log.error("Failed to send add attendee related emails and SMS", err);
@@ -354,7 +362,7 @@ export class BookingEmailSmsHandler {
   public async handleAddGuests(data: AddGuestsEmailAndSmsPayload) {
     const {
       evt,
-      eventType: { metadata },
+      eventType: { metadata, title, eventName },
       newGuests,
     } = data;
 
@@ -370,6 +378,7 @@ export class BookingEmailSmsHandler {
         calEvent: evt,
         newGuests,
         eventTypeMetadata: metadata,
+        titleSource: { eventType: title, eventName },
       });
     } catch (err) {
       this.log.error("Failed to send add guests related emails and SMS", err);

@@ -11,12 +11,15 @@ import EmailSchedulingBodyHeader from "./EmailSchedulingBodyHeader";
 import RawHtml from "./RawHtml";
 import Row from "./Row";
 
-const Html = (props: { children: React.ReactNode }) => (
+const Html = (props: { children: React.ReactNode; lang?: string }) => (
   <>
     <RawHtml html="<!doctype html>" />
-    <html>{props.children}</html>
+    <html lang={props.lang}>{props.children}</html>
   </>
 );
+
+/** The language a translator from `getTranslation` is fixed to. i18next sets `lng` but doesn't type it. */
+export const getEmailLang = (t: unknown): string | undefined => (t as { lng?: string } | undefined)?.lng;
 
 export const BaseEmailHtml = (props: {
   children: React.ReactNode;
@@ -26,9 +29,11 @@ export const BaseEmailHtml = (props: {
   subtitle?: React.ReactNode | string;
   headerType?: BodyHeadType;
   hideLogo?: boolean;
+  /** The recipient's language */
+  lang?: string;
 }) => {
   return (
-    <Html>
+    <Html lang={props.lang}>
       <EmailHead title={props.subject} />
       <body style={{ wordSpacing: "normal", backgroundColor: "#F3F4F6" }}>
         <div style={{ backgroundColor: "#F3F4F6" }}>

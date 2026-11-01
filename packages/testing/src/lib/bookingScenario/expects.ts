@@ -912,7 +912,7 @@ export function expectBookingRequestRescheduledEmails({
       links: [
         {
           href: `${bookingUrlOrigin}/reschedule/${booking.uid}?allowRescheduleForCancelledBooking=true`,
-          text: "Book a new time",
+          text: "book_a_new_time",
         },
       ],
       to: `${booker.email}`,
