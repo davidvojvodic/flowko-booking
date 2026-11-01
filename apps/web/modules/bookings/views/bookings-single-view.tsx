@@ -993,7 +993,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
                                           "text-default underline",
                                           props.recurringBookings && "ltr:mr-2 rtl:ml-2"
                                         )}>
-                                        {t("cancel")}
+                                        {t("cancel_booking_link")}
                                       </a>
                                     ) : (
                                       <button
@@ -1003,7 +1003,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
                                           props.recurringBookings && "ltr:mr-2 rtl:ml-2"
                                         )}
                                         onClick={() => setIsCancellationMode(true)}>
-                                        {t("cancel")}
+                                        {t("cancel_booking_link")}
                                       </button>
                                     ))}
                                 </>

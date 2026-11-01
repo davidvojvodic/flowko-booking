@@ -372,6 +372,22 @@ describe("Embed dialog (Flowko U13)", () => {
     expect(screen.getByText("Button text")).toBeTruthy();
   });
 
+  describe("help link (U13-21)", () => {
+    it.each([
+      ["sl", "Preberite navodila za namestitev."],
+      ["en", "Read the installation guide (in Slovenian)."],
+    ] as const)("shows a visible link to the installation guide in %s", (lang, linkText) => {
+      mocks.lang = lang;
+      openDialog("floating-popup");
+      const link = screen.getByRole("link", { name: linkText });
+      expect(link.getAttribute("href")).toBe("https://docs.flowko.si/rezervacije/namestitev");
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(link.closest(".hidden")).toBeNull();
+      expect(link.parentElement?.textContent).not.toMatch(/Cal\b/);
+    });
+  });
+
   it("a link to a removed tab (React) goes to the HTML code tab", () => {
     openDialog("inline", { embedTabName: "embed-react" });
     expect(mocks.push).toHaveBeenCalledWith(expect.stringContaining("embedTabName=embed-code"));
