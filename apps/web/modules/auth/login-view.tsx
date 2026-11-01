@@ -188,7 +188,10 @@ export default function Login({
         <div className="w-full rounded-xl border border-subtle bg-default p-10 shadow-sm">
           {/* Logo */}
           <div className="mb-2 text-center">
-            <h1 className="font-cal text-xl font-bold text-emphasis">{APP_NAME}</h1>
+            {/* Flowko U14: the logo, with the product's name for screen readers; .logo keeps the dark rule of flowko-theme.css */}
+            <h1 className="logo flex justify-center">
+              <img className="h-7 w-auto dark:invert" alt={APP_NAME} src="/api/logo" />
+            </h1>
           </div>
 
           {/* Heading */}

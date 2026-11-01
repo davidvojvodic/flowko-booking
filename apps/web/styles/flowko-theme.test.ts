@@ -79,6 +79,13 @@ describe("flowko-theme.css (Flowko U14)", () => {
   );
 });
 
+describe("the sign-in page (Flowko U14)", () => {
+  it("shows the logo, and keeps the product's name for screen readers", () => {
+    const login = read("modules/auth/login-view.tsx");
+    expect(login).toMatch(/<h1 className="logo[^"]*">\s*<img[^>]*alt=\{APP_NAME\}[^>]*src="\/api\/logo"/);
+  });
+});
+
 describe("the app's font (Flowko U14)", () => {
   const layout = read("app/layout.tsx");
 
