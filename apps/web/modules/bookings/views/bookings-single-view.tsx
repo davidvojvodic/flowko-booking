@@ -21,6 +21,7 @@ import {
   useIsBackgroundTransparent,
   useIsEmbed,
 } from "@calcom/embed-core/embed-iframe";
+import { useBookerBrandTheme } from "@calcom/features/bookings/Booker/utils/use-brand-colors";
 import { Price } from "@calcom/features/bookings/components/event-meta/Price";
 import { getCalendarLinks, CalendarLinkType } from "@calcom/features/bookings/lib/getCalendarLinks";
 import { RATING_OPTIONS, validateRating } from "@calcom/features/bookings/lib/rating";
@@ -30,7 +31,6 @@ import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { shouldShowFieldInCustomResponses } from "@calcom/lib/bookings/SystemField";
 import { APP_NAME, IS_CALCOM, WEBAPP_URL } from "@calcom/lib/constants";
 import { formatToLocalizedDate, formatToLocalizedTime, formatToLocalizedTimezone } from "@calcom/lib/dayjs";
-import useGetBrandingColours from "@calcom/lib/getBrandColours";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { useRouterQuery } from "@calcom/lib/hooks/useRouterQuery";
@@ -63,7 +63,6 @@ import {
   XIcon,
 } from "@coss/ui/icons";
 import { showToast } from "@calcom/ui/components/toast";
-import { useCalcomTheme } from "@calcom/ui/styles";
 import CancelBooking from "@calcom/web/components/booking/CancelBooking";
 import EventReservationSchema from "@calcom/web/components/schemas/EventReservationSchema";
 import { timeZone } from "@calcom/web/lib/clock";
@@ -91,20 +90,6 @@ const querySchema = z.object({
   noShow: stringToBoolean,
   redirect_status: z.string().optional(),
 });
-
-const useBrandColors = ({
-  brandColor,
-  darkBrandColor,
-}: {
-  brandColor?: string | null;
-  darkBrandColor?: string | null;
-}) => {
-  const brandTheme = useGetBrandingColours({
-    lightVal: brandColor,
-    darkVal: darkBrandColor,
-  });
-  useCalcomTheme(brandTheme);
-};
 
 /*
  * Flowko U13-11: inside an embed (/booking/<uid>/embed) the success page doesn't change the booking in the
@@ -412,7 +397,7 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
   // This is a weird case where the same route can be opened in booking flow as a success page or as a booking detail page from the app
   // As Booking Page it has to support configured theme, but as booking detail page it should not do any change. Let Shell.tsx handle it.
   useTheme(isSuccessBookingPage ? props.profile.theme : "system");
-  useBrandColors({
+  useBookerBrandTheme({
     brandColor: props.profile.brandColor,
     darkBrandColor: props.profile.darkBrandColor,
   });

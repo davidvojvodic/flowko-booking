@@ -25,14 +25,14 @@ const VALUES: Record<string, string> = {
 
 describe("flowko-theme.css (Flowko U14)", () => {
   it("declares its values only under :root:not(.dark), so tokens.css's .dark still wins in dark mode", () => {
-    const blocks = [...css.matchAll(/([^{}]+)\{[^{}]*--cal-[^{}]*\}/g)].map((block) =>
+    const blocks = Array.from(css.matchAll(/([^{}]+)\{[^{}]*--cal-[^{}]*\}/g)).map((block) =>
       block[1].replace(/\/\*[\s\S]*?\*\//g, "").trim()
     );
     expect(blocks).toEqual([":root:not(.dark)"]);
   });
 
   it.each(Object.entries(VALUES))("%s is %s", (name, value) => {
-    expect(css).toMatch(new RegExp(`${name}:\\s*${value};`));
+    expect(css).toMatch(new RegExp(`${name}:\\s*${value};`, "i"));
   });
 
   it.each(["default", "hover", "active", "focused"])("the brand button's %s shadow is purple", (state) => {

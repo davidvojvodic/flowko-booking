@@ -228,8 +228,23 @@ describe("Embed dialog (Flowko U13)", () => {
 
     it("without a profile colour: the booker's default colour", () => {
       openDialog("floating-popup", { defaultBrandColor: null });
-      expect(code()).toContain('"buttonColor": "#292929"');
+      expect(code()).toContain('"buttonColor": "#7A3FD1"');
       expect(code()).toContain('"buttonTextColor": "#FFFFFF"');
+      expect(code()).not.toContain("cssVarsPerTheme");
+    });
+
+    it("a stored upstream default counts as no colour chosen: purple and no pin (U14)", () => {
+      openDialog("floating-popup", { defaultBrandColor: { brandColor: "#292929", darkBrandColor: "#fafafa" } });
+      expect(code()).toContain('"buttonColor": "#7A3FD1"');
+      expect(code()).toContain('"buttonTextColor": "#FFFFFF"');
+      expect(code()).not.toContain("cssVarsPerTheme");
+      expect((colorInput("Barva gumba") as HTMLInputElement).value.toUpperCase()).toBe("7A3FD1");
+    });
+
+    it("a host's own colour still gives that colour, next to a stored upstream dark default (U14)", () => {
+      openDialog("floating-popup", { defaultBrandColor: { brandColor: "#0F766E", darkBrandColor: "#fafafa" } });
+      expect(code()).toContain('"buttonColor": "#0F766E"');
+      expect(code()).not.toContain("cssVarsPerTheme");
     });
 
     it("the text colour follows a new button colour until the host picks one", () => {

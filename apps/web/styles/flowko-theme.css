@@ -9,24 +9,25 @@
  * selector excludes dark mode. Dark mode keeps tokens.css's values. Radius is unchanged.
  */
 :root:not(.dark) {
-  --cal-bg-muted: #FCF8FF;
-  --cal-bg-subtle: #F5F0FF;
-  --cal-bg-emphasis: #E8E0F5;
-  --cal-border: #D9CFEA;
-  --cal-border-subtle: #E8E0F5;
-  --cal-border-muted: #F5F0FF;
-  --cal-border-emphasis: #B9AEDF;
-  --cal-text-emphasis: #1A1A2E;
-  --cal-text: #33334D;
-  --cal-text-subtle: #6B6B8A;
-  --cal-text-muted: #83839E;
-  --cal-bg-primary: #7A3FD1;
-  --cal-bg-primary-emphasis: #6A31BF;
+  --cal-bg-muted: #fcf8ff;
+  --cal-bg-subtle: #f5f0ff;
+  --cal-bg-emphasis: #e8e0f5;
+  --cal-border: #d9cfea;
+  --cal-border-subtle: #e8e0f5;
+  --cal-border-muted: #f5f0ff;
+  --cal-border-emphasis: #b9aedf;
+  --cal-text-emphasis: #1a1a2e;
+  --cal-text: #33334d;
+  --cal-text-subtle: #6b6b8a;
+  --cal-text-muted: #83839e;
+  --cal-bg-primary: #7a3fd1;
+  --cal-bg-primary-emphasis: #6a31bf;
 
   --shadow-button-solid-brand-default: 0px 1px 2px 0px rgba(122, 63, 209, 0.28);
   --shadow-button-solid-brand-hover: 0px 2px 6px 0px rgba(122, 63, 209, 0.28);
   --shadow-button-solid-brand-active: 0px 1px 2px 0px rgba(122, 63, 209, 0.28) inset;
-  --shadow-button-solid-brand-focused: 0px 0px 0px 1px rgba(255, 255, 255, 0.4), 0px 0px 0px 3px rgba(122, 63, 209, 0.28);
+  --shadow-button-solid-brand-focused:
+    0px 0px 0px 1px rgba(255, 255, 255, 0.4), 0px 0px 0px 3px rgba(122, 63, 209, 0.28);
 }
 
 /* The Logo component's dark:invert keeps the wordmark legible but turns the purple mark green; this turns it back. */
