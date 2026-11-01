@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/nextjs";
 import { type NextPage } from "next";
 import { useEffect } from "react";
 
+import "../styles/flowko-theme.css";
 import CustomError from "./error";
 import type { ErrorProps } from "./error";
 

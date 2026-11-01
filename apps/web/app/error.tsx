@@ -10,6 +10,8 @@ import { redactError } from "@calcom/lib/redactError";
 
 import { ErrorPage } from "@components/error/error-page";
 
+import "../styles/flowko-theme.css";
+
 const log = logger.getSubLogger({ prefix: ["[error]"] });
 
 export type ErrorProps = {

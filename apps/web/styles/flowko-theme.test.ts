@@ -1,0 +1,82 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const webRoot = join(__dirname, "..");
+const read = (path: string) => readFileSync(join(webRoot, path), "utf8");
+
+const css = read("styles/flowko-theme.css");
+
+const VALUES: Record<string, string> = {
+  "--cal-bg-muted": "#FCF8FF",
+  "--cal-bg-subtle": "#F5F0FF",
+  "--cal-bg-emphasis": "#E8E0F5",
+  "--cal-border": "#D9CFEA",
+  "--cal-border-subtle": "#E8E0F5",
+  "--cal-border-muted": "#F5F0FF",
+  "--cal-border-emphasis": "#B9AEDF",
+  "--cal-text-emphasis": "#1A1A2E",
+  "--cal-text": "#33334D",
+  "--cal-text-subtle": "#6B6B8A",
+  "--cal-text-muted": "#83839E",
+  "--cal-bg-primary": "#7A3FD1",
+  "--cal-bg-primary-emphasis": "#6A31BF",
+};
+
+describe("flowko-theme.css (Flowko U14)", () => {
+  it("declares its values only under :root:not(.dark), so tokens.css's .dark still wins in dark mode", () => {
+    const blocks = [...css.matchAll(/([^{}]+)\{[^{}]*--cal-[^{}]*\}/g)].map((block) =>
+      block[1].replace(/\/\*[\s\S]*?\*\//g, "").trim()
+    );
+    expect(blocks).toEqual([":root:not(.dark)"]);
+  });
+
+  it.each(Object.entries(VALUES))("%s is %s", (name, value) => {
+    expect(css).toMatch(new RegExp(`${name}:\\s*${value};`));
+  });
+
+  it.each(["default", "hover", "active", "focused"])("the brand button's %s shadow is purple", (state) => {
+    expect(css).toMatch(
+      new RegExp(`--shadow-button-solid-brand-${state}:[^;]*rgba\\(122, 63, 209, 0\\.28\\)[^;]*;`)
+    );
+  });
+
+  it("leaves the radius alone", () => {
+    expect(css).not.toContain("--radius");
+  });
+
+  it("stays out of tokens.css, which is compiled into embed.js", () => {
+    const tokens = read("../../packages/config/theme/tokens.css");
+    expect(tokens.toLowerCase()).not.toContain("7a3fd1");
+  });
+
+  it.each(["app/(use-page-wrapper)/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/global-error.tsx"])(
+    "%s loads it",
+    (path) => {
+      expect(read(path)).toMatch(/import ".*styles\/flowko-theme\.css";/);
+    }
+  );
+
+  it.each(["app/layout.tsx", "app/(booking-page-wrapper)/layout.tsx"])(
+    "%s does not load it, so a first load of a booking page or an embed stays neutral",
+    (path) => {
+      expect(read(path)).not.toContain("flowko-theme");
+    }
+  );
+});
+
+describe("the app's font (Flowko U14)", () => {
+  const layout = read("app/layout.tsx");
+
+  it("is Plus Jakarta Sans, with Slovene letters, for both font variables", () => {
+    expect(layout).toContain('import { Plus_Jakarta_Sans } from "next/font/google"');
+    expect(layout).toMatch(/subsets: \["latin", "latin-ext"\]/);
+    expect(layout).toMatch(/--font-sans: \$\{jakartaFont\./);
+    expect(layout).toMatch(/--font-cal: \$\{jakartaFont\./);
+  });
+
+  it("no longer loads Inter or Cal Sans", () => {
+    expect(layout).not.toMatch(/\bInter\b/);
+    expect(layout).not.toContain("CalSans");
+  });
+});
