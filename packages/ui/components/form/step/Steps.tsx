@@ -1,3 +1,4 @@
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
 
 type StepWithNav = {
@@ -20,12 +21,15 @@ type StepWithoutNav = {
 type StepsProps = StepWithNav | StepWithoutNav;
 
 const Steps = (props: StepsProps) => {
+  const { t } = useLocale();
   const {
     maxSteps,
     currentStep,
     navigateToStep,
     disableNavigation = false,
-    stepLabel = (currentStep, totalSteps) => `Step ${currentStep} of ${totalSteps}`,
+    // Flowko U14: the default label in the page's language; it was English on /getting-started
+    stepLabel = (currentStep, totalSteps) =>
+      t("current_step_of_total", { currentStep, maxSteps: totalSteps }),
   } = props;
   return (
     <div className="mt-6 stack-y-2">
