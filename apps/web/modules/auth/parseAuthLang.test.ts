@@ -19,7 +19,7 @@ describe("parseAuthLang (Flowko U14)", () => {
     ["empty", ""],
     ["nothing", undefined],
     ["null", null],
-    ["an object", { toString: () => "en" }],
+    ["an object", { toString: (): string => "en" }],
   ])("ignores %s", (_kind, value) => {
     expect(parseAuthLang(value)).toBeNull();
   });
