@@ -153,11 +153,12 @@ export const NumberInput = forwardRef<HTMLInputElement, InputFieldProps>(functio
 
 export const FilterSearchField = forwardRef<HTMLInputElement, InputFieldProps>(
   function PasswordField(props, ref) {
+    const { t } = useLocale();
     return (
       <InputField
         ref={ref}
         addOnLeading={<SearchIcon className="h-4 w-4 stroke-[2.5px]" data-testid="search-icon" />}
-        placeholder="Search"
+        placeholder={t("search")}
         containerClassName="mt-1"
         {...props}
       />

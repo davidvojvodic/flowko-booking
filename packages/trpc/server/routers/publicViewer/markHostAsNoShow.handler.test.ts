@@ -111,7 +111,7 @@ describe("publicViewer.markHostAsNoShow", () => {
     prismaMock.booking.findUnique.mockResolvedValue(bookingRow({ status: BookingStatus.CANCELLED }));
     const notAccepted = await call();
 
-    expect(missing).toEqual({ code: "BAD_REQUEST", message: "Failed to update no-show status" });
+    expect(missing).toEqual({ code: "BAD_REQUEST", message: "no_show_update_failed" });
     expect(notStarted).toEqual(missing);
     expect(notAccepted).toEqual(missing);
     expect(handleMarkHostNoShow).not.toHaveBeenCalled();

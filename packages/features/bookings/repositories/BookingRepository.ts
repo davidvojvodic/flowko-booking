@@ -1646,6 +1646,7 @@ export class BookingRepository implements IBookingRepository {
             teamId: true,
             bookingFields: true,
             title: true,
+            eventName: true,
             hideOrganizerEmail: true,
             recurringEvent: true,
             seatsPerTimeSlot: true,

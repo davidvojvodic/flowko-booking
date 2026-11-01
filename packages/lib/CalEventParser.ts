@@ -275,7 +275,7 @@ export const getPlatformManageLink = (
     }&changes=true${calEvent.platformCancelUrl || shouldDisplayReschedule ? ` ${t("or_lowercase")} ` : ""}`;
   }
   if (calEvent.platformCancelUrl) {
-    res += `${t("cancel")}: ${getCancelLink(calEvent)}`;
+    res += `${t("cancel_booking_link")}: ${getCancelLink(calEvent)}`;
   }
 
   if (!calEvent.recurringEvent && calEvent.platformRescheduleUrl) {

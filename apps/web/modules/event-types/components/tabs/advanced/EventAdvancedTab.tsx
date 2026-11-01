@@ -216,7 +216,7 @@ const destinationCalendarComponents = {
                 <Button
                   color="minimal"
                   size="sm"
-                  aria-label="edit custom name"
+                  aria-label={t("edit_custom_name")}
                   className="-mr-1.5 min-w-fit px-1.5 py-0! hover:bg-transparent hover:stroke-3 hover:text-emphasis"
                   onClick={() => setShowEventNameTip((old) => !old)}>
                   <PencilIcon className="h-4 w-4" />

@@ -55,7 +55,7 @@ export const getCalEventResponses = ({
       });
       throw new HttpError({
         statusCode: 400,
-        message: "Both Phone and Email are missing",
+        message: "phone_or_email_required_error",
       });
     }
     backwardCompatibleResponses.email = contructEmailFromPhoneNumber(

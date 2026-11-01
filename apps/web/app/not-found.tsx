@@ -4,6 +4,7 @@ import { buildLegacyRequest } from "@lib/buildLegacyCtx";
 import type { ReadonlyHeaders, ReadonlyRequestCookies } from "app/_types";
 import { _generateMetadata } from "app/_utils";
 import { cookies, headers } from "next/headers";
+import "../styles/flowko-theme.css";
 import { NotFound } from "./notFoundClient";
 
 export const generateMetadata = async () => {

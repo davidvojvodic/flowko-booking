@@ -1,0 +1,51 @@
+/*
+ * Flowko U14: Flowko's look for the host app, sign-in and error pages.
+ *
+ * Not in tokens.css, because that file is compiled into embed.js and runs on clients' websites. This file loads
+ * only from (use-page-wrapper)/layout.tsx, not-found.tsx, error.tsx and global-error.tsx, so a first load of a
+ * booking page or an embed never sees it.
+ *
+ * next-themes puts .dark on <html>, and a plain :root loaded after tokens.css would beat its .dark block, so the
+ * selector excludes dark mode. Dark mode keeps tokens.css's values, apart from the brand. Radius is unchanged.
+ */
+:root:not(.dark) {
+  --cal-bg-muted: #fcf8ff;
+  --cal-bg-subtle: #f5f0ff;
+  --cal-bg-emphasis: #e8e0f5;
+  --cal-border: #d9cfea;
+  --cal-border-subtle: #e8e0f5;
+  --cal-border-muted: #f5f0ff;
+  --cal-border-emphasis: #b9aedf;
+  --cal-text-emphasis: #1a1a2e;
+  --cal-text: #33334d;
+  --cal-text-subtle: #6b6b8a;
+  --cal-text-muted: #83839e;
+  --cal-bg-primary: #7a3fd1;
+  --cal-bg-primary-emphasis: #6a31bf;
+
+  /* Pages outside the Shell (sign-in, 404, errors) get no useAppTheme; inside it, its inline values win over these. */
+  --cal-brand: #7a3fd1;
+  --cal-brand-emphasis: #6a31bf;
+  --cal-brand-text: #ffffff;
+  /* The coss Button's default variant reads these. */
+  --primary: var(--cal-brand);
+  --primary-foreground: var(--cal-brand-text);
+
+  --shadow-button-solid-brand-default: 0px 1px 2px 0px rgba(122, 63, 209, 0.28);
+  --shadow-button-solid-brand-hover: 0px 2px 6px 0px rgba(122, 63, 209, 0.28);
+  --shadow-button-solid-brand-active: 0px 1px 2px 0px rgba(122, 63, 209, 0.28) inset;
+  --shadow-button-solid-brand-focused:
+    0px 0px 0px 1px rgba(255, 255, 255, 0.4), 0px 0px 0px 3px rgba(122, 63, 209, 0.28);
+}
+
+/* The same pages in dark mode: the rest of .dark stays tokens.css's, only the brand follows the app's dark default. */
+.dark {
+  --cal-brand: #ac6aff;
+  --cal-brand-emphasis: #9b5fe6;
+  --cal-brand-text: #000000;
+}
+
+/* The Logo component's dark:invert keeps the wordmark legible but turns the purple mark green; this turns it back. */
+.dark .logo img {
+  filter: invert(1) hue-rotate(180deg);
+}

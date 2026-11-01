@@ -318,13 +318,13 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
   if (bookingLimits) {
     const isValid = validateIntervalLimitOrder(bookingLimits);
     if (!isValid)
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Booking limits must be in ascending order." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "booking_limits_ascending_error" });
     data.bookingLimits = bookingLimits;
   }
 
   if (maxActiveBookingsPerBooker) {
     if (maxActiveBookingsPerBooker && maxActiveBookingsPerBooker < 1) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Booker booking limit must be greater than 0." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "booker_limit_gt_zero_error" });
     }
 
     if (maxActiveBookingsPerBooker && (recurringEvent || eventType.recurringEvent)) {
@@ -347,13 +347,13 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
   if (durationLimits) {
     const isValid = validateIntervalLimitOrder(durationLimits);
     if (!isValid)
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Duration limits must be in ascending order." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "duration_limits_ascending_error" });
     data.durationLimits = durationLimits;
   }
 
   if (offsetStart !== undefined) {
     if (offsetStart < 0) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Offset start time must be zero or greater." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "offset_start_nonnegative_error" });
     }
     data.offsetStart = offsetStart;
   }
@@ -404,7 +404,7 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
       if (!teamId || !restrictionSchedule) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
-          message: "The restriction schedule is not owned by you or your team",
+          message: "restriction_schedule_not_owned_error",
         });
       }
       const hasMembership = await membershipRepo.hasMembership({
@@ -414,7 +414,7 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
       if (!hasMembership) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
-          message: "The restriction schedule is not owned by you or your team",
+          message: "restriction_schedule_not_owned_error",
         });
       }
     }

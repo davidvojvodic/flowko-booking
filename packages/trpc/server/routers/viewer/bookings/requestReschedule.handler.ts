@@ -58,7 +58,7 @@ export const requestRescheduleHandler = async ({ ctx, input, source }: RequestRe
   ) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "Cannot request reschedule for cancelled or rejected booking",
+      message: "cannot_request_reschedule_cancelled",
     });
   }
 
@@ -74,7 +74,7 @@ export const requestRescheduleHandler = async ({ ctx, input, source }: RequestRe
   const isBookingOrganizer = bookingToReschedule.userId === user.id;
 
   if (!isBookingOrganizer) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "User isn't owner of the current booking" });
+    throw new TRPCError({ code: "FORBIDDEN", message: "not_booking_owner" });
   }
 
   const event: Partial<EventType> = bookingToReschedule.eventType ?? {};

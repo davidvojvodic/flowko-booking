@@ -11,7 +11,10 @@ import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
 
 const mocks = vi.hoisted(() => ({
   generateAuthUrl: vi.fn(),
+  sessionToken: vi.fn(),
 }));
+
+vi.mock("next-auth/jwt", () => ({ getToken: mocks.sessionToken }));
 
 vi.mock("googleapis-common", () => ({
   OAuth2Client: vi.fn().mockImplementation(function () {
@@ -84,7 +87,7 @@ describe("googlecalendar add: credential keyring", () => {
 
     expect(res._getStatusCode()).toBe(503);
     expect(res._getJSONData().message).toBe(
-      "Calendar connections are unavailable right now. Please try again later."
+      "Povezovanje koledarjev trenutno ni na voljo. Poskusite znova pozneje."
     );
     expect(res._getJSONData().url).toBeUndefined();
     expect(mocks.generateAuthUrl).not.toHaveBeenCalled();
@@ -100,10 +103,21 @@ describe("googlecalendar add: credential keyring", () => {
     expect(mocks.generateAuthUrl).not.toHaveBeenCalled();
   });
 
-  it("tells a Slovenian user in Slovenian, since the connect button shows the message as it is", async () => {
+  it("tells an English account in English, whatever the browser asks for", async () => {
     stubMissingCredentialKeyring();
+    mocks.sessionToken.mockResolvedValueOnce({ locale: "en" });
 
     const { res } = await callAdd({}, { "accept-language": "sl-SI,sl;q=0.9,en;q=0.8" });
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).not.toContain("Povezovanje");
+  });
+
+  it("tells a Slovenian account in Slovenian, since the connect button shows the message as it is", async () => {
+    stubMissingCredentialKeyring();
+    mocks.sessionToken.mockResolvedValueOnce({ locale: "sl" });
+
+    const { res } = await callAdd({}, { "accept-language": "en-US,en;q=0.9" });
 
     expect(res._getStatusCode()).toBe(503);
     expect(res._getJSONData().message).toBe(

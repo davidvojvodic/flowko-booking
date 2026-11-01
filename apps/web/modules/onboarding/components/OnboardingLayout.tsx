@@ -60,7 +60,7 @@ export const OnboardingLayout = ({ userEmail, currentStep, totalSteps, children 
                     "h-[4px] w-[4px] bg-[var(--cal-text-subtle)]": isPast,
                     "h-[4px] w-[4px] bg-[var(--cal-text-muted)] opacity-50": isUpcoming,
                   })}
-                  aria-label={`Step ${step} of ${totalSteps}`}
+                  aria-label={t("current_step_of_total", { currentStep: step, maxSteps: totalSteps })}
                 />
               );
             })

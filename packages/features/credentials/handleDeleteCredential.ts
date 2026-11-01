@@ -685,6 +685,7 @@ const handleDeleteCredential = async ({
                 organizationId: booking.user?.profiles?.[0]?.organizationId ?? null,
               },
               {
+                eventType: booking?.eventType?.title,
                 eventName: booking?.eventType?.eventName,
               },
               booking?.eventType?.metadata as EventTypeMetadata

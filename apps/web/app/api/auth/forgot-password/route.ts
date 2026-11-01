@@ -34,7 +34,7 @@ async function handler(req: NextRequest) {
     return NextResponse.json({ message: "password_reset_email_sent" }, { status: 201 });
   } catch (reason) {
     console.error(reason);
-    return NextResponse.json({ message: "Unable to create password reset request" }, { status: 500 });
+    return NextResponse.json({ message: "unable_to_create_password_reset_request" }, { status: 500 });
   }
 }
 

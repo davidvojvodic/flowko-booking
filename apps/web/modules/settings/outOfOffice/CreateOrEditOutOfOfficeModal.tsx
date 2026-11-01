@@ -1,4 +1,5 @@
 import dayjs from "@calcom/dayjs";
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import { Dialog } from "@calcom/features/components/controlled-dialog";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useDebounce } from "@calcom/lib/hooks/useDebounce";
@@ -38,7 +39,7 @@ export const CreateOrEditOutOfOfficeEntryModal = ({
   closeModal: () => void;
   currentlyEditingOutOfOfficeEntry: BookingRedirectForm | null;
 }) => {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const utils = trpc.useUtils();
   const me = useMeQuery();
 
@@ -271,7 +272,7 @@ export const CreateOrEditOutOfOfficeEntryModal = ({
                     overlappingHolidays.length === 1
                       ? t("holiday_overlap_message_single", {
                           holiday: overlappingHolidays[0].holiday.name,
-                          date: dayjs(overlappingHolidays[0].date).format("D MMM"),
+                          date: formatLocalizedDay(overlappingHolidays[0].date, i18n.language, { day: "numeric", month: "short" }),
                         })
                       : t("holiday_overlap_message_multiple", {
                           count: overlappingHolidays.length,

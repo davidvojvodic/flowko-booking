@@ -228,8 +228,23 @@ describe("Embed dialog (Flowko U13)", () => {
 
     it("without a profile colour: the booker's default colour", () => {
       openDialog("floating-popup", { defaultBrandColor: null });
-      expect(code()).toContain('"buttonColor": "#292929"');
+      expect(code()).toContain('"buttonColor": "#7A3FD1"');
       expect(code()).toContain('"buttonTextColor": "#FFFFFF"');
+      expect(code()).not.toContain("cssVarsPerTheme");
+    });
+
+    it("a stored upstream default counts as no colour chosen: purple and no pin (U14)", () => {
+      openDialog("floating-popup", { defaultBrandColor: { brandColor: "#292929", darkBrandColor: "#fafafa" } });
+      expect(code()).toContain('"buttonColor": "#7A3FD1"');
+      expect(code()).toContain('"buttonTextColor": "#FFFFFF"');
+      expect(code()).not.toContain("cssVarsPerTheme");
+      expect((colorInput("Barva gumba") as HTMLInputElement).value.toUpperCase()).toBe("7A3FD1");
+    });
+
+    it("a host's own colour still gives that colour, next to a stored upstream dark default (U14)", () => {
+      openDialog("floating-popup", { defaultBrandColor: { brandColor: "#0F766E", darkBrandColor: "#fafafa" } });
+      expect(code()).toContain('"buttonColor": "#0F766E"');
+      expect(code()).not.toContain("cssVarsPerTheme");
     });
 
     it("the text colour follows a new button colour until the host picks one", () => {
@@ -355,6 +370,22 @@ describe("Embed dialog (Flowko U13)", () => {
     expect(code().startsWith("<!-- Flowko Rezervacije: floating button (start) -->")).toBe(true);
     expect(code()).toContain('"buttonText": "Book an appointment"');
     expect(screen.getByText("Button text")).toBeTruthy();
+  });
+
+  describe("help link (U13-21)", () => {
+    it.each([
+      ["sl", "Preberite navodila za namestitev."],
+      ["en", "Read the installation guide (in Slovenian)."],
+    ] as const)("shows a visible link to the installation guide in %s", (lang, linkText) => {
+      mocks.lang = lang;
+      openDialog("floating-popup");
+      const link = screen.getByRole("link", { name: linkText });
+      expect(link.getAttribute("href")).toBe("https://docs.flowko.si/rezervacije/namestitev");
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(link.closest(".hidden")).toBeNull();
+      expect(link.parentElement?.textContent).not.toMatch(/Cal\b/);
+    });
   });
 
   it("a link to a removed tab (React) goes to the HTML code tab", () => {

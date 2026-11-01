@@ -11,6 +11,7 @@ import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
 
 const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
+  sessionToken: vi.fn(),
   credentialCreate: vi.fn(),
   findFirstByUserIdAndType: vi.fn(),
   deleteById: vi.fn(),
@@ -25,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   isCredentialKeyringConfigured: vi.fn(),
   renewSelectedCalendarCredentialId: vi.fn(),
 }));
+
+vi.mock("next-auth/jwt", () => ({ getToken: mocks.sessionToken }));
 
 vi.mock("googleapis-common", () => ({
   OAuth2Client: vi.fn().mockImplementation(function () {
@@ -292,7 +295,7 @@ describe("googlecalendar callback: Google Meet install", () => {
 });
 
 describe("googlecalendar callback: credential keyring", () => {
-  const UNAVAILABLE = "Calendar connections are unavailable right now. Please try again later.";
+  const UNAVAILABLE = "Povezovanje koledarjev trenutno ni na voljo. Poskusite znova pozneje.";
   // The installed calendars show ?error= as a toast (CalendarListContainer), so the host goes back there
   const BACK_WITH_REASON = `${WEBAPP_URL}/apps/installed/calendar?error=google_calendar_connections_unavailable`;
   const freshTokens = {
@@ -317,6 +320,19 @@ describe("googlecalendar callback: credential keyring", () => {
 
   beforeEach(() => {
     mocks.getToken.mockResolvedValue({ tokens: freshTokens });
+  });
+
+  it("sends a host who unticked a permission back with the reason, not to a JSON error page (U14)", async () => {
+    mocks.getToken.mockResolvedValue({ tokens: { ...freshTokens, scope: "openid" } });
+
+    const res = await connect({}, NOT_FROM_APP);
+
+    expect(res._getStatusCode()).toBe(302);
+    const url = new URL(res._getRedirectUrl());
+    expect(`${url.origin}${url.pathname}`).toBe(`${WEBAPP_URL}/apps/installed/calendar`);
+    expect(url.searchParams.get("error")).toBe("google_calendar_scopes_missing");
+    expect(mocks.credentialCreate).not.toHaveBeenCalled();
+    expect(mocks.revokeUnstoredGoogleCalendarToken).toHaveBeenCalled();
   });
 
   it("sends the host back with the reason, before redeeming the code, when the credential keyring is not configured", async () => {
@@ -468,10 +484,21 @@ describe("googlecalendar callback: credential keyring", () => {
     expect(res._getRedirectUrl()).not.toContain("check constraint");
   });
 
-  it("tells a Slovenian user in Slovenian when it answers with JSON", async () => {
+  it("tells an English account in English when it answers with JSON", async () => {
     mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+    mocks.sessionToken.mockResolvedValueOnce({ locale: "en" });
 
     const res = await connect({ "accept-language": "sl" }, NOT_FROM_APP);
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).not.toContain("Povezovanje");
+  });
+
+  it("tells a Slovenian account in Slovenian when it answers with JSON", async () => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+    mocks.sessionToken.mockResolvedValueOnce({ locale: "sl" });
+
+    const res = await connect({ "accept-language": "en" }, NOT_FROM_APP);
 
     expect(res._getStatusCode()).toBe(503);
     expect(res._getJSONData().message).toBe(

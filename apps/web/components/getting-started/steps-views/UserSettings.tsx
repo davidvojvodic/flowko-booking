@@ -84,7 +84,7 @@ const UserSettings = (props: IUserSettingsProps) => {
             id="name"
             name="name"
             type="text"
-            placeholder="John Doe"
+            placeholder={t("placeholder_full_name")}
             autoComplete="off"
             autoCorrect="off"
           />

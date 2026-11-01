@@ -4,13 +4,14 @@ import {
   SUPPORT_MAIL_ADDRESS,
 } from "@calcom/lib/constants";
 import type { EmailVerifyCode } from "../../lib/types/email-types";
-import { BaseEmailHtml } from "../components";
+import { BaseEmailHtml, getEmailLang } from "../components";
 
 export const VerifyEmailByCode = (
   props: EmailVerifyCode & Partial<React.ComponentProps<typeof BaseEmailHtml>>
 ) => {
   return (
     <BaseEmailHtml
+      lang={getEmailLang(props.language)}
       hideLogo={props.hideLogo}
       subject={
         props.hideLogo

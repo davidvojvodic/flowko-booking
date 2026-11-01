@@ -385,6 +385,9 @@ export const userMetadata = z
     sessionTimeout: z.number().optional(), // Minutes
     defaultConferencingApp: schemaDefaultConferencingApp.optional(),
     defaultBookerLayouts: bookerLayouts.optional(),
+    // Flowko U14: the sidebar's SL / EN choice, for this person's screens only; User.locale keeps driving booking pages
+    // and e-mails. It has to be listed: this schema strips unknown keys and updateProfile writes the parsed result back.
+    uiLanguage: z.enum(["sl", "en"]).optional(),
     emailChangeWaitingForVerification: z
       .string()
       .transform((data) => data.toLowerCase())

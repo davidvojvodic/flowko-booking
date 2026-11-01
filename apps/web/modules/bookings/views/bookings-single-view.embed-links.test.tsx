@@ -340,3 +340,38 @@ describe("first-party URL builders (U13-11)", () => {
     );
   });
 });
+
+describe("booking success page colours (U14)", () => {
+  const root = document.documentElement;
+
+  beforeEach(() => {
+    mocks.query = { uid: "booking-uid", isSuccessBookingPage: "true", eventTypeSlug: "intro" };
+    root.removeAttribute("style");
+    root.className = "light";
+  });
+
+  afterEach(() => {
+    root.removeAttribute("style");
+    root.className = "";
+  });
+
+  const withColors = (brandColor: string | null, darkBrandColor: string | null) =>
+    ({ ...baseProps, profile: { ...baseProps.profile, brandColor, darkBrandColor } }) as SuccessProps;
+
+  it.each([
+    [null, null],
+    ["#292929", "#fafafa"],
+  ])("a host who chose no colour (%s): Flowko purple and tints", async (brandColor, darkBrandColor) => {
+    await renderPage(withColors(brandColor, darkBrandColor));
+
+    expect(root.style.getPropertyValue("--cal-brand")).toBe("#7A3FD1");
+    expect(root.style.getPropertyValue("--cal-bg-muted")).toBe("#FCF8FF");
+  });
+
+  it("a host with their own colour: that colour on neutral surfaces", async () => {
+    await renderPage(withColors("#0F766E", "#fafafa"));
+
+    expect(root.style.getPropertyValue("--cal-brand")).toBe("#0F766E");
+    expect(root.style.getPropertyValue("--cal-bg-muted")).toBe("");
+  });
+});

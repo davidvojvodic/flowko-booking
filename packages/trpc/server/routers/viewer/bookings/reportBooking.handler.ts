@@ -41,16 +41,16 @@ export const reportBookingHandler = async ({ ctx, input }: ReportBookingOptions)
   const booking = await bookingRepo.findByUidIncludeReport({ bookingUid });
 
   if (!booking) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found" });
+    throw new TRPCError({ code: "NOT_FOUND", message: "booking_not_found" });
   }
 
   if (booking.report) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "This booking has already been reported" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "booking_already_reported" });
   }
 
   const bookerEmail = booking.attendees[0]?.email;
   if (!bookerEmail) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Booking has no attendees" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "booking_has_no_attendees" });
   }
 
   let reportedBookingUids: string[] = [bookingUid];

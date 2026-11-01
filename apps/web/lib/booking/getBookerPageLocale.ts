@@ -10,24 +10,27 @@ function toSupportedLocale(locale: string | null | undefined) {
  * An explicit interface language („Jezik vmesnika“ on, Advanced tab) always wins:
  * - a language ("sl", "en", ...): the page is in that language;
  * - "" („Jezik brskalnika obiskovalca“ / "Visitor's browser language", the toggle's default when switched on): the
- *   visitor's browser language, exactly as upstream (null here, so the root layout's Accept-Language applies).
+ *   visitor's browser language, exactly as upstream. Since U14 the root layout is Slovene for a signed-out visitor, so
+ *   each page passes `browserLocale` (getBrowserLocale) for this case.
  * Only when the toggle is off (null, every new event type) is the page in its owner's language (Settings → General)
  * instead of the visitor's browser language, so a Slovenian business's booking page stays Slovenian on its website
  * for a visitor whose browser asks for English. The booker's e-mails follow the page's language, because the booking
  * form sends it with the booking.
  *
- * Returns null for "", when the owner's language is not one the app ships, and for an event type without an owner
- * (a team's); the page then keeps the root layout's language as before.
+ * Returns null when the owner's language is not one the app ships, and for an event type without an owner (a team's);
+ * the page then keeps the root layout's language, which since U14 is Slovene for a signed-out visitor.
  */
 export async function getEventTypePageLocale({
   interfaceLanguage,
   eventTypeId,
+  browserLocale,
 }: {
   interfaceLanguage?: string | null;
   eventTypeId?: number | null;
+  browserLocale?: string | null;
 }): Promise<string | null> {
   // "" is the explicit „Jezik brskalnika obiskovalca“ choice: keep upstream's Accept-Language, no owner lookup
-  if (interfaceLanguage === "") return null;
+  if (interfaceLanguage === "") return browserLocale || null;
   if (interfaceLanguage) return interfaceLanguage;
   // Only a switched-off interface language (null/undefined) falls back to the owner's
   if (!eventTypeId) return null;

@@ -7,6 +7,7 @@ import type { TFunction } from "i18next";
  */
 const TRANSLATED_APP_DESCRIPTION_KEYS = new Map<string, string>([
   ["google-calendar", "google_calendar_app_description"],
+  ["daily-video", "cal_video_app_description"],
 ]);
 
 /**

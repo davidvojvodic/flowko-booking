@@ -165,8 +165,12 @@ export const CREDENTIAL_SYNC_ENDPOINT = process.env.CALCOM_CREDENTIAL_SYNC_ENDPO
 // Service Account Encryption Key for encrypting/decrypting service account keys
 export const SERVICE_ACCOUNT_ENCRYPTION_KEY = process.env.CALCOM_SERVICE_ACCOUNT_ENCRYPTION_KEY;
 
-export const DEFAULT_LIGHT_BRAND_COLOR = "#292929";
-export const DEFAULT_DARK_BRAND_COLOR = "#fafafa";
+// Flowko U14: Flowko purple. A contrast of 6.1:1 on white, so white button text reads.
+export const DEFAULT_LIGHT_BRAND_COLOR = "#7A3FD1";
+export const DEFAULT_DARK_BRAND_COLOR = "#AC6AFF";
+// The upstream defaults, still stored on accounts that saved or reset Videz earlier. They mean "no colour chosen".
+export const LEGACY_DEFAULT_LIGHT_BRAND_COLOR = "#292929";
+export const LEGACY_DEFAULT_DARK_BRAND_COLOR = "#fafafa";
 
 export const TOP_BANNER_HEIGHT = 40;
 

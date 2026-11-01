@@ -29,7 +29,7 @@ export const addSecondaryEmailHandler = async ({ ctx, input }: AddSecondaryEmail
   });
 
   if (existingPrimaryEmail) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Email already taken" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "email_already_used" });
   }
 
   const existingSecondaryEmail = await prisma.secondaryEmail.findUnique({
@@ -39,7 +39,7 @@ export const addSecondaryEmailHandler = async ({ ctx, input }: AddSecondaryEmail
   });
 
   if (existingSecondaryEmail) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Email already taken" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "email_already_used" });
   }
 
   const updatedData = await prisma.secondaryEmail.create({

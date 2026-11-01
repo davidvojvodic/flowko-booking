@@ -2,7 +2,9 @@
 
 import classNames from "@calcom/ui/classNames";
 import * as Popover from "@radix-ui/react-popover";
-import { format, isBefore, isSameDay } from "date-fns";
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { isBefore, isSameDay } from "date-fns";
 import { type HTMLAttributes, useMemo, useState } from "react";
 import { Button } from "../../button";
 import { Calendar } from "./Calendar";
@@ -38,6 +40,7 @@ export function DatePickerWithRange({
   strictlyBottom,
   allowPastDates = false,
 }: HTMLAttributes<HTMLDivElement> & DatePickerWithRangeProps) {
+  const { t, i18n } = useLocale();
   const [hoveredDate, setHoveredDate] = useState<Date | undefined>(undefined);
 
   function handleDayClick(date: Date) {
@@ -111,13 +114,16 @@ export function DatePickerWithRange({
             {dates?.startDate ? (
               dates?.endDate ? (
                 <>
-                  {format(dates.startDate, "LLL dd, y")} - {format(dates.endDate, "LLL dd, y")}
+                  {formatLocalizedDay(dates.startDate, i18n.language, undefined, null)} -{" "}
+                  {formatLocalizedDay(dates.endDate, i18n.language, undefined, null)}
                 </>
               ) : (
-                <>{format(dates.startDate, "LLL dd, y")} - End</>
+                <>
+                  {formatLocalizedDay(dates.startDate, i18n.language, undefined, null)} - {t("date_range_end")}
+                </>
               )
             ) : (
-              <span>Pick a date</span>
+              <span>{t("pick_a_date")}</span>
             )}
           </Button>
         </Popover.Trigger>

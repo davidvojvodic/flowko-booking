@@ -11,6 +11,8 @@ import { Icon, type IconName } from "@calcom/ui/components/icon";
 import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { Tooltip } from "@calcom/ui/components/tooltip";
 import { format, formatDistanceToNow } from "date-fns";
+import { enUS } from "date-fns/locale/en-US";
+import { sl } from "date-fns/locale/sl";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -235,7 +237,7 @@ function DisplayFieldValueComponent({ fieldValue }: DisplayFieldValueComponentPr
 }
 
 function BookingLogsTimeline({ logs }: BookingLogsTimelineProps) {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
   const [showJsonMap, setShowJsonMap] = useState<Record<string, boolean>>({});
 
@@ -308,7 +310,10 @@ function BookingLogsTimeline({ logs }: BookingLogsTimelineProps) {
                       </span>
                       <span>•</span>
                       <Tooltip content={format(new Date(log.timestamp), "yyyy-MM-dd HH:mm:ss")}>
-                        <span>{formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}</span>
+                        <span>{formatDistanceToNow(new Date(log.timestamp), {
+                            addSuffix: true,
+                            locale: i18n.language === "sl" ? sl : enUS,
+                          })}</span>
                       </Tooltip>
                     </div>
                   </div>

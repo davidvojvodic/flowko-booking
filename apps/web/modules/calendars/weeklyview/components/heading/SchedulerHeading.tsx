@@ -1,10 +1,13 @@
 import dayjs from "@calcom/dayjs";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import { Button } from "@calcom/ui/components/button";
 import { ButtonGroup } from "@calcom/ui/components/buttonGroup";
 
 import { useCalendarStore } from "@calcom/features/calendars/weeklyview/state/store";
 
 export function SchedulerHeading() {
+  const { i18n } = useLocale();
   const { startDate, endDate, handleDateChange } = useCalendarStore((state) => ({
     startDate: dayjs(state.startDate),
     endDate: dayjs(state.endDate),
@@ -14,7 +17,8 @@ export function SchedulerHeading() {
   return (
     <header className="flex flex-none flex-col justify-between py-4 sm:flex-row sm:items-center">
       <h1 className="text-emphasis text-xl font-semibold">
-        {startDate.format("MMM DD")}-{endDate.format("DD")}
+        {formatLocalizedDay(startDate, i18n.language, { day: "2-digit", month: "short" }, null)}-
+        {endDate.format("DD")}
         <span className="text-subtle">,{startDate.format("YYYY")}</span>
       </h1>
       <div className="flex items-center space-x-2 rtl:space-x-reverse">

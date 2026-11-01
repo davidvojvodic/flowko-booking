@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import type { TRPCError } from "@trpc/server";
 
+import { translateErrorMessage } from "./translateErrorMessage";
+
 type ErrorShape = {
   message: string;
   code: number;
@@ -22,10 +24,12 @@ type ErrorFormatterOptions = {
   ctx: unknown;
 };
 
-export function errorFormatter({ shape, error }: ErrorFormatterOptions): ErrorShape {
+export function errorFormatter({ shape, error, ctx }: ErrorFormatterOptions): ErrorShape {
+  // Flowko: ctx.locale is the caller's UI language (undefined when the context could not be created)
+  const locale = (ctx as { locale?: string } | undefined | null)?.locale;
   if (error.cause instanceof z.ZodError) {
     return {
-      message: "Invalid input",
+      message: translateErrorMessage("invalid_input", locale),
       code: 400,
       data: {
         code: "BAD_REQUEST",
@@ -35,5 +39,6 @@ export function errorFormatter({ shape, error }: ErrorFormatterOptions): ErrorSh
       },
     };
   }
-  return shape;
+  const message = translateErrorMessage(shape.message, locale);
+  return message === shape.message ? shape : { ...shape, message };
 }

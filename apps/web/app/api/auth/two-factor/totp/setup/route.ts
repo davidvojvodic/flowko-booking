@@ -83,7 +83,7 @@ async function postHandler(req: NextRequest) {
   });
 
   const name = user.email || user.username || user.id.toString();
-  const keyUri = authenticator.keyuri(name, "Cal", secret);
+  const keyUri = authenticator.keyuri(name, "Flowko", secret);
   const dataUri = await qrcode.toDataURL(keyUri);
 
   return NextResponse.json({ secret, keyUri, dataUri, backupCodes });

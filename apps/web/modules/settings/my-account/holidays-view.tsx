@@ -1,5 +1,6 @@
 "use client";
 
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import dayjs from "@calcom/dayjs";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import { getHolidayEmoji } from "@calcom/lib/holidays/getHolidayEmoji";
@@ -105,7 +106,8 @@ const HolidayListItem = memo(function HolidayListItem({
   onToggle: (holidayId: string, enabled: boolean) => void;
   isToggling: boolean;
 }) {
-  const formattedDate = holiday.date ? dayjs(holiday.date).format("D MMM, YYYY") : null;
+  const { i18n } = useLocale();
+  const formattedDate = holiday.date ? formatLocalizedDay(holiday.date, i18n.language, { day: "numeric", month: "short", year: "numeric" }) : null;
   const emoji = getHolidayEmoji(holiday.name);
 
   return (

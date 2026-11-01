@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 
 import { WEBAPP_URL } from "@calcom/lib/constants";
 
-import { BaseEmailHtml, CallToAction } from "../components";
+import { BaseEmailHtml, CallToAction, getEmailLang } from "../components";
 
 /**
  * Flowko: tells a host that a calendar connection stopped working (its grant was revoked or expired), outside
@@ -23,7 +23,7 @@ export const BrokenCalendarConnectionEmail = (
   const subject = t("broken_calendar_connection_email_subject", { appName, ...raw });
 
   return (
-    <BaseEmailHtml subject={subject} title={subject}>
+    <BaseEmailHtml lang={getEmailLang(t)} subject={subject} title={subject}>
       <p style={{ fontWeight: 400, lineHeight: "24px" }}>
         {userName ? t("hi_user_name", { name: userName, ...raw }) : t("hi")},
       </p>

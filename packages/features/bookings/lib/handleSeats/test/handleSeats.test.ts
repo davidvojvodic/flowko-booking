@@ -2354,7 +2354,7 @@ describe("handleSeats", () => {
             },
             userId: -1,
           })
-        ).rejects.toThrowError("User not a host of this event");
+        ).rejects.toThrowError("user_not_host_of_event_error");
 
         const booking = await prismaMock.booking.findFirst({
           where: {
@@ -2463,7 +2463,7 @@ describe("handleSeats", () => {
             },
             userId: -1,
           })
-        ).rejects.toThrowError("User not a host of this event");
+        ).rejects.toThrowError("user_not_host_of_event_error");
 
         const booking = await prismaMock.booking.findFirst({
           where: {

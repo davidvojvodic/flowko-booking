@@ -122,7 +122,7 @@ export function validateGuestsFieldEnabled(booking: Booking): void {
   if (guestsBookingField?.hidden) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `Cannot add guests to this booking. The guests field is disabled for event type "${booking?.eventType?.title}" (ID: ${booking?.eventTypeId}). Please contact the event organizer to enable guest additions.`,
+      message: "guests_disabled_for_event_type",
     });
   }
 }
@@ -361,6 +361,8 @@ async function sendGuestNotifications(
     eventType: {
       metadata: eventTypeMetaDataSchemaWithTypedApps.parse(booking?.eventType?.metadata),
       schedulingType: booking.eventType?.schedulingType || null,
+      title: booking.eventType?.title,
+      eventName: booking.eventType?.eventName,
     },
     newGuests: uniqueGuests,
   });

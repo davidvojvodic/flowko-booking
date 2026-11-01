@@ -27,6 +27,7 @@ import { useNonEmptyScheduleDays } from "@calcom/web/modules/schedules/hooks/use
 import { useSlotsForDate } from "@calcom/web/modules/schedules/hooks/useSlotsForDate";
 import { APP_NAME, DEFAULT_LIGHT_BRAND_COLOR, DEFAULT_DARK_BRAND_COLOR } from "@calcom/lib/constants";
 import { weekdayToWeekIndex } from "@calcom/lib/dayjs";
+import { normalizeFlowkoBrandColors } from "@calcom/lib/flowkoBookerTints";
 import { getWCAGContrastColor } from "@calcom/lib/getBrandColours";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -812,8 +813,13 @@ const EmbedTypeCodeAndPreviewDialogContent = ({
   // Flowko U13-03/06: the profile's colours (Settings -> Appearance) with the booker's defaults applied. They
   // come from a query that may still be loading when the dialog opens, so the state below keeps only what the
   // host changed, and every default is worked out on each render.
-  const profileBrandColor = validColorOr(defaultBrandColor?.brandColor, DEFAULT_LIGHT_BRAND_COLOR);
-  const profileDarkBrandColor = validColorOr(defaultBrandColor?.darkBrandColor, DEFAULT_DARK_BRAND_COLOR);
+  // Flowko U14: a stored upstream default counts as no colour chosen, so it gives Flowko purple and no pin.
+  const profileColors = normalizeFlowkoBrandColors({
+    brandColor: defaultBrandColor?.brandColor,
+    darkBrandColor: defaultBrandColor?.darkBrandColor,
+  });
+  const profileBrandColor = validColorOr(profileColors.brandColor, DEFAULT_LIGHT_BRAND_COLOR);
+  const profileDarkBrandColor = validColorOr(profileColors.darkBrandColor, DEFAULT_DARK_BRAND_COLOR);
 
   const paletteDefaultValue = (paletteName: string) => {
     if (paletteName === "brandColor") {

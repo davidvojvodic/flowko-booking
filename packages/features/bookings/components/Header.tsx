@@ -123,7 +123,7 @@ export function Header({
             variant="icon"
             color="minimal"
             StartIcon="chevron-left"
-            aria-label="Previous Day"
+            aria-label={t("previous_day")}
             onClick={() => addToSelectedDate(layout === BookerLayouts.COLUMN_VIEW ? -nextSlots : -extraDays)}
           />
           <Button
@@ -131,7 +131,7 @@ export function Header({
             variant="icon"
             color="minimal"
             StartIcon="chevron-right"
-            aria-label="Next Day"
+            aria-label={t("next_day")}
             onClick={() => addToSelectedDate(layout === BookerLayouts.COLUMN_VIEW ? nextSlots : extraDays)}
           />
           {selectedDateMin3DaysDifference && (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { Timezones } from "@calcom/lib/timezone";
 import { addTimezonesToDropdown, filterBySearchText, handleOptionLabel } from "@calcom/lib/timezone";
 import classNames from "@calcom/ui/classNames";
@@ -32,6 +33,7 @@ export function TimezoneSelectComponent({
   isWebTimezoneSelect = true,
   ...props
 }: TimezoneSelectComponentProps) {
+  const { t } = useLocale();
   const data = useMemo(() => props.data || [], [props.data]);
 
   /*
@@ -95,7 +97,7 @@ export function TimezoneSelectComponent({
     <BaseSelect
       value={value}
       className={`${className} ${timezoneSelectCustomClassname}`}
-      aria-label="Timezone Select"
+      aria-label={t("timezone_select")}
       isLoading={isPending}
       data-testid="timezone-select"
       isDisabled={isPending}

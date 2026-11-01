@@ -37,7 +37,7 @@ export function LocationInfo(props: { calEvent: CalendarEvent; t: TFunction }) {
             title={t("meeting_url")}
             style={{ color: "#101010" }}
             rel="noreferrer">
-            {providerName || "Link"}
+            {providerName || t("link")}
           </a>
         }
         extraInfo={
@@ -62,7 +62,7 @@ export function LocationInfo(props: { calEvent: CalendarEvent; t: TFunction }) {
         label={t("where")}
         withSpacer
         description={
-          <a href={`tel:${location}`} title="Phone" style={{ color: "#3E3E3E" }}>
+          <a href={`tel:${location}`} title={t("phone")} style={{ color: "#3E3E3E" }}>
             {location}
           </a>
         }

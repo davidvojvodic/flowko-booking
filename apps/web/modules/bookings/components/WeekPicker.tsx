@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { formatLocalizedDay } from "@calcom/lib/formatLocalizedDate";
 import dayjs from "@calcom/dayjs";
 import { DatePicker } from "@calcom/ui/components/form";
 
@@ -26,14 +28,10 @@ export function WeekPicker({ currentWeekStart, userWeekStart, onDateChange }: We
 
   const weekStart = currentWeekStart;
   const weekEnd = currentWeekStart.add(6, "day");
-  const startMonth = weekStart.format("MMM");
-  const endMonth = weekEnd.format("MMM");
-  const year = weekEnd.format("YYYY");
-
-  const weekRange =
-    startMonth === endMonth
-      ? `${startMonth} ${weekStart.format("D")} - ${weekEnd.format("D")}, ${year}`
-      : `${weekStart.format("MMM D")} - ${weekEnd.format("MMM D")}, ${year}`;
+  const { i18n } = useLocale();
+  const short = (date: dayjs.Dayjs) =>
+    formatLocalizedDay(date, i18n.language, { day: "numeric", month: "short" }, null);
+  const weekRange = `${short(weekStart)} - ${short(weekEnd)}, ${weekEnd.format("YYYY")}`;
 
   return <DatePicker date={selectedDate} onDatesChange={handleDateChange} minDate={null} label={weekRange} />;
 }

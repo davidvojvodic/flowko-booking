@@ -72,7 +72,7 @@ export const loadUsers = async ({
     if (error instanceof HttpError || error instanceof Prisma.PrismaClientKnownRequestError) {
       throw new HttpError({ statusCode: 400, message: error.message });
     }
-    throw new HttpError({ statusCode: 500, message: "Unable to load users" });
+    throw new HttpError({ statusCode: 500, message: "unable_to_load_users_error" });
   }
 };
 

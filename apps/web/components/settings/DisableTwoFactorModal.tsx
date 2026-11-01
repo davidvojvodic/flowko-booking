@@ -100,7 +100,6 @@ const DisableTwoFactorAuthModal = ({
                   className: "block text-sm font-medium text-default",
                 }}
                 {...form.register("password")}
-                className="border-default mt-1 block w-full rounded-md border px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-black"
               />
             )}
             {twoFactorLostAccess ? (

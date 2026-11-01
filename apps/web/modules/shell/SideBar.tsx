@@ -15,6 +15,7 @@ import Link from "next/link";
 import type { User as UserAuth } from "next-auth";
 import { useSession } from "next-auth/react";
 import { KBarTrigger } from "./Kbar";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { Navigation } from "./navigation/Navigation";
 import { useBottomNavItems } from "./useBottomNavItems";
 import { ProfileDropdown } from "./user-dropdown/ProfileDropdown";
@@ -157,6 +158,7 @@ export function SideBar({ bannersHeight, user }: SideBarProps) {
               </ButtonOrLink>
             </Tooltip>
           ))}
+          <LanguageSwitcher className="hidden px-2 py-1.5 lg:flex" />
           {!IS_VISUAL_REGRESSION_TESTING && <Credits />}
         </div>
       </aside>

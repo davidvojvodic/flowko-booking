@@ -21,7 +21,7 @@ describe("Tests for DatePicker Component", () => {
     const { getByTestId } = render(<DatePicker date={null as unknown as Date} />);
 
     const dateButton = getByTestId("pick-date");
-    expect(dateButton).toHaveTextContent("Pick a date");
+    expect(dateButton).toHaveTextContent("pick_a_date");
   });
 
   test("Should handle date selection correctly", async () => {

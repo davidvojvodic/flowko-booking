@@ -74,7 +74,7 @@ const CalendarSwitch = (props: ICalendarSwitchProps) => {
     },
     onError() {
       setCheckedInternal(false);
-      showToast(`Something went wrong when toggling "${title}"`, "error");
+      showToast(t("calendar_toggle_error", { title }), "error");
     },
   });
   return (

@@ -1,5 +1,6 @@
 import classNames from "@calcom/ui/classNames";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Badge } from "../badge/Badge";
 import { Button } from "../button/Button";
 import {
@@ -42,6 +43,7 @@ export function FilterSelect({
   emptyText = "No results",
   testId,
 }: FilterSelectProps) {
+  const { t } = useLocale();
   const selectedOption = options.find((option) => option.value === selectedValue);
 
   return (
@@ -91,7 +93,7 @@ export function FilterSelect({
                 <CommandSeparator />
                 <CommandGroup>
                   <CommandItem onSelect={() => onChange(null)} className="justify-center text-center">
-                    Clear filter
+                    {t("clear_filter")}
                   </CommandItem>
                 </CommandGroup>
               </>

@@ -156,7 +156,7 @@ describe("Cancel Booking", () => {
           cancellationReason: "No reason",
         },
       })
-    ).rejects.toThrow("Booking not found.");
+    ).rejects.toThrow("booking_not_found");
   });
 
   test("Should call processPaymentRefund", async () => {
@@ -461,7 +461,7 @@ describe("Cancel Booking", () => {
           cancellationReason: "Testing past booking cancellation",
         },
       })
-    ).rejects.toThrow("Cannot cancel a booking that has already ended");
+    ).rejects.toThrow("cancel_past_booking_error");
   });
 
   test("Should block canceling bookings without a cancellation reason when cancelledBy is set to the host", async () => {
@@ -529,7 +529,7 @@ describe("Cancel Booking", () => {
           cancelledBy: organizer.email,
         },
       })
-    ).rejects.toThrow("Cancellation reason is required");
+    ).rejects.toThrow("cancellation_reason_required_error");
   });
 
   test("Should not charge cancellation fee when organizer cancels booking", async () => {
@@ -1636,7 +1636,7 @@ describe("Cancel Booking", () => {
             cancelledBy: organizer.email,
           },
         })
-      ).rejects.toThrow("Cancellation reason is required");
+      ).rejects.toThrow("cancellation_reason_required_error");
     });
 
     test("Should block attendee cancellation without reason when requiresCancellationReason is MANDATORY_BOTH", async () => {
@@ -1700,7 +1700,7 @@ describe("Cancel Booking", () => {
             cancelledBy: booker.email,
           },
         })
-      ).rejects.toThrow("Cancellation reason is required");
+      ).rejects.toThrow("cancellation_reason_required_error");
     });
 
     test("Should block attendee cancellation without reason when requiresCancellationReason is MANDATORY_ATTENDEE_ONLY", async () => {
@@ -1764,7 +1764,7 @@ describe("Cancel Booking", () => {
             cancelledBy: booker.email,
           },
         })
-      ).rejects.toThrow("Cancellation reason is required");
+      ).rejects.toThrow("cancellation_reason_required_error");
     });
 
     test("Should allow host cancellation without reason when requiresCancellationReason is MANDATORY_ATTENDEE_ONLY", async () => {
@@ -2147,7 +2147,7 @@ describe("Cancel Booking", () => {
             cancelledBy: organizer.email,
           },
         })
-      ).rejects.toThrow("Cancellation reason is required");
+      ).rejects.toThrow("cancellation_reason_required_error");
     });
 
     test("Should allow attendee cancellation without reason when requiresCancellationReason is null (default behavior)", async () => {

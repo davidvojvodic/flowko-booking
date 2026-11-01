@@ -112,7 +112,7 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
     {
       throw new HttpError({
         statusCode: 404,
-        message: "Booking not found.",
+        message: "booking_not_found",
       });
     }
     throw error;
@@ -136,18 +136,18 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
   if (bookingToDelete.status === BookingStatus.CANCELLED) {
     throw new HttpError({
       statusCode: 400,
-      message: "This booking has already been cancelled.",
+      message: "booking_already_cancelled",
     });
   }
 
   if (!bookingToDelete.userId || !bookingToDelete.user) {
-    throw new HttpError({ statusCode: 400, message: "User not found" });
+    throw new HttpError({ statusCode: 400, message: "user_not_found" });
   }
 
   if (bookingToDelete.eventType?.disableCancelling) {
     throw new HttpError({
       statusCode: 400,
-      message: "This event type does not allow cancellations",
+      message: "cancellation_not_allowed_error",
     });
   }
 
@@ -162,14 +162,14 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
   if (!platformClientId && !cancellationReason?.trim() && isReasonRequired && !skipCancellationReasonValidation) {
     throw new HttpError({
       statusCode: 400,
-      message: "Cancellation reason is required",
+      message: "cancellation_reason_required_error",
     });
   }
 
   if (bookingToDelete.endTime && new Date() > new Date(bookingToDelete.endTime)) {
     throw new HttpError({
       statusCode: 400,
-      message: "Cannot cancel a booking that has already ended",
+      message: "cancel_past_booking_error",
     });
   }
 
@@ -198,7 +198,7 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
     if (!isSignedInUser || (!userIsHost && !userIsOwnerOfEventType && !userIsOrganizer)) {
       throw new HttpError({
         statusCode: 401,
-        message: "User not a host of this event",
+        message: "user_not_host_of_event_error",
       });
     }
   }
@@ -524,7 +524,7 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
     if (!platformClientId || (platformClientId && arePlatformEmailsEnabled))
       await sendCancelledEmailsAndSMS(
         evt,
-        { eventName: bookingToDelete?.eventType?.eventName },
+        { eventType: bookingToDelete?.eventType?.title, eventName: bookingToDelete?.eventType?.eventName },
         bookingToDelete?.eventType?.metadata as EventTypeMetadata
       );
   } catch (error) {

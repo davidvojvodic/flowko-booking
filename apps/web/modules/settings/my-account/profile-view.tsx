@@ -142,7 +142,7 @@ const ProfileView = ({ user }: Props) => {
     await utils.viewer.me.invalidate();
     revalidateSettingsProfile();
 
-    showToast(t("Your account was deleted"), "success");
+    showToast(t("account_deleted"), "success");
 
     setHasDeleteErrors(false); // dismiss any open errors
     if (process.env.NEXT_PUBLIC_WEBAPP_URL === "https://app.cal.com") {
@@ -340,7 +340,7 @@ const ProfileView = ({ user }: Props) => {
                 id="password"
                 autoComplete="current-password"
                 required
-                label="Password"
+                label={t("password")}
                 ref={passwordRef}
               />
             )}
@@ -394,7 +394,7 @@ const ProfileView = ({ user }: Props) => {
               id="password"
               autoComplete="current-password"
               required
-              label="Password"
+              label={t("password")}
               ref={passwordRef}
             />
 
@@ -734,7 +734,7 @@ const ProfileForm = ({
         so essentially there's no point in allowing them to disconnect, since when they log in they will get logged into the same account */}
         {!isCALIdentityProvider && user.email !== user.identityProviderEmail && (
           <div className="mt-6">
-            <Label>Connected accounts</Label>
+            <Label>{t("connected_accounts")}</Label>
             <div className="flex items-center">
               <span className="text-default text-sm capitalize">{user.identityProvider.toLowerCase()}</span>
               {user.identityProviderEmail && (

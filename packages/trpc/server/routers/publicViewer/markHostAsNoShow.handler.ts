@@ -40,7 +40,7 @@ export const noShowHandler = async ({ ctx, input }: NoShowOptions) => {
         })
       : null;
   if (!booking || booking.status !== BookingStatus.ACCEPTED || new Date() < new Date(booking.startTime)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Failed to update no-show status" });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "no_show_update_failed" });
   }
 
   return handleMarkHostNoShow({

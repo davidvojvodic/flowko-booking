@@ -50,7 +50,7 @@ export type BuildFlowkoSnippetInput = {
   height?: string;
   /** Floating button and element-click; blank means the default for `lang`. */
   buttonText?: string;
-  /** Floating button; default #292929 (DEFAULT_LIGHT_BRAND_COLOR). */
+  /** Floating button; default #7A3FD1 (DEFAULT_LIGHT_BRAND_COLOR). */
   buttonColor?: string;
   /** Floating button; default: white or black, whichever reads on buttonColor. */
   buttonTextColor?: string;
@@ -69,7 +69,7 @@ export const FLOWKO_BOOK_BUTTON_TEXT: Record<FlowkoSnippetLang, string> = {
 };
 
 /** DEFAULT_LIGHT_BRAND_COLOR from @calcom/lib/constants (not imported: it reads env). A test keeps them equal. */
-export const FLOWKO_DEFAULT_BUTTON_COLOR = "#292929";
+export const FLOWKO_DEFAULT_BUTTON_COLOR = "#7A3FD1";
 
 /**
  * Flowko P0 (David, 2026-09-28): what each type adds to the event type's namespace. embed.js keeps one `iframe`

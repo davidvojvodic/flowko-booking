@@ -5,7 +5,9 @@ import { useEffect, useReducer, type CSSProperties } from "react";
 import type { UseFormReturn } from "react-hook-form";
 import { useForm } from "react-hook-form";
 
+import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { translateServerMessage } from "@calcom/lib/translateServerMessage";
 import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import type { inferSSRProps } from "@calcom/types/inferSSRProps";
 import { Button } from "@calcom/ui/components/button";
@@ -16,10 +18,13 @@ import AuthContainer from "@components/ui/AuthContainer";
 
 import type { getServerSideProps } from "@server/lib/auth/forgot-password/[id]/getServerSideProps";
 
+import { authLangFromUrl, withAuthLang } from "../../parseAuthLang";
+
 export type PageProps = inferSSRProps<typeof getServerSideProps>;
 
 function Success() {
   const { t } = useLocale();
+  const lang = authLangFromUrl(useCompatSearchParams());
   return (
     <>
       <div className="stack-y-6">
@@ -28,7 +33,7 @@ function Success() {
             {t("password_updated")}
           </h2>
         </div>
-        <Button href="/auth/login" className="w-full justify-center">
+        <Button href={withAuthLang("/auth/login", lang)} className="w-full justify-center">
           {t("login")}
         </Button>
       </div>
@@ -38,6 +43,7 @@ function Success() {
 
 function Expired() {
   const { t } = useLocale();
+  const lang = authLangFromUrl(useCompatSearchParams());
   return (
     <>
       <div className="stack-y-6">
@@ -47,7 +53,7 @@ function Expired() {
         </div>
         <p>{t("request_is_expired_instructions")}</p>
         <Link
-          href="/auth/forgot-password"
+          href={withAuthLang("/auth/forgot-password", lang)}
           className="flex w-full justify-center px-4 py-2 text-sm font-medium text-blue-600 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2">
           {t("try_again")}
         </Link>
@@ -105,7 +111,11 @@ function PasswordResetForm({
       // if the request fails, we want to force refresh of the CSRF token - this allows resubmit
       forceRefresh();
       // Flowko: the rate limiter answers in English; say it in the user's language
-      const message = res.status === 429 || isRateLimitError(json) ? t("rate_limit_exceeded") : json.message;
+      const message = res.status === 429 || isRateLimitError(json)
+          ? t("rate_limit_exceeded")
+          : typeof json.message === "string" && json.message.includes("password_requirements_error")
+            ? t("password_requirements_error")
+            : translateServerMessage(t, json.message);
       return setError("newPassword", { type: "server", message });
     }
   };
@@ -141,7 +151,7 @@ function PasswordResetForm({
               value: 7, // We don't have user here so we can't check if they are admin or not
             },
             pattern: {
-              message: "Should contain a number, uppercase and lowercase letters",
+              message: t("password_hint_complexity"),
               value: /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[a-zA-Z]).*$/gm,
             },
           })}

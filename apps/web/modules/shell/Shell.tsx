@@ -125,7 +125,7 @@ export default function Shell(props: LayoutProps) {
 
 export function ShellMain(props: LayoutProps) {
   const router = useRouter();
-  const { isLocaleReady } = useLocale();
+  const { isLocaleReady, t } = useLocale();
 
   return (
     <>
@@ -145,7 +145,7 @@ export function ShellMain(props: LayoutProps) {
                 typeof props.backPath === "string" ? router.push(props.backPath as string) : router.back()
               }
               StartIcon="arrow-left"
-              aria-label="Go Back"
+              aria-label={t("go_back")}
               className="rounded-md ltr:mr-2 rtl:ml-2"
               data-testid="go-back-button"
             />

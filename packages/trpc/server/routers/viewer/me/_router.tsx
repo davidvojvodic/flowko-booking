@@ -2,6 +2,7 @@ import authedProcedure from "../../../procedures/authedProcedure";
 import { router } from "../../../trpc";
 import { ZDeleteMeInputSchema } from "./deleteMe.schema";
 import { get } from "./procedures/get";
+import { ZSetUiLanguageInputSchema } from "./setUiLanguage.schema";
 import { ZUpdateProfileInputSchema } from "./updateProfile.schema";
 
 export const meRouter = router({
@@ -29,6 +30,10 @@ export const meRouter = router({
   platformMe: authedProcedure.query(async ({ ctx }) => {
     const handler = (await import("./platformMe.handler")).platformMeHandler;
     return handler({ ctx });
+  }),
+  setUiLanguage: authedProcedure.input(ZSetUiLanguageInputSchema).mutation(async ({ ctx, input }) => {
+    const handler = (await import("./setUiLanguage.handler")).setUiLanguageHandler;
+    return handler({ ctx, input });
   }),
   shouldVerifyEmail: authedProcedure.query(async ({ ctx }) => {
     const handler = (await import("./shouldVerifyEmail.handler")).shouldVerifyEmailHandler;

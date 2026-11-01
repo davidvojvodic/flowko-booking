@@ -7,14 +7,18 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type { z } from "zod";
 
-import { BookerLayoutSelector } from "~/settings/components/BookerLayoutSelector";
+import { BookerLayoutSelector } from "@calcom/web/modules/settings/components/BookerLayoutSelector";
 import SectionBottomActions from "@calcom/features/settings/SectionBottomActions";
 import ThemeLabel from "@calcom/features/settings/ThemeLabel";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import { APP_NAME } from "@calcom/lib/constants";
 import { DEFAULT_LIGHT_BRAND_COLOR, DEFAULT_DARK_BRAND_COLOR } from "@calcom/lib/constants";
+import {
+  isFlowkoDefaultBrand,
+  isFlowkoDefaultDarkBrand,
+  normalizeFlowkoBrandColors,
+} from "@calcom/lib/flowkoBookerTints";
 import { checkWCAGContrastColor } from "@calcom/lib/getBrandColours";
-import useGetBrandingColours from "@calcom/lib/getBrandColours";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import useTheme from "@calcom/lib/hooks/useTheme";
 import { validateBookerLayouts } from "@calcom/lib/validateBookerLayouts";
@@ -25,28 +29,7 @@ import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { SettingsToggle, ColorPicker, Form } from "@calcom/ui/components/form";
 import { showToast } from "@calcom/ui/components/toast";
-import { useCalcomTheme } from "@calcom/ui/styles";
 
-
-const useBrandColors = (
-  currentTheme: string | null,
-  {
-    brandColor,
-    darkBrandColor,
-  }: {
-    brandColor?: string | null;
-    darkBrandColor?: string | null;
-  }
-): void => {
-  const brandTheme = useGetBrandingColours({
-    lightVal: brandColor,
-    darkVal: darkBrandColor,
-  });
-  const selectedTheme = currentTheme ? brandTheme[currentTheme as "light" | "dark"] : {};
-  useCalcomTheme({
-    root: selectedTheme,
-  });
-};
 
 const AppearanceView = ({
   user,
@@ -62,14 +45,10 @@ const AppearanceView = ({
   const [darkModeError, setDarkModeError] = useState(false);
   const [lightModeError, setLightModeError] = useState(false);
   const [isCustomBrandColorChecked, setIsCustomBranColorChecked] = useState(
-    user?.brandColor !== DEFAULT_LIGHT_BRAND_COLOR || user?.darkBrandColor !== DEFAULT_DARK_BRAND_COLOR
+    !isFlowkoDefaultBrand(user?.brandColor) || !isFlowkoDefaultDarkBrand(user?.darkBrandColor)
   );
   const [hideBrandingValue, setHideBrandingValue] = useState(user?.hideBranding ?? false);
   useTheme(user?.appTheme);
-  useBrandColors(user?.appTheme ?? null, {
-    brandColor: user?.brandColor,
-    darkBrandColor: user?.darkBrandColor,
-  });
 
   const userAppThemeFormMethods = useForm({
     defaultValues: {
@@ -104,9 +83,14 @@ const AppearanceView = ({
     reset: resetBookerLayoutThemeReset,
   } = bookerLayoutFormMethods;
 
+  // Flowko U14: a stored upstream default shows, and saves, as the new default.
+  const storedBrandColors = normalizeFlowkoBrandColors({
+    brandColor: user.brandColor,
+    darkBrandColor: user.darkBrandColor,
+  });
   const DEFAULT_BRAND_COLOURS = {
-    light: user.brandColor ?? DEFAULT_LIGHT_BRAND_COLOR,
-    dark: user.darkBrandColor ?? DEFAULT_DARK_BRAND_COLOR,
+    light: storedBrandColors.brandColor ?? DEFAULT_LIGHT_BRAND_COLOR,
+    dark: storedBrandColors.darkBrandColor ?? DEFAULT_DARK_BRAND_COLOR,
   };
 
   const brandColorsFormMethods = useForm({

@@ -448,7 +448,7 @@ const SettingsSidebarContainer = ({
                     height={16}
                     className="rounded-full ltr:mr-3 rtl:ml-3"
                     src={tab?.avatar}
-                    alt="Organization Logo"
+                    alt={t("organization_logo")}
                   />
                 )}
                 <Skeleton

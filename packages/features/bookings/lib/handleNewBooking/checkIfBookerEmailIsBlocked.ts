@@ -61,7 +61,7 @@ export const checkIfBookerEmailIsBlocked = async ({
   }
 
   if (!user) {
-    throw new ErrorWithCode(ErrorCode.BookerEmailBlocked, "Cannot use this email to create the booking.");
+    throw new ErrorWithCode(ErrorCode.BookerEmailBlocked, ErrorCode.BookerEmailBlocked);
   }
 
   if (user.id !== loggedInUserId) {
@@ -74,12 +74,12 @@ export const checkIfBookerEmailIsBlocked = async ({
       } catch {
         throw new ErrorWithCode(
           ErrorCode.UnableToValidateVerificationCode,
-          "There was an error validating the verification code"
+          ErrorCode.UnableToValidateVerificationCode
         );
       }
 
       if (!isValid) {
-        throw new ErrorWithCode(ErrorCode.InvalidVerificationCode, "Invalid verification code");
+        throw new ErrorWithCode(ErrorCode.InvalidVerificationCode, ErrorCode.InvalidVerificationCode);
       }
 
       return false;
@@ -87,7 +87,7 @@ export const checkIfBookerEmailIsBlocked = async ({
 
     throw new ErrorWithCode(
       ErrorCode.BookerEmailRequiresLogin,
-      `Attendee email has been blocked. Make sure to login as ${bookerEmail} to use this email for creating a booking.`,
+      ErrorCode.BookerEmailRequiresLogin,
       { email: bookerEmail }
     );
   }

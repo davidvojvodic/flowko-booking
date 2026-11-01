@@ -28,7 +28,7 @@ const AdditionalCalendarDropdown = ({ isPending }: AdditionalCalendarSelectorPro
     type: item.type,
   }));
   options.push({
-    label: "Add new calendars",
+    label: t("add_new_calendars"),
     slug: "add-new",
     image: "",
     type: "new_other",

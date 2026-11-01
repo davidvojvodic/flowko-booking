@@ -27,6 +27,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+
 import { Button } from "../../button";
 import { Dropdown, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../dropdown";
 import { ChevronDownIcon, ChevronUpIcon } from "@coss/ui/icons";
@@ -39,12 +41,13 @@ interface BlockType {
   [key: string]: string;
 }
 
+// Flowko: the values are translation keys.
 const blockTypeToBlockName: BlockType = {
-  paragraph: "Normal",
-  ol: "Numbered List",
-  ul: "Bulleted List",
-  h1: "Large Heading",
-  h2: "Small Heading",
+  paragraph: "editor_normal",
+  ol: "editor_numbered_list",
+  ul: "editor_bulleted_list",
+  h1: "editor_heading_large",
+  h2: "editor_heading_small",
 };
 
 function positionEditorElement(editor: HTMLInputElement, rect: DOMRect | null) {
@@ -241,6 +244,7 @@ function getSelectedNode(selection: RangeSelection) {
 }
 
 export default function ToolbarPlugin(props: TextEditorProps) {
+  const { t } = useLocale();
   const [editor] = useLexicalComposerContext();
   const toolbarRef = useRef(null);
   const [blockType, setBlockType] = useState("paragraph");
@@ -464,7 +468,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
                 <>
                   <span className={`icon${blockType}`} />
                   <span className="text text-default hidden sm:flex">
-                    {blockTypeToBlockName[blockType as keyof BlockType]}
+                    {t(blockTypeToBlockName[blockType as keyof BlockType])}
                   </span>
                   {
                     isOpen ? (<ChevronUpIcon className="text-default ml-2 h-4 w-4" />) : (<ChevronDownIcon className="text-default ml-2 h-4 w-4" />)
@@ -487,7 +491,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
                         )}>
                         <>
                           <span className={`icon block-type ${key}`} />
-                          <span>{blockTypeToBlockName[key]}</span>
+                          <span>{t(blockTypeToBlockName[key])}</span>
                         </>
                       </Button>
                     </DropdownMenuItem>
@@ -501,7 +505,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
         <div className="flex gap-1">
           {!props.excludedToolbarItems?.includes("bold") && (
             <Button
-              aria-label="Bold"
+              aria-label={t("editor_bold")}
               color="minimal"
               variant="icon"
               type="button"
@@ -514,7 +518,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
           )}
           {!props.excludedToolbarItems?.includes("italic") && (
             <Button
-              aria-label="Italic"
+              aria-label={t("editor_italic")}
               color="minimal"
               variant="icon"
               type="button"
@@ -528,7 +532,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
           {!props.excludedToolbarItems?.includes("link") && (
             <>
               <Button
-                aria-label="Link"
+                aria-label={t("editor_link")}
                 color="minimal"
                 variant="icon"
                 type="button"

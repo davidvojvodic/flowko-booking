@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppCategoryLabel, getCategoryAppsTitle, getNoCategoryAppsHeadline } from "@calcom/lib/appCategoryLabels";
 import { AppList } from "@calcom/features/apps/components/AppList";
 import DisconnectIntegrationModal from "@calcom/features/apps/components/DisconnectIntegrationModal";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
@@ -118,9 +119,7 @@ export const InstalledConferencingApps = ({
     return (
       <EmptyScreen
         Icon="calendar"
-        headline={t("no_category_apps", {
-          category: t("conferencing").toLowerCase(),
-        })}
+        headline={getNoCategoryAppsHeadline(t, "conferencing")}
         description={t("no_category_apps_description_conferencing")}
         buttonRaw={
           <Button

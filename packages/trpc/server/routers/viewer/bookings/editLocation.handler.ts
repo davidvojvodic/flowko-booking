@@ -339,7 +339,8 @@ export async function editLocationHandler({ ctx, input, actionSource }: EditLoca
   try {
     await sendLocationChangeEmailsAndSMS(
       { ...evt, additionalInformation },
-      booking?.eventType?.metadata as EventTypeMetadata
+      booking?.eventType?.metadata as EventTypeMetadata,
+      { eventType: booking?.eventType?.title, eventName: booking?.eventType?.eventName }
     );
   } catch (error) {
     logger.error("Error sending LocationChangeEmails", safeStringify(error));

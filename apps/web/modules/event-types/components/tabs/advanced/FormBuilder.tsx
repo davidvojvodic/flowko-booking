@@ -32,6 +32,7 @@ import {
 import { ArrowDownIcon, ArrowUpIcon, MailIcon, PhoneIcon } from "@coss/ui/icons";
 import { showToast } from "@calcom/ui/components/toast";
 
+import { getFieldTypeLabel, getSourceBadgeLabel } from "@calcom/features/form-builder/fieldTypeLabels";
 import { fieldTypesConfigMap } from "@calcom/features/form-builder/fieldTypes";
 import { fieldsThatSupportLabelAsSafeHtml } from "@calcom/features/form-builder/fieldsThatSupportLabelAsSafeHtml";
 import type { fieldsSchema } from "@calcom/features/form-builder/schema";
@@ -187,12 +188,12 @@ export const FormBuilder = function FormBuilder({
               options={[
                 {
                   value: "email",
-                  label: "Email",
+                  label: t("email"),
                   iconLeft: <MailIcon className="h-4 w-4" />,
                 },
                 {
                   value: "phone",
-                  label: "Phone",
+                  label: t("phone"),
                   iconLeft: <PhoneIcon className="h-4 w-4" />,
                 },
               ]}
@@ -330,13 +331,13 @@ export const FormBuilder = function FormBuilder({
                       {Object.entries(groupedBySourceLabel).map(([sourceLabel, sources], key) => (
                         // We don't know how to pluralize `sourceLabel` because it can be anything
                         <Badge key={key} variant="blue">
-                          {sources.length} {sources.length === 1 ? sourceLabel : `${sourceLabel}s`}
+                          {getSourceBadgeLabel(t, sourceLabel, sources.length)}
                         </Badge>
                       ))}
                     </div>
                   </div>
                   <p className="text-subtle max-w-[280px] wrap-break-word pt-1 text-sm sm:max-w-[500px]">
-                    {fieldType.label}
+                    {field.name === "location" ? t("location") : getFieldTypeLabel(t, fieldType)}
                   </p>
                 </div>
                 {field.editable !== "user-readonly" && !disabled && (
@@ -475,12 +476,12 @@ function Options({
   if (!value) {
     onChange([
       {
-        label: "Option 1",
-        value: "Option 1",
+        label: t("option_n", { n: 1 }),
+        value: t("option_n", { n: 1 }),
       },
       {
-        label: "Option 2",
-        value: "Option 2",
+        label: t("option_n", { n: 2 }),
+        value: t("option_n", { n: 2 }),
       },
     ]);
   }
@@ -564,7 +565,7 @@ function Options({
               onChange(newOptions);
             }}
             StartIcon="plus">
-            Add an Option
+            {t("add_an_option")}
           </Button>
         )}
       </div>
@@ -667,8 +668,17 @@ function FieldEditDialog({
                 }
                 fieldForm.setValue("type", value, { shouldDirty: true });
               }}
-              value={fieldTypesConfigMap[formFieldType]}
-              options={fieldTypes.filter((f) => !f.systemOnly)}
+              value={
+                fieldTypesConfigMap[formFieldType]
+                  ? {
+                      ...fieldTypesConfigMap[formFieldType],
+                      label: getFieldTypeLabel(t, fieldTypesConfigMap[formFieldType]),
+                    }
+                  : undefined
+              }
+              options={fieldTypes
+                .filter((f) => !f.systemOnly)
+                .map((f) => ({ ...f, label: getFieldTypeLabel(t, f) }))}
               label={t("input_type")}
             />
             {(() => {
@@ -998,7 +1008,7 @@ function VariantFields({
           onCheckedChange={(checked) => {
             fieldForm.setValue("variant", checked ? otherVariant : defaultVariant);
           }}
-          tooltip={t("Toggle Variant")}
+          tooltip={t("toggle_variant")}
         />
       ) : (
         <VariantSelector />

@@ -10,7 +10,7 @@ import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
 import { showToast } from "@calcom/ui/components/toast";
 
-// Flowko: was "~/shell/Shell"; vitest maps "~" to apps/api/v1, so a test could not import this view (U12)
+// Flowko: was "~/shell/Shell", so the view's test mocks the same module (U12)
 import Shell from "@calcom/web/modules/shell/Shell";
 
 export type OrgUpgradeBannerProps = {

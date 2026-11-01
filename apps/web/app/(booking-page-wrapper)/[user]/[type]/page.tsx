@@ -1,4 +1,5 @@
 import { WEBAPP_URL } from "@calcom/lib/constants";
+import { getBrowserLocale } from "@calcom/features/auth/lib/getLocale";
 import { loadTranslations } from "@calcom/i18n/server";
 import { getEventTypePageLocale } from "@lib/booking/getBookerPageLocale";
 import { buildLegacyCtx, decodeParams } from "@lib/buildLegacyCtx";
@@ -24,6 +25,7 @@ const ServerPage = async ({ params, searchParams }: PageProps): Promise<JSX.Elem
   const locale = await getEventTypePageLocale({
     interfaceLanguage: props.eventData?.interfaceLanguage,
     eventTypeId: props.eventData?.id,
+    browserLocale: getBrowserLocale(legacyCtx.req),
   });
   if (locale) {
     const ns = "common";

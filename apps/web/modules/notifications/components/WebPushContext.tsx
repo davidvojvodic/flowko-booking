@@ -1,5 +1,6 @@
 "use client";
 
+import type { TFunction } from "i18next";
 import { useSession } from "next-auth/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
@@ -10,8 +11,10 @@ interface WebPushContextProps {
   permission: NotificationPermission;
   isLoading: boolean;
   isSubscribed: boolean;
-  subscribe: () => Promise<void>;
-  unsubscribe: () => Promise<void>;
+  // Flowko U14: this provider sits above AppRouterI18nProvider (app/layout.tsx), where useLocale has no translations,
+  // so the caller, which is inside it, passes its t for the toasts.
+  subscribe: (t: TFunction) => Promise<void>;
+  unsubscribe: (t: TFunction) => Promise<void>;
 }
 
 export const WebPushContext = createContext<WebPushContextProps | null>(null);
@@ -61,7 +64,7 @@ export function WebPushProvider({ children }: ProviderProps) {
       permission,
       isLoading,
       isSubscribed,
-      subscribe: async () => {
+      subscribe: async (t: TFunction) => {
         try {
           setIsLoading(true);
           const newPermission = await Notification.requestPermission();
@@ -74,7 +77,7 @@ export function WebPushProvider({ children }: ProviderProps) {
             });
             addSubscription({ subscription: JSON.stringify(subscription) });
             setIsSubscribed(true);
-            showToast("Notifications enabled successfully", "success");
+            showToast(t("notifications_enabled_success"), "success");
           }
         } catch (error) {
           console.error("Failed to subscribe:", error);
@@ -83,15 +86,15 @@ export function WebPushProvider({ children }: ProviderProps) {
             error.name === "InvalidAccessError" &&
             error.message.includes("applicationServerKey")
           ) {
-            showToast("Please enable Google services for push messaging and try again", "error");
+            showToast(t("enable_google_services_push"), "error");
           } else {
-            showToast("Failed to enable notifications", "error");
+            showToast(t("notifications_enable_failed"), "error");
           }
         } finally {
           setIsLoading(false);
         }
       },
-      unsubscribe: async () => {
+      unsubscribe: async (t: TFunction) => {
         if (!pushManager) return;
         try {
           setIsLoading(true);
@@ -101,11 +104,11 @@ export function WebPushProvider({ children }: ProviderProps) {
             await subscription.unsubscribe();
             removeSubscription({ subscription: subscriptionJson });
             setIsSubscribed(false);
-            showToast("Notifications disabled successfully", "success");
+            showToast(t("notifications_disabled_success"), "success");
           }
         } catch (error) {
           console.error("Failed to unsubscribe:", error);
-          showToast("Failed to disable notifications", "error");
+          showToast(t("notifications_disable_failed"), "error");
         } finally {
           setIsLoading(false);
         }

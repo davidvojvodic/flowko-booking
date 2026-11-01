@@ -30,6 +30,8 @@ vi.mock("@calcom/lib/tracing/factory", () => ({
   },
 }));
 
+import { sendScheduledEmailsAndSMS } from "@calcom/emails/email-manager";
+
 import { handleConfirmation } from "./handleConfirmation";
 import { scheduleNoShowTriggers } from "./handleNewBooking/scheduleNoShowTriggers";
 
@@ -53,7 +55,11 @@ function withEnabledApps(...enabledSlugs: string[]) {
 
 const CONFERENCE_CREDENTIAL_ID = 7;
 
-async function confirmBookingWithLocation(location: string | null, evtLocation: string | null = location) {
+async function confirmBookingWithLocation(
+  location: string | null,
+  evtLocation: string | null = location,
+  eventName?: string | null
+) {
   const evt = {
     type: "30min",
     title: "Meeting",
@@ -91,6 +97,7 @@ async function confirmBookingWithLocation(location: string | null, evtLocation: 
         requiresConfirmation: true,
         metadata: {},
         title: "Meeting",
+        eventName,
       },
       metadata: {},
       eventTypeId: 1,
@@ -186,5 +193,18 @@ describe("handleConfirmation with a switched-off app's location", () => {
     expect(createdEvent.location).toBe("Prešernov trg 1, Ljubljana");
     expect(updateData).not.toHaveProperty("location");
     expect(prisma.app.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gives the e-mails the event type's name fields, so the booker's title can follow the booker's language", async () => {
+    withEnabledApps();
+
+    await confirmBookingWithLocation("Ljubljana", "Ljubljana", null);
+
+    expect(vi.mocked(sendScheduledEmailsAndSMS).mock.calls[0][5]).toEqual({
+      eventType: "Meeting",
+      eventName: null,
+    });
+    // The second argument rebuilds any title, template or not, from raw booking answers this path doesn't have
+    expect(vi.mocked(sendScheduledEmailsAndSMS).mock.calls[0][1]).toBeUndefined();
   });
 });

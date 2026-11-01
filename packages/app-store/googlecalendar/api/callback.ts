@@ -55,6 +55,7 @@ const showsCalendarConnectErrors = (pageUrl: string) => {
 type CalendarConnectErrorKey =
   | "google_calendar_connections_unavailable"
   | "account_already_linked"
+  | "google_calendar_scopes_missing"
   | "something_went_wrong";
 
 /** state.onErrorReturnTo when it is a page of this app; a relative or malformed value counts as missing. */
@@ -154,10 +155,9 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
       // Flowko: this token is discarded, so end its grant at Google too, unless another connection shares it
       await revokeUnstoredGoogleCalendarToken({ userId: req.session.user.id, key });
       if (!state?.fromApp) {
-        throw new HttpError({
-          statusCode: 400,
-          message: "You must grant all permissions to use this integration",
-        });
+        // Flowko U14: back to a page that says it, instead of a bare JSON error page
+        res.redirect(calendarConnectErrorUrl(getSafeOnErrorReturnTo(state), "google_calendar_scopes_missing"));
+        return;
       }
       res.redirect(
         getSafeRedirectUrl(state.onErrorReturnTo) ??

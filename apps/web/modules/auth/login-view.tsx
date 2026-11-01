@@ -21,9 +21,9 @@ import { Separator } from "@coss/ui/components/separator";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { inferSSRProps } from "@lib/types/inferSSRProps";
 import type { getServerSideProps } from "@server/lib/auth/login/getServerSideProps";
+import { authLangFromUrl, withAuthLang } from "./parseAuthLang";
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
@@ -110,7 +110,6 @@ export default function Login({
 }: PageProps) {
   const searchParams = useCompatSearchParams();
   const { t } = useLocale();
-  const router = useRouter();
   const formSchema = z
     .object({
       email: z
@@ -163,7 +162,9 @@ export default function Login({
     // we're logged in! let's do a hard refresh to the desired url
     else if (!res.error) {
       setLastUsed("credentials");
-      router.push(callbackUrl);
+      // Flowko U14: a full load, so the root layout renders in the account's language. A client-side navigation keeps
+      // the layout of the signed-out page, and the first screen stays in Slovene until a reload.
+      window.location.assign(callbackUrl);
     } else if (res.error === ErrorCode.SecondFactorRequired) setTwoFactorRequired(true);
     else if (res.error === ErrorCode.IncorrectBackupCode) setErrorMessage(t("incorrect_backup_code"));
     else if (res.error === ErrorCode.MissingBackupCodes) setErrorMessage(t("missing_backup_codes"));
@@ -187,7 +188,10 @@ export default function Login({
         <div className="w-full rounded-xl border border-subtle bg-default p-10 shadow-sm">
           {/* Logo */}
           <div className="mb-2 text-center">
-            <h1 className="font-cal text-xl font-bold text-emphasis">{APP_NAME}</h1>
+            {/* Flowko U14: the logo, with the product's name for screen readers; .logo keeps the dark rule of flowko-theme.css */}
+            <h1 className="logo flex justify-center">
+              <img className="h-7 w-auto dark:invert" alt={APP_NAME} src="/api/logo" />
+            </h1>
           </div>
 
           {/* Heading */}
@@ -271,7 +275,9 @@ export default function Login({
                   <Field>
                     <div className="flex w-full items-center justify-between">
                       <FieldLabel>{t("password")}</FieldLabel>
-                      <Link href="/auth/forgot-password" className="text-sm text-subtle hover:text-emphasis">
+                      <Link
+                        href={withAuthLang("/auth/forgot-password", authLangFromUrl(searchParams))}
+                        className="text-sm text-subtle hover:text-emphasis">
                         {t("forgot")}
                       </Link>
                     </div>

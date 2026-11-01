@@ -4,167 +4,29 @@ import { submitAndWaitForResponse } from "./lib/testUtils";
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("unauthorized user sees correct translations (de)", async () => {
-  test.use({
-    locale: "de",
+// Flowko U14: signed out is always Slovene first, whatever the browser asks for
+for (const locale of ["de", "ar", "en", "zh-CN", "pt-BR"]) {
+  test.describe(`unauthorized user sees Slovene with a ${locale} browser`, async () => {
+    test.use({
+      locale,
+    });
+
+    test("should use correct translations and html attributes", async ({ page }) => {
+      await page.goto("/");
+      // we dont need to wait for styles and images, only for dom
+      await page.waitForLoadState("domcontentloaded");
+
+      await page.locator("html[lang=sl]").waitFor({ state: "attached" });
+      await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
+
+      {
+        const subtitle = page.getByTestId("login-subtitle");
+        await expect(subtitle).toBeVisible();
+        await expect(subtitle).not.toHaveText(/Welcome back/i);
+      }
+    });
   });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    // we dont need to wait for styles and images, only for dom
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=de]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (ar)", async () => {
-  test.use({
-    locale: "ar",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=ar]").waitFor({ state: "attached" });
-    await page.locator("html[dir=rtl]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (zh)", async () => {
-  test.use({
-    locale: "zh",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=zh]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (zh-CN)", async () => {
-  test.use({
-    locale: "zh-CN",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=zh-CN]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (zh-TW)", async () => {
-  test.use({
-    locale: "zh-TW",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=zh-TW]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (pt)", async () => {
-  test.use({
-    locale: "pt",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=pt]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (pt-br)", async () => {
-  test.use({
-    locale: "pt-BR",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    await page.locator("html[lang=pt-BR]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
-
-test.describe("unauthorized user sees correct translations (es-419)", async () => {
-  test.use({
-    locale: "es",
-  });
-
-  test("should use correct translations and html attributes", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
-
-    // es-419 is disabled in i18n config, so es should be used as fallback
-    await page.locator("html[lang=es]").waitFor({ state: "attached" });
-    await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
-
-    {
-      const subtitle = page.getByTestId("login-subtitle");
-      await expect(subtitle).toBeVisible();
-      await expect(subtitle).not.toHaveText(/Welcome back/i);
-    }
-  });
-});
+}
 
 test.describe("authorized user sees correct translations (de)", async () => {
   test.use({
@@ -386,7 +248,7 @@ test.describe("authorized user sees correct translations (ar)", async () => {
   });
 });
 
-test.describe("authorized user sees changed translations (de->ar)", async () => {
+test.describe("authorized user sees changed translations (de->sl)", async () => {
   test.use({
     locale: "en",
   });
@@ -399,24 +261,24 @@ test.describe("authorized user sees changed translations (de->ar)", async () => 
       await user.apiLogin();
     });
 
-    await test.step("should change the language and show Arabic translations", async () => {
+    await test.step("should change the language and show Slovene translations", async () => {
       await page.goto("/settings/my-account/general");
 
       await page.waitForLoadState("networkidle");
 
       await page.getByTestId("locale-select").click();
-      await page.getByTestId("select-option-ar").click();
+      await page.getByTestId("select-option-sl").click();
 
       await submitAndWaitForResponse(page, "/api/trpc/me/updateProfile?batch=1", {
         action: () => page.click("[data-testid=general-submit-button]"),
       });
 
-      await page.locator("html[lang=ar]").waitFor({ state: "attached" });
-      await page.locator("html[dir=rtl]").waitFor({ state: "attached" });
+      await page.locator("html[lang=sl]").waitFor({ state: "attached" });
+      await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
 
       {
         // at least one is visible
-        const locator = page.getByText("عام", { exact: true }).last(); // "general"
+        const locator = page.getByText("Splošno", { exact: true }).last(); // "general"
         await expect(locator).toBeVisible();
       }
 
@@ -426,16 +288,16 @@ test.describe("authorized user sees changed translations (de->ar)", async () => 
       }
     });
 
-    await test.step("should reload and show Arabic translations", async () => {
+    await test.step("should reload and show Slovene translations", async () => {
       await page.reload();
 
       await page.waitForLoadState("domcontentloaded");
 
-      await page.locator("html[lang=ar]").waitFor({ state: "attached" });
-      await page.locator("html[dir=rtl]").waitFor({ state: "attached" });
+      await page.locator("html[lang=sl]").waitFor({ state: "attached" });
+      await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
 
       {
-        const locator = page.getByText("عام", { exact: true }).last(); // "general"
+        const locator = page.getByText("Splošno", { exact: true }).last(); // "general"
         await expect(locator).toBeVisible();
       }
 
@@ -447,7 +309,7 @@ test.describe("authorized user sees changed translations (de->ar)", async () => 
   });
 });
 
-test.describe("authorized user sees changed translations (de->pt-BR) [locale1]", async () => {
+test.describe("authorized user sees changed translations (de->en) [locale1]", async () => {
   test.use({
     locale: "en",
   });
@@ -460,22 +322,22 @@ test.describe("authorized user sees changed translations (de->pt-BR) [locale1]",
       await user.apiLogin();
     });
 
-    await test.step("should change the language and show Brazil-Portuguese translations", async () => {
+    await test.step("should change the language and show English translations", async () => {
       await page.goto("/settings/my-account/general");
       await page.waitForLoadState("networkidle");
 
       await page.getByTestId("locale-select").click();
-      await page.getByTestId("select-option-pt-BR").click();
+      await page.getByTestId("select-option-en").click();
 
       await submitAndWaitForResponse(page, "/api/trpc/me/updateProfile?batch=1", {
         action: () => page.click("[data-testid=general-submit-button]"),
       });
 
-      await page.locator("html[lang=pt-BR]").waitFor({ state: "attached" });
+      await page.locator("html[lang=en]").waitFor({ state: "attached" });
       await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
 
       {
-        const locator = page.getByText("Geral", { exact: true }).last(); // "general"
+        const locator = page.getByText("General", { exact: true }).last(); // "general"
         await expect(locator).toBeVisible();
       }
 
@@ -485,16 +347,16 @@ test.describe("authorized user sees changed translations (de->pt-BR) [locale1]",
       }
     });
 
-    await test.step("should reload and show Brazil-Portuguese translations", async () => {
+    await test.step("should reload and show English translations", async () => {
       await page.reload();
 
       await page.waitForLoadState("domcontentloaded");
 
-      await page.locator("html[lang=pt-BR]").waitFor({ state: "attached" });
+      await page.locator("html[lang=en]").waitFor({ state: "attached" });
       await page.locator("html[dir=ltr]").waitFor({ state: "attached" });
 
       {
-        const locator = page.getByText("Geral", { exact: true }).last(); // "general"
+        const locator = page.getByText("General", { exact: true }).last(); // "general"
         await expect(locator).toBeVisible();
       }
 

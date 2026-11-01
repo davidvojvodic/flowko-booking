@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppCategoryLabel, getCategoryAppsTitle, getNoCategoryAppsHeadline } from "@calcom/lib/appCategoryLabels";
 import Link from "next/link";
 
 import { AppCard } from "@calcom/web/modules/apps/components/AppCard";
@@ -31,7 +32,7 @@ export default function Apps({ apps, category }: CategoryDataProps) {
             {category && (
               <span className="text-default gap-1">
                 <span>&nbsp;/&nbsp;</span>
-                {t("category_apps", { category: category[0].toUpperCase() + category?.slice(1) })}
+                {getCategoryAppsTitle(t, category)}
               </span>
             )}
           </>

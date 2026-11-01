@@ -1707,7 +1707,7 @@ describe("handleNewBooking", () => {
               await handleNewBooking({
                 bookingData: mockedBookingData,
               })
-          ).rejects.toThrowError("Invalid event length");
+          ).rejects.toThrowError("invalid_event_length_error");
         },
         timeout
       );

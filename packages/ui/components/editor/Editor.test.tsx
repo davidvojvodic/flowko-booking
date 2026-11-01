@@ -26,7 +26,7 @@ describe("Editor", () => {
 
   it("renders toolbar", () => {
     render(<Editor {...defaultProps} />);
-    expect(screen.getByText("Normal")).toBeInTheDocument();
+    expect(screen.getByText("editor_normal")).toBeInTheDocument();
     expect(screen.getByText("add_variable")).toBeInTheDocument();
   });
 

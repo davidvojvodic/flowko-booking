@@ -2,6 +2,7 @@ import type { MutableRefObject } from "react";
 import { forwardRef } from "react";
 
 import { useEmbedBookerUrl } from "@calcom/features/bookings/hooks/useBookerUrl";
+import ServerTrans from "@calcom/lib/components/ServerTrans";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { TextArea } from "@calcom/ui/components/form";
 
@@ -16,6 +17,10 @@ import type {
 import { buildFlowkoSnippet } from "./buildFlowkoSnippet";
 import { embedLibUrl, EMBED_PREVIEW_HTML_URL } from "./constants";
 import { useEmbedCalOrigin } from "./hooks";
+
+// Flowko U13-21: the installation guide. Both languages link to the Slovenian page, because docs.flowko.si
+// serves no English pages yet.
+const EMBED_GUIDE_URL = "https://docs.flowko.si/rezervacije/namestitev";
 
 // Flowko U13-04/05: a tab's `id` is what Embed.tsx matches; its `name` is only the label, an i18n key that
 // HorizontalTabItem translates. Only the HTML code and the preview are left (Q10): the React (iframe) and
@@ -154,12 +159,26 @@ export const tabs = [
             data-testid="embed-code"
             ref={ref as typeof ref & MutableRefObject<HTMLTextAreaElement>}
             name="embed-code"
-            className="text-default bg-default h-[calc(100%-50px)] font-mono"
+            className="text-default bg-default h-[calc(100%-90px)] font-mono"
             style={{ resize: "none", overflow: "auto" }}
             readOnly
             value={code}
           />
-          <p className="text-subtle hidden text-sm">{t("need_help_embedding")}</p>
+          <p className="text-subtle mb-2 mt-2 text-sm" data-testid="embed-help-link">
+            <ServerTrans
+              t={t}
+              i18nKey="embed_help_link"
+              components={[
+                <a
+                  key="embed-guide"
+                  href={EMBED_GUIDE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emphasis underline"
+                />,
+              ]}
+            />
+          </p>
         </>
       );
     }),

@@ -70,8 +70,9 @@ export default defineConfig({
       },
       // Alias Node.js built-ins for jsdom environment
       { find: "crypto", replacement: "node:crypto" },
-      // API v1 path alias
-      { find: "~", replacement: path.resolve(__dirname, "apps/api/v1") },
+      // apps/web `~/*` alias (apps/web/tsconfig.json). apps/api/v1 does not exist in this fork, so the old
+      // target resolved nothing; this lets a page that imports `~/...` be tested (Flowko U14).
+      { find: "~", replacement: path.resolve(__dirname, "apps/web/modules") },
       // apps/web path aliases
       { find: "@lib", replacement: path.resolve(__dirname, "apps/web/lib") },
       { find: "@components", replacement: path.resolve(__dirname, "apps/web/components") },

@@ -31,8 +31,16 @@ const WebhooksViewServerWrapper = async () => {
   }
   // Flowko: only an active instance admin may manage webhooks. The session role comes from the database, so
   // it still says ADMIN for an admin whom validateRole signed in as INACTIVE_ADMIN (no 2FA, weak password).
-  const user = await new UserRepository(prisma).findUnlockedUserForSession({ userId: session.user.id });
-  if (!(await isActiveInstanceAdminSession(user, req))) {
+  // A lookup that fails counts as "not an admin": the visitor gets the not-found page, never an error page.
+  // notFound() stays outside the try, because Next signals it by throwing.
+  let isAdmin = false;
+  try {
+    const user = await new UserRepository(prisma).findUnlockedUserForSession({ userId: session.user.id });
+    isAdmin = await isActiveInstanceAdminSession(user, req);
+  } catch (error) {
+    console.error("Webhooks page: admin check failed", error);
+  }
+  if (!isAdmin) {
     notFound();
   }
 
