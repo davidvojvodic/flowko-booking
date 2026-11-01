@@ -2012,4 +2012,86 @@ describe("Azure AD JWT callback", () => {
       );
     });
   });
+
+  // Flowko U14: the SL / EN switch's choice survives a new sign-in, and only the token's language carries it.
+  describe("the UI language in the token", () => {
+    const token = { sub: "1", email: "user@example.com", upId: "usr_1" } as any;
+    const dbUser = (locale: string, metadata: unknown) => ({
+      id: 1,
+      email: "user@example.com",
+      name: "Test",
+      username: "test",
+      role: "USER",
+      locale,
+      metadata,
+      avatarUrl: null,
+      identityProvider: "GOOGLE",
+      identityProviderId: "google-123",
+      teams: [],
+      movedToProfileId: null,
+    });
+
+    it("signs in with credentials in the chosen language, not the stored one", async () => {
+      const result = await jwtCallback({
+        token,
+        user: { ...dbUser("sl", { uiLanguage: "en" }), id: 1 } as any,
+        account: { type: "credentials", provider: "credentials", providerAccountId: "1" } as any,
+      } as any);
+
+      expect(result.locale).toBe("en");
+      expect(result).not.toHaveProperty("metadata");
+    });
+
+    it("signs in with credentials in the stored language without a choice", async () => {
+      const result = await jwtCallback({
+        token,
+        user: { ...dbUser("sl", {}), id: 1 } as any,
+        account: { type: "credentials", provider: "credentials", providerAccountId: "1" } as any,
+      } as any);
+
+      expect(result.locale).toBe("sl");
+    });
+
+    it("signs in with OAuth in the chosen language", async () => {
+      mockPrismaUserFindFirst.mockResolvedValue(dbUser("sl", { uiLanguage: "en" }));
+      mockCredentialRepoFindFirst.mockResolvedValue({ id: 1 });
+
+      const result = await jwtCallback({
+        token,
+        user: { id: 1, email: "user@example.com" } as any,
+        account: { type: "oauth", provider: "google", providerAccountId: "google-123", scope: "" } as any,
+      } as any);
+
+      expect(result.locale).toBe("en");
+      expect(result).not.toHaveProperty("metadata");
+    });
+
+    it("merges an identity in the chosen language, and keeps metadata out of the token", async () => {
+      mockPrismaUserFindFirst.mockResolvedValue(dbUser("sl", { uiLanguage: "en", stripeCustomerId: "cus_1" }));
+
+      const result = await jwtCallback({ token } as any);
+
+      expect(mockPrismaUserFindFirst.mock.calls[0][0].select.metadata).toBe(true);
+      expect(result.locale).toBe("en");
+      expect(result).not.toHaveProperty("metadata");
+    });
+
+    it("keeps the token's language on every later read, so a reload changes nothing", async () => {
+      mockPrismaUserFindFirst.mockResolvedValue(dbUser("sl", { uiLanguage: "sl" }));
+
+      const result = await jwtCallback({ token: { ...token, locale: "en" } } as any);
+
+      expect(result.locale).toBe("en");
+    });
+
+    it("takes the language the switch sends through useSession().update", async () => {
+      const result = await jwtCallback({
+        token: { ...token, locale: "sl" },
+        trigger: "update",
+        session: { locale: "en" },
+      } as any);
+
+      expect(result.locale).toBe("en");
+    });
+  });
 });

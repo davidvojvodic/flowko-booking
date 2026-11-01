@@ -5,6 +5,7 @@ import { useEffect, useReducer, type CSSProperties } from "react";
 import type { UseFormReturn } from "react-hook-form";
 import { useForm } from "react-hook-form";
 
+import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import type { inferSSRProps } from "@calcom/types/inferSSRProps";
@@ -16,10 +17,13 @@ import AuthContainer from "@components/ui/AuthContainer";
 
 import type { getServerSideProps } from "@server/lib/auth/forgot-password/[id]/getServerSideProps";
 
+import { authLangFromUrl, withAuthLang } from "../../parseAuthLang";
+
 export type PageProps = inferSSRProps<typeof getServerSideProps>;
 
 function Success() {
   const { t } = useLocale();
+  const lang = authLangFromUrl(useCompatSearchParams());
   return (
     <>
       <div className="stack-y-6">
@@ -28,7 +32,7 @@ function Success() {
             {t("password_updated")}
           </h2>
         </div>
-        <Button href="/auth/login" className="w-full justify-center">
+        <Button href={withAuthLang("/auth/login", lang)} className="w-full justify-center">
           {t("login")}
         </Button>
       </div>
@@ -38,6 +42,7 @@ function Success() {
 
 function Expired() {
   const { t } = useLocale();
+  const lang = authLangFromUrl(useCompatSearchParams());
   return (
     <>
       <div className="stack-y-6">
@@ -47,7 +52,7 @@ function Expired() {
         </div>
         <p>{t("request_is_expired_instructions")}</p>
         <Link
-          href="/auth/forgot-password"
+          href={withAuthLang("/auth/forgot-password", lang)}
           className="flex w-full justify-center px-4 py-2 text-sm font-medium text-blue-600 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2">
           {t("try_again")}
         </Link>

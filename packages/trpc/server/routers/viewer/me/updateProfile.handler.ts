@@ -417,5 +417,8 @@ const handleUserMetadata = ({ ctx, input }: UpdateProfileOptions) => {
   const cleanMetadata = cleanMetadataAllowedUpdateKeys(input.metadata);
   const userMetadata = userMetadataSchema.parse(user.metadata);
   // Required so we don't override and delete saved values
-  return { ...userMetadata, ...cleanMetadata };
+  const metadata = { ...userMetadata, ...cleanMetadata };
+  // Flowko U14: saving the account's language (Settings → Jezik) ends the SL / EN switch's separate choice
+  if (input.locale) delete metadata.uiLanguage;
+  return metadata;
 };

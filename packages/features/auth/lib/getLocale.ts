@@ -7,6 +7,12 @@ import { i18n } from "@calcom/i18n/next-i18next.config";
 
 type ReadonlyHeaders = Awaited<ReturnType<typeof import("next/headers").headers>>;
 type ReadonlyRequestCookies = Awaited<ReturnType<typeof import("next/headers").cookies>>;
+type LocaleRequest =
+  | GetTokenParams["req"]
+  | {
+      cookies: ReadonlyRequestCookies;
+      headers: ReadonlyHeaders;
+    };
 
 /**
  * This is a slimmed down version of the `getServerSession` function from
@@ -19,14 +25,7 @@ type ReadonlyRequestCookies = Awaited<ReturnType<typeof import("next/headers").c
  * token has expired (30 days). This should be fine as we call `/auth/session`
  * frequently enough on the client-side to keep the session alive.
  */
-export const getLocale = async (
-  req:
-    | GetTokenParams["req"]
-    | {
-        cookies: ReadonlyRequestCookies;
-        headers: ReadonlyHeaders;
-      }
-): Promise<string> => {
+export const getLocale = async (req: LocaleRequest): Promise<string> => {
   const token = await getToken({
     req: req as GetTokenParams["req"],
   });
@@ -37,6 +36,16 @@ export const getLocale = async (
     return tokenLocale;
   }
 
+  // Flowko U14 (David, 1 Nov 2026): signed out is always Slovene first, whatever the browser asks for. The one
+  // exception is a service set to „Jezik brskalnika obiskovalca“, which asks getBrowserLocale itself.
+  return "sl";
+};
+
+/**
+ * Flowko U14: the language the visitor's browser asks for, for a service set to „Jezik brskalnika obiskovalca“. This
+ * is upstream's Accept-Language logic, unchanged, and it doesn't look at the session.
+ */
+export const getBrowserLocale = (req: LocaleRequest): string => {
   const acceptLanguage =
     req.headers instanceof Headers ? req.headers.get("accept-language") : req.headers["accept-language"];
 

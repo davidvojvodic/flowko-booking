@@ -71,7 +71,6 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
 
       if (res.locale) {
         window.calNewLocale = res.locale;
-        document.cookie = `calNewLocale=${res.locale}; path=/`;
       }
     },
     onError: () => {
@@ -107,7 +106,8 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
     defaultValues: {
       locale: {
         value: localeProp || "",
-        label: localeOptions.find((option) => option.value === localeProp)?.label || "",
+        // Flowko U14: the list offers SL and EN; a language stored earlier still shows, until it's changed
+        label: localeOptions.find((option) => option.value === localeProp)?.label || localeProp,
       },
       timeZone: user.timeZone || "",
       timeFormat: {
@@ -182,6 +182,7 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
                     onChange={onChange}
                     data-testid="locale-select"
                   />
+                  <p className="text-subtle mt-2 text-sm">{t("language_setting_scope_hint")}</p>
                 </>
               )}
             />

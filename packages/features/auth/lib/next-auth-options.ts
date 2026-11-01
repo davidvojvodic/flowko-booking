@@ -56,6 +56,7 @@ import { getOrgUsernameFromEmail } from "../signup/utils/getOrgUsernameFromEmail
 import { dub } from "./dub";
 import { ErrorCode } from "./ErrorCode";
 import CalComAdapter from "./next-auth-custom-adapter";
+import { resolveUiLocale } from "./resolveUiLocale";
 import { verifyPassword } from "./verifyPassword";
 
 type UserWithProfiles = NonNullable<
@@ -544,6 +545,7 @@ export const getOptions = ({
             email: true,
             role: true,
             locale: true,
+            metadata: true,
             movedToProfileId: true,
             teams: {
               include: {
@@ -564,7 +566,8 @@ export const getOptions = ({
 
         // Check if the existingUser has any active teams
         const belongsToActiveTeam = checkIfUserBelongsToActiveTeam(existingUser);
-        const { teams: _teams, ...existingUserWithoutTeamsField } = existingUser;
+        // Flowko U14: metadata is read for the UI language only and stays out of the token
+        const { teams: _teams, metadata: existingMetadata, ...existingUserWithoutTeamsField } = existingUser;
         const allProfiles = await ProfileRepository.findAllProfilesForUserIncludingMovedUser(existingUser);
         log.debug(
           "callbacks:jwt:autoMergeIdentities",
@@ -596,6 +599,7 @@ export const getOptions = ({
 
         return {
           ...existingUserWithoutTeamsField,
+          locale: resolveUiLocale({ locale: existingUser.locale, metadata: existingMetadata }),
           ...token,
           profileId: profile.id,
           upId,
@@ -649,7 +653,7 @@ export const getOptions = ({
           impersonatedBy: user.impersonatedBy,
           belongsToActiveTeam: user?.belongsToActiveTeam,
           org: user?.org,
-          locale: user?.locale,
+          locale: resolveUiLocale({ locale: user?.locale, metadata: user?.metadata }),
           profileId: user.profile?.id ?? token.profileId ?? null,
           upId: user.profile?.upId ?? token.upId ?? null,
           inactiveAdminReason: user.inactiveAdminReason,
@@ -839,7 +843,7 @@ export const getOptions = ({
           impersonatedBy: token.impersonatedBy,
           org: token?.org,
           orgAwareUsername: token.orgAwareUsername,
-          locale: existingUser.locale,
+          locale: resolveUiLocale({ locale: existingUser.locale, metadata: existingUser.metadata }),
         } as JWT;
       }
 

@@ -44,6 +44,8 @@ declare module "next-auth" {
     /** Set when role is INACTIVE_ADMIN: why admin security requirements are not met */
     inactiveAdminReason?: "both" | "password" | "2fa";
     locale?: string | null;
+    /** Flowko U14: read once at sign-in for the UI language (resolveUiLocale), never copied into the token */
+    metadata?: unknown;
     profile?: UserProfile;
     samlTenant?: string;
   }

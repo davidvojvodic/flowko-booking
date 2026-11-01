@@ -3,6 +3,7 @@ import withEmbedSsrAppDir from "app/WithEmbedSSR";
 import type { PageProps as ServerPageProps } from "app/_types";
 import { cookies, headers } from "next/headers";
 
+import { getBrowserLocale } from "@calcom/features/auth/lib/getLocale";
 import { loadTranslations } from "@calcom/i18n/server";
 
 import { getEventTypePageLocale } from "@lib/booking/getBookerPageLocale";
@@ -31,6 +32,7 @@ const ServerPage = async ({ params, searchParams }: ServerPageProps) => {
   const eventLocale = await getEventTypePageLocale({
     interfaceLanguage: props.eventType?.interfaceLanguage,
     eventTypeId: props.eventType?.id,
+    browserLocale: getBrowserLocale(context.req),
   });
   if (eventLocale) {
     const ns = "common";

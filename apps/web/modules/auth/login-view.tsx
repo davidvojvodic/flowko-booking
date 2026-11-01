@@ -21,6 +21,7 @@ import { Separator } from "@coss/ui/components/separator";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { inferSSRProps } from "@lib/types/inferSSRProps";
 import type { getServerSideProps } from "@server/lib/auth/login/getServerSideProps";
+import { authLangFromUrl, withAuthLang } from "./parseAuthLang";
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -271,7 +272,9 @@ export default function Login({
                   <Field>
                     <div className="flex w-full items-center justify-between">
                       <FieldLabel>{t("password")}</FieldLabel>
-                      <Link href="/auth/forgot-password" className="text-sm text-subtle hover:text-emphasis">
+                      <Link
+                        href={withAuthLang("/auth/forgot-password", authLangFromUrl(searchParams))}
+                        className="text-sm text-subtle hover:text-emphasis">
                         {t("forgot")}
                       </Link>
                     </div>

@@ -292,7 +292,7 @@ describe("googlecalendar callback: Google Meet install", () => {
 });
 
 describe("googlecalendar callback: credential keyring", () => {
-  const UNAVAILABLE = "Calendar connections are unavailable right now. Please try again later.";
+  const UNAVAILABLE = "Povezovanje koledarjev trenutno ni na voljo. Poskusite znova pozneje.";
   // The installed calendars show ?error= as a toast (CalendarListContainer), so the host goes back there
   const BACK_WITH_REASON = `${WEBAPP_URL}/apps/installed/calendar?error=google_calendar_connections_unavailable`;
   const freshTokens = {

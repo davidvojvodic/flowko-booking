@@ -6,12 +6,15 @@ import Link from "next/link";
 import type { CSSProperties, SyntheticEvent } from "react";
 import React from "react";
 
+import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { isRateLimitError } from "@calcom/trpc/react/rateLimitError";
 import { Button } from "@calcom/ui/components/button";
 import { EmailField } from "@calcom/ui/components/form";
 
 import AuthContainer from "@components/ui/AuthContainer";
+
+import { authLangFromUrl, withAuthLang } from "../parseAuthLang";
 
 export type PageProps = {
   csrfToken?: string;
@@ -20,6 +23,7 @@ export type PageProps = {
 export default function ForgotPassword(props: PageProps) {
   const csrfToken = "csrfToken" in props ? (props.csrfToken as string) : undefined;
   const { t } = useLocale();
+  const loginHref = withAuthLang("/auth/login", authLangFromUrl(useCompatSearchParams()));
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<{ message: string } | null>(null);
   const [success, setSuccess] = React.useState(false);
@@ -92,7 +96,7 @@ export default function ForgotPassword(props: PageProps) {
         <p className="">{t("password_reset_email", { email })}</p>
         <p className="">{t("password_reset_leading")}</p>
         {error && <p className="text-center text-red-600">{error.message}</p>}
-        <Button color="secondary" className="w-full justify-center" href="/auth/login">
+        <Button color="secondary" className="w-full justify-center" href={loginHref}>
           {t("back_to_signin")}
         </Button>
       </div>
@@ -106,7 +110,7 @@ export default function ForgotPassword(props: PageProps) {
       footerText={
         !success && (
           <>
-            <Link href="/auth/login" className="text-emphasis font-medium">
+            <Link href={loginHref} className="text-emphasis font-medium">
               {t("back_to_signin")}
             </Link>
           </>

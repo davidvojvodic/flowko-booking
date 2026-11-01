@@ -4,6 +4,7 @@ import { _generateMetadata } from "app/_utils";
 import { CustomI18nProvider } from "app/CustomI18nProvider";
 import { cookies, headers } from "next/headers";
 
+import { getBrowserLocale } from "@calcom/features/auth/lib/getLocale";
 import { loadTranslations } from "@calcom/i18n/server";
 
 import { getEventTypePageLocale } from "@lib/booking/getBookerPageLocale";
@@ -45,6 +46,7 @@ const ServerPage = async ({ params, searchParams }: _PageProps) => {
   const locale = await getEventTypePageLocale({
     interfaceLanguage: pageProps.eventData?.interfaceLanguage,
     eventTypeId: pageProps.eventData?.id,
+    browserLocale: getBrowserLocale(legacyCtx.req),
   });
   if (locale) {
     const ns = "common";

@@ -4152,6 +4152,8 @@
   "user_added_successfully": "Uporabnik je dodan.",
   "error_adding_user": "Pri dodajanju tega uporabnika je prišlo do napake.",
   "error_updating_user": "Pri posodabljanju tega uporabnika je prišlo do napake.",
+  "language_switcher_label": "Jezik",
+  "language_setting_scope_hint": "Ta jezik velja tudi za vaše e-pošte in strani za rezervacijo. Stikalo SL / EN v stranski vrstici spremeni samo vaše zaslone.",
   "ADD_NEW_STRINGS_ABOVE_THIS_LINE_TO_PREVENT_MERGE_CONFLICTS": "↑↑↑↑↑↑↑↑↑↑↑↑↑ Add your new strings above here ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑",
   "invite_team_member": "Povabi člana ekipe",
   "invite_team_individual_segment": "Povabi posameznika",

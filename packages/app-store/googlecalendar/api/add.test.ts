@@ -84,7 +84,7 @@ describe("googlecalendar add: credential keyring", () => {
 
     expect(res._getStatusCode()).toBe(503);
     expect(res._getJSONData().message).toBe(
-      "Calendar connections are unavailable right now. Please try again later."
+      "Povezovanje koledarjev trenutno ni na voljo. Poskusite znova pozneje."
     );
     expect(res._getJSONData().url).toBeUndefined();
     expect(mocks.generateAuthUrl).not.toHaveBeenCalled();

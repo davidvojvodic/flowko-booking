@@ -21,7 +21,9 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
   cookies: async () => ({ getAll: () => [] }),
 }));
-vi.mock("@lib/buildLegacyCtx", () => ({ buildLegacyCtx: () => ({}) }));
+vi.mock("@lib/buildLegacyCtx", () => ({
+  buildLegacyCtx: () => ({ req: { cookies: {}, headers: { "accept-language": "en-GB,en;q=0.9" } } }),
+}));
 vi.mock("app/WithAppDirSsr", () => ({ withAppDirSsr: () => async () => mocks.pageProps }));
 vi.mock("app/_utils", () => ({ _generateMetadata: vi.fn() }));
 vi.mock("@lib/d/[link]/[slug]/getServerSideProps", () => ({ getServerSideProps: vi.fn() }));
@@ -48,7 +50,11 @@ describe("/d/<link>/<slug> page language (Flowko U13 fix pass)", () => {
     mocks.getEventTypePageLocale.mockResolvedValue(null);
     await renderPage();
 
-    expect(mocks.getEventTypePageLocale).toHaveBeenCalledWith({ interfaceLanguage: null, eventTypeId: 42 });
+    expect(mocks.getEventTypePageLocale).toHaveBeenCalledWith({
+      interfaceLanguage: null,
+      eventTypeId: 42,
+      browserLocale: "en",
+    });
   });
 
   it("wraps the booker in the event type's language (the owner's while it is off)", async () => {
