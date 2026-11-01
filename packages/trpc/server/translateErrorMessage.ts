@@ -38,6 +38,7 @@ const CODE_KEYS: Record<string, string> = {
   UNAUTHORIZED: "unauthorized",
   FORBIDDEN: "error_forbidden",
   NOT_FOUND: "error_not_found",
+  BAD_REQUEST: "invalid_input",
 };
 
 const dictionaries = { en, sl } as unknown as Record<string, Record<string, string>>;

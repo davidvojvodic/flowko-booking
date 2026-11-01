@@ -2,7 +2,7 @@
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 
-// Flowko U14: by this name rather than "~/shell", which vitest maps to apps/api/v1, so the page's test can load it
+// Flowko U14: by this name rather than "~/shell", so the page's test loads the same module its mocks replace
 import { LanguageSwitcher } from "@calcom/web/modules/shell/LanguageSwitcher";
 import { MobileNavigationMoreItems } from "@calcom/web/modules/shell/navigation/Navigation";
 import Shell from "@calcom/web/modules/shell/Shell";

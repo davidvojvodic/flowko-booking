@@ -279,7 +279,7 @@ const SelectedCalendarsSettingsHeading = (props: {
       </div>
       {props.showScopeSelector && (
         <div className="mt-2 flex flex-row items-center space-x-2">
-          <span className="text-default text-sm">{t("using")}</span>
+          <span className="text-default text-sm">{t("settings_in_use")}</span>
           <Select
             onChange={(option) => {
               if (!option) return;
@@ -288,7 +288,6 @@ const SelectedCalendarsSettingsHeading = (props: {
             value={switchScopeSelectValue}
             options={optionsToSwitchScope}
           />
-          <span className="text-default text-sm">settings</span>
         </div>
       )}
     </div>

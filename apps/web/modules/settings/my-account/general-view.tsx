@@ -130,7 +130,7 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
     },
   });
   const {
-    formState: { isDirty, isSubmitting },
+    formState: { isDirty, isSubmitting, defaultValues },
     reset,
     getValues,
   } = formMethods;
@@ -162,7 +162,8 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
             setIsUpdateBtnLoading(true);
             mutation.mutate({
               ...values,
-              locale: values.locale.value,
+              // Flowko U14: only a real change of language; saving the time zone must not end the SL / EN choice
+              locale: values.locale.value !== defaultValues?.locale?.value ? values.locale.value : undefined,
               timeFormat: values.timeFormat.value,
               weekStart: values.weekStart.value,
             });

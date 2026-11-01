@@ -21,14 +21,28 @@ const VALUES: Record<string, string> = {
   "--cal-text-muted": "#83839E",
   "--cal-bg-primary": "#7A3FD1",
   "--cal-bg-primary-emphasis": "#6A31BF",
+  "--cal-brand": "#7A3FD1",
+  "--cal-brand-emphasis": "#6A31BF",
+  "--cal-brand-text": "#FFFFFF",
 };
 
 describe("flowko-theme.css (Flowko U14)", () => {
-  it("declares its values only under :root:not(.dark), so tokens.css's .dark still wins in dark mode", () => {
+  it("declares its values under :root:not(.dark), and in .dark only the brand, so tokens.css's .dark still wins", () => {
     const blocks = Array.from(css.matchAll(/([^{}]+)\{[^{}]*--cal-[^{}]*\}/g)).map((block) =>
       block[1].replace(/\/\*[\s\S]*?\*\//g, "").trim()
     );
-    expect(blocks).toEqual([":root:not(.dark)"]);
+    expect(blocks).toEqual([":root:not(.dark)", ".dark"]);
+    const dark = css.match(/\n\.dark \{([^{}]*)\}/)?.[1] ?? "";
+    expect(Array.from(dark.matchAll(/(--[\w-]+):/g)).map((match) => match[1])).toEqual([
+      "--cal-brand",
+      "--cal-brand-emphasis",
+      "--cal-brand-text",
+    ]);
+  });
+
+  it("gives the coss Button the brand by reference, so a host's own colour reaches it", () => {
+    expect(css).toMatch(/--primary:\s*var\(--cal-brand\);/);
+    expect(css).toMatch(/--primary-foreground:\s*var\(--cal-brand-text\);/);
   });
 
   it.each(Object.entries(VALUES))("%s is %s", (name, value) => {

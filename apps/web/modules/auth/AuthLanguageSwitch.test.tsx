@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthLanguageSwitch } from "./AuthLanguageSwitch";
 
-vi.mock("@calcom/lib/hooks/useLocale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
+const mocks = vi.hoisted(() => ({ language: "sl" }));
+vi.mock("@calcom/lib/hooks/useLocale", () => ({
+  useLocale: () => ({ t: (key: string) => key, i18n: { language: mocks.language } }),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, prefetch: _prefetch, ...rest }: Record<string, never>) => (
     <a href={href} {...rest}>
@@ -19,7 +22,16 @@ const hrefs = () => ({
 
 describe("AuthLanguageSwitch (Flowko U14)", () => {
   beforeEach(() => {
+    mocks.language = "sl";
     document.body.innerHTML = "";
+  });
+
+  it("marks the language the page is really in, for a signed-in visitor whose account is in English", () => {
+    mocks.language = "en";
+    render(<AuthLanguageSwitch pathname="/auth/forgot-password/abc" searchParams={{}} />);
+
+    expect(screen.getByRole("link", { name: "EN" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("link", { name: "SL" })).not.toHaveAttribute("aria-current");
   });
 
   it("links both languages from a plain page", () => {

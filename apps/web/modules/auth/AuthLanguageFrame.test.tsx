@@ -67,7 +67,7 @@ describe("getAuthLangTranslate", () => {
   });
 });
 
-// Vitest can't load these pages' "~" imports (it maps "~" to apps/api/v1), so this pins the wiring in each.
+// Loading these pages here would pull in their whole server dependencies, so this pins the wiring in each.
 describe("the pages", () => {
   const read = (file: string) => readFileSync(resolve(__dirname, "../..", file), "utf8");
 

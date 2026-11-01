@@ -9,6 +9,18 @@ function DefaultErrorMessage() {
   return <>{t("something_went_wrong")}</>;
 }
 
+// Flowko U14: notFound(), forbidden() and redirect() reach a client boundary as errors with these digests. Next 16's
+// not-found digest is NEXT_HTTP_ERROR_FALLBACK;404; NEXT_NOT_FOUND is the older name.
+const isNextControlFlowError = (error: Error | null) => {
+  const digest = error && "digest" in error ? error.digest : undefined;
+  return (
+    typeof digest === "string" &&
+    (digest === "NEXT_NOT_FOUND" ||
+      digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;") ||
+      digest.startsWith("NEXT_REDIRECT"))
+  );
+};
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode; message?: string },
   { error: Error | null; errorInfo: ErrorInfo | null }
@@ -25,13 +37,9 @@ class ErrorBoundary extends React.Component<
   }
 
   render() {
-    // do not intercept next-not-found error, allow displaying not-found.tsx page when notFound() is thrown on server side
-    if (
-      this.state.error !== null &&
-      "digest" in this.state.error &&
-      this.state.error.digest === "NEXT_NOT_FOUND"
-    ) {
-      return this.props.children;
+    // do not intercept Next's own errors: passing them up lets not-found.tsx or the redirect handle them
+    if (isNextControlFlowError(this.state.error)) {
+      throw this.state.error;
     }
 
     if (this.state.errorInfo) {

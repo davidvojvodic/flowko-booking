@@ -66,8 +66,8 @@ describe("getEventTypePageLocale", () => {
   });
 
   // Flowko U14: the signed-out default is Slovene, so a "" page stays in the browser's language only because every
-  // page passes it. Vitest can't load the other four pages' "~" imports (apps/web/test/app/private-link-page.test.tsx
-  // runs the fifth), so this pins the call in each.
+  // page passes it. apps/web/test/app/private-link-page.test.tsx runs one of the pages; loading the other four here
+  // would pull in their server dependencies, so this pins the call in each.
   it.each([
     "app/(booking-page-wrapper)/d/[link]/[slug]/page.tsx",
     "app/(booking-page-wrapper)/[user]/[type]/page.tsx",

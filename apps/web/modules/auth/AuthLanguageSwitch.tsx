@@ -28,8 +28,9 @@ export function AuthLanguageSwitch({
   pathname: string;
   searchParams: SearchParams;
 }) {
-  const { t } = useLocale();
-  const active = parseAuthLang(searchParams.lang) ?? "sl";
+  const { t, i18n } = useLocale();
+  // The language the page is really in: a signed-in visitor's page follows their account, not the address
+  const active = parseAuthLang(searchParams.lang) ?? (i18n?.language === "en" ? "en" : "sl");
 
   const link = (lang: "sl" | "en") => (
     <Link

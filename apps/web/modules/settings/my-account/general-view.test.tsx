@@ -1,5 +1,5 @@
 import { TooltipProvider } from "@radix-ui/react-tooltip";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import GeneralView from "./general-view";
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   options: {} as { onSuccess?: (res: { locale?: string }) => Promise<void> },
   update: vi.fn(),
   invalidate: vi.fn(),
+  mutate: vi.fn(),
 }));
 
 vi.mock("@calcom/features/settings/appDir/SettingsHeader", () => ({
@@ -27,7 +28,7 @@ vi.mock("@calcom/trpc/react", () => ({
         updateProfile: {
           useMutation: (options: typeof mocks.options) => {
             mocks.options = options;
-            return { mutate: vi.fn() };
+            return { mutate: mocks.mutate };
           },
         },
       },
@@ -70,6 +71,7 @@ describe("Settings → Splošno: language (Flowko U14)", () => {
     document.body.innerHTML = "";
     document.cookie = "calNewLocale=; path=/; max-age=0";
     mocks.update.mockResolvedValue(undefined);
+    mocks.mutate.mockClear();
   });
 
   it("explains how far this language reaches", () => {
@@ -88,6 +90,26 @@ describe("Settings → Splošno: language (Flowko U14)", () => {
     renderView("de");
 
     expect(screen.getByText("de")).toBeInTheDocument();
+  });
+
+  it("doesn't send the language when another setting is saved, so the SL / EN choice stays", async () => {
+    const { container } = renderView("sl");
+
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    expect(mocks.mutate.mock.calls[0][0].locale).toBeUndefined();
+  });
+
+  it("sends the language when it really changed", async () => {
+    const { container } = renderView("sl");
+
+    fireEvent.keyDown(screen.getAllByRole("combobox")[0], { key: "ArrowDown" });
+    fireEvent.click(await screen.findByText("English"));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    expect(mocks.mutate.mock.calls[0][0].locale).toBe("en");
   });
 
   it("no longer writes the calNewLocale cookie, and keeps window.calNewLocale", async () => {

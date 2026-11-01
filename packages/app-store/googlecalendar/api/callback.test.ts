@@ -11,6 +11,7 @@ import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
 
 const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
+  sessionToken: vi.fn(),
   credentialCreate: vi.fn(),
   findFirstByUserIdAndType: vi.fn(),
   deleteById: vi.fn(),
@@ -25,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   isCredentialKeyringConfigured: vi.fn(),
   renewSelectedCalendarCredentialId: vi.fn(),
 }));
+
+vi.mock("next-auth/jwt", () => ({ getToken: mocks.sessionToken }));
 
 vi.mock("googleapis-common", () => ({
   OAuth2Client: vi.fn().mockImplementation(function () {
@@ -481,10 +484,21 @@ describe("googlecalendar callback: credential keyring", () => {
     expect(res._getRedirectUrl()).not.toContain("check constraint");
   });
 
-  it("tells a Slovenian user in Slovenian when it answers with JSON", async () => {
+  it("tells an English account in English when it answers with JSON", async () => {
     mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+    mocks.sessionToken.mockResolvedValueOnce({ locale: "en" });
 
     const res = await connect({ "accept-language": "sl" }, NOT_FROM_APP);
+
+    expect(res._getStatusCode()).toBe(503);
+    expect(res._getJSONData().message).not.toContain("Povezovanje");
+  });
+
+  it("tells a Slovenian account in Slovenian when it answers with JSON", async () => {
+    mocks.isCredentialKeyringConfigured.mockReturnValue(false);
+    mocks.sessionToken.mockResolvedValueOnce({ locale: "sl" });
+
+    const res = await connect({ "accept-language": "en" }, NOT_FROM_APP);
 
     expect(res._getStatusCode()).toBe(503);
     expect(res._getJSONData().message).toBe(

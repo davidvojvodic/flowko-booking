@@ -131,7 +131,7 @@ const TASK_5_KEYS = [
   "notifications_disable_failed",
   "enable_google_services_push",
   "calendar_toggle_error",
-  "using",
+  "settings_in_use",
   "add_new_calendars",
   "pick_a_date",
   "date_range_end",

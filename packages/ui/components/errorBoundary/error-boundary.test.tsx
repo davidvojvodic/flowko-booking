@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { useEffect } from "react";
+import type { ReactNode } from "react";
+import { Component, useEffect } from "react";
+import { vi } from "vitest";
 
 import ErrorBoundary from "./ErrorBoundary";
 
@@ -35,5 +37,38 @@ describe("ErrorBoundary", () => {
     const errorDetails = screen.getByText("Error: Test Error");
     expect(errorMessage).toBeInTheDocument();
     expect(errorDetails).toBeInTheDocument();
+  });
+
+  test.each([
+    "NEXT_HTTP_ERROR_FALLBACK;404",
+    "NEXT_HTTP_ERROR_FALLBACK;403",
+    "NEXT_NOT_FOUND",
+    "NEXT_REDIRECT;replace;/event-types;307;",
+  ])("passes Next's %s up to the next boundary instead of showing an error", (digest) => {
+    class Outer extends Component<{ children: ReactNode }, { caught: boolean }> {
+      state = { caught: false };
+      static getDerivedStateFromError() {
+        return { caught: true };
+      }
+      render() {
+        return this.state.caught ? <div>Outer boundary</div> : this.props.children;
+      }
+    }
+    const Throwing = () => {
+      throw Object.assign(new Error("next"), { digest });
+    };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(
+      <Outer>
+        <ErrorBoundary message="Error Message">
+          <Throwing />
+        </ErrorBoundary>
+      </Outer>
+    );
+
+    expect(screen.getByText("Outer boundary")).toBeInTheDocument();
+    expect(screen.queryByText("Error Message")).not.toBeInTheDocument();
+    consoleError.mockRestore();
   });
 });

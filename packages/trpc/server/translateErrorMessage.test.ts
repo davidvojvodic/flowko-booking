@@ -23,6 +23,8 @@ describe("translateErrorMessage (Flowko U14)", () => {
     expect(translateErrorMessage("FORBIDDEN", "sl")).toBe("Za to dejanje nimate dovoljenja.");
     expect(translateErrorMessage("NOT_FOUND", "sl")).toBe("Ni najdeno.");
     expect(translateErrorMessage("UNAUTHORIZED", "sl")).toBe("Nepooblaščen dostop");
+    expect(translateErrorMessage("BAD_REQUEST", "en")).toBe(translateErrorMessage("invalid_input", "en"));
+    expect(translateErrorMessage("BAD_REQUEST", "sl")).not.toBe("BAD_REQUEST");
   });
 
   it("leaves keys the client compares itself, and sentences, unchanged", () => {
