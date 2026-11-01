@@ -40,7 +40,7 @@ describe("flowko-theme.css (Flowko U14)", () => {
     ]);
   });
 
-  it("gives the coss Button the brand by reference, so a host's own colour reaches it", () => {
+  it("gives the coss Button the brand", () => {
     expect(css).toMatch(/--primary:\s*var\(--cal-brand\);/);
     expect(css).toMatch(/--primary-foreground:\s*var\(--cal-brand-text\);/);
   });
@@ -80,6 +80,12 @@ describe("flowko-theme.css (Flowko U14)", () => {
 });
 
 describe("the sign-in page (Flowko U14)", () => {
+  it("loads the first screen in full after signing in, so it is in the account's language", () => {
+    const login = read("modules/auth/login-view.tsx");
+    expect(login).toContain("window.location.assign(callbackUrl)");
+    expect(login).not.toContain("router.push(callbackUrl)");
+  });
+
   it("shows the logo, and keeps the product's name for screen readers", () => {
     const login = read("modules/auth/login-view.tsx");
     expect(login).toMatch(/<h1 className="logo[^"]*">\s*<img[^>]*alt=\{APP_NAME\}[^>]*src="\/api\/logo"/);

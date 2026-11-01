@@ -164,7 +164,7 @@ export const tabs = [
             readOnly
             value={code}
           />
-          <p className="text-subtle text-sm" data-testid="embed-help-link">
+          <p className="text-subtle mb-2 mt-2 text-sm" data-testid="embed-help-link">
             <ServerTrans
               t={t}
               i18nKey="embed_help_link"

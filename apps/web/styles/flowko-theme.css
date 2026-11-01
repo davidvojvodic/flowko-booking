@@ -27,7 +27,7 @@
   --cal-brand: #7a3fd1;
   --cal-brand-emphasis: #6a31bf;
   --cal-brand-text: #ffffff;
-  /* The coss Button's default variant reads these. By reference, so a host's own colour reaches it too. */
+  /* The coss Button's default variant reads these. */
   --primary: var(--cal-brand);
   --primary-foreground: var(--cal-brand-text);
 

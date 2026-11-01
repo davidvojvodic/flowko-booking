@@ -24,7 +24,6 @@ import type { getServerSideProps } from "@server/lib/auth/login/getServerSidePro
 import { authLangFromUrl, withAuthLang } from "./parseAuthLang";
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
@@ -111,7 +110,6 @@ export default function Login({
 }: PageProps) {
   const searchParams = useCompatSearchParams();
   const { t } = useLocale();
-  const router = useRouter();
   const formSchema = z
     .object({
       email: z
@@ -164,7 +162,9 @@ export default function Login({
     // we're logged in! let's do a hard refresh to the desired url
     else if (!res.error) {
       setLastUsed("credentials");
-      router.push(callbackUrl);
+      // Flowko U14: a full load, so the root layout renders in the account's language. A client-side navigation keeps
+      // the layout of the signed-out page, and the first screen stays in Slovene until a reload.
+      window.location.assign(callbackUrl);
     } else if (res.error === ErrorCode.SecondFactorRequired) setTwoFactorRequired(true);
     else if (res.error === ErrorCode.IncorrectBackupCode) setErrorMessage(t("incorrect_backup_code"));
     else if (res.error === ErrorCode.MissingBackupCodes) setErrorMessage(t("missing_backup_codes"));
