@@ -1,9 +1,9 @@
 "use client";
 
+import type { TFunction } from "i18next";
 import { useSession } from "next-auth/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { showToast } from "@calcom/ui/components/toast";
 
@@ -11,8 +11,10 @@ interface WebPushContextProps {
   permission: NotificationPermission;
   isLoading: boolean;
   isSubscribed: boolean;
-  subscribe: () => Promise<void>;
-  unsubscribe: () => Promise<void>;
+  // Flowko U14: this provider sits above AppRouterI18nProvider (app/layout.tsx), where useLocale has no translations,
+  // so the caller, which is inside it, passes its t for the toasts.
+  subscribe: (t: TFunction) => Promise<void>;
+  unsubscribe: (t: TFunction) => Promise<void>;
 }
 
 export const WebPushContext = createContext<WebPushContextProps | null>(null);
@@ -22,7 +24,6 @@ interface ProviderProps {
 }
 
 export function WebPushProvider({ children }: ProviderProps) {
-  const { t } = useLocale();
   const [permission, setPermission] = useState<NotificationPermission>(() =>
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "denied"
   );
@@ -63,7 +64,7 @@ export function WebPushProvider({ children }: ProviderProps) {
       permission,
       isLoading,
       isSubscribed,
-      subscribe: async () => {
+      subscribe: async (t: TFunction) => {
         try {
           setIsLoading(true);
           const newPermission = await Notification.requestPermission();
@@ -93,7 +94,7 @@ export function WebPushProvider({ children }: ProviderProps) {
           setIsLoading(false);
         }
       },
-      unsubscribe: async () => {
+      unsubscribe: async (t: TFunction) => {
         if (!pushManager) return;
         try {
           setIsLoading(true);
@@ -113,7 +114,7 @@ export function WebPushProvider({ children }: ProviderProps) {
         }
       },
     }),
-    [permission, isLoading, isSubscribed, pushManager, addSubscription, removeSubscription, t]
+    [permission, isLoading, isSubscribed, pushManager, addSubscription, removeSubscription]
   );
 
   return <WebPushContext.Provider value={contextValue}>{children}</WebPushContext.Provider>;
