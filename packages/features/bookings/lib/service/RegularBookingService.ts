@@ -2218,7 +2218,10 @@ async function handler(
     referencesToCreate = createManager.referencesToCreate;
     videoCallUrl = evt.videoCallData?.url ? evt.videoCallData.url : null;
 
-    if (results.length > 0 && results.every((res) => !res.success)) {
+    const additionalInformation: AdditionalInformation = {};
+    const allIntegrationsFailed = results.length > 0 && results.every((res) => !res.success);
+
+    if (allIntegrationsFailed) {
       const error = {
         errorCode: "BookingCreatingMeetingFailed",
         message: "Booking failed",
@@ -2229,9 +2232,8 @@ async function handler(
         // Each result carries the whole CalendarEvent (booker details) and the host's calendar id
         safeStringify({ error, results: results.map(getPiiFreeEventResult) })
       );
+      evt.appsStatus = handleAppsStatus(results, booking, reqAppsStatus);
     } else {
-      const additionalInformation: AdditionalInformation = {};
-
       if (results.length) {
         // Handle Google Meet results
         // We use the original booking location since the evt location changes to daily
@@ -2306,24 +2308,25 @@ async function handler(
           });
         }
       }
-      if (!noEmail) {
-        if (!isDryRun && !(eventType.seatsPerTimeSlot && rescheduleUid)) {
-          await emailsAndSmsHandler.send({
-            action: BookingActionMap.confirmed,
-            data: {
-              eventType: {
-                metadata: eventType.metadata,
-                schedulingType: eventType.schedulingType,
-              },
-              eventNameObject,
-              evt,
-              additionalInformation,
-              additionalNotes,
-              customInputs,
+    }
+
+    if (!noEmail) {
+      if (!isDryRun && !(eventType.seatsPerTimeSlot && rescheduleUid)) {
+        await emailsAndSmsHandler.send({
+          action: BookingActionMap.confirmed,
+          data: {
+            eventType: {
+              metadata: eventType.metadata,
+              schedulingType: eventType.schedulingType,
             },
-          });
-          bookingEmailsAndSmsTaskerAction = BookingActionMap.confirmed;
-        }
+            eventNameObject,
+            evt,
+            additionalInformation,
+            additionalNotes,
+            customInputs,
+          },
+        });
+        bookingEmailsAndSmsTaskerAction = BookingActionMap.confirmed;
       }
     }
   } else {

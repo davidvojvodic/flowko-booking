@@ -20,6 +20,7 @@ import type { PlatformClientParams } from "@calcom/prisma/zod-utils";
 import { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import type { AdditionalInformation, CalendarEvent } from "@calcom/types/Calendar";
 import { getCalEventResponses } from "./getCalEventResponses";
+import { handleAppsStatus } from "./handleNewBooking/handleAppsStatus";
 import { scheduleNoShowTriggers } from "./handleNewBooking/scheduleNoShowTriggers";
 
 export async function handleConfirmation(args: {
@@ -100,7 +101,9 @@ export async function handleConfirmation(args: {
 
   const tracingLogger = distributedTracing.getTracingLogger(spanContext);
 
-  if (results.length > 0 && results.every((res) => !res.success)) {
+  const allIntegrationsFailed = results.length > 0 && results.every((res) => !res.success);
+
+  if (allIntegrationsFailed) {
     const error = {
       errorCode: "BookingCreatingMeetingFailed",
       message: "Booking failed",
@@ -111,32 +114,32 @@ export async function handleConfirmation(args: {
       `Booking ${user.username} failed`,
       safeStringify({ error, results: results.map(getPiiFreeEventResult) })
     );
-  } else {
-    if (results.length) {
-      // TODO: Handle created event metadata more elegantly
-      metadata.hangoutLink = results[0].createdEvent?.hangoutLink;
-      metadata.conferenceData = results[0].createdEvent?.conferenceData;
-      metadata.entryPoints = results[0].createdEvent?.entryPoints;
-    }
-    try {
-      const isHostConfirmationEmailsDisabled =
-        eventTypeMetadata?.disableStandardEmails?.confirmation?.host || false;
-      const isAttendeeConfirmationEmailDisabled =
-        eventTypeMetadata?.disableStandardEmails?.confirmation?.attendee || false;
+    evt.appsStatus = handleAppsStatus(results, null, undefined);
+  } else if (results.length) {
+    // TODO: Handle created event metadata more elegantly
+    metadata.hangoutLink = results[0].createdEvent?.hangoutLink;
+    metadata.conferenceData = results[0].createdEvent?.conferenceData;
+    metadata.entryPoints = results[0].createdEvent?.entryPoints;
+  }
 
-      if (emailsEnabled) {
-        await sendScheduledEmailsAndSMS(
-          { ...evt, additionalInformation: metadata },
-          undefined,
-          isHostConfirmationEmailsDisabled,
-          isAttendeeConfirmationEmailDisabled,
-          eventTypeMetadata,
-          { eventType: eventType?.title, eventName: eventType?.eventName }
-        );
-      }
-    } catch (error) {
-      tracingLogger.error(error);
+  try {
+    const isHostConfirmationEmailsDisabled =
+      eventTypeMetadata?.disableStandardEmails?.confirmation?.host || false;
+    const isAttendeeConfirmationEmailDisabled =
+      eventTypeMetadata?.disableStandardEmails?.confirmation?.attendee || false;
+
+    if (emailsEnabled) {
+      await sendScheduledEmailsAndSMS(
+        { ...evt, additionalInformation: metadata },
+        undefined,
+        isHostConfirmationEmailsDisabled,
+        isAttendeeConfirmationEmailDisabled,
+        eventTypeMetadata,
+        { eventType: eventType?.title, eventName: eventType?.eventName }
+      );
     }
+  } catch (error) {
+    tracingLogger.error(error);
   }
   let updatedBookings: {
     id: number;
