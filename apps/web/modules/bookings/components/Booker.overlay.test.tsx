@@ -33,7 +33,7 @@ vi.mock("next/navigation", async (importOriginal) => {
 import "@calcom/dayjs/__mocks__";
 import "@calcom/web/modules/auth/components/Turnstile";
 
-import { render, screen } from "@calcom/features/bookings/Booker/__tests__/test-utils";
+import { render } from "@calcom/features/bookings/Booker/__tests__/test-utils";
 import type { BookerProps } from "@calcom/features/bookings/Booker/types";
 import type { WrappedBookerProps } from "../types";
 import { Booker } from "./Booker";
