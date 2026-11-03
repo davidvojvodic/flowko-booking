@@ -244,18 +244,11 @@ const getCalendarsEvents = async (
       mode,
       fallbackToPrimary: allowFallbackToPrimary,
     };
-    // "overlay" mode is only used when the calendar owner looks at their own calendars, so titles can be included.
-    // Titles are a nice-to-have, losing them must never cost the owner their busy times.
-    const eventBusyDates =
-      mode === "overlay" && calendarService.getAvailabilityWithTitles
-        ? await calendarService.getAvailabilityWithTitles(availabilityParams).catch((error) => {
-            log.warn(
-              "getAvailabilityWithTitles failed, falling back to getAvailability",
-              safeStringify({ credentialId: credential?.id, error })
-            );
-            return calendarService.getAvailability(availabilityParams);
-          })
-        : await calendarService.getAvailability(availabilityParams);
+    // Flowko: never read event contents. Upstream fetches event titles in "overlay" mode
+    // (getAvailabilityWithTitles, Google events.list). Flowko's Google connect notice, both
+    // Google Calendar app descriptions, privacy policy 3.3 and the Google verification statement
+    // say the app reads only free/busy times, so every mode asks for busy times only.
+    const eventBusyDates = await calendarService.getAvailability(availabilityParams);
     performance.mark("eventBusyDatesEnd");
     performance.measure(
       `[getAvailability for ${selectedCalendarIds.join(", ")}][$1]'`,
