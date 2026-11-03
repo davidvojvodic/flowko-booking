@@ -96,7 +96,7 @@ const SlotItem = ({
   confirmButtonDisabled,
   confirmStepClassNames,
 }: SlotItemProps) => {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
 
   const { data: eventData } = event;
 
@@ -132,6 +132,7 @@ const SlotItem = ({
       start: computedDateWithUsersTimezone,
       selectedDuration: eventData?.length ?? 0,
       offset,
+      language: i18n.language,
     });
 
   const onButtonClick = () => {

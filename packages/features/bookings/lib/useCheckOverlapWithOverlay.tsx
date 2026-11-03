@@ -1,5 +1,6 @@
 import type { Dayjs } from "@calcom/dayjs";
 import dayjs from "@calcom/dayjs";
+import { formatSpanBoundary } from "@calcom/lib/formatSpanBoundary";
 
 import { useOverlayCalendarStore } from "../Booker/components/OverlayCalendar/store";
 
@@ -7,10 +8,13 @@ export function useCheckOverlapWithOverlay({
   start,
   selectedDuration,
   offset,
+  language,
 }: {
   start: Dayjs;
   selectedDuration: number | null;
   offset: number;
+  /** Flowko: the app language, for the date of busy times spanning several days */
+  language?: string;
 }) {
   const overlayBusyDates = useOverlayCalendarStore((state) => state.overlayBusyDates);
 
@@ -31,9 +35,9 @@ export function useCheckOverlapWithOverlay({
         selectedEndTime > busyDateStart;
 
       // Busy times spanning several days need the date, the time alone would be ambiguous
-      const timeFormat = busyDateStart.isSame(busyDateEnd, "day") ? "HH:mm" : "MMM D, HH:mm";
-      overlappingTimeStart = isOverlapping ? busyDateStart.format(timeFormat) : null;
-      overlappingTimeEnd = isOverlapping ? busyDateEnd.format(timeFormat) : null;
+      const multiDay = !busyDateStart.isSame(busyDateEnd, "day");
+      overlappingTimeStart = isOverlapping ? formatSpanBoundary(busyDateStart, multiDay, language) : null;
+      overlappingTimeEnd = isOverlapping ? formatSpanBoundary(busyDateEnd, multiDay, language) : null;
       overlappingTitle = isOverlapping ? (busyDate.title ?? null) : null;
 
       return isOverlapping;

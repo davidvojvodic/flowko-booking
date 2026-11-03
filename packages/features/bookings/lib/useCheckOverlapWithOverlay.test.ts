@@ -40,6 +40,14 @@ describe("useCheckOverlapWithOverlay", () => {
     });
   });
 
+  it("writes the date in Slovenian when the app language is Slovenian (Flowko)", () => {
+    const result = renderHook(() =>
+      useCheckOverlapWithOverlay({ start: dayjs("2024-01-12T09:00:00"), selectedDuration: 30, offset: 0, language: "sl" })
+    ).result.current;
+    expect(result.overlappingTimeStart).toBe("11. jan., 14:00");
+    expect(result.overlappingTimeEnd).toBe("13. jan., 16:00");
+  });
+
   it("returns no title for busy times without one", () => {
     expect(checkSlot("2024-01-15T10:00:00")).toMatchObject({ isOverlapping: true, overlappingTitle: null });
   });
