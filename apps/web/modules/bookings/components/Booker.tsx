@@ -59,6 +59,7 @@ const BookerComponent = ({
   entity,
   onOverlayClickNoCalendar,
   onClickOverlayContinue,
+  overlaySocialLoginProviders,
   onOverlaySwitchStateChange,
   sessionUsername,
   rescheduleUid,
@@ -376,7 +377,9 @@ const BookerComponent = ({
                   isMobile={isMobile}
                   nextSlots={nextSlots}
                   renderOverlay={() => {
-                    if (isEmbed) return null;
+                    // Flowko: only a signed-in Flowko account can use the overlay. Signup is closed,
+                    // so for a signed-out customer „Prikaži moj koledar“ is a dead end: hide it.
+                    if (isEmbed || !hasSession) return null;
                     return (
                       <OverlayCalendar
                         isOverlayCalendarEnabled={isOverlayCalendarEnabled}
@@ -385,6 +388,7 @@ const BookerComponent = ({
                         onToggleCalendar={onToggleCalendar}
                         hasSession={hasSession}
                         handleClickContinue={onClickOverlayContinue}
+                        socialLoginProviders={overlaySocialLoginProviders}
                         handleSwitchStateChange={onOverlaySwitchStateChange}
                         handleClickNoCalendar={() => {
                           onOverlayClickNoCalendar();

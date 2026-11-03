@@ -1,4 +1,6 @@
 import dayjs from "@calcom/dayjs";
+import { formatSpanBoundary } from "@calcom/lib/formatSpanBoundary";
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { CalendarEvent } from "@calcom/features/calendars/weeklyview/types/events";
 import type { BookingStatus } from "@calcom/prisma/enums";
 import classNames from "@calcom/ui/classNames";
@@ -65,6 +67,7 @@ export function Event({
   onEventClick,
   isHovered = false,
 }: EventProps) {
+  const { i18n } = useLocale();
   const selected = currentlySelectedEventId === event.id;
   const { options } = event;
 
@@ -72,6 +75,11 @@ export function Event({
   const colorClass = !options?.color ? getStatusColorClass(options?.status) : undefined;
 
   const Component = onEventClick ? "button" : "div";
+
+  // Events spanning several days need the date, the time alone would be ambiguous.
+  // Flowko: the date follows the app language (formatSpanBoundary).
+  const multiDay = !dayjs(event.start).isSame(event.end, "day");
+  const eventTime = `${formatSpanBoundary(dayjs(event.start), multiDay, i18n.language)} - ${formatSpanBoundary(dayjs(event.end), multiDay, i18n.language)}`;
 
   const dayOfWeek = dayjs(event.start).day();
   const tooltipSide = dayOfWeek >= 1 && dayOfWeek <= 4 ? "right" : "left";
@@ -86,11 +94,7 @@ export function Event({
         )}
         <div className="flex-1">
           <div className="font-semibold leading-tight">{event.title}</div>
-          {!event.options?.hideTime && (
-            <div className="text-inverted-muted mt-1 text-xs">
-              {dayjs(event.start).format("HH:mm")} - {dayjs(event.end).format("HH:mm")}
-            </div>
-          )}
+          {!event.options?.hideTime && <div className="text-inverted-muted mt-1 text-xs">{eventTime}</div>}
           {event.description && (
             <div className="text-inverted-muted mt-1 text-xs leading-snug">{event.description}</div>
           )}
@@ -140,7 +144,7 @@ export function Event({
               <span>{event.title}</span>
               {!event.options?.hideTime && (
                 <p className="text-subtle mt-1 w-full whitespace-nowrap text-left text-[10px] leading-none">
-                  {dayjs(event.start).format("HH:mm")} - {dayjs(event.end).format("HH:mm")}
+                  {eventTime}
                 </p>
               )}
             </div>
@@ -150,7 +154,7 @@ export function Event({
           )}
           {displayType !== "single-line" && !event.options?.hideTime && (
             <p className="text-subtle mt-1 whitespace-nowrap text-left text-[10px] leading-none">
-              {dayjs(event.start).format("HH:mm")} - {dayjs(event.end).format("HH:mm")}
+              {eventTime}
             </p>
           )}
           {displayType === "full" && event.description && (

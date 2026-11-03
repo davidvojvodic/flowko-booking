@@ -27,6 +27,7 @@ const mockedSymmetricDecrypt = vi.mocked(symmetricDecrypt);
 
 const mockGoogleGetAvailability = vi.fn().mockResolvedValue([]);
 const mockGoogleGetAvailabilityWithTimeZones = vi.fn().mockResolvedValue([]);
+const mockGoogleGetAvailabilityWithTitles = vi.fn().mockResolvedValue([]);
 const mockOfficeGetAvailability = vi.fn().mockResolvedValue([]);
 const mockOfficeGetAvailabilityWithTimeZones = vi.fn().mockResolvedValue([]);
 // Flowko U9f: the credential each Google calendar service was built with
@@ -50,6 +51,7 @@ vi.mock("@calcom/app-store/calendar.services.generated", () => {
             deleteEvent: vi.fn().mockResolvedValue({}),
             getAvailability: mockGoogleGetAvailability,
             getAvailabilityWithTimeZones: mockGoogleGetAvailabilityWithTimeZones,
+            getAvailabilityWithTitles: mockGoogleGetAvailabilityWithTitles,
             listCalendars: vi.fn().mockResolvedValue([]),
           };
         },
@@ -361,6 +363,71 @@ describe("getCalendarsEvents", () => {
 
       expect(mockGoogleGetAvailability).not.toHaveBeenCalled();
       expect(result).toEqual([[]]);
+    });
+  });
+
+  describe("Event titles (Flowko: never read)", () => {
+    const busyTimes: EventBusyDate[] = [{ start: new Date(2010, 11, 2, 4), end: new Date(2010, 11, 2, 16) }];
+    let selectedGoogleCalendar: SelectedCalendar;
+
+    beforeEach(() => {
+      mockGoogleGetAvailability.mockClear();
+      mockGoogleGetAvailabilityWithTitles.mockClear();
+      mockOfficeGetAvailability.mockClear();
+      selectedGoogleCalendar = buildSelectedCalendar({
+        credentialId: 100,
+        externalId: "externalId",
+        integration: "google_calendar",
+        userId: 200,
+        id: "id",
+      });
+    });
+
+    it("never fetches event titles, not even in overlay mode where a service offers them", async () => {
+      mockGoogleGetAvailability.mockResolvedValue(busyTimes);
+
+      for (const mode of ["overlay", "slots", "booking", "none"] as const) {
+        const result = await getCalendarsEvents(
+          [buildRegularCredential(credential)],
+          "2010-12-01",
+          "2010-12-04",
+          [selectedGoogleCalendar],
+          mode
+        );
+        expect(result).toEqual([[{ ...busyTimes[0], source: "exampleApp" }]]);
+      }
+
+      expect(mockGoogleGetAvailabilityWithTitles).not.toHaveBeenCalled();
+      expect(mockGoogleGetAvailability).toHaveBeenCalledWith({
+        dateFrom: "2010-12-01",
+        dateTo: "2010-12-04",
+        selectedCalendars: [selectedGoogleCalendar],
+        mode: "overlay",
+        fallbackToPrimary: false,
+      });
+      mockGoogleGetAvailability.mockResolvedValue([]);
+    });
+
+    it("uses getAvailability in overlay mode for calendars without a titles method", async () => {
+      mockOfficeGetAvailability.mockResolvedValueOnce(busyTimes);
+      const selectedOfficeCalendar = buildSelectedCalendar({
+        credentialId: 100,
+        externalId: "externalId",
+        integration: "office365_calendar",
+        userId: 200,
+        id: "id",
+      });
+
+      const result = await getCalendarsEvents(
+        [buildRegularCredential({ ...credential, type: "office365_calendar" })],
+        "2010-12-01",
+        "2010-12-04",
+        [selectedOfficeCalendar],
+        "overlay"
+      );
+
+      expect(mockOfficeGetAvailability).toHaveBeenCalledTimes(1);
+      expect(result).toEqual([[{ ...busyTimes[0], source: "exampleApp" }]]);
     });
   });
 

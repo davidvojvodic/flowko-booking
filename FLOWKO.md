@@ -4,7 +4,9 @@ This repository is Flowko's fork of [Cal.diy](https://github.com/calcom/cal.diy)
 
 ## Upstream
 
-Pinned to `calcom/cal.diy` commit `54343aa685ae8f33159d2f485ec4a57bad5c574a` (2026-09-20, "fix: restore @ts-expect-error for CacheProvider type mismatch (#30171)"). The `flowko` branch is that commit plus the changes below.
+Synced to `calcom/cal.diy` commit `e8afecd163` (2026-11-03, "fix(bookings): send notification emails when calendar integrations fail (#30434)") by a merge commit (U16, 2026-11-03); first pinned to `54343aa685ae8f33159d2f485ec4a57bad5c574a` (2026-09-20). The `flowko` branch is upstream plus the changes below.
+
+**How to sync upstream again:** merge, never rebase or cherry-pick. `flowko` is public and live, image tags are fork commit SHAs and this file cites fork commits. Work on a branch `sync/upstream-<sha>` in its own worktree with its own `yarn install` (never in the main checkout first: other worktrees symlink its node_modules). `git merge --no-ff upstream/main`, resolve keeping every change listed below, put Flowko's refusals of new upstream behaviour in separate commits with tests, run the gate, then merge into `flowko` with `--no-ff`. Watch for upstream code that reaches event contents, tokens, the booker's data or new sign-in paths without a textual conflict (U16 found one). Undo on `flowko` with `git revert -m 1 <merge>`, never a reset; the next sync then needs that revert reverted first.
 
 ## Changes vs upstream
 
@@ -409,6 +411,11 @@ Lines marked *planned* are not on `flowko` yet; each is updated when its change 
   - *Test config:* `vitest.config.mts` maps `~` to `apps/web/modules`.
 
 - **U15 No fonts from Google in mails** (David, 2026-11-01, before the first client): a mail client that follows a font link can send the recipient's IP address to Google. `EmailHead.tsx` (every React mail) and `templates/confirm-email.html` no longer load Roboto or Inter from `fonts.googleapis.com`. The font stacks stay as they are, so text shows in Roboto where the reader has it and otherwise in Helvetica or Arial. `no-remote-fonts.test.tsx` checks the rendered head and scans `packages/emails/src` and `templates`.
+
+- **U16 Upstream sync to `e8afecd163`** (David, 2026-11-03; Vault plan `projects/flowko-booking/2026-11-03-upstream-sync-plan.md`): 13 upstream commits merged. Taken: confirmation mails still go out when every calendar integration fails, and the organizer mail then shows „Stanje aplikacij“ (`handleConfirmation.ts` keeps the PII-free log and U14's title argument); the overlay and troubleshooter UI fixes (translated „Zasedeno“, multi-day events); Node 22 in the image (`node:22`); next 16.4.3, next-auth 4.24.15 and the other audit bumps; compose ports on loopback; 23 unused SMS/WhatsApp strings removed (also from sl). Kept from the fork without change: `viewer.availability.user` (U8 own-only, eventTypeId ownership, 90-day cap), byte-identical to `5fae1d4`.
+  - *No event titles* (`dadb06d74e`): upstream reads event titles (Google `events.list` summaries) in "overlay" mode, and the fork's overlay handler already asks for that mode. `getCalendarsEvents` now asks every calendar for busy times only, and the Google service has no `getAvailabilityWithTitles`. Tests: `getCalendarsEvents.test.ts` „Event titles (Flowko: never read)“, the Google `CalendarService.test.ts` „event contents (Flowko: never read)“. Showing titles would first need the connect notice, both app descriptions, privacy policy 3.3 and the Google verification statement changed.
+  - *Dates of multi-day spans in the app language*: upstream's multi-day events print the date with dayjs "MMM D" (English); `formatSpanBoundary` (`packages/lib`) writes it with Intl in the app language (sl „3. nov., 23:00“) in the bookings calendar view and the overlay hover card. Tests: `formatSpanBoundary.test.ts`, `useCheckOverlapWithOverlay.test.ts`.
+  - *Overlay only for signed-in accounts* (`e3e52f1df4`): „Prikaži moj koledar“ no longer shows to a signed-out visitor of a booking page (signup is closed, so it was a dead end), and never in an embed. The booking page's social sign-in list is empty (`OVERLAY_SOCIAL_LOGIN_PROVIDERS`), so no Google or Microsoft sign-in can install a calendar app there. Test: `Booker.overlay.test.tsx`.
 
 ## API v2 must not be deployed
 

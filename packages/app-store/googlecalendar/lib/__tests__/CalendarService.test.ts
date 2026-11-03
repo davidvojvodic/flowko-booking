@@ -8,6 +8,7 @@ import {
   adminMock,
   calendarListMock,
   calendarMock,
+  eventsListMock,
   freebusyQueryMock,
   setCredentialsMock,
   setLastCreatedJWT,
@@ -136,6 +137,16 @@ describe("getAvailability", () => {
     });
 
     expect(availabilityWithAllCalendarsAsFallback).toEqual([...mockedBusyTimes1, ...mockedBusyTimes2]);
+  });
+});
+
+describe("event contents (Flowko: never read)", () => {
+  test("the Google calendar service has no method that reads event titles", () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    expect(
+      (calendarService as unknown as { getAvailabilityWithTitles?: unknown }).getAvailabilityWithTitles
+    ).toBeUndefined();
+    expect(eventsListMock).not.toHaveBeenCalled();
   });
 });
 

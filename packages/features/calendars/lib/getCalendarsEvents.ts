@@ -237,13 +237,18 @@ const getCalendarsEvents = async (
         selectedCalendars: passedSelectedCalendars.map(getPiiFreeSelectedCalendar),
       })
     );
-    const eventBusyDates = await calendarService.getAvailability({
+    const availabilityParams = {
       dateFrom,
       dateTo,
       selectedCalendars: passedSelectedCalendars,
       mode,
       fallbackToPrimary: allowFallbackToPrimary,
-    });
+    };
+    // Flowko: never read event contents. Upstream fetches event titles in "overlay" mode
+    // (getAvailabilityWithTitles, Google events.list). Flowko's Google connect notice, both
+    // Google Calendar app descriptions, privacy policy 3.3 and the Google verification statement
+    // say the app reads only free/busy times, so every mode asks for busy times only.
+    const eventBusyDates = await calendarService.getAvailability(availabilityParams);
     performance.mark("eventBusyDatesEnd");
     performance.measure(
       `[getAvailability for ${selectedCalendarIds.join(", ")}][$1]'`,
