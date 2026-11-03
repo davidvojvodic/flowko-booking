@@ -2476,7 +2476,7 @@ describe("handleNewBooking", () => {
               responses: {
                 email: booker.email,
                 name: booker.name,
-                location: { optionValue: "", value: "New York" },
+                location: { optionValue: "", value: "inPerson" },
               },
             },
           });
