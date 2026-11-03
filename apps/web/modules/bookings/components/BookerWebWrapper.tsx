@@ -33,7 +33,9 @@ import { getBookerPrefillFormParams, isEmbedFrame } from "../lib/getBookerPrefil
 import type { OverlaySocialLoginProvider } from "../types";
 import { Booker as BookerComponent } from "./Booker";
 
-const OVERLAY_SOCIAL_LOGIN_PROVIDERS: OverlaySocialLoginProvider[] = ["google", "azure-ad"];
+// Flowko: no Google or Microsoft sign-in from the booking page (signup is closed, and those
+// providers would install calendar apps outside U9's encrypted-token rule). Keep this empty.
+const OVERLAY_SOCIAL_LOGIN_PROVIDERS: OverlaySocialLoginProvider[] = [];
 
 export type BookerWebWrapperAtomProps = BookerProps & {
   eventData?: NonNullable<Awaited<ReturnType<typeof getPublicEvent>>>;
