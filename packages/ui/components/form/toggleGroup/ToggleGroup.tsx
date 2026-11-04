@@ -82,6 +82,8 @@ export const ToggleGroup = ({
               disabled={option.disabled}
               onClick={option?.onClick}
               value={option.value}
+              // Flowko U19: an icon-only item takes its tooltip as the accessible name.
+              aria-label={(!option.label && option.tooltip) || undefined}
               data-testid={option.dataTestId ?? `toggle-group-item-${option.value}`}
               className={classNames(
                 "aria-checked:bg-default aria-checked:border-subtle rounded-lg border border-transparent p-1.5 text-sm leading-none transition aria-checked:shadow-[0px_2px_3px_0px_rgba(0,0,0,0.03),0px_2px_2px_-1px_rgba(0,0,0,0.03)]",

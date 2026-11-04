@@ -1,4 +1,18 @@
 const HOLIDAY_EMOJI_MAP: Array<{ keywords: string[]; emoji: string }> = [
+  // Flowko U19: the Slovene names of sl.slovenian.official, first so no English keyword
+  // matches inside a Slovene name.
+  { keywords: ["božič"], emoji: "🎄" },
+  { keywords: ["novo leto"], emoji: "🎆" },
+  { keywords: ["velika noč", "velikonočni"], emoji: "🥚" },
+  { keywords: ["binkošt"], emoji: "🕊️" },
+  { keywords: ["vnebovzetje"], emoji: "✝️" },
+  { keywords: ["dan reformacije"], emoji: "📖" },
+  { keywords: ["praznik dela"], emoji: "👷" },
+  { keywords: ["dan državnosti"], emoji: "🏛️" },
+  { keywords: ["dan samostojnosti"], emoji: "🤝" },
+  { keywords: ["dan upora"], emoji: "✊" },
+  { keywords: ["prešernov dan"], emoji: "📜" },
+  { keywords: ["dan spomina na mrtve"], emoji: "🕯️" },
   { keywords: ["christmas", "xmas", "noël", "navidad", "natal", "weihnacht"], emoji: "🎄" },
   { keywords: ["chinese new year", "lunar new year", "spring festival"], emoji: "🐉" },
   { keywords: ["new year", "año nuevo", "nouvel an", "neujahr", "capodanno"], emoji: "🎆" },
@@ -87,7 +101,8 @@ const HOLIDAY_EMOJI_MAP: Array<{ keywords: string[]; emoji: string }> = [
 const DEFAULT_HOLIDAY_EMOJI = "📆";
 
 export function getHolidayEmoji(holidayName: string): string {
-  const lowerName = holidayName.toLowerCase();
+  // Flowko U19: NFC, so a decomposed „č“ still matches the Slovene keywords
+  const lowerName = holidayName.normalize("NFC").toLowerCase();
 
   for (const { keywords, emoji } of HOLIDAY_EMOJI_MAP) {
     if (keywords.some((kw) => lowerName.includes(kw))) {

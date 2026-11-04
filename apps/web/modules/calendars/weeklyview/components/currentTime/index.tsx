@@ -1,5 +1,5 @@
+import { useCalendarTimeFormat } from "@calcom/web/modules/calendars/weeklyview/hooks/useCalendarTimeFormat";
 import dayjs from "@calcom/dayjs";
-import { useTimePreferences } from "@calcom/features/bookings/lib";
 import { useCalendarStore } from "@calcom/features/calendars/weeklyview/state/store";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -18,7 +18,7 @@ export function CurrentTime({
   scrollToCurrentTime?: boolean;
   updateOnFocus?: boolean;
 }) {
-  const { timeFormat } = useTimePreferences();
+  const timeFormat = useCalendarTimeFormat();
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const [scrolledIntoView, setScrolledIntoView] = useState(false);
   const [currentTimePos, setCurrentTimePos] = useState<number | null>(null);

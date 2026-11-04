@@ -4953,5 +4953,11 @@
   "pick_colors": "Pick colors",
   "edit_custom_name": "Edit custom name",
   "account_deleted": "Your account was deleted",
-  "ADD_NEW_STRINGS_ABOVE_THIS_LINE_TO_PREVENT_MERGE_CONFLICTS": "↑↑↑↑↑↑↑↑↑↑↑↑↑ Add your new strings above here ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑"
+  "ADD_NEW_STRINGS_ABOVE_THIS_LINE_TO_PREVENT_MERGE_CONFLICTS": "↑↑↑↑↑↑↑↑↑↑↑↑↑ Add your new strings above here ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑",
+  "flowko_holiday_calendar_christian": "Christian holidays",
+  "flowko_holiday_calendar_hindu": "Hindu holidays",
+  "flowko_holiday_calendar_jewish": "Jewish holidays",
+  "flowko_holiday_calendar_muslim": "Muslim holidays",
+  "flowko_holiday_calendar_orthodox": "Orthodox holidays",
+  "flowko_holidays_unavailable": "Holidays cannot be loaded right now. Please try again later."
 }

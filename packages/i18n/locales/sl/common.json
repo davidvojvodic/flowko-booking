@@ -5015,5 +5015,11 @@
     "team_booking_limit": "Omejitev rezervacij ekipe",
     "buffer_time": "Časovni odmik",
     "calendar": "Koledar"
-  }
+  },
+  "flowko_holiday_calendar_christian": "Krščanski prazniki",
+  "flowko_holiday_calendar_hindu": "Hindujski prazniki",
+  "flowko_holiday_calendar_jewish": "Judovski prazniki",
+  "flowko_holiday_calendar_muslim": "Muslimanski prazniki",
+  "flowko_holiday_calendar_orthodox": "Pravoslavni prazniki",
+  "flowko_holidays_unavailable": "Praznikov trenutno ni mogoče naložiti. Poskusite znova pozneje."
 }

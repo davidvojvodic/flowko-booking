@@ -134,26 +134,29 @@ export function Event({
             className={classNames("-ml-1.5 mr-1.5 h-full w-[3px] shrink-0", colorClass)}
             style={options?.color ? { backgroundColor: options.color } : undefined}></div>
         )}
-        <div className={classNames("flex w-full", displayType !== "single-line" && "flex-col py-1")}>
+        {/* Flowko U19: min-w-0 down the chain + truncate, so a long title ends in „…" and the time stays */}
+        <div className={classNames("flex w-full min-w-0", displayType !== "single-line" && "flex-col py-1")}>
           {displayType === "single-line" && (
             <div
               className={classNames(
-                "flex w-full shrink-0 gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-left leading-4",
+                "flex w-full min-w-0 gap-2 overflow-hidden whitespace-nowrap text-left leading-4",
                 "items-center"
               )}>
-              <span>{event.title}</span>
+              <span className="min-w-[2.5rem] truncate">{event.title}</span>
               {!event.options?.hideTime && (
-                <p className="text-subtle mt-1 w-full whitespace-nowrap text-left text-[10px] leading-none">
+                <p className="text-subtle mt-1 shrink-0 whitespace-nowrap text-left text-[10px] leading-none">
                   {eventTime}
                 </p>
               )}
             </div>
           )}
           {displayType !== "single-line" && (
-            <p className={classNames("shrink-0 whitespace-nowrap text-left leading-4")}>{event.title}</p>
+            <p className={classNames("min-w-0 shrink-0 truncate whitespace-nowrap text-left leading-4")}>
+              {event.title}
+            </p>
           )}
           {displayType !== "single-line" && !event.options?.hideTime && (
-            <p className="text-subtle mt-1 whitespace-nowrap text-left text-[10px] leading-none">
+            <p className="text-subtle mt-1 shrink-0 whitespace-nowrap text-left text-[10px] leading-none">
               {eventTime}
             </p>
           )}

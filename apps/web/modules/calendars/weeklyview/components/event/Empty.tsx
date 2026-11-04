@@ -1,9 +1,9 @@
+import { useCalendarTimeFormat } from "@calcom/web/modules/calendars/weeklyview/hooks/useCalendarTimeFormat";
 import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 
 import type { Dayjs } from "@calcom/dayjs";
 import dayjs from "@calcom/dayjs";
-import { useTimePreferences } from "@calcom/features/bookings/lib";
 import classNames from "@calcom/ui/classNames";
 
 import { OutOfOfficeInSlots } from "@calcom/web/modules/bookings/components/OutOfOfficeInSlots";
@@ -138,7 +138,7 @@ type CellProps = {
 };
 
 function Cell({ isDisabled, topOffsetMinutes, timeSlot }: CellProps) {
-  const { timeFormat } = useTimePreferences();
+  const timeFormat = useCalendarTimeFormat();
 
   const { onEmptyCellClick, hoverEventDuration } = useCalendarStore(
     (state) => ({

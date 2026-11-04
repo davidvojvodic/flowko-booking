@@ -16,6 +16,7 @@ import { TriangleAlertIcon } from "@coss/ui/icons";
 import { showToast } from "@calcom/ui/components/toast";
 import { memo, useCallback, useMemo } from "react";
 import { OutOfOfficeToggleGroup } from "~/settings/outOfOffice/OutOfOfficeToggleGroup";
+import { localizeHolidayCountries } from "./holidayCountryNames";
 
 function HolidaysCTA() {
   const { t } = useLocale();
@@ -59,12 +60,17 @@ const CountrySelector = memo(function CountrySelector({
   onChange: (value: string) => void;
   isLoading: boolean;
 }) {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
+  // Flowko U19: names in the app language, Slovenia first.
+  const localized = useMemo(
+    () => localizeHolidayCountries(countries, i18n.language, t),
+    [countries, i18n.language, t]
+  );
 
   const options = useMemo(
     () => [
       { value: "", label: t("select_country") },
-      ...countries.map((country) => {
+      ...localized.map((country) => {
         const flag = getFlagEmoji(country.code);
         return {
           value: country.code,
@@ -72,16 +78,16 @@ const CountrySelector = memo(function CountrySelector({
         };
       }),
     ],
-    [countries, t]
+    [localized, t]
   );
 
   const selectedOption = useMemo(() => {
     if (!value) return { value: "", label: t("select_country") };
-    const country = countries.find((c) => c.code === value);
+    const country = localized.find((c) => c.code === value);
     if (!country) return { value, label: value };
     const flag = getFlagEmoji(country.code);
     return { value, label: flag ? `${flag} ${country.name}` : country.name };
-  }, [value, countries, t]);
+  }, [value, localized, t]);
 
   if (isLoading) {
     return <SkeletonText className="h-9 w-36" />;
@@ -272,7 +278,8 @@ export function HolidaysView() {
           <Alert
             severity="error"
             title={t("something_went_wrong")}
-            message={countriesError?.message || settingsError?.message}
+            // Flowko U19: never the server's English text (a missing key showed „GOOGLE_CALENDAR_API_KEY …“).
+            message={t("flowko_holidays_unavailable")}
           />
         </div>
       </SettingsHeader>

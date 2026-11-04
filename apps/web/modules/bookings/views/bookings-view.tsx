@@ -13,10 +13,14 @@ import { useActiveFiltersValidator } from "../hooks/useActiveFiltersValidator";
 import { useBookingsView } from "../hooks/useBookingsView";
 import type { validStatuses } from "../lib/validStatuses";
 
-const BookingCalendarContainer = dynamic(() =>
-  import("../components/BookingCalendarContainer").then((mod) => ({
-    default: mod.BookingCalendarContainer,
-  }))
+// Flowko U19: client-only. The server renders dates and hours in its own zone (UTC), the
+// browser in the viewer's, so a server-rendered week threw React #418 on ?view=calendar.
+const BookingCalendarContainer = dynamic(
+  () =>
+    import("../components/BookingCalendarContainer").then((mod) => ({
+      default: mod.BookingCalendarContainer,
+    })),
+  { ssr: false }
 );
 
 type BookingsProps = {

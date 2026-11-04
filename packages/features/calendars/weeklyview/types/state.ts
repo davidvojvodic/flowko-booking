@@ -1,4 +1,5 @@
 import type { IFromUser, IToUser } from "@calcom/features/availability/lib/getUserAvailability";
+import type { TimeFormat } from "@calcom/lib/timeFormat";
 import type { TimeRange } from "@calcom/types/schedule";
 import type { BorderColor } from "./common";
 import type { CalendarEvent } from "./events";
@@ -133,6 +134,11 @@ export type CalendarState = {
    * Timezone to use for displaying times in the calendar
    */
   timezone: string;
+  /**
+   * Flowko U19: time format for the hour labels, the current-time line and the hover slot.
+   * When left out, the booker preference (browser-detected) applies, as upstream.
+   */
+  timeFormat?: TimeFormat;
   /**
    * Show the background pattern for unavailable areas
    * @default true
