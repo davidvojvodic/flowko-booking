@@ -629,7 +629,10 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
                           )}
                         {previousBooking && (
                           <>
-                            <div className="font-medium">{t("rescheduled_by")}</div>
+                            <div className="font-medium">
+                              {/* U18 (Flowko): a signed-out customer's move records no name */}
+                              {previousBooking?.rescheduledBy ? t("rescheduled_by") : t("rescheduled")}
+                            </div>
                             <div className="col-span-2 mb-6 last:mb-0">
                               <p className="wrap-break-word">{previousBooking?.rescheduledBy}</p>
                               {isEmbed ? (
