@@ -17,6 +17,13 @@ export const AttendeeRequestEmail = (props: React.ComponentProps<typeof Attendee
               : "user_needs_to_confirm_or_reject_booking",
             { user: props.calEvent.organizer.name, interpolation: { escapeValue: false } }
           )}
+          {/* U17a (Flowko): the moved booking's original is already cancelled; say so */}
+          {props.calEvent.flowkoPreviousTimeReleased && !props.calEvent.recurringEvent?.count && (
+            <>
+              <br />
+              {props.calEvent.attendees[0].language.translate("flowko_previous_time_released")}
+            </>
+          )}
         </>
       }
       headerType="calendarCircle"

@@ -57,6 +57,7 @@ import {
 } from "@calcom/features/webhooks/lib/scheduleTrigger";
 import type { EventPayloadType, EventTypeInfo } from "@calcom/features/webhooks/lib/sendPayload";
 import { getTranslation } from "@calcom/i18n/server";
+import { previousTimeReleased } from "@calcom/lib/flowkoPreviousTimeReleased";
 import { groupHostsByGroupId } from "@calcom/lib/bookings/hostGroupUtils";
 import { shouldIgnoreContactOwner } from "@calcom/lib/bookings/routing/utils";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
@@ -2357,7 +2358,19 @@ async function handler(
     if (!isDryRun) {
       await emailsAndSmsHandler.send({
         action: BookingActionMap.requested,
-        data: { evt, attendees: attendeesList, eventType, additionalNotes },
+        data: {
+          // U17a (Flowko): createBooking already cancelled the original; the customer's mail says so
+          evt: {
+            ...evt,
+            flowkoPreviousTimeReleased: previousTimeReleased({
+              rescheduledFromUid: originalRescheduledBooking?.uid,
+              seatsPerTimeSlot: eventType.seatsPerTimeSlot,
+            }),
+          },
+          attendees: attendeesList,
+          eventType,
+          additionalNotes,
+        },
       });
       bookingEmailsAndSmsTaskerAction = BookingActionMap.requested;
     }

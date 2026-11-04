@@ -4,6 +4,7 @@ import { getLocationValueForDB } from "@calcom/app-store/locations";
 import { sendDeclinedEmailsAndSMS } from "@calcom/emails/email-manager";
 import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getAllCredentialsIncludeServiceAccountKey } from "@calcom/features/bookings/lib/getAllCredentialsForUsersOnEvent/getAllCredentials";
+import { previousTimeReleased } from "@calcom/lib/flowkoPreviousTimeReleased";
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { getAssignmentReasonCategory } from "@calcom/features/bookings/lib/getAssignmentReasonCategory";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
@@ -141,6 +142,7 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
       },
       id: true,
       uid: true,
+      fromReschedule: true,
       payment: true,
       destinationCalendar: true,
       paid: true,
@@ -377,6 +379,11 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
     });
   } else {
     evt.rejectionReason = rejectionReason;
+    // U17a (Flowko): a declined reschedule request leaves the customer with no booking; the mail says so
+    evt.flowkoPreviousTimeReleased = previousTimeReleased({
+      rescheduledFromUid: booking.fromReschedule,
+      seatsPerTimeSlot: booking.eventType?.seatsPerTimeSlot,
+    });
     let rejectedBookings: {
       uid: string;
       oldStatus: BookingStatus;
