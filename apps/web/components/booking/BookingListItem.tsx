@@ -8,6 +8,7 @@ import { getSuccessPageLocationMessage, guessEventLocationType } from "@calcom/a
 import dayjs from "@calcom/dayjs";
 // TODO: Use browser locale, implement Intl in Dayjs maybe?
 import "@calcom/dayjs/locales";
+import { withOrdinalDot } from "@calcom/lib/flowkoDateFormat";
 import { formatTime } from "@calcom/lib/dayjs";
 import { useCopy } from "@calcom/lib/hooks/useCopy";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -243,7 +244,9 @@ function BookingListItem(booking: BookingItemProps) {
   const startTime = dayjs(booking.startTime)
     .tz(userTimeZone)
     .locale(language)
-    .format(isUpcoming ? (isDifferentYear ? "ddd, D MMM YYYY" : "ddd, D MMM") : "D MMMM YYYY");
+    .format(
+      withOrdinalDot(isUpcoming ? (isDifferentYear ? "ddd, D MMM YYYY" : "ddd, D MMM") : "D MMMM YYYY", language)
+    );
 
   // Getting accepted recurring dates to show
   const recurringDates = booking.recurringInfo?.bookings[BookingStatus.ACCEPTED]
@@ -681,7 +684,7 @@ const RecurringBookingsTooltip = ({
                   <p key={key} className={classNames(pastOrCancelled && "line-through")}>
                     {formatTime(aDate, userTimeFormat, userTimeZone)}
                     {" - "}
-                    {dayjs(aDate).locale(language).format("D MMMM YYYY")}
+                    {dayjs(aDate).locale(language).format(withOrdinalDot("D MMMM YYYY", language))}
                   </p>
                 );
               })}>

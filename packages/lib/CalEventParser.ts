@@ -130,7 +130,8 @@ ${labelValueMap[key]}
 };
 
 export const getAppsStatus = (t: TFunction, appsStatus?: AppsStatus[] | null) => {
-  if (!appsStatus) {
+  // U18 (Flowko): an empty list gets no heading
+  if (!appsStatus?.length) {
     return "";
   }
   return `\n${t("apps_status")}

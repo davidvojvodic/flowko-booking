@@ -76,6 +76,7 @@ ${this.t(
 )}
 ${this.t(subtitle)}
 
+${this.t("when")}: ${this.getFormattedDate()}
 ${getRichDescription(this.calEvent, this.t)}
 `.trim();
   }

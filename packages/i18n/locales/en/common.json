@@ -3815,6 +3815,7 @@
   "flowko_reschedule_request_declined": "Your request to move your booking has been declined",
   "flowko_previous_time_released_book_again": "Your previous time is no longer reserved. If you still want an appointment, please book a new time.",
   "flowko_previous_time_released": "Your previous time is no longer reserved.",
+  "flowko_bookings_later": "Next",
   "segment": "Segment",
   "saved_filters": "Saved filters",
   "rename": "Rename",

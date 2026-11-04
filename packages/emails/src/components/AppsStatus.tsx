@@ -6,7 +6,8 @@ import { Info } from "./Info";
 
 export const AppsStatus = (props: { calEvent: CalendarEvent; t: TFunction }) => {
   const { t } = props;
-  if (!props.calEvent.appsStatus) return null;
+  // U18 (Flowko): an empty list gets no heading
+  if (!props.calEvent.appsStatus?.length) return null;
   return (
     <Info
       label={t("apps_status")}

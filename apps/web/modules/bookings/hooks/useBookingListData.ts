@@ -118,7 +118,7 @@ export function useBookingListData({
       merged.push({ type: "separator" as const, label: t("today") }, ...bookingsToday);
     }
     if (flatData.length > 0) {
-      merged.push({ type: "separator" as const, label: t("next") }, ...flatData);
+      merged.push({ type: "separator" as const, label: t("flowko_bookings_later") }, ...flatData);
     }
     return merged;
   }, [bookingsToday, flatData, status, t]);
