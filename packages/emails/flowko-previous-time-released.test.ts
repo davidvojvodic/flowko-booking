@@ -59,7 +59,7 @@ const plain = (html: string) =>
 const STRINGS = {
   sl: {
     declinedTitle: "Vaša zahteva za prestavitev termina je bila zavrnjena",
-    declinedLine: "Vaš prejšnji termin ni več rezerviran. Če še želite termin, rezervirajte novega.",
+    declinedLine: "Vaš prejšnji termin ni več rezerviran. Če še vedno želite termin, rezervirajte novega.",
     requestLine: "Vaš prejšnji termin ni več rezerviran.",
     plainDeclinedTitle: "Vaša zahteva za dogodek je bila zavrnjena",
   },
