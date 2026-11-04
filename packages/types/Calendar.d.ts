@@ -225,6 +225,8 @@ export interface CalendarEvent {
   delegationCredentialId?: string | null;
   customReplyToEmail?: string | null;
   rescheduledBy?: string;
+  // U17a (Flowko): this booking was moved from another one, whose time is already released
+  flowkoPreviousTimeReleased?: boolean;
   organizationId?: number | null;
   hasOrganizerChanged?: boolean;
   assignmentReason?: {

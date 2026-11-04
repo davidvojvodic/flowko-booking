@@ -27,7 +27,11 @@ export default class AttendeeRequestEmail extends AttendeeScheduledEmail {
         this.calEvent.attendees[0].language.translate("user_needs_to_confirm_or_reject_booking", {
           user: this.calEvent.organizer.name,
           interpolation: { escapeValue: false },
-        })
+        }) +
+          // U17a (Flowko): the moved booking's original is already cancelled; say so
+          (this.calEvent.flowkoPreviousTimeReleased && !this.calEvent.recurringEvent?.count
+            ? `\n${this.calEvent.attendees[0].language.translate("flowko_previous_time_released")}`
+            : "")
       ),
     };
   }

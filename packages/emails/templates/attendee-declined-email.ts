@@ -15,10 +15,20 @@ export default class AttendeeDeclinedEmail extends AttendeeScheduledEmail {
         date: this.getFormattedDate(),
       })}`,
       html: await this.getHtml(this.calEvent, this.attendee),
-      text: this.getTextBody(
-        this.calEvent.recurringEvent?.count ? "event_request_declined_recurring" : "event_request_declined"
-      ),
+      text: this.getDeclinedTextBody(),
     };
+  }
+
+  private getDeclinedTextBody(): string {
+    if (this.calEvent.recurringEvent?.count) return this.getTextBody("event_request_declined_recurring");
+    // U17a (Flowko): a declined reschedule request leaves the customer with no booking; say so
+    if (this.calEvent.flowkoPreviousTimeReleased) {
+      return this.getTextBody(
+        "flowko_reschedule_request_declined",
+        "flowko_previous_time_released_book_again"
+      );
+    }
+    return this.getTextBody("event_request_declined");
   }
 
   async getHtml(calEvent: CalendarEvent, attendee: Person) {
