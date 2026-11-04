@@ -4,11 +4,19 @@ import dayjs from "@calcom/dayjs";
 import { useTimePreferences } from "@calcom/features/bookings/lib";
 import type { CalendarEvent } from "@calcom/features/calendars/weeklyview/types/events";
 import { useGetTheme } from "@calcom/lib/hooks/useTheme";
+import { TimeFormat } from "@calcom/lib/timeFormat";
+import useMeQuery from "@calcom/trpc/react/hooks/useMeQuery";
 import { Calendar } from "@calcom/web/modules/calendars/weeklyview/components/Calendar";
 import { useBanners } from "@calcom/web/modules/shell/banners/useBanners";
 import { useEffect, useMemo } from "react";
 import { useBookingDetailsSheetStore } from "../store/bookingDetailsSheetStore";
 import type { BookingOutput } from "../types";
+
+// Flowko U19: the profile stores 12 or 24 (or null: the booker default applies).
+const PROFILE_TIME_FORMATS: Record<number, TimeFormat | undefined> = {
+  12: TimeFormat.TWELVE_HOUR,
+  24: TimeFormat.TWENTY_FOUR_HOUR,
+};
 
 type BookingCalendarViewProps = {
   bookings: BookingOutput[];
@@ -24,6 +32,8 @@ export function BookingCalendarView({
   const setSelectedBookingUid = useBookingDetailsSheetStore((state) => state.setSelectedBookingUid);
   const selectedBookingUid = useBookingDetailsSheetStore((state) => state.selectedBookingUid);
   const { timezone } = useTimePreferences();
+  // Flowko U19: the host's own 12/24-hour setting, not the browser's (en-US showed „12:00am“).
+  const timeFormat = PROFILE_TIME_FORMATS[useMeQuery().data?.timeFormat ?? 0];
   const { resolvedTheme, forcedTheme } = useGetTheme();
   const { bannersHeight } = useBanners();
 
@@ -76,9 +86,11 @@ export function BookingCalendarView({
     <>
       <div
         className="border-subtle flex flex-1 flex-col overflow-y-auto overflow-x-hidden rounded-2xl border"
-        style={{ height: `calc(100vh - 6rem - ${bannersHeight}px)` }}>
+        // Flowko U19: 5rem more for the page heading, which now stays (lg: 48px header + 32px margin).
+        style={{ height: `calc(100vh - 11rem - ${bannersHeight}px)` }}>
         <Calendar
           timezone={timezone}
+          timeFormat={timeFormat}
           sortEvents
           startHour={0}
           endHour={23}

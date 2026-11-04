@@ -213,7 +213,8 @@ export const GOOGLE_HOLIDAY_CALENDARS: Record<string, { name: string; calendarId
   SG: { name: "Singapore", calendarId: "en.singapore.official#holiday@group.v.calendar.google.com" },
   SX: { name: "Sint Maarten", calendarId: "en.sx.official#holiday@group.v.calendar.google.com" },
   SK: { name: "Slovakia", calendarId: "en.slovak.official#holiday@group.v.calendar.google.com" },
-  SI: { name: "Slovenia", calendarId: "en.slovenian.official#holiday@group.v.calendar.google.com" },
+  // Flowko U19: Google's Slovene official calendar, so holiday names read „Božič“, not „Christmas Day“.
+  SI: { name: "Slovenia", calendarId: "sl.slovenian.official#holiday@group.v.calendar.google.com" },
   SB: { name: "Solomon Islands", calendarId: "en.sb.official#holiday@group.v.calendar.google.com" },
   SO: { name: "Somalia", calendarId: "en.so.official#holiday@group.v.calendar.google.com" },
   ZA: { name: "South Africa", calendarId: "en.sa.official#holiday@group.v.calendar.google.com" },

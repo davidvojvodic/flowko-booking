@@ -9,6 +9,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { validStatuses } from "~/bookings/lib/validStatuses";
+import { isBookingsV3Enabled } from "~/bookings/lib/flowkoBookingsV3";
 import BookingsList from "~/bookings/views/bookings-view";
 
 const querySchema = z.object({
@@ -44,17 +45,13 @@ const Page = async ({ params }: PageProps) => {
 
   const [bookingAuditEnabled, bookingsV3Enabled] = await Promise.all([
     featuresRepository.checkIfUserHasFeature(userId, "booking-audit"),
-    featuresRepository.checkIfUserHasFeature(userId, "bookings-v3"),
+    // Flowko U19: on unless the account has an explicit enabled=false row.
+    isBookingsV3Enabled(prisma, userId),
   ]);
 
+  // Flowko U19: the heading stays with the calendar view too (upstream drops it).
   return (
-    <ShellMainAppDir
-      {...(!bookingsV3Enabled
-        ? {
-            heading: t("bookings"),
-            subtitle: t("bookings_description"),
-          }
-        : {})}>
+    <ShellMainAppDir heading={t("bookings")} subtitle={t("bookings_description")}>
       <BookingsList
         status={parsed.data.status}
         userId={userId}

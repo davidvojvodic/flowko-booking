@@ -1,4 +1,17 @@
 const HOLIDAY_EMOJI_MAP: Array<{ keywords: string[]; emoji: string }> = [
+  // Flowko U19: the Slovene names of sl.slovenian.official, first so no English keyword
+  // matches inside a Slovene name.
+  { keywords: ["božič"], emoji: "🎄" },
+  { keywords: ["novo leto"], emoji: "🎆" },
+  { keywords: ["velika noč", "velikonočni"], emoji: "🐣" },
+  { keywords: ["binkošt"], emoji: "🕊️" },
+  { keywords: ["vnebovzetje", "dan reformacije"], emoji: "✝️" },
+  { keywords: ["praznik dela"], emoji: "👷" },
+  { keywords: ["dan državnosti"], emoji: "🏛️" },
+  { keywords: ["dan samostojnosti"], emoji: "🤝" },
+  { keywords: ["dan upora"], emoji: "🕊️" },
+  { keywords: ["prešernov dan"], emoji: "📜" },
+  { keywords: ["dan spomina na mrtve"], emoji: "🕯️" },
   { keywords: ["christmas", "xmas", "noël", "navidad", "natal", "weihnacht"], emoji: "🎄" },
   { keywords: ["chinese new year", "lunar new year", "spring festival"], emoji: "🐉" },
   { keywords: ["new year", "año nuevo", "nouvel an", "neujahr", "capodanno"], emoji: "🎆" },
