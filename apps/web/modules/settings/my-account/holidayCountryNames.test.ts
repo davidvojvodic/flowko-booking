@@ -23,6 +23,12 @@ describe("localizeHolidayCountries", () => {
     ]);
   });
 
+  it("keeps upstream's name for a calendar without a key", () => {
+    const tNoKey = (key: string) => key;
+    const names = localizeHolidayCountries([{ code: "BAHAI", name: "Bahá'í Holidays" }], "sl", tNoKey);
+    expect(names[0].name).toBe("Bahá'í Holidays");
+  });
+
   it("keeps the codes", () => {
     expect(localizeHolidayCountries(COUNTRIES, "sl", t)[0].code).toBe("SI");
   });

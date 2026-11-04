@@ -15,19 +15,23 @@ describe("Slovenian holidays", () => {
   it.each([
     ["Novo leto", "🎆"],
     ["Prešernov dan", "📜"],
-    ["Velika noč", "🐣"],
-    ["Velikonočni ponedeljek", "🐣"],
-    ["Dan upora proti okupatorju", "🕊️"],
+    ["Velika noč", "🥚"],
+    ["Velikonočni ponedeljek", "🥚"],
+    ["Dan upora proti okupatorju", "✊"],
     ["Praznik dela", "👷"],
     ["Binkoštna nedelja", "🕊️"],
     ["Dan državnosti", "🏛️"],
     ["Marijino vnebovzetje", "✝️"],
-    ["Dan reformacije", "✝️"],
+    ["Dan reformacije", "📖"],
     ["Dan spomina na mrtve", "🕯️"],
     ["Božič", "🎄"],
     ["Dan samostojnosti in enotnosti", "🤝"],
   ])("%s → %s", (name, emoji) => {
     expect(getHolidayEmoji(name)).toBe(emoji);
+  });
+
+  it("a decomposed „č“ still matches", () => {
+    expect(getHolidayEmoji("Bozˇicˇ".replace("zˇ", "z\u030C").replace("cˇ", "c\u030C"))).toBe("🎄");
   });
 
   it("English names keep their upstream emoji", () => {

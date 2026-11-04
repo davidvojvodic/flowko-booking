@@ -142,7 +142,7 @@ export function Event({
                 "flex w-full min-w-0 gap-2 overflow-hidden whitespace-nowrap text-left leading-4",
                 "items-center"
               )}>
-              <span className="min-w-0 truncate">{event.title}</span>
+              <span className="min-w-[2.5rem] truncate">{event.title}</span>
               {!event.options?.hideTime && (
                 <p className="text-subtle mt-1 shrink-0 whitespace-nowrap text-left text-[10px] leading-none">
                   {eventTime}

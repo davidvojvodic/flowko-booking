@@ -34,10 +34,12 @@ describe("Event title in a short block", () => {
     renderEvent(duration);
     const title = screen.getAllByText(TITLE).find((el) => el.closest("button"));
     expect(title).toBeDefined();
-    expect(title).toHaveClass("truncate", "min-w-0");
+    expect(title).toHaveClass("truncate");
+    expect(title?.className).toMatch(/min-w-(0|\[2\.5rem\])/);
     const time = title?.closest("button")?.querySelector("p.text-subtle");
     expect(time).toHaveClass("shrink-0");
     // every flex box between the title and the button may shrink below its content
+    // the title itself keeps a minimum width, so several overlapping blocks still show a few letters
     let node = title?.parentElement;
     while (node && node.tagName !== "BUTTON") {
       expect(node).toHaveClass("min-w-0");

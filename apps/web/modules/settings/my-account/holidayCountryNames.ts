@@ -19,7 +19,10 @@ export function localizeHolidayCountries(
   }
   const named = countries.map((country) => {
     if (country.code.length !== 2) {
-      return { code: country.code, name: t(`flowko_holiday_calendar_${country.code.toLowerCase()}`) };
+      const key = `flowko_holiday_calendar_${country.code.toLowerCase()}`;
+      const translated = t(key);
+      // a calendar upstream adds later has no key yet: keep upstream's name, never the raw key
+      return { code: country.code, name: translated === key ? country.name : translated };
     }
     return { code: country.code, name: regionNames?.of(country.code) ?? country.name };
   });
