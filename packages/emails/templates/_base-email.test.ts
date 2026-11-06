@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import BaseEmail, { MailTransportError } from "./_base-email";
@@ -416,6 +418,93 @@ describe("MailTransportError.definitelyNotSent", () => {
     ["an error with no command", { code: "ECONNRESET" }],
   ])("is false for %s", async (_label, fields) => {
     expect((await rejectedBy(smtpError(fields))).definitelyNotSent).toBe(false);
+  });
+
+  /**
+   * As nodemailer 7 builds them (smtp-connection/index.js): a socket error keeps Node's own error object with `code`
+   * overwritten to ESOCKET (`_formatError`) and Node's `syscall` intact; a timer failure is `new Error(<fixed text>)`.
+   */
+  const nodemailerError = (
+    message: string,
+    fields: { code: string; command: string; syscall?: string; errno?: number }
+  ): Error => Object.assign(new Error(message), fields);
+
+  it.each([
+    [
+      "a refused connection (socket error at connect)",
+      nodemailerError("connect ECONNREFUSED 10.0.0.1:587", {
+        code: "ESOCKET",
+        command: "CONN",
+        syscall: "connect",
+        errno: -61,
+      }),
+    ],
+    [
+      "an unreachable host",
+      nodemailerError("connect EHOSTUNREACH 10.0.0.1:587", {
+        code: "ESOCKET",
+        command: "CONN",
+        syscall: "connect",
+        errno: -65,
+      }),
+    ],
+    [
+      "an unreachable network",
+      nodemailerError("connect ENETUNREACH 10.0.0.1:587", {
+        code: "ESOCKET",
+        command: "CONN",
+        syscall: "connect",
+        errno: -51,
+      }),
+    ],
+    ["the connection timeout", nodemailerError("Connection timeout", { code: "ETIMEDOUT", command: "CONN" })],
+    ["no greeting", nodemailerError("Greeting never received", { code: "ETIMEDOUT", command: "CONN" })],
+  ])("is true for a connect-stage failure: %s", async (_label, error) => {
+    expect((await rejectedBy(error)).definitelyNotSent).toBe(true);
+  });
+
+  it.each([
+    ["a socket timeout mid-DATA", nodemailerError("Timeout", { code: "ETIMEDOUT", command: "CONN" })],
+    [
+      "a connection reset mid-DATA",
+      nodemailerError("read ECONNRESET", { code: "ESOCKET", command: "CONN", syscall: "read", errno: -54 }),
+    ],
+    [
+      "a broken pipe mid-DATA",
+      nodemailerError("write EPIPE", { code: "ESOCKET", command: "CONN", syscall: "write", errno: -32 }),
+    ],
+  ])("is false for a mid-session failure: %s", async (_label, error) => {
+    expect((await rejectedBy(error)).definitelyNotSent).toBe(false);
+  });
+
+  it("matches the installed nodemailer's connect-stage markers (re-check on upgrade)", () => {
+    const source = readFileSync(
+      createRequire(import.meta.url).resolve("nodemailer/lib/smtp-connection/index.js"),
+      "utf8"
+    );
+    expect(source).toContain("this._onError(error, 'ESOCKET', false, 'CONN')");
+    expect(source).toContain("this._onError('Connection timeout', 'ETIMEDOUT', false, 'CONN')");
+    expect(source).toContain("this._onError('Greeting never received', 'ETIMEDOUT', false, 'CONN')");
+    expect(source).toContain("this._onError(new Error('Timeout'), 'ETIMEDOUT', false, 'CONN')");
+    expect(source).toMatch(/_onConnect\(\) \{\s+clearTimeout\(this\._connectionTimeout\);/);
+  });
+
+  it("logs no message, syscall or server address for a connect-stage failure", async () => {
+    sendMailError.current = nodemailerError("connect ECONNREFUSED 10.0.0.1:587", {
+      code: "ESOCKET",
+      command: "CONN",
+      syscall: "connect",
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await new TestEmail({ to: "booker@example.si", subject: "x" }).sendEmailOrThrow().catch(() => undefined);
+    const logged = JSON.stringify(consoleErrorSpy.mock.calls);
+    consoleErrorSpy.mockRestore();
+
+    expect(logged).toContain("ESOCKET");
+    expect(logged).not.toContain("10.0.0.1");
+    expect(logged).not.toContain("connect");
+    expect(logged).not.toContain("ECONNREFUSED");
   });
 
   it("sendEmail resolves and logs the same codes whatever the flag", async () => {

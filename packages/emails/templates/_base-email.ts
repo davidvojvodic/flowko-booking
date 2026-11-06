@@ -43,18 +43,36 @@ const PRE_BODY_COMMANDS: ReadonlySet<string> = new Set([
 // Flowko U22: nodemailer also tags a socket error, socket timeout or unexpected close as "CONN" at any stage, after
 // DATA too, so "CONN" counts only with a code raised while connecting.
 const CONNECT_ONLY_CODES: ReadonlySet<string> = new Set(["EDNS", "ETLS"]);
+// Flowko U22: nodemailer 7's fixed texts for its two pre-greeting timers (smtp-connection/index.js: the connection
+// timer is cleared in _onConnect, the greeting timer fires only while the greeting is awaited). A session socket
+// timeout is "Timeout", so it is not in here.
+const PRE_GREETING_TIMEOUTS: ReadonlySet<string> = new Set(["Connection timeout", "Greeting never received"]);
+
+/**
+ * Flowko U22: a "CONN" failure proven to be before the SMTP greeting: a connect-only code, a socket error from the
+ * connect syscall (refused, host or network unreachable; nodemailer overwrites `code` with ESOCKET but keeps Node's
+ * `syscall`), or a pre-greeting timer. Reads `syscall` and `message` here only, never logs them.
+ */
+const isConnectStageFailure = (cause: unknown, code: unknown): boolean => {
+  if (typeof code !== "string") return false;
+  if (CONNECT_ONLY_CODES.has(code)) return true;
+  const { cause: inner } = (cause ?? {}) as { cause?: unknown };
+  const { syscall, message } = (inner ?? cause ?? {}) as { syscall?: unknown; message?: unknown };
+  if (code === "ESOCKET") return syscall === "connect";
+  return code === "ETIMEDOUT" && typeof message === "string" && PRE_GREETING_TIMEOUTS.has(message);
+};
 
 /**
  * Flowko U22: true when the server cannot have taken the message: it answered with an SMTP 4xx/5xx, or the failure
- * came before the body was handed over. A timeout or reset with no answer (e.g. mid-DATA) is false: the server may
- * already have accepted it. Reads the codes only, never the message or response (they can quote addresses).
+ * came before the body was handed over (connect stage included). A timeout or reset with no answer mid-session (e.g.
+ * mid-DATA) is false: the server may already have accepted it. Reads the codes only, never the message or response (they can quote addresses).
  */
 const isDefinitelyNotSent = (cause: unknown): boolean => {
   const { code, responseCode, command } = getLoggableMailError(cause);
   if (typeof responseCode === "number" && responseCode >= 400 && responseCode <= 599) return true;
   if (typeof command !== "string") return false;
   if (PRE_BODY_COMMANDS.has(command) || command.startsWith("AUTH")) return true;
-  return command === "CONN" && typeof code === "string" && CONNECT_ONLY_CODES.has(code);
+  return command === "CONN" && isConnectStageFailure(cause, code);
 };
 
 // Flowko U22: the strings sendEmail resolved to before U22, kept for its callers.

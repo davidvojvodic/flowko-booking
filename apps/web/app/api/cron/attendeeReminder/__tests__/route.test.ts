@@ -411,6 +411,23 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
     expect(Array.from(db.claims)).toEqual(["1:1440"]);
   });
 
+  it("a refused connection (connect stage) releases the claim, and the next run sends", async () => {
+    db.state.bookings = [row(1)];
+    const refused = new MailTransportError(
+      Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:587"), {
+        code: "ESOCKET",
+        command: "CONN",
+        syscall: "connect",
+      })
+    );
+    expect(refused.definitelyNotSent).toBe(true);
+    mocks.send.mockRejectedValueOnce(refused);
+
+    expect((await run()).body).toEqual({ due: 1, sent: 0, failed: 1, skipped: 0 });
+    expect(db.claims.size).toBe(0);
+    expect((await run()).body).toEqual({ due: 1, sent: 1, failed: 0, skipped: 0 });
+  });
+
   it("a transport failure the server may have taken (no answer mid-DATA) keeps the claim: failed, never retried", async () => {
     db.state.bookings = [row(1)];
     const ambiguous = transportError({ code: "ETIMEDOUT", command: "CONN" });
