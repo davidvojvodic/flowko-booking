@@ -1,14 +1,7 @@
 "use client";
 
+import { shouldRetryQuery } from "@calcom/trpc/react/queryRetry";
 import { QueryClient } from "@tanstack/react-query";
-
-import { TRPCClientError } from "@trpc/client";
-
-const MAX_QUERY_RETRIES = 3;
-
-const isTRPCClientError = (cause: unknown): cause is TRPCClientError<any> => {
-  return cause instanceof TRPCClientError;
-};
 
 let browserQueryClient: QueryClient | undefined;
 
@@ -29,16 +22,9 @@ export const makeQueryClient = (): QueryClient =>
         /**
          * Retry `useQuery()` calls depending on this function
          */
-        retry(failureCount, error) {
-          if (isTRPCClientError(error) && error.data) {
-            const { code } = error.data;
-            if (code === "BAD_REQUEST" || code === "FORBIDDEN" || code === "UNAUTHORIZED") {
-              // if input data is wrong or you're not authorized there's no point retrying a query
-              return false;
-            }
-          }
-          return failureCount < MAX_QUERY_RETRIES;
-        },
+        // Flowko U21: the same rule as the pages router (packages/trpc/react/trpc.ts). Upstream's copy here
+        // retried TOO_MANY_REQUESTS 3 times, which only tripled the load on a rate limit.
+        retry: shouldRetryQuery,
       },
     },
   });
