@@ -101,7 +101,7 @@ export const UsernameAvailability = (props: ICustomUsernameProps) => {
 export const UsernameAvailabilityField = ({
   user: userFromProps,
   ...props
-}: UsernameAvailabilityFieldProps) => {
+}: UsernameAvailabilityFieldProps): JSX.Element => {
   const { data: userFromQuery } = trpc.viewer.me.get.useQuery(undefined, { enabled: !userFromProps });
   const user = userFromProps ?? userFromQuery;
   if (!user) return <div aria-hidden="true" data-testid="username-field-placeholder" className="h-16" />;
