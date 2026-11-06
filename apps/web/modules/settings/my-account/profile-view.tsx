@@ -293,6 +293,7 @@ const ProfileView = ({ user }: Props) => {
         extraField={
           <div className="mt-6">
             <UsernameAvailabilityField
+              user={user}
               onSuccessMutation={async () => {
                 showToast(t("settings_updated_successfully"), "success");
                 await utils.viewer.me.invalidate();

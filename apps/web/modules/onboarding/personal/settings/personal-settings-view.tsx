@@ -175,6 +175,7 @@ export const PersonalSettingsView = ({ userEmail, userName }: PersonalSettingsVi
               {/* Username */}
               <div className="flex w-full flex-col gap-1.5">
                 <UsernameAvailabilityField
+                  user={user}
                   onSuccessMutation={async () => {
                     // Refetch user to get updated username and save to store
                     const updatedUser = await utils.viewer.me.get.fetch();

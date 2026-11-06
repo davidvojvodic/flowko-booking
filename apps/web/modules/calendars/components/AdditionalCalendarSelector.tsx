@@ -19,9 +19,12 @@ interface AdditionalCalendarSelectorProps {
 
 const AdditionalCalendarDropdown = ({ isPending }: AdditionalCalendarSelectorProps): JSX.Element | null => {
   const { t } = useLocale();
-  const [data] = trpc.viewer.apps.integrations.useSuspenseQuery({ variant: "calendar", onlyInstalled: true });
+  // Flowko U20: no suspense query. useSuspenseQuery ran during the server render without the user's
+  // cookies, failed and caused React #419 on /apps/installed/calendar. The trigger renders at once;
+  // the installed apps fill the menu when the query returns (the menu only renders when opened).
+  const { data } = trpc.viewer.apps.integrations.useQuery({ variant: "calendar", onlyInstalled: true });
 
-  const options = data.items.map((item) => ({
+  const options = (data?.items ?? []).map((item) => ({
     label: item.name,
     slug: item.slug,
     image: item.logo,
