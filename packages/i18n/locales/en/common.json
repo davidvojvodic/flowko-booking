@@ -4962,5 +4962,11 @@
   "flowko_holidays_unavailable": "Holidays cannot be loaded right now. Please try again later.",
   "flowko_reminder_subject": "Reminder: {{eventType}}, {{date}}",
   "flowko_reminder_title": "Reminder of your appointment",
-  "flowko_reminder_subtitle": "This is a reminder of your booked appointment. The details are below."
+  "flowko_reminder_subtitle": "This is a reminder of your booked appointment. The details are below.",
+  "flowko_reminders_title": "Reminder to the client before the appointment",
+  "flowko_reminders_description": "The person who booked gets a reminder e-mail before a confirmed appointment. Guests they added do not.",
+  "flowko_reminders_24h": "24 hours before",
+  "flowko_reminders_2h": "2 hours before",
+  "flowko_reminders_both": "24 hours and 2 hours before",
+  "flowko_reminders_hint": "A booking made or confirmed later than the chosen time does not get that reminder."
 }

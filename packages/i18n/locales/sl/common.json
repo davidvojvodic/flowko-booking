@@ -5024,5 +5024,11 @@
   "flowko_holidays_unavailable": "Praznikov trenutno ni mogoče naložiti. Poskusite znova pozneje.",
   "flowko_reminder_subject": "Opomnik: {{eventType}}, {{date}}",
   "flowko_reminder_title": "Opomnik na vaš termin",
-  "flowko_reminder_subtitle": "To je opomnik na vaš rezervirani termin. Podrobnosti so spodaj."
+  "flowko_reminder_subtitle": "To je opomnik na vaš rezervirani termin. Podrobnosti so spodaj.",
+  "flowko_reminders_title": "Opomnik stranki pred terminom",
+  "flowko_reminders_description": "Oseba, ki je termin rezervirala, prejme e-sporočilo z opomnikom pred potrjenim terminom. Gostje, ki jih je dodala, ga ne prejmejo.",
+  "flowko_reminders_24h": "24 ur pred terminom",
+  "flowko_reminders_2h": "2 uri pred terminom",
+  "flowko_reminders_both": "24 ur in 2 uri pred terminom",
+  "flowko_reminders_hint": "Rezervacija, oddana ali potrjena pozneje kot izbrani čas pred terminom, tega opomnika ne prejme."
 }
