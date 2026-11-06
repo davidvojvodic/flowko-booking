@@ -34,7 +34,9 @@ vi.mock("next/dynamic", () => ({
 
 describe("UsernameAvailabilityField on the server", () => {
   it("server render with the user prop does not throw", () => {
-    const html = renderToString(<UsernameAvailabilityField user={{ username: "ana", organization: null }} />);
+    const html = renderToString(
+      <UsernameAvailabilityField user={{ username: "ana", organization: { id: null } as never }} />
+    );
     expect(html).toContain('value="ana"');
     expect(html).not.toContain("username-field-placeholder");
   });

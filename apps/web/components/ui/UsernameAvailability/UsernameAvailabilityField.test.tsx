@@ -51,7 +51,7 @@ describe("UsernameAvailabilityField", () => {
   });
 
   it("renders from the user prop without querying", () => {
-    render(<UsernameAvailabilityField user={{ username: "ana", organization: null }} />);
+    render(<UsernameAvailabilityField user={{ username: "ana", organization: { id: null } as never }} />);
     expect(screen.getByTestId("username-input")).toHaveValue("ana");
     expect(mocks.useQuery).toHaveBeenCalledWith(undefined, expect.objectContaining({ enabled: false }));
   });
@@ -70,7 +70,7 @@ describe("UsernameAvailabilityField", () => {
 
   it("signup handover keeps ?username", () => {
     mocks.searchParams = new URLSearchParams("username=foo");
-    render(<UsernameAvailabilityField user={{ username: null, organization: null }} />);
+    render(<UsernameAvailabilityField user={{ username: null, organization: { id: null } as never }} />);
     expect(screen.getByTestId("username-input")).toHaveValue("foo");
   });
 });
