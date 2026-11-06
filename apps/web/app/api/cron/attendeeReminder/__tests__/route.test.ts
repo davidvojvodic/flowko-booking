@@ -260,6 +260,7 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
       status: "ACCEPTED",
       endTime: { gt: NOW },
       eventTypeId: { not: null },
+      eventType: { metadata: { path: ["flowkoReminders", "enabled"], equals: true } },
       OR: [
         {
           startTime: { gt: at(1440 - 60), lte: at(1440) },

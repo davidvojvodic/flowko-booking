@@ -5,13 +5,12 @@ import { CalendarEventBuilder } from "@calcom/features/CalendarEventBuilder";
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
 import logger from "@calcom/lib/logger";
 import prisma from "@calcom/prisma";
-import { BookingStatus } from "@calcom/prisma/enums";
-import { EventTypeMetaDataSchema, FLOWKO_REMINDER_OFFSETS } from "@calcom/prisma/zod-utils";
+import { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import {
+  dueCandidatesWhere,
   dueReminders,
   getResponsesEmail,
   pickBooker,
-  REMINDER_LOOKBACK_MINUTES,
 } from "@lib/flowko/attendeeReminders";
 import { isAuthorizedCron } from "@lib/flowko/cronAuth";
 import { defaultResponderForAppDir } from "app/api/defaultResponderForAppDir";
@@ -29,7 +28,6 @@ import { NextResponse } from "next/server";
 const log = logger.getSubLogger({ prefix: ["[api/cron/attendeeReminder]"] });
 
 const MAX_BOOKINGS_PER_RUN = 200;
-const MINUTE_MS = 60_000;
 
 type Outcome = "sent" | "failed" | "skipped";
 
@@ -44,20 +42,7 @@ const loggableError = (error: unknown) => {
 
 const selectDueCandidates = (now: Date) =>
   prisma.booking.findMany({
-    where: {
-      status: BookingStatus.ACCEPTED,
-      endTime: { gt: now },
-      eventTypeId: { not: null },
-      // One narrow window per offset, excluding what is already claimed for that offset: one wide window, or
-      // claimed rows, would fill `take` with bookings that are not due.
-      OR: FLOWKO_REMINDER_OFFSETS.map((offset) => ({
-        startTime: {
-          gt: new Date(now.getTime() + (offset - REMINDER_LOOKBACK_MINUTES) * MINUTE_MS),
-          lte: new Date(now.getTime() + offset * MINUTE_MS),
-        },
-        flowkoAttendeeReminders: { none: { offsetMinutes: offset } },
-      })),
-    },
+    where: dueCandidatesWhere(now),
     select: {
       id: true,
       startTime: true,

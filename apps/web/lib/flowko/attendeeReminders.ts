@@ -1,3 +1,5 @@
+import type { Prisma } from "@calcom/prisma/client";
+import { BookingStatus } from "@calcom/prisma/enums";
 import { FLOWKO_REMINDER_OFFSETS, flowkoRemindersSchema } from "@calcom/prisma/zod-utils";
 
 const MINUTE_MS = 60_000;
@@ -44,6 +46,35 @@ export function dueReminders(
     if (booking.updatedAt && booking.updatedAt.getTime() > moment) return false;
     return true;
   });
+}
+
+/**
+ * Flowko U22: the sweep's where clause (shared with the real-Postgres proof script). ACCEPTED bookings that have not
+ * ended, in one narrow window per offset (`startTime ∈ (now + offset − lookback, now + offset]`) and not yet claimed
+ * for that offset: one wide window, or claimed rows, would fill the per-run `take` with bookings that are not due.
+ * `dueReminders` stays the authority on offsets and the created/updated guard.
+ */
+export function dueCandidatesWhere(
+  now: Date,
+  lookbackMinutes: number = REMINDER_LOOKBACK_MINUTES
+): Prisma.BookingWhereInput {
+  const nowMs = now.getTime();
+  return {
+    status: BookingStatus.ACCEPTED,
+    endTime: { gt: now },
+    eventTypeId: { not: null },
+    // Flowko U22: services with the switch on only. Bookings of services that are off are never claimed, so they
+    // would stay selectable for each window's whole hour and could fill the per-run `take`, starving services
+    // that are on.
+    eventType: { metadata: { path: ["flowkoReminders", "enabled"], equals: true } },
+    OR: FLOWKO_REMINDER_OFFSETS.map((offset) => ({
+      startTime: {
+        gt: new Date(nowMs + (offset - lookbackMinutes) * MINUTE_MS),
+        lte: new Date(nowMs + offset * MINUTE_MS),
+      },
+      flowkoAttendeeReminders: { none: { offsetMinutes: offset } },
+    })),
+  };
 }
 
 /** Flowko U22: `booking.responses.email` when it is a string. */
