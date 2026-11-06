@@ -30,8 +30,9 @@ export type ReminderCandidate = {
 /**
  * Flowko U22 (R3): the offsets (minutes before the start) whose reminder is due now. A reminder is due when
  * `now ∈ [start − offset, start − offset + lookback)`, and the booking was neither made nor changed (e.g. confirmed)
- * later than `REMINDER_MIN_GAP_MINUTES` before that moment: such a booking just got its confirmation. Only `metadata.flowkoReminders` is read, so an invalid
- * key elsewhere in the metadata does not switch reminders off. Absent, off or invalid → none (R1).
+ * later than `REMINDER_MIN_GAP_MINUTES` before that moment: such a booking just got its confirmation. Only
+ * `metadata.flowkoReminders` is read, so an invalid key elsewhere in the metadata does not switch reminders off.
+ * Absent, off or invalid → none (R1).
  */
 export function dueReminders(
   booking: ReminderCandidate,
