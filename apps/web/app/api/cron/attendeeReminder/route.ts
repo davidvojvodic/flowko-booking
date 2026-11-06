@@ -1,10 +1,12 @@
 import process from "node:process";
 import { sendAttendeeReminderEmail } from "@calcom/emails/email-manager";
+import { MailTransportError } from "@calcom/emails/templates/_base-email";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
 import { CalendarEventBuilder } from "@calcom/features/CalendarEventBuilder";
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
 import logger from "@calcom/lib/logger";
 import prisma from "@calcom/prisma";
+import { BookingStatus } from "@calcom/prisma/enums";
 import { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import {
   dueCandidatesWhere,
@@ -22,8 +24,9 @@ import { NextResponse } from "next/server";
  * `EventType.metadata.flowkoReminders`). A Railway cron service POSTs this every 5 minutes.
  *
  * Never twice: each (booking, offset) is claimed in FlowkoAttendeeReminder (unique key) before the mail goes out;
- * a lost claim race means another run has it. A refused send (or the kill switch at send time) releases the claim,
- * so the next run retries within the lookback. Logs and the response carry counts only (prod data rule).
+ * a lost claim race means another run has it. A send the server refused or never got (or the kill switch at send
+ * time) releases the claim, so the next run retries within the lookback; a transport failure the server may already
+ * have taken (no answer mid-send) keeps it: at most once. Logs and the response carry counts only (prod data rule).
  */
 const log = logger.getSubLogger({ prefix: ["[api/cron/attendeeReminder]"] });
 
@@ -82,6 +85,9 @@ async function remindOnce(
 
     const booking = await bookingRepository.getBookingForCalEventBuilder(candidate.id);
     if (!booking) throw new Error("Booking not found");
+    // Cancelled, rejected or rescheduled since the select: never ACCEPTED again (a reschedule is a new booking), so
+    // the claim stays.
+    if (booking.status !== BookingStatus.ACCEPTED) return "skipped";
     const built = (await CalendarEventBuilder.fromBooking(booking)).build();
 
     // Built Person objects carry no id: match the booker by e-mail. The template treats attendees[0] as the booker
@@ -108,8 +114,10 @@ async function remindOnce(
     // Disabled for attendees, faux address, test mode: the claim stays, so it is not retried.
     return "skipped";
   } catch (error) {
-    log.error("reminder not sent", loggableError(error));
-    if (claimed) {
+    // The server may already have taken the message: keep the claim rather than risk a second mail.
+    const maybeSent = error instanceof MailTransportError && !error.definitelyNotSent;
+    log.error("reminder not sent", { ...loggableError(error), ...(maybeSent && { claimKept: true }) });
+    if (claimed && !maybeSent) {
       try {
         await prisma.flowkoAttendeeReminder.deleteMany({ where: claim });
       } catch (releaseError) {

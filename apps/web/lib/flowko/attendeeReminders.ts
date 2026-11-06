@@ -49,7 +49,8 @@ export function dueReminders(
 }
 
 /**
- * Flowko U22: the sweep's where clause (shared with the real-Postgres proof script). ACCEPTED bookings that have not
+ * Flowko U22: the sweep's where clause. Its JSON-path filter was checked once against Postgres 16 during the build
+ * (the route tests mock Prisma); the release walk's `sent: 1` is the live proof. ACCEPTED bookings that have not
  * ended, in one narrow window per offset (`startTime ∈ (now + offset − lookback, now + offset]`) and not yet claimed
  * for that offset: one wide window, or claimed rows, would fill the per-run `take` with bookings that are not due.
  * `dueReminders` stays the authority on offsets and the created/updated guard.

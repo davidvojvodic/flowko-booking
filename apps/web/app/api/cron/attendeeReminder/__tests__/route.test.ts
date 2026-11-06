@@ -98,6 +98,7 @@ vi.mock("@calcom/lib/logger", () => ({
   default: { getSubLogger: () => mocks.log },
 }));
 
+import { MailTransportError } from "@calcom/emails/templates/_base-email";
 import * as routeModule from "../route";
 import { POST } from "../route";
 
@@ -146,9 +147,10 @@ const row = (id: number, overrides: Partial<Row> = {}): Row => ({
 });
 
 /** What getBookingForCalEventBuilder returns, in DB order (guest first, no orderBy). */
-const fullBooking = (id: number) => ({
+const fullBooking = (id: number, status = "ACCEPTED") => ({
   id,
   uid: `uid-${id}`,
+  status,
   attendees: [GUEST, BOOKER],
 });
 
@@ -380,11 +382,18 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
     expect(mocks.send).toHaveBeenCalledTimes(2);
   });
 
+  /** A transport failure as BaseEmail wraps it; the nodemailer-shaped cause decides definitelyNotSent. */
+  const transportError = (fields: {
+    code: string;
+    responseCode?: number;
+    command?: string;
+  }): MailTransportError =>
+    new MailTransportError(Object.assign(new Error("550 rejected booker@example.com"), fields));
+
   it("a refused send releases the claim, and the next run sends", async () => {
     db.state.bookings = [row(1)];
-    const refused = Object.assign(new Error("550 rejected booker@example.com"), {
-      name: "MailTransportError",
-    });
+    const refused = transportError({ code: "EENVELOPE", responseCode: 550, command: "RCPT TO" });
+    expect(refused.definitelyNotSent).toBe(true);
     mocks.send.mockRejectedValueOnce(refused);
 
     const first = await run();
@@ -400,6 +409,37 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
     expect(second.body).toEqual({ due: 1, sent: 1, failed: 0, skipped: 0 });
     expect(mocks.send).toHaveBeenCalledTimes(2);
     expect(Array.from(db.claims)).toEqual(["1:1440"]);
+  });
+
+  it("a transport failure the server may have taken (no answer mid-DATA) keeps the claim: failed, never retried", async () => {
+    db.state.bookings = [row(1)];
+    const ambiguous = transportError({ code: "ETIMEDOUT", command: "CONN" });
+    expect(ambiguous.definitelyNotSent).toBe(false);
+    mocks.send.mockRejectedValueOnce(ambiguous);
+
+    const first = await run();
+
+    expect(first.body).toEqual({ due: 1, sent: 0, failed: 1, skipped: 0 });
+    expect(db.prisma.flowkoAttendeeReminder.deleteMany).not.toHaveBeenCalled();
+    expect(Array.from(db.claims)).toEqual(["1:1440"]);
+
+    await run();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("a booking no longer ACCEPTED when the claim is taken is skipped and keeps its claim", async () => {
+    db.state.bookings = [row(1)];
+    mocks.getBookingForCalEventBuilder.mockImplementation(async (id: number) => fullBooking(id, "CANCELLED"));
+
+    const res = await run();
+
+    expect(res.body).toEqual({ due: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(mocks.fromBooking).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(Array.from(db.claims)).toEqual(["1:1440"]);
+
+    await run();
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 
   it("a kill switch hit at send time releases the claim (counted failed)", async () => {
@@ -471,7 +511,7 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
     db.state.bookings = [row(1), row(2), row(3)];
     db.state.deleted.add(1);
     mocks.send.mockRejectedValueOnce(
-      Object.assign(new Error("550 rejected booker@example.com"), { name: "MailTransportError" })
+      transportError({ code: "EENVELOPE", responseCode: 550, command: "RCPT TO" })
     );
 
     const res = await run();

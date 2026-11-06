@@ -360,3 +360,80 @@ describe("BaseEmail.sendEmailOrThrow", () => {
     expect(sentPayloads).toHaveLength(0);
   });
 });
+
+// Flowko U22: the sweep releases its claim only when the server cannot have taken the message.
+describe("MailTransportError.definitelyNotSent", () => {
+  /** Shaped like nodemailer's SMTPConnection._formatError output (command/code/responseCode). */
+  const smtpError = (fields: { code?: string; responseCode?: number; command?: string }): Error =>
+    Object.assign(new Error("smtp failure for booker@example.si"), fields);
+
+  const rejectedBy = async (error: Error): Promise<MailTransportError> => {
+    sendMailError.current = error;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const rejection = await new TestEmail({
+      from: "Organizer <noreply@flowko.si>",
+      to: "Janez Novak <booker@example.si>",
+      subject: "Opomnik",
+    })
+      .sendEmailOrThrow()
+      .then(
+        () => null,
+        (e: unknown) => e
+      );
+    expect(rejection).toBeInstanceOf(MailTransportError);
+    return rejection as MailTransportError;
+  };
+
+  beforeEach(() => {
+    sentPayloads.length = 0;
+    sendMailError.current = null;
+    killSwitch.current = false;
+    vi.stubEnv("INTEGRATION_TEST_MODE", "false");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["a 550 refusal of the message", { code: "EMESSAGE", responseCode: 550, command: "DATA" }],
+    ["a 5xx refusal of every recipient", { code: "EENVELOPE", responseCode: 550, command: "RCPT TO" }],
+    ["a 4xx deferral of the sender", { code: "EENVELOPE", responseCode: 451, command: "MAIL FROM" }],
+    ["a failed login", { code: "EAUTH", command: "AUTH PLAIN" }],
+    ["a failed STARTTLS upgrade", { code: "ETLS", command: "STARTTLS" }],
+    ["a DNS failure while connecting", { code: "EDNS", command: "CONN" }],
+  ])("is true for %s", async (_label, fields) => {
+    expect((await rejectedBy(smtpError(fields))).definitelyNotSent).toBe(true);
+  });
+
+  it.each([
+    ["a timeout during DATA, no server answer", { code: "ETIMEDOUT", command: "DATA" }],
+    // nodemailer tags a socket timeout, socket error or unexpected close as CONN at any stage, after DATA too
+    ["a socket timeout (CONN, any stage)", { code: "ETIMEDOUT", command: "CONN" }],
+    ["a connection reset (ESOCKET, CONN)", { code: "ESOCKET", command: "CONN" }],
+    ["an unexpected close (ECONNECTION, CONN)", { code: "ECONNECTION", command: "CONN" }],
+    ["an error with no command", { code: "ECONNRESET" }],
+  ])("is false for %s", async (_label, fields) => {
+    expect((await rejectedBy(smtpError(fields))).definitelyNotSent).toBe(false);
+  });
+
+  it("sendEmail resolves and logs the same codes whatever the flag", async () => {
+    for (const fields of [
+      { code: "EENVELOPE", responseCode: 550, command: "RCPT TO" },
+      { code: "ETIMEDOUT", command: "DATA" },
+    ]) {
+      sendMailError.current = smtpError(fields);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      await expect(new TestEmail({ to: "booker@example.si", subject: "x" }).sendEmail()).resolves.toBe(
+        "send mail async"
+      );
+      const logged = JSON.stringify(consoleErrorSpy.mock.calls);
+      expect(logged).toContain(fields.code);
+      expect(logged).not.toContain("definitelyNotSent");
+      expect(logged).not.toContain("booker@example.si");
+      consoleErrorSpy.mockRestore();
+    }
+  });
+});

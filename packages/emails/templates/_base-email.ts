@@ -31,6 +31,32 @@ const getLoggableMailError = (error: unknown) => {
   return { name, statusCode, code, responseCode, command };
 };
 
+// Flowko U22: nodemailer's SMTP stages (SMTPConnection `command`) that fail before the message body is handed over.
+const PRE_BODY_COMMANDS: ReadonlySet<string> = new Set([
+  "EHLO",
+  "HELO",
+  "LHLO",
+  "STARTTLS",
+  "MAIL FROM",
+  "RCPT TO",
+]);
+// Flowko U22: nodemailer also tags a socket error, socket timeout or unexpected close as "CONN" at any stage, after
+// DATA too, so "CONN" counts only with a code raised while connecting.
+const CONNECT_ONLY_CODES: ReadonlySet<string> = new Set(["EDNS", "ETLS"]);
+
+/**
+ * Flowko U22: true when the server cannot have taken the message: it answered with an SMTP 4xx/5xx, or the failure
+ * came before the body was handed over. A timeout or reset with no answer (e.g. mid-DATA) is false: the server may
+ * already have accepted it. Reads the codes only, never the message or response (they can quote addresses).
+ */
+const isDefinitelyNotSent = (cause: unknown): boolean => {
+  const { code, responseCode, command } = getLoggableMailError(cause);
+  if (typeof responseCode === "number" && responseCode >= 400 && responseCode <= 599) return true;
+  if (typeof command !== "string") return false;
+  if (PRE_BODY_COMMANDS.has(command) || command.startsWith("AUTH")) return true;
+  return command === "CONN" && typeof code === "string" && CONNECT_ONLY_CODES.has(code);
+};
+
 // Flowko U22: the strings sendEmail resolved to before U22, kept for its callers.
 const LEGACY_SEND_RESULTS: Record<MailSendOutcome, string> = {
   sent: "send mail async",
@@ -43,13 +69,17 @@ const LEGACY_SEND_RESULTS: Record<MailSendOutcome, string> = {
 export type MailSendOutcome = "sent" | "skipped_kill_switch" | "skipped_faux" | "skipped_test_mode";
 
 /**
- * Flowko U22: the mail server refused the message. Only the transport's rejection is wrapped, so a caller can tell it
- * from an error before sending. The message names no recipient; the original error is kept as `cause`.
+ * Flowko U22: the mail transport failed. Only the transport's failure is wrapped, so a caller can tell it from an
+ * error before sending. The message names no recipient; the original error is kept as `cause`.
  */
 export class MailTransportError extends Error {
+  /** Flowko U22: the server cannot have taken the message, so a retry cannot send it twice. */
+  readonly definitelyNotSent: boolean;
+
   constructor(cause: unknown) {
     super("The mail transport did not accept the message", { cause });
     this.name = "MailTransportError";
+    this.definitelyNotSent = isDefinitelyNotSent(cause);
   }
 }
 
@@ -87,7 +117,7 @@ export default class BaseEmail {
     }
   }
 
-  // Flowko U22: rejects with a MailTransportError when the mail server refuses, so the caller can retry.
+  // Flowko U22: rejects with a MailTransportError when the transport fails (definitelyNotSent: a retry is safe).
   public async sendEmailOrThrow(): Promise<MailSendOutcome> {
     try {
       return await this.deliver();
