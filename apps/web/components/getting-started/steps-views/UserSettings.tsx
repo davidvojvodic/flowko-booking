@@ -15,6 +15,7 @@ import { Button } from "@calcom/ui/components/button";
 import { Input } from "@calcom/ui/components/form";
 
 import { UsernameAvailabilityField } from "@components/ui/UsernameAvailability";
+import { useHasMounted } from "@lib/hooks/useHasMounted";
 
 interface IUserSettingsProps {
   nextStep: () => void;
@@ -26,6 +27,7 @@ const UserSettings = (props: IUserSettingsProps) => {
   const { nextStep, user } = props;
   const { t } = useLocale();
   const { setTimezone: setSelectedTimeZone, timezone: selectedTimeZone } = useTimePreferences();
+  const hasMounted = useHasMounted();
   const userSettingsSchema = z.object({
     name: z
       .string()
@@ -100,16 +102,25 @@ const UserSettings = (props: IUserSettingsProps) => {
             {t("timezone")}
           </label>
 
-          <TimezoneSelect
-            id="timeZone"
-            value={selectedTimeZone}
-            onChange={({ value }) => setSelectedTimeZone(value)}
-            className="mt-2 w-full rounded-md text-sm"
-          />
+          {/* Flowko U20: the zone and the current time are the browser's; render them after mount so the
+              server HTML (server zone) and the hydrating render match (no React #418). */}
+          {hasMounted && (
+            <>
+              <TimezoneSelect
+                id="timeZone"
+                value={selectedTimeZone}
+                onChange={({ value }) => setSelectedTimeZone(value)}
+                className="mt-2 w-full rounded-md text-sm"
+              />
 
-          <p className="text-subtle mt-3 flex flex-row font-sans text-xs leading-tight">
-            {t("current_time")} {dayjs().tz(selectedTimeZone).format("LT").toString().toLowerCase()}
-          </p>
+              <p className="text-subtle mt-3 flex flex-row font-sans text-xs leading-tight">
+                {t("current_time")} {dayjs().tz(selectedTimeZone).format("LT").toString().toLowerCase()}
+              </p>
+            </>
+          )}
+          {!hasMounted && (
+            <div aria-hidden="true" data-testid="timezone-placeholder" className="mt-2 h-[38px]" />
+          )}
         </div>
       </div>
       <Button
