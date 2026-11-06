@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-utils";
+import { describe, expect, it } from "vitest";
 import z from "zod";
-
-import { excludeOrRequireEmailSchema } from "./zod-utils";
+import {
+  EventTypeMetaDataSchema,
+  excludeOrRequireEmailSchema,
+  FLOWKO_REMINDER_OFFSETS,
+  flowkoRemindersSchema,
+} from "./zod-utils";
 
 describe("excludeOrRequireEmailSchema", () => {
   const parse = (input: string) => z.object({ v: excludeOrRequireEmailSchema }).safeParse({ v: input });
@@ -86,6 +91,60 @@ describe("excludeOrRequireEmailSchema", () => {
 
     it("rejects Unicode domains (ASCII-only)", () => {
       expect(parse("münchen.de").success).toBe(false);
+    });
+  });
+});
+
+// Flowko U22: the per-service reminder setting has to survive the metadata schemas (they strip unknown keys).
+describe("Flowko U22: flowkoReminders in event-type metadata", () => {
+  const reminders = { enabled: true, offsets: [1440, 120] };
+
+  it("keeps flowkoReminders through EventTypeMetaDataSchema, with the other keys", () => {
+    const parsed = EventTypeMetaDataSchema.parse({
+      bookerLayouts: null,
+      disableSuccessPage: true,
+      flowkoReminders: reminders,
+    });
+    expect(parsed).toEqual({ bookerLayouts: null, disableSuccessPage: true, flowkoReminders: reminders });
+  });
+
+  it("keeps flowkoReminders through eventTypeMetaDataSchemaWithTypedApps", () => {
+    const parsed = eventTypeMetaDataSchemaWithTypedApps.parse({
+      apps: {},
+      flowkoReminders: { enabled: false, offsets: [120] },
+    });
+    expect(parsed?.flowkoReminders).toEqual({ enabled: false, offsets: [120] });
+  });
+
+  it("leaves an absent flowkoReminders absent", () => {
+    const parsed = EventTypeMetaDataSchema.parse({ disableSuccessPage: true });
+    expect(parsed).toEqual({ disableSuccessPage: true });
+    expect(parsed && "flowkoReminders" in parsed).toBe(false);
+  });
+
+  it.each([[[60]], [[]], [[1440, 1440]]])("rejects offsets %j in the metadata schema", (offsets) => {
+    expect(EventTypeMetaDataSchema.safeParse({ flowkoReminders: { enabled: true, offsets } }).success).toBe(
+      false
+    );
+  });
+
+  it("exports FLOWKO_REMINDER_OFFSETS as [1440, 120]", () => {
+    expect(FLOWKO_REMINDER_OFFSETS).toEqual([1440, 120]);
+  });
+
+  describe("flowkoRemindersSchema on its own", () => {
+    const parse = (value: unknown) => flowkoRemindersSchema.safeParse(value);
+
+    it.each([[[60]], [[]], [[1440, 1440]]])("rejects offsets %j", (offsets) => {
+      expect(parse({ enabled: true, offsets }).success).toBe(false);
+    });
+
+    it.each([[[1440]], [[120]], [[1440, 120]]])("accepts offsets %j", (offsets) => {
+      expect(parse({ enabled: true, offsets }).success).toBe(true);
+    });
+
+    it("accepts enabled: false", () => {
+      expect(parse({ enabled: false, offsets: [1440] }).success).toBe(true);
     });
   });
 });
