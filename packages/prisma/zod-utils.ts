@@ -143,6 +143,19 @@ export type BookerLayoutSettings = z.infer<typeof bookerLayouts>;
 
 export const RequiresConfirmationThresholdUnits: z.ZodType<UnitTypeLongPlural> = z.enum(["hours", "minutes"]);
 
+// Flowko U22: the booker's reminder e-mail for a service (/api/cron/attendeeReminder): minutes before the start.
+export const FLOWKO_REMINDER_OFFSETS = [1440, 120] as const;
+
+// Flowko U22: exported on its own so the reminder sweep can safeParse metadata.flowkoReminders without the rest.
+export const flowkoRemindersSchema = z.object({
+  enabled: z.boolean(),
+  offsets: z
+    .array(z.union([z.literal(1440), z.literal(120)]))
+    .min(1)
+    .max(2)
+    .refine((a) => new Set(a).size === a.length, { message: "duplicate offset" }),
+});
+
 const _eventTypeMetaDataSchemaWithoutApps = z.object({
   smartContractAddress: z.string().optional(),
   blockchainId: z.number().optional(),
@@ -184,7 +197,15 @@ const _eventTypeMetaDataSchemaWithoutApps = z.object({
     })
     .optional(),
   bookerLayouts: bookerLayouts.optional(),
+  // Flowko U22: the booker's reminder e-mail for this service (/api/cron/attendeeReminder). It has to be listed:
+  // this schema strips unknown keys at load and on update, and update.handler writes metadata whole.
+  flowkoReminders: flowkoRemindersSchema.optional(),
 });
+
+// Flowko U22: the per-service reminder setting as stored in event-type metadata (undefined when never set).
+export type FlowkoReminders = NonNullable<
+  z.infer<typeof _eventTypeMetaDataSchemaWithoutApps>
+>["flowkoReminders"];
 
 export const eventTypeMetaDataSchemaWithUntypedApps = _eventTypeMetaDataSchemaWithoutApps.merge(
   z.object({

@@ -63,6 +63,8 @@ import type { EmailNotificationToggleCustomClassNames } from "./DisableAllEmails
 import { DisableAllEmailsSetting } from "./DisableAllEmailsSetting";
 import type { DisableReschedulingCustomClassNames } from "./DisableReschedulingController";
 import DisableReschedulingController from "./DisableReschedulingController";
+// Flowko U22: the per-service reminder switch.
+import FlowkoRemindersController from "./FlowkoRemindersController";
 import { FormBuilder } from "./FormBuilder";
 import type { RequiresConfirmationCustomClassNames } from "./RequiresConfirmationController";
 import RequiresConfirmationController from "./RequiresConfirmationController";
@@ -748,6 +750,9 @@ export const EventAdvancedTab = ({
             onDisableRescheduling={setDisableRescheduling}
             customClassNames={customClassNames?.disableRescheduling}
           />
+
+          {/* Flowko U22: the booker's reminder e-mail for this service (metadata.flowkoReminders). */}
+          <FlowkoRemindersController />
         </>
       )}
 

@@ -913,6 +913,9 @@ model Booking {
   report                 BookingReport?
   wrongAssignmentReports WrongAssignmentReport[]
 
+  // Flowko U22: reminder e-mails to the booker already claimed for this booking (see FlowkoAttendeeReminder).
+  flowkoAttendeeReminders FlowkoAttendeeReminder[]
+
   // @@partial_index([reassignById])
 
   @@index([eventTypeId])
@@ -927,6 +930,18 @@ model Booking {
   @@index([userId, status, startTime])
   @@index([eventTypeId, status])
   @@index([userId, createdAt])
+}
+
+// Flowko U22: one row per (booking, reminder offset) claimed by /api/cron/attendeeReminder. Claimed before the send,
+// so a booking is never mailed twice. Cascades with the booking.
+model FlowkoAttendeeReminder {
+  id            Int      @id @default(autoincrement())
+  bookingId     Int
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  offsetMinutes Int
+  claimedAt     DateTime @default(now())
+
+  @@unique([bookingId, offsetMinutes])
 }
 
 model Tracking {
