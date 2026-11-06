@@ -10,6 +10,8 @@ const isTRPCClientError = (cause: unknown): cause is TRPCClientError<any> => {
   return cause instanceof TRPCClientError;
 };
 
+let browserQueryClient: QueryClient | undefined;
+
 // Flowko U20: one QueryClient per server request. The module-wide client was shared by every
 // request's server render, and react-query keeps server cache entries forever, so one account's
 // data could reach another account's HTML (6 Nov 2026 on prod: flowko-test's connected Google
@@ -40,8 +42,6 @@ export const makeQueryClient = (): QueryClient =>
       },
     },
   });
-
-let browserQueryClient: QueryClient | undefined;
 
 export const getQueryClient = (isServer: boolean = typeof window === "undefined"): QueryClient => {
   if (isServer) return makeQueryClient();
