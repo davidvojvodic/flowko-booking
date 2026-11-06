@@ -33,10 +33,12 @@ vi.mock("next/dynamic", () => ({
 }));
 
 describe("UsernameAvailabilityField on the server", () => {
-  it("server render with the user prop does not throw", () => {
+  it("server render with the user prop does not throw and shows no placeholder", () => {
     const html = renderToString(
       <UsernameAvailabilityField user={{ username: "ana", organization: { id: null } as never }} />
     );
+    // Flowko U21: value="ana" is printed by this file's next/dynamic mock, so it only shows that the user
+    // prop reached the inner field. It says nothing about the real UsernameTextfield markup.
     expect(html).toContain('value="ana"');
     expect(html).not.toContain("username-field-placeholder");
   });
