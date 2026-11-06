@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import BaseEmail from "./_base-email";
+import BaseEmail, { MailTransportError } from "./_base-email";
 
-const { sentPayloads, sendMailError } = vi.hoisted(() => ({
+const { sentPayloads, sendMailError, killSwitch } = vi.hoisted(() => ({
   sentPayloads: [] as Record<string, unknown>[],
   sendMailError: { current: null as Error | null },
+  // Flowko U22: the kill switch is switchable per test
+  killSwitch: { current: false },
 }));
 
 vi.mock("@calcom/features/flags/features.repository", () => ({
   FeaturesRepository: class {
     checkIfFeatureIsEnabledGlobally() {
-      return Promise.resolve(false);
+      return Promise.resolve(killSwitch.current);
     }
   },
 }));
@@ -243,5 +245,118 @@ describe("BaseEmail.sendEmail address fields", () => {
     }).sendEmail();
 
     expect(sentPayloads[0]).not.toHaveProperty("replyTo");
+  });
+});
+
+// Flowko U22: the reminder sweep needs a send that rejects when the mail server refuses, so it can retry;
+// every existing caller keeps the send that never rejects on a refusal.
+describe("BaseEmail.sendEmailOrThrow", () => {
+  const rejectedRecipientError = (): Error =>
+    Object.assign(
+      new Error("Can't send mail - all recipients were rejected: 550 5.1.1 <booker@example.si>: no user"),
+      {
+        code: "EENVELOPE",
+        responseCode: 550,
+        command: "RCPT TO",
+        response: "550 5.1.1 <booker@example.si>: unknown user",
+        rejected: ["booker@example.si"],
+      }
+    );
+  const payload = {
+    from: "Organizer <noreply@flowko.si>",
+    to: "Janez Novak <booker@example.si>",
+    subject: "Opomnik: Janez Novak",
+  };
+
+  beforeEach(() => {
+    sentPayloads.length = 0;
+    sendMailError.current = null;
+    killSwitch.current = false;
+    vi.stubEnv("INTEGRATION_TEST_MODE", "false");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("resolves to sent when the mail server accepts", async () => {
+    await expect(new TestEmail(payload).sendEmailOrThrow()).resolves.toBe("sent");
+    expect(sentPayloads).toHaveLength(1);
+  });
+
+  it("rejects when the mail server refuses, and logs no address or name", async () => {
+    sendMailError.current = rejectedRecipientError();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const error = await new TestEmail(payload).sendEmailOrThrow().then(
+      () => null,
+      (e: unknown) => e
+    );
+    const logged = JSON.stringify(consoleErrorSpy.mock.calls);
+
+    expect(error).toBeInstanceOf(MailTransportError);
+    expect((error as Error).message).not.toContain("booker@example.si");
+    expect(logged).toContain("EENVELOPE");
+    expect(logged).toContain("550");
+    expect(logged).not.toContain("booker@example.si");
+    expect(logged).not.toContain("Janez Novak");
+  });
+
+  it("sendEmail still resolves on the same refusal", async () => {
+    sendMailError.current = rejectedRecipientError();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(new TestEmail(payload).sendEmail()).resolves.toBe("send mail async");
+  });
+
+  it("sendEmail still rejects when the payload cannot be built", async () => {
+    class BrokenEmail extends BaseEmail {
+      protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
+        throw new Error("payload build failed");
+      }
+    }
+
+    await expect(new BrokenEmail().sendEmail()).rejects.toThrow("payload build failed");
+    await expect(new BrokenEmail().sendEmail()).rejects.not.toBeInstanceOf(MailTransportError);
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("sendEmailOrThrow rejects when the payload cannot be built", async () => {
+    class BrokenEmail extends BaseEmail {
+      protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
+        throw new Error("payload build failed");
+      }
+    }
+
+    await expect(new BrokenEmail().sendEmailOrThrow()).rejects.toThrow("payload build failed");
+  });
+
+  it("resolves to skipped_kill_switch when the kill switch is on, and sends nothing", async () => {
+    killSwitch.current = true;
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(new TestEmail(payload).sendEmailOrThrow()).resolves.toBe("skipped_kill_switch");
+    await expect(new TestEmail(payload).sendEmail()).resolves.toBe(
+      "Skipped Sending Email due to active Kill Switch"
+    );
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("resolves to skipped_faux for a phone-only booker, and sends nothing", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await expect(
+      new TestEmail({ ...payload, to: "Janez Novak <38640123456@sms.cal.com>" }).sendEmailOrThrow()
+    ).resolves.toBe("skipped_faux");
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("resolves to skipped_test_mode in integration test mode", async () => {
+    vi.stubEnv("INTEGRATION_TEST_MODE", "true");
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await expect(new TestEmail(payload).sendEmailOrThrow()).resolves.toBe("skipped_test_mode");
+    expect(sentPayloads).toHaveLength(0);
   });
 });

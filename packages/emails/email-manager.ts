@@ -2,6 +2,8 @@ import { default as cloneDeep } from "lodash/cloneDeep";
 import type { z } from "zod";
 
 import type BaseEmail from "@calcom/emails/templates/_base-email";
+// Flowko U22: the outcome of a send that rejects
+import type { MailSendOutcome } from "@calcom/emails/templates/_base-email";
 import type { EventNameObjectType } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { formatCalEvent } from "@calcom/lib/formatCalendarEvent";
@@ -29,6 +31,8 @@ import AttendeeCancelledEmail from "./templates/attendee-cancelled-email";
 import AttendeeCancelledSeatEmail from "./templates/attendee-cancelled-seat-email";
 import AttendeeDeclinedEmail from "./templates/attendee-declined-email";
 import AttendeeLocationChangeEmail from "./templates/attendee-location-change-email";
+// Flowko U22: the booker's reminder
+import AttendeeReminderEmail from "./templates/attendee-reminder-email";
 import AttendeeRequestEmail from "./templates/attendee-request-email";
 import AttendeeRescheduledEmail from "./templates/attendee-rescheduled-email";
 import AttendeeScheduledEmail from "./templates/attendee-scheduled-email";
@@ -757,4 +761,31 @@ export const sendAddGuestsEmailsAndSMS = async (args: {
   }
 
   await Promise.all(emailsAndSMSToSend);
+};
+
+/**
+ * Flowko U22: one reminder to the booker of an accepted booking, before it starts. Guests get none. Unlike the other
+ * senders it awaits the send and rejects when the mail server refuses, so the reminder sweep can release its claim
+ * and retry. "skipped_disabled": the service turned attendee mails off.
+ */
+export const sendAttendeeReminderEmail = async (
+  calEvent: CalendarEvent,
+  booker: Person,
+  titleSource: BookerTitleSource | undefined,
+  eventTypeMetadata?: EventTypeMetadata
+): Promise<MailSendOutcome | "skipped_disabled"> => {
+  const organizationSettings = await fetchOrganizationEmailSettings(calEvent.organizationId);
+  if (shouldSkipAttendeeEmailWithSettings(eventTypeMetadata, organizationSettings, EmailType.REMINDER)) {
+    return "skipped_disabled";
+  }
+
+  const calendarEvent = formatCalEvent(calEvent);
+  return new AttendeeReminderEmail(
+    {
+      ...calendarEvent,
+      ...(calendarEvent.hideCalendarNotes && { additionalNotes: undefined }),
+      title: getBookerEventTitle(calendarEvent, booker, titleSource),
+    },
+    booker
+  ).sendEmailOrThrow();
 };

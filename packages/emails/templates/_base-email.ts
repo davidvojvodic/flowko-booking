@@ -31,6 +31,28 @@ const getLoggableMailError = (error: unknown) => {
   return { name, statusCode, code, responseCode, command };
 };
 
+// Flowko U22: the strings sendEmail resolved to before U22, kept for its callers.
+const LEGACY_SEND_RESULTS: Record<MailSendOutcome, string> = {
+  sent: "send mail async",
+  skipped_kill_switch: "Skipped Sending Email due to active Kill Switch",
+  skipped_faux: "Skipped Sending Email to faux email",
+  skipped_test_mode: "Skipped sendEmail for Unit Tests",
+};
+
+// Flowko U22: what a send did. The reminder sweep keeps or releases its claim by it.
+export type MailSendOutcome = "sent" | "skipped_kill_switch" | "skipped_faux" | "skipped_test_mode";
+
+/**
+ * Flowko U22: the mail server refused the message. Only the transport's rejection is wrapped, so a caller can tell it
+ * from an error before sending. The message names no recipient; the original error is kept as `cause`.
+ */
+export class MailTransportError extends Error {
+  constructor(cause: unknown) {
+    super("The mail transport did not accept the message", { cause });
+    this.name = "MailTransportError";
+  }
+}
+
 export default class BaseEmail {
   name = "";
 
@@ -53,13 +75,38 @@ export default class BaseEmail {
   protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
     return {};
   }
+  // Flowko U22: resolves even when the mail server refuses (logged), as before U22; every other error rejects.
   public async sendEmail() {
+    try {
+      return LEGACY_SEND_RESULTS[await this.deliver()];
+    } catch (e) {
+      if (!(e instanceof MailTransportError)) throw e;
+      // The subject and sender name can hold the booker's and organizer's names
+      console.error("sendEmail", this.name, getLoggableMailError(e.cause));
+      return LEGACY_SEND_RESULTS.sent;
+    }
+  }
+
+  // Flowko U22: rejects with a MailTransportError when the mail server refuses, so the caller can retry.
+  public async sendEmailOrThrow(): Promise<MailSendOutcome> {
+    try {
+      return await this.deliver();
+    } catch (e) {
+      if (e instanceof MailTransportError) {
+        console.error("sendEmailOrThrow", this.name, getLoggableMailError(e.cause));
+      }
+      throw e;
+    }
+  }
+
+  // Flowko U22: the body of sendEmail before U22, the transport's rejection no longer swallowed.
+  private async deliver(): Promise<MailSendOutcome> {
     const featuresRepository = new FeaturesRepository(prisma);
     const emailsDisabled = await featuresRepository.checkIfFeatureIsEnabledGlobally("emails");
     /** If email kill switch exists and is active, we prevent emails being sent. */
     if (emailsDisabled) {
       console.warn("Skipped Sending Email due to active Kill Switch");
-      return new Promise((r) => r("Skipped Sending Email due to active Kill Switch"));
+      return "skipped_kill_switch";
     }
 
     if (process.env.INTEGRATION_TEST_MODE === "true") {
@@ -69,7 +116,7 @@ export default class BaseEmail {
       console.log(
         "Skipped Sending Email as process.env.NEXT_PUBLIC_UNIT_TESTS is set. Emails are available in globalThis.testEmails"
       );
-      return new Promise((r) => r("Skipped sendEmail for Unit Tests"));
+      return "skipped_test_mode";
     }
 
     const payload = await this.getNodeMailerPayload();
@@ -95,7 +142,7 @@ export default class BaseEmail {
     ];
     if (recipients.length && !recipients.some(isRealAddress)) {
       console.log(`Skipped Sending Email to faux email for ${this.name}`);
-      return new Promise((r) => r("Skipped Sending Email to faux email"));
+      return "skipped_faux";
     }
 
     const realToAddresses = toAddresses.filter(isRealAddress);
@@ -117,24 +164,26 @@ export default class BaseEmail {
       ...(parseSubject.success && { subject: decodeHTML(parseSubject.data) }),
     };
     const { createTransport } = await import("nodemailer");
-    await new Promise((resolve, reject) =>
-      createTransport(this.getMailerOptions().transport).sendMail(
-        payloadWithUnEscapedSubject,
-        (_err, info) => {
-          if (_err) {
-            const err = getServerErrorFromUnknown(_err);
-            this.printNodeMailerError(err);
-            reject(err);
-          } else {
-            resolve(info);
+    try {
+      await new Promise((resolve, reject) =>
+        createTransport(this.getMailerOptions().transport).sendMail(
+          payloadWithUnEscapedSubject,
+          (_err, info) => {
+            if (_err) {
+              const err = getServerErrorFromUnknown(_err);
+              this.printNodeMailerError(err);
+              reject(err);
+            } else {
+              resolve(info);
+            }
           }
-        }
-      )
-    ).catch((e) =>
-      // The subject and sender name can hold the booker's and organizer's names
-      console.error("sendEmail", this.name, getLoggableMailError(e))
-    );
-    return new Promise((resolve) => resolve("send mail async"));
+        )
+      );
+    } catch (e) {
+      // Flowko U22: tagged instead of swallowed here; sendEmail swallows it, sendEmailOrThrow rejects with it
+      throw new MailTransportError(e);
+    }
+    return "sent";
   }
   protected getMailerOptions() {
     return {

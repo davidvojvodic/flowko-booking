@@ -8,4 +8,6 @@ export enum EmailType {
   RESCHEDULE_REQUEST = "reschedule_request",
   LOCATION_CHANGE = "location_change",
   NEW_EVENT = "new_event",
+  // Flowko U22: the booker's reminder before an accepted booking
+  REMINDER = "reminder",
 }

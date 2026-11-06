@@ -4959,5 +4959,8 @@
   "flowko_holiday_calendar_jewish": "Jewish holidays",
   "flowko_holiday_calendar_muslim": "Muslim holidays",
   "flowko_holiday_calendar_orthodox": "Orthodox holidays",
-  "flowko_holidays_unavailable": "Holidays cannot be loaded right now. Please try again later."
+  "flowko_holidays_unavailable": "Holidays cannot be loaded right now. Please try again later.",
+  "flowko_reminder_subject": "Reminder: {{eventType}}, {{date}}",
+  "flowko_reminder_title": "Reminder of your appointment",
+  "flowko_reminder_subtitle": "This is a reminder of your booked appointment. The details are below."
 }
