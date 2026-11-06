@@ -128,10 +128,9 @@ async function remindOnce(
 }
 
 async function postHandler(request: NextRequest) {
-  // Flowko U22: the global `process`, never a `node:process` import: in the Next production server bundle that
-  // import does not see the runtime environment (the secret read as undefined, every call got 401; found on release,
-  // 2026-11-06). The route test guards it.
-  // biome-ignore lint/correctness/noProcessGlobal: a bundled node:process import does not see runtime env
+  // Flowko U22: reads the global `process`, like the upstream cron routes. The variable must be listed in turbo.json
+  // `globalEnv`: the image runs `turbo run start` in strict env mode, which drops unlisted variables.
+  // biome-ignore lint/correctness/noProcessGlobal: the global process, as in the upstream cron routes
   // biome-ignore lint/style/noProcessEnv: the cron secret is runtime env, as in the upstream cron routes
   if (!isAuthorizedCron(request, process.env.FLOWKO_REMINDER_CRON_SECRET)) {
     return NextResponse.json({ message: "Not authenticated" }, { status: 401 });

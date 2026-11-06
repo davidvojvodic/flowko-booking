@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -552,17 +550,5 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
     // The error class/code is logged, so a failure is still diagnosable.
     expect(everything).toContain("P2003");
     expect(everything).toContain("MailTransportError");
-  });
-});
-
-// Flowko U22 (hotfix): in the Next production server bundle (Turbopack) a `node:process` import compiles to an
-// external-module interop whose `.env` does not see the runtime environment, so the secret read as undefined and
-// every cron call got 401 (found on release, 2026-11-06). vitest does not bundle, so only a source check catches it.
-describe("route source", () => {
-  it("reads the global process, never a node:process import", () => {
-    const source = readFileSync(resolve(__dirname, "../route.ts"), "utf8");
-    expect(source).not.toMatch(/from\s+["'](node:)?process["']/);
-    expect(source).not.toMatch(/require\(\s*["'](node:)?process["']\s*\)/);
-    expect(source).toContain("process.env.FLOWKO_REMINDER_CRON_SECRET");
   });
 });
