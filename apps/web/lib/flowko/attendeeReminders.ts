@@ -14,6 +14,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  */
 export const REMINDER_LOOKBACK_MINUTES = 60;
 
+/**
+ * Flowko U22: a booking made or last changed (e.g. confirmed) less than this many minutes before its reminder moment
+ * gets no reminder: a reminder minutes after the confirmation reads as spam (David's call, 2026-11-06).
+ */
+export const REMINDER_MIN_GAP_MINUTES = 60;
+
 export type ReminderCandidate = {
   startTime: Date;
   createdAt: Date;
@@ -24,7 +30,7 @@ export type ReminderCandidate = {
 /**
  * Flowko U22 (R3): the offsets (minutes before the start) whose reminder is due now. A reminder is due when
  * `now ∈ [start − offset, start − offset + lookback)`, and the booking was neither made nor changed (e.g. confirmed)
- * after that moment: such a booking just got its confirmation. Only `metadata.flowkoReminders` is read, so an invalid
+ * later than `REMINDER_MIN_GAP_MINUTES` before that moment: such a booking just got its confirmation. Only `metadata.flowkoReminders` is read, so an invalid
  * key elsewhere in the metadata does not switch reminders off. Absent, off or invalid → none (R1).
  */
 export function dueReminders(
@@ -42,8 +48,9 @@ export function dueReminders(
     if (!offsets.includes(offset)) return false;
     const moment = booking.startTime.getTime() - offset * MINUTE_MS;
     if (nowMs < moment || nowMs >= moment + lookbackMinutes * MINUTE_MS) return false;
-    if (booking.createdAt.getTime() > moment) return false;
-    if (booking.updatedAt && booking.updatedAt.getTime() > moment) return false;
+    const latestChange = moment - REMINDER_MIN_GAP_MINUTES * MINUTE_MS;
+    if (booking.createdAt.getTime() > latestChange) return false;
+    if (booking.updatedAt && booking.updatedAt.getTime() > latestChange) return false;
     return true;
   });
 }

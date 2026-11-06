@@ -197,10 +197,10 @@ describe("U22 reminder strings", () => {
     expect(sl.flowko_reminder_subject).toBe("Opomnik: {{eventType}} – {{date}}");
     expect(en.flowko_reminder_subject).toBe("Reminder: {{eventType}} – {{date}}");
     expect(sl.flowko_reminders_hint).toBe(
-      "Če je termin rezerviran ali potrjen šele po času, ko bi bil opomnik poslan, ga stranka ne prejme."
+      "Opomnik ni poslan, če je bil termin rezerviran ali potrjen manj kot eno uro pred časom pošiljanja opomnika ali pozneje."
     );
     expect(en.flowko_reminders_hint).toBe(
-      "If the appointment is booked or confirmed after the reminder would have been sent, the client does not get that reminder."
+      "No reminder is sent if the appointment was booked or confirmed less than an hour before the reminder would go out, or later."
     );
     expect(sl.flowko_reminder_title).toBe(STRINGS.sl.title);
     expect(en.flowko_reminder_title).toBe(STRINGS.en.title);

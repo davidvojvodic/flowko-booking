@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { dueReminders, getResponsesEmail, pickBooker, REMINDER_LOOKBACK_MINUTES } from "./attendeeReminders";
+import {
+  dueReminders,
+  getResponsesEmail,
+  pickBooker,
+  REMINDER_LOOKBACK_MINUTES,
+  REMINDER_MIN_GAP_MINUTES,
+  type ReminderCandidate,
+} from "./attendeeReminders";
 
 // Flowko U22: when a booking's reminder is due (R3) and who gets it (R4). Run with TZ=UTC.
 const MIN = 60_000;
@@ -64,17 +71,47 @@ describe("dueReminders", () => {
     ]);
   });
 
-  it("a booking created after its reminder moment gets no reminder", () => {
-    const now = at(-1440 + 10);
-    expect(dueReminders(booking(dayOnly, { createdAt: at(-1440 + 1) }), now)).toEqual([]);
-    expect(dueReminders(booking(dayOnly, { createdAt: at(-1440) }), now)).toEqual([1440]);
+  it("uses a 60-minute gap between the booking (or its last change) and the reminder", () => {
+    expect(REMINDER_MIN_GAP_MINUTES).toBe(60);
   });
 
-  it("a booking updated (e.g. confirmed) after its reminder moment gets no reminder", () => {
+  it("2 h reminder: booked at 10:00 for 12:10 is not due at 10:10; booked at 09:00 it is", () => {
+    const start = new Date("2026-11-20T12:10:00.000Z");
+    const now = new Date("2026-11-20T10:10:00.000Z");
+    const twoHours = { flowkoReminders: { enabled: true, offsets: [120] } };
+    const madeAt = (iso: string): ReminderCandidate => ({
+      startTime: start,
+      createdAt: new Date(iso),
+      updatedAt: null,
+      eventTypeMetadata: twoHours,
+    });
+    expect(dueReminders(madeAt("2026-11-20T10:00:00.000Z"), now)).toEqual([]);
+    expect(dueReminders(madeAt("2026-11-20T09:00:00.000Z"), now)).toEqual([120]);
+  });
+
+  it("a booking made less than 60 minutes before its reminder moment gets no reminder", () => {
     const now = at(-120 + 10);
+    expect(dueReminders(booking(both, { createdAt: at(-120 - 60) }), now)).toEqual([120]);
+    expect(dueReminders(booking(both, { createdAt: at(-120 - 59) }), now)).toEqual([]);
+    expect(dueReminders(booking(both, { createdAt: at(-120) }), now)).toEqual([]);
+    expect(dueReminders(booking(both, { createdAt: at(-120 + 1) }), now)).toEqual([]);
+  });
+
+  it("a booking changed (e.g. confirmed) less than 60 minutes before its reminder moment gets no reminder", () => {
+    const now = at(-120 + 10);
+    expect(dueReminders(booking(both, { updatedAt: at(-120 - 60) }), now)).toEqual([120]);
+    expect(dueReminders(booking(both, { updatedAt: at(-120 - 59) }), now)).toEqual([]);
+    expect(dueReminders(booking(both, { updatedAt: at(-120) }), now)).toEqual([]);
     expect(dueReminders(booking(both, { updatedAt: at(-120 + 1) }), now)).toEqual([]);
-    expect(dueReminders(booking(both, { updatedAt: at(-120) }), now)).toEqual([120]);
     expect(dueReminders(booking(both, { updatedAt: at(-3000) }), now)).toEqual([120]);
+  });
+
+  it("applies the same gap to the 24 h reminder", () => {
+    const now = at(-1440 + 10);
+    expect(dueReminders(booking(dayOnly, { createdAt: at(-1440 - 60) }), now)).toEqual([1440]);
+    expect(dueReminders(booking(dayOnly, { createdAt: at(-1440 - 59) }), now)).toEqual([]);
+    expect(dueReminders(booking(dayOnly, { updatedAt: at(-1440 - 60) }), now)).toEqual([1440]);
+    expect(dueReminders(booking(dayOnly, { updatedAt: at(-1440 - 59) }), now)).toEqual([]);
   });
 
   it("takes the lookback as a parameter", () => {
