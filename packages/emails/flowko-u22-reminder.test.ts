@@ -69,7 +69,7 @@ const plain = (html: string) =>
 
 const STRINGS = {
   sl: {
-    subject: "Opomnik: Ogled, 11:00 - 11:30, torek, 15. december 2026",
+    subject: "Opomnik: Ogled – 11:00 - 11:30, torek, 15. december 2026",
     title: "Opomnik na vaš termin",
     subtitle: "To je opomnik na vaš rezervirani termin. Podrobnosti so spodaj.",
     when: "Kdaj:",
@@ -79,7 +79,7 @@ const STRINGS = {
     allAttendees: "Vsem smo te podatke poslali po e-pošti.",
   },
   en: {
-    subject: "Reminder: Ogled, 11:00am - 11:30am, Tuesday, December 15, 2026",
+    subject: "Reminder: Ogled – 11:00am - 11:30am, Tuesday, December 15, 2026",
     title: "Reminder of your appointment",
     subtitle: "This is a reminder of your booked appointment. The details are below.",
     when: "When:",
@@ -193,8 +193,15 @@ describe("U22 reminder strings", () => {
   const KEYS = ["flowko_reminder_subject", "flowko_reminder_title", "flowko_reminder_subtitle"] as const;
 
   it("are in both languages, as written", () => {
-    expect(sl.flowko_reminder_subject).toBe("Opomnik: {{eventType}}, {{date}}");
-    expect(en.flowko_reminder_subject).toBe("Reminder: {{eventType}}, {{date}}");
+    // An en dash (U+2013) with spaces between the service and the date (Slovene read)
+    expect(sl.flowko_reminder_subject).toBe("Opomnik: {{eventType}} – {{date}}");
+    expect(en.flowko_reminder_subject).toBe("Reminder: {{eventType}} – {{date}}");
+    expect(sl.flowko_reminders_hint).toBe(
+      "Če je termin rezerviran ali potrjen šele po času, ko bi bil opomnik poslan, ga stranka ne prejme."
+    );
+    expect(en.flowko_reminders_hint).toBe(
+      "If the appointment is booked or confirmed after the reminder would have been sent, the client does not get that reminder."
+    );
     expect(sl.flowko_reminder_title).toBe(STRINGS.sl.title);
     expect(en.flowko_reminder_title).toBe(STRINGS.en.title);
     expect(sl.flowko_reminder_subtitle).toBe(STRINGS.sl.subtitle);

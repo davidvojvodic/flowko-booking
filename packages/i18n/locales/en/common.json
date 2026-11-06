@@ -4960,7 +4960,7 @@
   "flowko_holiday_calendar_muslim": "Muslim holidays",
   "flowko_holiday_calendar_orthodox": "Orthodox holidays",
   "flowko_holidays_unavailable": "Holidays cannot be loaded right now. Please try again later.",
-  "flowko_reminder_subject": "Reminder: {{eventType}}, {{date}}",
+  "flowko_reminder_subject": "Reminder: {{eventType}} – {{date}}",
   "flowko_reminder_title": "Reminder of your appointment",
   "flowko_reminder_subtitle": "This is a reminder of your booked appointment. The details are below.",
   "flowko_reminders_title": "Reminder to the client before the appointment",
@@ -4968,5 +4968,5 @@
   "flowko_reminders_24h": "24 hours before",
   "flowko_reminders_2h": "2 hours before",
   "flowko_reminders_both": "24 hours and 2 hours before",
-  "flowko_reminders_hint": "A booking made or confirmed later than the chosen time does not get that reminder."
+  "flowko_reminders_hint": "If the appointment is booked or confirmed after the reminder would have been sent, the client does not get that reminder."
 }

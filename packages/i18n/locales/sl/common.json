@@ -5022,7 +5022,7 @@
   "flowko_holiday_calendar_muslim": "Muslimanski prazniki",
   "flowko_holiday_calendar_orthodox": "Pravoslavni prazniki",
   "flowko_holidays_unavailable": "Praznikov trenutno ni mogoče naložiti. Poskusite znova pozneje.",
-  "flowko_reminder_subject": "Opomnik: {{eventType}}, {{date}}",
+  "flowko_reminder_subject": "Opomnik: {{eventType}} – {{date}}",
   "flowko_reminder_title": "Opomnik na vaš termin",
   "flowko_reminder_subtitle": "To je opomnik na vaš rezervirani termin. Podrobnosti so spodaj.",
   "flowko_reminders_title": "Opomnik stranki pred terminom",
@@ -5030,5 +5030,5 @@
   "flowko_reminders_24h": "24 ur pred terminom",
   "flowko_reminders_2h": "2 uri pred terminom",
   "flowko_reminders_both": "24 ur in 2 uri pred terminom",
-  "flowko_reminders_hint": "Rezervacija, oddana ali potrjena pozneje kot izbrani čas pred terminom, tega opomnika ne prejme."
+  "flowko_reminders_hint": "Če je termin rezerviran ali potrjen šele po času, ko bi bil opomnik poslan, ga stranka ne prejme."
 }
