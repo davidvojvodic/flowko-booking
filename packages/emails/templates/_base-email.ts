@@ -31,7 +31,7 @@ const getLoggableMailError = (error: unknown) => {
   return { name, statusCode, code, responseCode, command };
 };
 
-// Flowko U22: nodemailer's SMTP stages (SMTPConnection `command`) that fail before the message body is handed over.
+// Flowko U22: nodemailer's SMTP stages (SMTPConnection `command`) that fail before the body is handed over.
 const PRE_BODY_COMMANDS: ReadonlySet<string> = new Set([
   "EHLO",
   "HELO",
@@ -40,18 +40,20 @@ const PRE_BODY_COMMANDS: ReadonlySet<string> = new Set([
   "MAIL FROM",
   "RCPT TO",
 ]);
-// Flowko U22: nodemailer also tags a socket error, socket timeout or unexpected close as "CONN" at any stage, after
-// DATA too, so "CONN" counts only with a code raised while connecting.
+// Flowko U22: nodemailer also tags a socket error, socket timeout or unexpected close as "CONN" at any stage,
+// after DATA too, so "CONN" counts only with a code raised before the message body is handed over (the
+// connect or TLS stage: DNS, TLS initiation or a STARTTLS upgrade).
 const CONNECT_ONLY_CODES: ReadonlySet<string> = new Set(["EDNS", "ETLS"]);
-// Flowko U22: nodemailer 7's fixed texts for its two pre-greeting timers (smtp-connection/index.js: the connection
-// timer is cleared in _onConnect, the greeting timer fires only while the greeting is awaited). A session socket
-// timeout is "Timeout", so it is not in here.
+// Flowko U22: nodemailer 7's fixed texts for its two pre-greeting timers (smtp-connection/index.js: the
+// connection timer is cleared in _onConnect, the greeting timer fires only while the greeting is awaited). A
+// session socket timeout is "Timeout", so it is not in here.
 const PRE_GREETING_TIMEOUTS: ReadonlySet<string> = new Set(["Connection timeout", "Greeting never received"]);
 
 /**
- * Flowko U22: a "CONN" failure proven to be before the SMTP greeting: a connect-only code, a socket error from the
- * connect syscall (refused, host or network unreachable; nodemailer overwrites `code` with ESOCKET but keeps Node's
- * `syscall`), or a pre-greeting timer. Reads `syscall` and `message` here only, never logs them.
+ * Flowko U22: a "CONN" failure proven to be before the message body is handed over (the connect or TLS
+ * stage): a DNS or TLS code, a socket error from the connect syscall (refused, host or network unreachable;
+ * nodemailer overwrites `code` with ESOCKET but keeps Node's `syscall`), or a pre-greeting timer. Reads
+ * `syscall` and `message` here only, never logs them.
  */
 const isConnectStageFailure = (cause: unknown, code: unknown): boolean => {
   if (typeof code !== "string") return false;
@@ -63,9 +65,10 @@ const isConnectStageFailure = (cause: unknown, code: unknown): boolean => {
 };
 
 /**
- * Flowko U22: true when the server cannot have taken the message: it answered with an SMTP 4xx/5xx, or the failure
- * came before the body was handed over (connect stage included). A timeout or reset with no answer mid-session (e.g.
- * mid-DATA) is false: the server may already have accepted it. Reads the codes only, never the message or response (they can quote addresses).
+ * Flowko U22: true when the server cannot have taken the message: it answered with an SMTP 4xx/5xx, or the
+ * failure came before the body was handed over (connect stage included). A timeout or reset with no answer
+ * mid-session (e.g. mid-DATA) is false: the server may already have accepted it. Reads the codes and
+ * nodemailer's fixed connect-timer texts; never logs a message or response (they can quote addresses).
  */
 const isDefinitelyNotSent = (cause: unknown): boolean => {
   const { code, responseCode, command } = getLoggableMailError(cause);
@@ -87,8 +90,8 @@ const LEGACY_SEND_RESULTS: Record<MailSendOutcome, string> = {
 export type MailSendOutcome = "sent" | "skipped_kill_switch" | "skipped_faux" | "skipped_test_mode";
 
 /**
- * Flowko U22: the mail transport failed. Only the transport's failure is wrapped, so a caller can tell it from an
- * error before sending. The message names no recipient; the original error is kept as `cause`.
+ * Flowko U22: the mail transport failed. Only the transport's failure is wrapped, so a caller can tell it
+ * from an error before sending. The message names no recipient; the original error is kept as `cause`.
  */
 export class MailTransportError extends Error {
   /** Flowko U22: the server cannot have taken the message, so a retry cannot send it twice. */
@@ -135,7 +138,7 @@ export default class BaseEmail {
     }
   }
 
-  // Flowko U22: rejects with a MailTransportError when the transport fails (definitelyNotSent: a retry is safe).
+  // Flowko U22: rejects with a MailTransportError if the transport fails (definitelyNotSent: safe to retry).
   public async sendEmailOrThrow(): Promise<MailSendOutcome> {
     try {
       return await this.deliver();

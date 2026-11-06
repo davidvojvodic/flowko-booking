@@ -4968,5 +4968,5 @@
   "flowko_reminders_24h": "24 hours before",
   "flowko_reminders_2h": "2 hours before",
   "flowko_reminders_both": "24 hours and 2 hours before",
-  "flowko_reminders_hint": "No reminder is sent if the appointment was booked or confirmed less than an hour before the reminder would go out, or later."
+  "flowko_reminders_hint": "No reminder is sent if the appointment was booked or confirmed later than one hour before the reminder is due to go out."
 }

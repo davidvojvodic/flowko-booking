@@ -5030,5 +5030,5 @@
   "flowko_reminders_24h": "24 ur pred terminom",
   "flowko_reminders_2h": "2 uri pred terminom",
   "flowko_reminders_both": "24 ur in 2 uri pred terminom",
-  "flowko_reminders_hint": "Opomnik ni poslan, če je bil termin rezerviran ali potrjen manj kot eno uro pred časom pošiljanja opomnika ali pozneje."
+  "flowko_reminders_hint": "Opomnik se ne pošlje, če je bil termin rezerviran ali potrjen pozneje kot eno uro pred načrtovanim časom pošiljanja."
 }
