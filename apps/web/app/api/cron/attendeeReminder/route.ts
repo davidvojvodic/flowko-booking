@@ -1,4 +1,3 @@
-import process from "node:process";
 import { sendAttendeeReminderEmail } from "@calcom/emails/email-manager";
 import { MailTransportError } from "@calcom/emails/templates/_base-email";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
@@ -129,6 +128,11 @@ async function remindOnce(
 }
 
 async function postHandler(request: NextRequest) {
+  // Flowko U22: the global `process`, never a `node:process` import: in the Next production server bundle that
+  // import does not see the runtime environment (the secret read as undefined, every call got 401; found on release,
+  // 2026-11-06). The route test guards it.
+  // biome-ignore lint/correctness/noProcessGlobal: a bundled node:process import does not see runtime env
+  // biome-ignore lint/style/noProcessEnv: the cron secret is runtime env, as in the upstream cron routes
   if (!isAuthorizedCron(request, process.env.FLOWKO_REMINDER_CRON_SECRET)) {
     return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
   }
