@@ -70,7 +70,7 @@ const UserSettings = (props: IUserSettingsProps) => {
     <form onSubmit={onSubmit}>
       <div className="stack-y-6">
         {/* Username textfield: when not coming from signup */}
-        {!props.hideUsername && <UsernameAvailabilityField />}
+        {!props.hideUsername && <UsernameAvailabilityField user={user} />}
 
         {/* Full name textfield */}
         <div className="w-full">

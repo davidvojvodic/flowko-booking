@@ -1,4 +1,5 @@
 import { IS_SELF_HOSTED, WEBSITE_URL } from "@calcom/lib/constants";
+import type { RouterOutputs } from "@calcom/trpc/react";
 import { trpc } from "@calcom/trpc/react";
 import type { AppRouter } from "@calcom/trpc/types/server/routers/_app";
 import useRouterQuery from "@lib/hooks/useRouterQuery";
@@ -9,10 +10,14 @@ import type { ReactNode, RefCallback } from "react";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
+type UsernameFieldUser = Pick<RouterOutputs["viewer"]["me"]["get"], "username" | "organization">;
+
 interface UsernameAvailabilityFieldProps {
   onSuccessMutation?: () => void;
   onErrorMutation?: (error: TRPCClientErrorLike<AppRouter>) => void;
   disabled?: boolean;
+  // Flowko U20: the user the page already holds (server-fetched), so the field never queries during SSR.
+  user?: UsernameFieldUser;
 }
 
 interface ICustomUsernameProps extends UsernameAvailabilityFieldProps {
@@ -33,21 +38,13 @@ const UsernameTextfield = dynamic(() => import("./UsernameTextfield").then((m) =
   ssr: false,
 });
 
-export const UsernameAvailability = (props: ICustomUsernameProps) => {
-  const { isPremium, disabled, ...otherProps } = props;
-  const UsernameAvailabilityComponent = isPremium ? PremiumTextfield : UsernameTextfield;
-  // PremiumTextfield uses `readonly` prop, UsernameTextfield uses `disabled` prop
-  const componentProps = isPremium ? { ...otherProps, readonly: disabled } : { ...otherProps, disabled };
-  return <UsernameAvailabilityComponent {...componentProps} />;
-};
-
-export const UsernameAvailabilityField = ({
+const UsernameAvailabilityFieldWithUser = ({
   onSuccessMutation,
   onErrorMutation,
   disabled,
-}: UsernameAvailabilityFieldProps) => {
+  user,
+}: Omit<UsernameAvailabilityFieldProps, "user"> & { user: UsernameFieldUser }) => {
   const searchParams = useSearchParams();
-  const [user] = trpc.viewer.me.get.useSuspenseQuery();
   const [currentUsernameState, setCurrentUsernameState] = useState(user.username || "");
   const { username: usernameFromQuery, setQuery: setUsernameFromQuery } = useRouterQuery("username");
   const { username: currentUsername, setQuery: setCurrentUsername } =
@@ -88,4 +85,25 @@ export const UsernameAvailabilityField = ({
       )}
     />
   );
+};
+
+export const UsernameAvailability = (props: ICustomUsernameProps) => {
+  const { isPremium, disabled, ...otherProps } = props;
+  const UsernameAvailabilityComponent = isPremium ? PremiumTextfield : UsernameTextfield;
+  // PremiumTextfield uses `readonly` prop, UsernameTextfield uses `disabled` prop
+  const componentProps = isPremium ? { ...otherProps, readonly: disabled } : { ...otherProps, disabled };
+  return <UsernameAvailabilityComponent {...componentProps} />;
+};
+
+// Flowko U20: no suspense query here. useSuspenseQuery ran during the server render without the
+// user's cookies, failed with UNAUTHORIZED and turned the page section into React #419. Callers pass
+// the user they already have; without it the field waits for a normal query behind a placeholder.
+export const UsernameAvailabilityField = ({
+  user: userFromProps,
+  ...props
+}: UsernameAvailabilityFieldProps) => {
+  const { data: userFromQuery } = trpc.viewer.me.get.useQuery(undefined, { enabled: !userFromProps });
+  const user = userFromProps ?? userFromQuery;
+  if (!user) return <div aria-hidden="true" data-testid="username-field-placeholder" className="h-16" />;
+  return <UsernameAvailabilityFieldWithUser {...props} user={user} />;
 };
