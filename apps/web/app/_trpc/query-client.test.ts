@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { shouldRetryQuery } from "@calcom/trpc/react/queryRetry";
 import { TRPCClientError } from "@trpc/client";
 import { describe, expect, it } from "vitest";
 
@@ -30,6 +31,18 @@ describe("makeQueryClient", () => {
       result: { error: { data: { code: "UNAUTHORIZED" } } },
     } as ConstructorParameters<typeof TRPCClientError>[1]);
     expect(retry(0, error)).toBe(false);
+  });
+
+  // Flowko U21: the app-router client follows the same retry rule as the pages router.
+  it("does not retry a rate-limited (TOO_MANY_REQUESTS) tRPC error", () => {
+    const error = new TRPCClientError("x", {
+      result: { error: { data: { code: "TOO_MANY_REQUESTS" } } },
+    } as ConstructorParameters<typeof TRPCClientError>[1]);
+    expect(retry(0, error)).toBe(false);
+  });
+
+  it("uses the shared shouldRetryQuery rule", () => {
+    expect(queries().retry).toBe(shouldRetryQuery);
   });
 
   it("retries other errors up to 3 times", () => {
