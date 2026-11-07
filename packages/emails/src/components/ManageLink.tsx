@@ -138,6 +138,19 @@ export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person })
   return null;
 }
 
+// Flowko U27: the call to action of a cancelled or declined business booking's mail (E2): only the
+// call-the-business line. null for every other booking (Cal's callToAction={null}).
+export function flowkoCancelledCallToAction(calEvent: CalendarEvent, t: Person["language"]["translate"]) {
+  if (!calEvent.flowkoBusiness) return null;
+  return (
+    <FlowkoBusinessManageLink
+      t={t}
+      cancelLink=""
+      contactLine={getFlowkoBusinessContactLine(calEvent.flowkoBusiness, t)}
+    />
+  );
+}
+
 // Flowko U27: the manage block of a business booking (E2): the cancel link, then the call-the-business line.
 function FlowkoBusinessManageLink(props: {
   t: Person["language"]["translate"];

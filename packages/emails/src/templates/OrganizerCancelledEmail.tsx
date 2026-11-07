@@ -1,3 +1,5 @@
+// Flowko U27: a cancelled business booking's call-the-business line
+import { flowkoCancelledCallToAction } from "../components/ManageLink";
 import { SchedulingType } from "@calcom/prisma/enums";
 
 import { OrganizerScheduledEmail } from "./OrganizerScheduledEmail";
@@ -18,7 +20,8 @@ export const OrganizerCancelledEmail = (props: React.ComponentProps<typeof Organ
       subtitle={subtitle}
       headerType="xCircle"
       subject={subject}
-      callToAction={null}
+      // Flowko U27: a business booking keeps the call-the-business line (E2)
+      callToAction={flowkoCancelledCallToAction(props.calEvent, t)}
       reassigned={props.reassigned}
       {...props}
     />

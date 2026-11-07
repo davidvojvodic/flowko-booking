@@ -271,8 +271,32 @@ describe("U27 business booking mails (E1, E2)", () => {
         expect(body).not.toContain("cancel=true");
         expect(body).not.toContain("?changes=true");
       }
-      expect(plain(mail.html)).not.toContain("cancel=true");
+      const html = plain(mail.html);
+      expect(html).toContain(PHONE_LINE);
+      expect(html).not.toContain(CANCEL_HERE);
+      expect(html).not.toContain("cancel=true");
       expect(displayName(mail.from)).toBe("Salon Lepota");
+    });
+
+    it("without a phone the HTML names the business", async () => {
+      const { calEvent, booker } = await buildEvent({ flowkoBusiness: { ...BUSINESS, phone: null } });
+
+      await new Template(calEvent, booker).sendEmail();
+
+      const html = plain(lastMail().html);
+      expect(html).toContain(CONTACT_LINE);
+      expect(html).not.toContain("cancel=true");
+    });
+
+    it("a plain booking's HTML has no call to action, as before", async () => {
+      const { calEvent, booker } = await buildEvent();
+
+      await new Template(calEvent, booker).sendEmail();
+
+      const html = plain(lastMail().html);
+      expect(html).not.toContain("Za prestavitev termina");
+      expect(html).not.toContain("cancel=true");
+      expect(html).not.toContain("/reschedule/");
     });
   });
 
@@ -282,7 +306,7 @@ describe("U27 business booking mails (E1, E2)", () => {
     await new OrganizerCancelledEmail({ calEvent }).sendEmail();
 
     const mail = lastMail();
-    for (const body of [mail.text, icsDescription(mail.icalEvent?.content ?? "")]) {
+    for (const body of [mail.text, icsDescription(mail.icalEvent?.content ?? ""), plain(mail.html)]) {
       expect(body).toContain(PHONE_LINE);
       expect(body).not.toContain(CANCEL_HERE);
       expect(body).not.toContain("cancel=true");
