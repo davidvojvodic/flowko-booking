@@ -10,6 +10,8 @@ import {
 } from "@calcom/features/auth/lib/outlook";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import { buildCredentialCreateData } from "@calcom/features/credentials/services/CredentialDataService";
+// Flowko U25: a locked or deleted user's session ends on its next refresh (P4)
+import { assertSessionUserActive } from "@calcom/features/flowkoBusiness/sessionGuard";
 import { ProfileRepository } from "@calcom/features/profile/repositories/ProfileRepository";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { isPasswordValid } from "@calcom/lib/auth/isPasswordValid";
@@ -29,6 +31,7 @@ import { defaultCookies } from "@calcom/lib/default-cookies";
 import { isENVDev } from "@calcom/lib/env";
 import getIP from "@calcom/lib/getIP";
 import { HttpError } from "@calcom/lib/http-error";
+import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import logger from "@calcom/lib/logger";
 import { randomString } from "@calcom/lib/random";
 import { safeStringify } from "@calcom/lib/safeStringify";
@@ -524,6 +527,8 @@ export const getOptions = ({
       log.debug("callbacks:jwt", safeStringify({ token, user, account, trigger, session }));
       // The data available in 'session' depends on what data was supplied in update method call of session
       if (trigger === "update") {
+        // Flowko U25 (P4): a useSession().update call must not revive a locked user's session
+        await assertSessionUserActive(token);
         return {
           ...token,
           profileId: session?.profileId ?? token.profileId ?? null,
@@ -623,6 +628,10 @@ export const getOptions = ({
         } as JWT;
       };
       if (!user) {
+        // Flowko U25 (P4): a refresh checks the user by id (token.sub), not by e-mail, so an e-mail change
+        // signs nobody out; a locked or deleted user throws and next-auth clears the cookie
+        // (JWT_SESSION_ERROR)
+        await assertSessionUserActive(token);
         return await autoMergeIdentities();
       }
       if (!account) {
@@ -908,7 +917,9 @@ export const getOptions = ({
           !existingUser ||
           existingUser.email !== user.email ||
           existingUser.locked ||
-          existingUser.twoFactorEnabled
+          existingUser.twoFactorEnabled ||
+          // Flowko U25: a desk-only worker has no password and an address nobody can read, so it never gets a link
+          isSmsCalEmail(existingUser.email)
         ) {
           log.warn("callbacks:signIn - magic link not allowed for this email, denying access");
           // Answer a link request as if the link was sent, so the response does not reveal who has an account

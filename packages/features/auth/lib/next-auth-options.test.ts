@@ -3,6 +3,7 @@ import { safeStringify } from "@calcom/lib/safeStringify";
 import { hashEmail, piiHasher } from "@calcom/lib/server/PiiHasher";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FlowkoSessionEndedError } from "@calcom/features/flowkoBusiness/sessionGuard";
 import { ErrorCode } from "./ErrorCode";
 
 // Mock dependencies
@@ -123,6 +124,8 @@ const mockUpdateProfilePhotoGoogle = vi.fn();
 const mockGetIdentityProvider = vi.fn();
 const mockWaitUntil = vi.fn();
 const mockPrismaUserFindFirst = vi.fn();
+// Flowko U25: the session guard's lookup by id (sessionGuard.ts, the real module on this mock)
+const mockPrismaUserFindUnique = vi.fn();
 const mockPrismaUserCreate = vi.fn();
 const mockPrismaUserUpdate = vi.fn();
 const mockPrismaTeamFindFirst = vi.fn();
@@ -1567,6 +1570,24 @@ describe("Email (magic link) signIn callback", () => {
     expect(result).toBe(false);
   });
 
+  // Flowko U25: a desk-only worker has no password and an address nobody can read; an unlocked row must not get a link
+  it("denies a desk-only placeholder address, answering a link request like a sent link", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "desk-1@flowko.invalid", locked: false, password: null });
+
+    const request = await signInCallback({
+      user: { id: "1", email: "desk-1@flowko.invalid", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "desk-1@flowko.invalid" },
+      email: { verificationRequest: true },
+    } as any);
+    const opened = await signInCallback({
+      user: { id: "1", email: "desk-1@flowko.invalid", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "desk-1@flowko.invalid" },
+    } as any);
+
+    expect(request).toBe("http://localhost:3000/api/auth/verify-request?provider=email&type=email");
+    expect(opened).toBe(false);
+  });
+
   it("denies a user with 2FA enabled", async () => {
     mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com", twoFactorEnabled: true });
 
@@ -1617,7 +1638,10 @@ describe("Azure AD JWT callback", () => {
     prismaDefault.user = {
       ...prismaDefault.user,
       findFirst: mockPrismaUserFindFirst,
+      findUnique: mockPrismaUserFindUnique,
     };
+    // Flowko U25: the token's user exists and is not locked unless a test says otherwise
+    mockPrismaUserFindUnique.mockResolvedValue({ id: 1 });
     prismaDefault.selectedCalendar = {
       create: mockPrismaSelectedCalendarCreate,
     };
@@ -1645,6 +1669,58 @@ describe("Azure AD JWT callback", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  // Flowko U25 (P4, Review Focus 2): a locked or deleted user's token fails its next refresh, so next-auth clears
+  // the cookie; checked by id, so an e-mail change does not sign anyone out; a useSession().update call is
+  // checked too, so it cannot revive a locked session.
+  describe("Flowko U25: the session of a locked or missing user ends", () => {
+    const token = { sub: "7", email: "old@x.si", upId: "usr_7" } as any;
+
+    it("a refresh rejects when the guard finds no (unlocked) user", async () => {
+      mockPrismaUserFindUnique.mockResolvedValue(null);
+      mockPrismaUserFindFirst.mockResolvedValue(null);
+
+      await expect(jwtCallback({ token } as any)).rejects.toBeInstanceOf(FlowkoSessionEndedError);
+      expect(mockPrismaUserFindUnique).toHaveBeenCalledWith({ where: { id: 7 }, select: { id: true } });
+      expect(mockPrismaUserFindFirst).not.toHaveBeenCalled();
+    });
+
+    it("a refresh resolves to the token when the user exists, even when the old e-mail finds nobody", async () => {
+      mockPrismaUserFindUnique.mockResolvedValue({ id: 7 });
+      mockPrismaUserFindFirst.mockResolvedValue(null);
+
+      await expect(jwtCallback({ token } as any)).resolves.toEqual(token);
+      expect(mockPrismaUserFindUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it("an update by an active user runs the guard once and resolves", async () => {
+      mockPrismaUserFindUnique.mockResolvedValue({ id: 7 });
+
+      const result = await jwtCallback({ token, trigger: "update", session: { locale: "sl" } } as any);
+
+      expect(mockPrismaUserFindUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrismaUserFindUnique).toHaveBeenCalledWith({ where: { id: 7 }, select: { id: true } });
+      expect(result).toMatchObject({ sub: "7", locale: "sl" });
+    });
+
+    it("an update by a locked user rejects", async () => {
+      mockPrismaUserFindUnique.mockResolvedValue(null);
+
+      await expect(
+        jwtCallback({ token, trigger: "update", session: { locale: "sl" } } as any)
+      ).rejects.toBeInstanceOf(FlowkoSessionEndedError);
+    });
+
+    it("a fresh sign-in does not run the guard (authorize already refused a locked user)", async () => {
+      await jwtCallback({
+        token: { sub: "1", email: "user@example.com" },
+        user: { id: 1, email: "user@example.com", locale: "sl", metadata: {} },
+        account: { type: "credentials", provider: "credentials", providerAccountId: "1" },
+      } as any);
+
+      expect(mockPrismaUserFindUnique).not.toHaveBeenCalled();
+    });
   });
 
   describe("Azure AD calendar auto-install", () => {

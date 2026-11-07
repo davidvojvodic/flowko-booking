@@ -23,7 +23,8 @@ const log = logger.getSubLogger({ prefix: ["getServerSession"] });
  * Stores the session in memory using the stringified token as the key.
  *
  */
-const CACHE = new LRUCache<string, Session>({ max: 1000 });
+// Flowko U25 (P5): entries live 60 s, so a replayed pre-lock cookie stops working within a minute of a lock
+const CACHE = new LRUCache<string, Session>({ max: 1000, ttl: 60_000 });
 
 /**
  * This is a slimmed down version of the `getServerSession` function from

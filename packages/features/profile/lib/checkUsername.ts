@@ -2,9 +2,13 @@ import {
   isReservedUsername,
   RESERVED_USERNAME_MESSAGE,
 } from "@calcom/features/auth/signup/utils/reservedUsernames";
+// Flowko U25: business slugs and usernames share one name space.
+import { usernameClashesWithBusiness } from "@calcom/features/flowkoBusiness/nameSpace";
 import { IS_PREMIUM_USERNAME_ENABLED } from "@calcom/lib/constants";
 import { usernameCheck as checkPremiumUsername } from "@calcom/lib/server/username";
 import slugify from "@calcom/lib/slugify";
+// Flowko U25: the business-slug check reads the database.
+import prisma from "@calcom/prisma";
 
 import { checkRegularUsername } from "./checkRegularUsername";
 
@@ -20,6 +24,10 @@ const checkUsernameAvailability = !IS_PREMIUM_USERNAME_ENABLED ? checkRegularUse
  */
 export const checkUsername = async (username: string, currentOrgDomain?: string | null) => {
   if (isReservedUsername(slugify(username))) {
+    return { available: false as const, premium: false, message: RESERVED_USERNAME_MESSAGE };
+  }
+  // Flowko U25: a business's slug is never available as a username.
+  if (await usernameClashesWithBusiness(prisma, slugify(username))) {
     return { available: false as const, premium: false, message: RESERVED_USERNAME_MESSAGE };
   }
   return checkUsernameAvailability(username, currentOrgDomain);

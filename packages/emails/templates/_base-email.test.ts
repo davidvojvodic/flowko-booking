@@ -19,6 +19,16 @@ vi.mock("@calcom/features/flags/features.repository", () => ({
   },
 }));
 
+// Flowko U25: deliver asks which recipients belong to Cal-locked users; none unless a test says otherwise.
+const lockedLookup = vi.hoisted(() => ({ addresses: vi.fn() }));
+vi.mock("@calcom/features/flowkoBusiness/lockedRecipients", () => ({
+  lockedRecipientAddresses: lockedLookup.addresses,
+}));
+beforeEach(() => {
+  lockedLookup.addresses.mockReset();
+  lockedLookup.addresses.mockResolvedValue(new Set<string>());
+});
+
 vi.mock("nodemailer", () => ({
   createTransport: () => ({
     sendMail: (payload: Record<string, unknown>, callback: (error: Error | null, info: unknown) => void) => {
@@ -160,6 +170,31 @@ describe("BaseEmail.sendEmail address fields", () => {
 
     expect(sentPayloads).toHaveLength(0);
     expect(logged).not.toContain("38640123456");
+  });
+
+  // Flowko U25: a desk-only worker's placeholder address (@flowko.invalid) is a faux recipient too
+  it("sends the customer only when a desk-only placeholder is in cc", async () => {
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "Stranka <stranka@example.si>",
+      cc: "desk-1@flowko.invalid",
+      subject: "Rezervacija potrjena",
+    }).sendEmail();
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({ to: [{ name: "Stranka", address: "stranka@example.si" }], cc: [] });
+    expect(JSON.stringify(sentPayloads[0])).not.toContain("flowko.invalid");
+  });
+
+  it("skips an email whose only recipient is a desk-only placeholder", async () => {
+    const result = await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "Desk <desk-1@flowko.invalid>",
+      subject: "Nova rezervacija",
+    }).sendEmailOrThrow();
+
+    expect(result).toBe("skipped_faux");
+    expect(sentPayloads).toHaveLength(0);
   });
 
   it("drops faux emails from a recipient list and sends to the rest", async () => {
@@ -360,6 +395,132 @@ describe("BaseEmail.sendEmailOrThrow", () => {
 
     await expect(new TestEmail(payload).sendEmailOrThrow()).resolves.toBe("skipped_test_mode");
     expect(sentPayloads).toHaveLength(0);
+  });
+});
+
+// Flowko U25 (D1, P6, Review Focus 4): no booking mail reaches a locked worker; the customer still gets theirs.
+// A failed lookup sends nothing (Ruling 12: fail closed) and is not a transport error, so U22 releases its claim.
+describe("BaseEmail: recipients who are locked users", () => {
+  beforeEach(() => {
+    sentPayloads.length = 0;
+    sendMailError.current = null;
+    killSwitch.current = false;
+    vi.stubEnv("INTEGRATION_TEST_MODE", "false");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("sends to the customer only when a locked worker is in cc", async () => {
+    lockedLookup.addresses.mockResolvedValue(new Set(["ana@example.com"]));
+
+    await expect(
+      new TestEmail({
+        from: "Flowko <noreply@flowko.si>",
+        to: "Stranka <stranka@example.com>",
+        cc: "Ana <Ana@Example.com>",
+        subject: "Rezervacija potrjena",
+      }).sendEmailOrThrow()
+    ).resolves.toBe("sent");
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({
+      to: [{ name: "Stranka", address: "stranka@example.com" }],
+      cc: [],
+    });
+    expect(JSON.stringify(sentPayloads[0]).toLowerCase()).not.toContain("ana@example.com");
+    expect(lockedLookup.addresses).toHaveBeenCalledWith(["stranka@example.com", "Ana@Example.com"]);
+  });
+
+  it("drops a locked user's address from to and bcc as well", async () => {
+    lockedLookup.addresses.mockResolvedValue(new Set(["ana.alt@example.com", "ana@example.com"]));
+
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "ana.alt@example.com, stranka@example.com",
+      bcc: "ANA@example.com, owner@example.com",
+      subject: "Nova rezervacija",
+    }).sendEmail();
+
+    expect(sentPayloads[0]).toMatchObject({
+      to: [{ name: "", address: "stranka@example.com" }],
+      bcc: [{ name: "", address: "owner@example.com" }],
+    });
+  });
+
+  it("resolves to skipped_locked when the only recipient is a locked worker, and sends nothing", async () => {
+    lockedLookup.addresses.mockResolvedValue(new Set(["ana@example.com"]));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await expect(
+      new TestEmail({
+        from: "Flowko <noreply@flowko.si>",
+        to: "Ana <ana@example.com>",
+        subject: "Opomnik",
+      }).sendEmailOrThrow()
+    ).resolves.toBe("skipped_locked");
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("sendEmail answers skipped_locked with a legacy string of its own", async () => {
+    lockedLookup.addresses.mockResolvedValue(new Set(["ana@example.com"]));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const result = await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "ana@example.com",
+      subject: "Opomnik",
+    }).sendEmail();
+
+    expect(typeof result).toBe("string");
+    expect(result).toBe("Skipped Sending Email to locked user");
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("a failed lookup sends nothing and rejects with a non-transport error (both sends)", async () => {
+    const lookupError = new Error("lookup failed");
+    lockedLookup.addresses.mockRejectedValue(lookupError);
+    const payload = { from: "Flowko <noreply@flowko.si>", to: "stranka@example.com", subject: "Opomnik" };
+
+    const thrown = await new TestEmail(payload).sendEmailOrThrow().then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(thrown).toBe(lookupError);
+    expect(thrown).not.toBeInstanceOf(MailTransportError);
+    await expect(new TestEmail(payload).sendEmail()).rejects.toBe(lookupError);
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("asks nothing when every recipient was faux, in test mode, or with the kill switch on", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "desk-1@flowko.invalid",
+    }).sendEmailOrThrow();
+    killSwitch.current = true;
+    await new TestEmail({ from: "Flowko <noreply@flowko.si>", to: "stranka@example.com" }).sendEmailOrThrow();
+    killSwitch.current = false;
+    vi.stubEnv("INTEGRATION_TEST_MODE", "true");
+    await new TestEmail({ from: "Flowko <noreply@flowko.si>", to: "stranka@example.com" }).sendEmailOrThrow();
+
+    expect(lockedLookup.addresses).not.toHaveBeenCalled();
+  });
+
+  it("checks only the real addresses, not faux ones or replyTo", async () => {
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "38640123456@sms.cal.com, stranka@example.com",
+      cc: "desk-1@flowko.invalid",
+      replyTo: "ana@example.com",
+      subject: "Nova rezervacija",
+    }).sendEmail();
+
+    expect(lockedLookup.addresses).toHaveBeenCalledWith(["stranka@example.com"]);
   });
 });
 

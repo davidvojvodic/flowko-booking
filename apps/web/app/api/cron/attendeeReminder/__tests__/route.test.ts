@@ -99,6 +99,7 @@ vi.mock("@calcom/lib/logger", () => ({
 }));
 
 import { MailTransportError } from "@calcom/emails/templates/_base-email";
+import { FlowkoRecipientLookupError } from "@calcom/features/flowkoBusiness/lockedRecipients";
 import * as routeModule from "../route";
 import { POST } from "../route";
 
@@ -473,6 +474,8 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
     "skipped_disabled",
     "skipped_faux",
     "skipped_test_mode",
+    // Flowko U25: the booker's address belongs to a locked user (P6); like faux, never retried
+    "skipped_locked",
   ])("%s keeps the claim (counted skipped, never retried)", async (outcome) => {
     db.state.bookings = [row(1)];
     mocks.send.mockResolvedValueOnce(outcome);
@@ -485,6 +488,19 @@ describe("POST /api/cron/attendeeReminder — sweep", () => {
 
     await run();
     expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  // Flowko U25 (Ruling 12): BaseEmail's locked-recipient lookup failed, so nothing was sent: not a transport
+  // error, so the claim is released and the next run retries, as for any send that throws before the transport.
+  it("a failed locked-recipient lookup releases the claim, and the next run sends", async () => {
+    db.state.bookings = [row(1)];
+    mocks.send.mockRejectedValueOnce(new FlowkoRecipientLookupError("P1001"));
+
+    const first = await run();
+
+    expect(first.body).toEqual({ due: 1, sent: 0, failed: 1, skipped: 0 });
+    expect(db.claims.size).toBe(0);
+    expect((await run()).body).toEqual({ due: 1, sent: 1, failed: 0, skipped: 0 });
   });
 
   it("a booking whose event cannot be built fails alone: claim released, the others still sent", async () => {
