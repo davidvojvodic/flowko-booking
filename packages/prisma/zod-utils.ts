@@ -200,6 +200,9 @@ const _eventTypeMetaDataSchemaWithoutApps = z.object({
   // Flowko U22: the booker's reminder e-mail for this service (/api/cron/attendeeReminder). It has to be listed:
   // this schema strips unknown keys at load and on update, and update.handler writes metadata whole.
   flowkoReminders: flowkoRemindersSchema.optional(),
+  // Flowko U27: marks a business mirror event type (no ids: metadata is public). Has to be listed for the same
+  // reason as flowkoReminders: unknown keys are stripped at load and on update.
+  flowkoMirror: z.literal(true).optional(),
 });
 
 // Flowko U22: the per-service reminder setting as stored in event-type metadata (undefined when never set).
