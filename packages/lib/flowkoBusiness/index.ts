@@ -4,5 +4,6 @@
 export * from "./deskEmail";
 export * from "./holidays";
 export * from "./name";
+export * from "./roster";
 export * from "./schemas";
 export * from "./templates";

@@ -47,7 +47,8 @@ const openingEntrySchema = z
     }
   });
 
-const openingDaySchema = z.array(openingEntrySchema).superRefine((entries, ctx) => {
+// Flowko U26: exported (renamed, no rule change) so the roster layer reuses the same day rule.
+export const shiftDaySchema = z.array(openingEntrySchema).superRefine((entries, ctx) => {
   for (let i = 1; i < entries.length; i++) {
     // Sorted and non-overlapping; touching (12:00-12:00) is allowed, intervals are half-open.
     if (minutesOf(entries[i].from) < minutesOf(entries[i - 1].to)) {
@@ -59,13 +60,13 @@ const openingDaySchema = z.array(openingEntrySchema).superRefine((entries, ctx) 
 /** All seven weekdays, each a sorted, non-overlapping list of "HH:mm" intervals within 03:00-24:00 (P14). */
 export const openingHoursSchema: z.ZodType<OpeningHours> = z
   .object({
-    mon: openingDaySchema,
-    tue: openingDaySchema,
-    wed: openingDaySchema,
-    thu: openingDaySchema,
-    fri: openingDaySchema,
-    sat: openingDaySchema,
-    sun: openingDaySchema,
+    mon: shiftDaySchema,
+    tue: shiftDaySchema,
+    wed: shiftDaySchema,
+    thu: shiftDaySchema,
+    fri: shiftDaySchema,
+    sat: shiftDaySchema,
+    sun: shiftDaySchema,
   })
   .strict();
 
