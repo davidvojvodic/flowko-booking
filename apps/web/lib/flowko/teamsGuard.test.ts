@@ -14,7 +14,7 @@ const SELF = relative(ROOT, __filename);
 // P1-P4: writers of the upstream tables (Prisma client, nested writes, Kysely, raw SQL).
 const WRITERS: Record<string, RegExp> = {
   P1: /\.(team|membership|host|hostGroup|profile)\s*\.\s*(create|createMany|createManyAndReturn|upsert)\s*\(/,
-  P2: /\b(members|memberships|hosts|teams|team|organization)\s*:\s*\{\s*(create|createMany|connectOrCreate|upsert|connect)\b/,
+  P2: /\b(members|memberships|hosts|teams|team|organization|profiles|orgProfiles|hostGroups|hostGroup|profile|children|parent)\s*:\s*\{\s*(create|createMany|connectOrCreate|upsert|connect)\b/,
   P3: /insertInto\(\s*["'](Team|Membership|Host|HostGroup|Profile)["']/,
   P4: /INSERT\s+INTO\s+"?(public"?\."?)?(Team|Membership|Host|HostGroup|Profile)"?/i,
 };
@@ -78,7 +78,7 @@ const NOT_SCANNED_FOR_UPSTREAM_WRITERS = [
   /^packages\/testing\//,
 ];
 
-// Measured on the base tree 60d0cad91a (U25 start): the 8 upstream files that can write Team / Membership / Host /
+// Measured on the base tree 60d0cad91a (U25 start): the 9 upstream files that can write Team / Membership / Host /
 // HostGroup / Profile rows, with their P1-P4 match counts. A plain file allowlist would miss a new writer line in one of
 // them (U25 itself edits next-auth-options.ts), so a count change fails here. Lowering a count after an upstream sync is
 // fine: update it in the same commit. Raising it, or adding a file, needs a reason.
@@ -86,9 +86,10 @@ const UPSTREAM_WRITER_SNAPSHOT: Record<string, number> = {
   "packages/features/auth/lib/next-auth-options.ts": 3,
   "packages/features/auth/signup/utils/createOrUpdateMemberships.ts": 3,
   "packages/features/auth/signup/utils/organization.ts": 1,
-  "packages/features/eventtypes/repositories/eventTypeRepository.ts": 1,
+  "packages/features/eventtypes/repositories/eventTypeRepository.ts": 3,
   "packages/features/membership/repositories/MembershipRepository.ts": 2,
   "packages/features/profile/repositories/ProfileRepository.ts": 7,
+  "packages/features/users/repositories/UserRepository.ts": 1,
   "packages/prisma/migrations/20240130134919_add_profile_table_and_add_event_type_relation/migration.sql": 1,
   "packages/trpc/server/routers/viewer/eventTypes/heavy/update.handler.ts": 1,
 };
@@ -117,7 +118,7 @@ describe("Teams guard", () => {
     expect(hits).toEqual([]);
   });
 
-  it("the upstream writers stay exactly the 8 known files with their known counts", () => {
+  it("the upstream writers stay exactly the 9 known files with their known counts", () => {
     const snapshot: Record<string, number> = {};
     for (const file of files) {
       if (NOT_SCANNED_FOR_UPSTREAM_WRITERS.some((p) => p.test(file))) continue;
@@ -134,6 +135,14 @@ describe("Teams guard", () => {
     expect(WRITERS.P1.test("await tx.flowkoBusinessMember.create({ data })")).toBe(false);
     expect(WRITERS.P2.test("data: { hosts: { create: [] } }")).toBe(true);
     expect(WRITERS.P2.test("data: { members: { create: { userId } } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { profiles: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { orgProfiles: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { hostGroups: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { hostGroup: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { profile: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { children: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { parent: { create: {} } }")).toBe(true);
+    expect(WRITERS.P2.test("data: { flowkoBusinessMembers: { create: {} } }")).toBe(false);
     expect(WRITERS.P3.test('db.insertInto("Host").values(rows)')).toBe(true);
     expect(WRITERS.P4.test('INSERT INTO "public"."Team" (name) VALUES (1)')).toBe(true);
     expect(WRITERS.P4.test('INSERT INTO "FlowkoBusiness" (name) VALUES (1)')).toBe(false);
