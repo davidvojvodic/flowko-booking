@@ -111,6 +111,8 @@ async function remindOnce(
       return "failed";
     }
     // Disabled for attendees, faux address, test mode: the claim stays, so it is not retried.
+    // Flowko U25: "skipped_locked" (the booker is a locked user) keeps the claim like faux. A failed
+    // locked-user lookup throws before the transport (no MailTransportError): the catch releases the claim.
     return "skipped";
   } catch (error) {
     // The server may already have taken the message: keep the claim rather than risk a second mail.

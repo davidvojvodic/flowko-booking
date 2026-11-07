@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import dayjs from "@calcom/dayjs";
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
+// Flowko U25: no booking mail reaches a locked user (D1, P6)
+import { lockedRecipientAddresses } from "@calcom/features/flowkoBusiness/lockedRecipients";
 import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import { serverConfig } from "@calcom/lib/serverConfig";
 import { getServerErrorFromUnknown } from "@calcom/lib/server/getServerErrorFromUnknown";
@@ -84,10 +86,18 @@ const LEGACY_SEND_RESULTS: Record<MailSendOutcome, string> = {
   skipped_kill_switch: "Skipped Sending Email due to active Kill Switch",
   skipped_faux: "Skipped Sending Email to faux email",
   skipped_test_mode: "Skipped sendEmail for Unit Tests",
+  // Flowko U25
+  skipped_locked: "Skipped Sending Email to locked user",
 };
 
 // Flowko U22: what a send did. The reminder sweep keeps or releases its claim by it.
-export type MailSendOutcome = "sent" | "skipped_kill_switch" | "skipped_faux" | "skipped_test_mode";
+// Flowko U25: "skipped_locked" = every real recipient is a locked user's address.
+export type MailSendOutcome =
+  | "sent"
+  | "skipped_kill_switch"
+  | "skipped_faux"
+  | "skipped_test_mode"
+  | "skipped_locked";
 
 /**
  * Flowko U22: the mail transport failed. Only the transport's failure is wrapped, so a caller can tell it
@@ -197,9 +207,31 @@ export default class BaseEmail {
     }
 
     const realToAddresses = toAddresses.filter(isRealAddress);
-    const optionalAddressFields = Object.fromEntries(
+    const realOptionalAddressFields = Object.fromEntries(
       Object.entries(parsedOptionalAddressFields).map(
         ([field, addresses]) => [field, addresses.filter(isRealAddress)] as const
+      )
+    );
+
+    // Flowko U25 (D1, P6): a locked user's addresses (primary and secondary) are dropped from to, cc and bcc
+    // (replyTo is no recipient). When every real recipient was one, nothing is sent. A failed lookup rejects
+    // here, before the transport (not a MailTransportError): nothing is sent (fail closed, Ruling 12).
+    const realRecipients = [
+      ...realToAddresses,
+      ...(realOptionalAddressFields.cc ?? []),
+      ...(realOptionalAddressFields.bcc ?? []),
+    ];
+    const lockedAddresses = await lockedRecipientAddresses(realRecipients.map(({ address }) => address));
+    const isUnlocked = ({ address }: MailAddress) => !lockedAddresses.has(address.toLowerCase());
+    if (realRecipients.length && !realRecipients.some(isUnlocked)) {
+      console.log(`Skipped Sending Email to locked user for ${this.name}`);
+      return "skipped_locked";
+    }
+    const deliverableToAddresses = realToAddresses.filter(isUnlocked);
+    const optionalAddressFields = Object.fromEntries(
+      Object.entries(realOptionalAddressFields).map(
+        ([field, addresses]) =>
+          [field, field === "replyTo" ? addresses : addresses.filter(isUnlocked)] as const
       )
     );
 
@@ -209,7 +241,7 @@ export default class BaseEmail {
       ...payload,
       ...{
         from: toMailAddresses(from)[0],
-        to: realToAddresses,
+        to: deliverableToAddresses,
         ...optionalAddressFields,
       },
       ...(parseSubject.success && { subject: decodeHTML(parseSubject.data) }),

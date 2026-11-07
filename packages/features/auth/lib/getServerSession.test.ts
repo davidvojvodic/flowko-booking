@@ -26,6 +26,25 @@ vi.mock("@calcom/lib/getAvatarUrl", createAvatarUrlMock);
 vi.mock("@calcom/lib/safeStringify", createSafeStringifyMock);
 vi.mock("next-auth/jwt", createGetTokenMock);
 
+// Flowko U25 (P5): records the session cache's options. Fake timers cannot test the TTL itself: lru-cache
+// captures `performance` when it loads. A Map stands in for the cache so the other tests behave as before.
+const lruCacheOptions = vi.hoisted(() => [] as unknown[]);
+vi.mock("lru-cache", () => ({
+  LRUCache: class<K, V> {
+    private readonly entries = new Map<K, V>();
+    constructor(options: unknown) {
+      lruCacheOptions.push(options);
+    }
+    get(key: K) {
+      return this.entries.get(key);
+    }
+    set(key: K, value: V) {
+      this.entries.set(key, value);
+      return this;
+    }
+  },
+}));
+
 import { getToken } from "next-auth/jwt";
 import { getServerSession } from "./getServerSession";
 
@@ -41,6 +60,11 @@ function setupGetTokenMock(tokenData: object | null): void {
 }
 
 describe("getServerSession", () => {
+  // Flowko U25 (P5): a replayed pre-lock cookie can hit the cache for at most 60 s.
+  it("caches sessions for at most 60 s, 1000 entries", () => {
+    expect(lruCacheOptions).toEqual([{ max: 1000, ttl: 60_000 }]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     resetPrismaMock();
