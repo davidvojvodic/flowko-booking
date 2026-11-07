@@ -30,7 +30,7 @@ import {
   shiftDaySchema,
   WEEKDAYS,
 } from "@calcom/lib/flowkoBusiness/schemas";
-import type { LocalDate } from "@calcom/lib/flowkoSalon";
+import type { Interval, LocalDate } from "@calcom/lib/flowkoSalon";
 import { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import {
@@ -70,6 +70,21 @@ export type RosterWeekView = {
   }>;
   canEditUsualWeek: boolean;
   editableMemberIds: number[];
+};
+
+/** U24 engine input of one business day (Task 5): the day rules plus every column worker's shifts and time off. */
+export type LoadedBusinessDay = {
+  businessId: number;
+  date: LocalDate;
+  rules: { opening: Interval[]; day: Interval; slotStepMinutes: number };
+  holiday: { name: string; open: boolean } | null;
+  workers: Array<{
+    memberId: number;
+    userId: number;
+    displayName: string;
+    shifts: Interval[];
+    timeOff: Interval[];
+  }>;
 };
 
 type BusinessSettings = {
@@ -336,6 +351,76 @@ export async function getRosterWeek(
         mayEditRoster(access, { memberId: m.id, businessId: m.businessId, role: m.role, status: m.status })
       )
       .map((m) => m.id),
+  };
+}
+
+/**
+ * Flowko U26: the roster of one business day as the U24 engine takes it (G8: no actor check; the caller has
+ * decided who may see it). ACTIVE owner and worker members in position order; a planned day wins over the usual
+ * week, an absence covering the date is whole-day time off. `rules.opening` is [] on a closed work-free day
+ * (businessDayRules), while the workers keep their shifts. A column member without a user breaks the U25 CHECK:
+ * thrown, never skipped. A missing business answers forbidden.
+ */
+export async function loadBusinessDay(
+  db: FlowkoDb,
+  businessId: number,
+  date: LocalDate
+): Promise<LoadedBusinessDay> {
+  const day = dateOrFail(date, "bad_roster");
+  const business = await loadBusiness(db, businessId);
+  const rules = businessDayRules(business, day);
+
+  const members = await db.flowkoBusinessMember.findMany({
+    where: { businessId, role: { in: COLUMN_ROLES }, status: FlowkoMemberStatus.ACTIVE },
+    select: { id: true, userId: true, displayName: true, usualWeek: true },
+    orderBy: [{ position: "asc" }, { id: "asc" }],
+  });
+  const memberIds = members.map((m) => m.id);
+  const rows =
+    memberIds.length === 0
+      ? []
+      : await db.flowkoRosterDay.findMany({
+          where: { memberId: { in: memberIds }, date: { gte: toDbDate(day), lte: toDbDate(day) } },
+          select: { memberId: true, shifts: true },
+        });
+  const absences =
+    memberIds.length === 0
+      ? []
+      : await db.flowkoAbsence.findMany({
+          where: {
+            memberId: { in: memberIds },
+            startDate: { lte: toDbDate(day) },
+            endDate: { gte: toDbDate(day) },
+          },
+          select: { memberId: true },
+        });
+  const planned = new Map(rows.map((row) => [row.memberId, readShifts(row.shifts)]));
+  const absent = new Set(absences.map((a) => a.memberId));
+
+  return {
+    businessId,
+    date: day,
+    rules: { opening: rules.opening, day: rules.day, slotStepMinutes: rules.slotStepMinutes },
+    holiday: rules.holiday,
+    workers: members.map((m) => {
+      if (m.userId === null) throw new Error("Flowko U26: column member without user");
+      const resolved = resolveMemberDay(
+        {
+          usualWeek: readUsualWeek(m.usualWeek),
+          planned: planned.get(m.id) ?? null,
+          absent: absent.has(m.id),
+        },
+        day,
+        business.timeZone
+      );
+      return {
+        memberId: m.id,
+        userId: m.userId,
+        displayName: m.displayName,
+        shifts: resolved.shifts,
+        timeOff: resolved.timeOff,
+      };
+    }),
   };
 }
 
