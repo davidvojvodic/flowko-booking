@@ -45,7 +45,7 @@ const longShift = (over: Partial<WorkerDay> = {}): WorkerDay =>
 /** Reference E3: candidates = grid ∪ workerFree starts inside rules.day, filtered by explainFit. */
 function reference(day: WorkerDay, steps: ServiceStep[], r: DayRules): Ms[] {
   const raw = [...gridStarts(r.day, r.slotStepMinutes), ...workerFree(day).map((i) => i.start)];
-  const candidates = [...new Set(raw)]
+  const candidates = Array.from(new Set(raw))
     .filter((s) => s >= r.day.start && s < r.day.end)
     .sort((a, b) => a - b);
   return candidates.filter((s) => explainFit(day, steps, s, r).length === 0);

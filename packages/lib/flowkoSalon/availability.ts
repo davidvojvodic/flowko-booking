@@ -50,7 +50,7 @@ type Context = { free: Interval[]; bookingBusy: Interval[]; candidates: Set<Ms> 
 /** E3: grid starts anchored at local midnight ∪ starts of free intervals, all inside rules.day. */
 function candidateStarts(free: Interval[], rules: DayRules): Ms[] {
   const raw = [...gridStarts(rules.day, rules.slotStepMinutes), ...free.map((i) => i.start)];
-  return [...new Set(raw)]
+  return Array.from(new Set(raw))
     .filter((s) => s >= rules.day.start && s < rules.day.end)
     .sort((a, b) => a - b);
 }
@@ -105,5 +105,6 @@ export function explainFit(day: WorkerDay, steps: ServiceStep[], start: Ms, rule
  */
 export function freeStarts(day: WorkerDay, steps: ServiceStep[], rules: DayRules): Ms[] {
   const ctx = context(day, rules);
-  return [...ctx.candidates].sort((a, b) => a - b).filter((s) => explain(day, steps, s, rules, ctx).length === 0);
+  // ctx.candidates keeps candidateStarts' ascending insertion order.
+  return Array.from(ctx.candidates).filter((s) => explain(day, steps, s, rules, ctx).length === 0);
 }
