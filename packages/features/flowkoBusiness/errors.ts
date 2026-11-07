@@ -18,7 +18,15 @@ export type FlowkoBusinessErrorCode =
   | "bad_absence"
   | "not_a_holiday"
   | "same_week"
-  | "roster_conflict";
+  | "roster_conflict"
+  // Flowko U27: mirror and booking writer services (mirror.ts and the booking services).
+  | "service_not_assigned"
+  | "bad_customer"
+  | "duplicate_time"
+  | "not_business_booking"
+  | "booking_not_active"
+  | "worker_locked"
+  | "bad_booking";
 
 export class FlowkoBusinessError extends Error {
   constructor(readonly code: FlowkoBusinessErrorCode) {
