@@ -556,7 +556,7 @@ export async function copyRosterWeek(
     } else {
       targetIds = [];
       // Final review M2: deduplicated, ascending id order, so concurrent copies lock in the same order.
-      for (const memberId of [...new Set(input.memberIds)].sort((a, b) => a - b)) {
+      for (const memberId of Array.from(new Set(input.memberIds)).sort((a, b) => a - b)) {
         const target = await targetOrFail(tx, access, memberId);
         if (!mayEditRoster(access, target)) fail("forbidden");
         targetIds.push(target.memberId);
