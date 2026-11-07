@@ -65,6 +65,8 @@ const FLOWKO_PATHS = [
   /^apps\/web\/lib\/flowko\//,
   // Flowko U26: the tRPC routers of viewer.flowko.* (roster API).
   /^packages\/trpc\/server\/routers\/viewer\/flowko\//,
+  // Flowko U26: the page that serves viewer.flowko.* (/api/trpc/flowko/[trpc]).
+  /^apps\/web\/pages\/api\/trpc\/flowko\//,
   /^packages\/prisma\/migrations\/[^/]*flowko[^/]*\/migration\.sql$/,
 ];
 
@@ -108,6 +110,9 @@ describe("Teams guard", () => {
     const trpcFlowko = files.filter((f) => f.startsWith("packages/trpc/server/routers/viewer/flowko/"));
     expect(trpcFlowko).toContain("packages/trpc/server/routers/viewer/flowko/roster/roster.handler.ts");
     expect(trpcFlowko.every((f) => FLOWKO_PATHS.some((p) => p.test(f)))).toBe(true);
+    const flowkoPage = "apps/web/pages/api/trpc/flowko/[trpc].ts";
+    expect(files).toContain(flowkoPage);
+    expect(FLOWKO_PATHS.some((p) => p.test(flowkoPage))).toBe(true);
   });
 
   it("Flowko code never writes Team, Membership, Host, HostGroup or Profile, sets teamId / parentId or imports their repositories", () => {
