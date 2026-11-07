@@ -2,6 +2,8 @@ import {
   isReservedUsername,
   RESERVED_USERNAME_MESSAGE,
 } from "@calcom/features/auth/signup/utils/reservedUsernames";
+// Flowko U25: business slugs and usernames share one name space.
+import { usernameClashesWithBusiness } from "@calcom/features/flowkoBusiness/nameSpace";
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { CreationSource, RedirectType } from "@calcom/prisma/enums";
 import { UserSchema } from "@calcom/prisma/zod/modelSchema/UserSchema";
@@ -43,6 +45,17 @@ const refuseReservedUsername = (input: { username?: string | null }, ctx: z.Refi
   }
 };
 
+// Flowko U25: nor a name a business holds as its slug. A database lookup, so it runs in the mutation body
+// (the input parsers are sync), before any write.
+const refuseBusinessSlugUsername = async (
+  prisma: Parameters<typeof usernameClashesWithBusiness>[0],
+  username: string | null | undefined
+) => {
+  if (username && (await usernameClashesWithBusiness(prisma, username))) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: RESERVED_USERNAME_MESSAGE });
+  }
+};
+
 /** Reusable logic that checks for admin permissions and if the requested user exists */
 //const authedAdminWithUserMiddleware = middleware();
 
@@ -76,6 +89,7 @@ export const userAdminRouter = router({
     .input(userBodySchema.superRefine(refuseReservedUsername))
     .mutation(async ({ ctx, input }) => {
       const { prisma } = ctx;
+      await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25
       const user = await prisma.user.create({ data: { ...input, creationSource: CreationSource.WEBAPP } });
       return { user, message: `User with id: ${user.id} added successfully` };
     }),
@@ -83,6 +97,7 @@ export const userAdminRouter = router({
     .input(userBodySchema.partial().superRefine(refuseReservedUsername))
     .mutation(async ({ ctx, input }) => {
       const { prisma, requestedUser } = ctx;
+      await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25
 
       const user = await prisma.$transaction(async (tx) => {
         const userInternal = await tx.user.update({ where: { id: requestedUser.id }, data: input });
