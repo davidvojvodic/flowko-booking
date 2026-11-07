@@ -16,6 +16,8 @@ import { deploymentSetupRouter } from "./deploymentSetup/_router";
 import { eventTypesRouter } from "./eventTypes/_router";
 import { eventTypesRouter as heavyEventTypesRouter } from "./eventTypes/heavy/_router";
 import { feedbackRouter } from "./feedback/_router";
+// Flowko U26: viewer.flowko.* (roster API).
+import { flowkoRouter } from "./flowko/_router";
 import { googleWorkspaceRouter } from "./googleWorkspace/_router";
 import { holidaysRouter } from "./holidays/_router";
 import { i18nRouter } from "./i18n/_router";
@@ -53,6 +55,8 @@ export const viewerRouter = router({
   admin: adminRouter,
   apiKeys: apiKeysRouter,
   ooo: oooRouter,
+  // Flowko U26
+  flowko: flowkoRouter,
   holidays: holidaysRouter,
   travelSchedules: travelSchedulesRouter,
 });

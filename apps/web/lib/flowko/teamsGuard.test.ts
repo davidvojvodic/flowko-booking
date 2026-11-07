@@ -63,6 +63,8 @@ const FLOWKO_PATHS = [
   /^packages\/lib\/flowkoBusiness\//,
   /^packages\/features\/flowkoBusiness\//,
   /^apps\/web\/lib\/flowko\//,
+  // Flowko U26: the tRPC routers of viewer.flowko.* (roster API).
+  /^packages\/trpc\/server\/routers\/viewer\/flowko\//,
   /^packages\/prisma\/migrations\/[^/]*flowko[^/]*\/migration\.sql$/,
 ];
 
@@ -102,6 +104,10 @@ describe("Teams guard", () => {
     expect(files).toContain("packages/features/auth/lib/next-auth-options.ts");
     expect(files.some((f) => /^packages\/lib\/flowkoSalon\//.test(f))).toBe(true);
     expect(files.some((f) => /^apps\/web\/lib\/flowko\//.test(f))).toBe(true);
+    // Flowko U26: the viewer.flowko router files are scanned (and covered by FLOWKO_PATHS).
+    const trpcFlowko = files.filter((f) => f.startsWith("packages/trpc/server/routers/viewer/flowko/"));
+    expect(trpcFlowko).toContain("packages/trpc/server/routers/viewer/flowko/roster/roster.handler.ts");
+    expect(trpcFlowko.every((f) => FLOWKO_PATHS.some((p) => p.test(f)))).toBe(true);
   });
 
   it("Flowko code never writes Team, Membership, Host, HostGroup or Profile, sets teamId / parentId or imports their repositories", () => {

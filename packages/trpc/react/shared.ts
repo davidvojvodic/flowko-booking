@@ -22,6 +22,8 @@ export const ENDPOINTS = [
   "i18n",
   "me",
   "ooo",
+  // Flowko U26: viewer.flowko.* is served at /api/trpc/flowko/[trpc].
+  "flowko",
   "payments",
   "public",
   "timezones",
