@@ -516,6 +516,11 @@ model User {
   flowkoBookingActions FlowkoBookingAction[]  @relation("FlowkoBookingActionUser")
   flowkoInvitesCreated FlowkoBusinessInvite[] @relation("FlowkoBusinessInviteCreatedBy")
 
+  // Flowko U26: the week changes a user last wrote and the absences a user entered (author SET NULL when the
+  // account goes).
+  flowkoRosterDaysUpdated FlowkoRosterDay[] @relation("FlowkoRosterDayUpdatedBy")
+  flowkoAbsencesCreated   FlowkoAbsence[]   @relation("FlowkoAbsenceCreatedBy")
+
   @@unique([email])
   @@unique([email, username])
   @@unique([username, organizationId])
@@ -1007,6 +1012,10 @@ model FlowkoBusiness {
   showPrices      Boolean                @default(false)
   selfCancelHours Int                    @default(24)
   templateId      String?
+  // Flowko U26: holiday settings. holidaysClosed = closed on Slovene work-free days unless the date is in
+  // openHolidays ("YYYY-MM-DD" dates, validated in code).
+  holidaysClosed  Boolean                @default(true)
+  openHolidays    String[]               @default([])
   members         FlowkoBusinessMember[]
   invites         FlowkoBusinessInvite[]
   services        FlowkoService[]
@@ -1028,12 +1037,47 @@ model FlowkoBusinessMember {
   lockedAt     DateTime?
   displayName  String
   position     Int                   @default(0)
+  // Flowko U26: the member's usual week (WeekHours JSON, validated in code; NULL = no usual week; CHECK object
+  // in the migration), the week changes per date and the absences.
+  usualWeek    Json?
+  rosterDays   FlowkoRosterDay[]
+  absences     FlowkoAbsence[]
   services     FlowkoServiceWorker[]
   actedActions FlowkoBookingAction[]
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
 
   @@index([businessId])
+}
+
+// Flowko U26: a week change, one row per member and date. shifts = JSON list of ShiftEntry (validated in code;
+// CHECK array in the migration); [] = not working that day. Overrides the usual week for that date.
+model FlowkoRosterDay {
+  id              Int                  @id @default(autoincrement())
+  memberId        Int
+  member          FlowkoBusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  date            DateTime             @db.Date
+  shifts          Json
+  updatedByUserId Int?
+  updatedBy       User?                @relation("FlowkoRosterDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedAt       DateTime             @updatedAt
+
+  @@unique([memberId, date])
+}
+
+// Flowko U26: a member's absence (holiday, sick leave), whole days from startDate to endDate inclusive. CHECK in
+// the migration: endDate >= startDate and at most 365 days apart.
+model FlowkoAbsence {
+  id              Int                  @id @default(autoincrement())
+  memberId        Int
+  member          FlowkoBusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  startDate       DateTime             @db.Date
+  endDate         DateTime             @db.Date
+  createdByUserId Int?
+  createdBy       User?                @relation("FlowkoAbsenceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime             @default(now())
+
+  @@index([memberId, startDate])
 }
 
 // Flowko U25: an invitation to join a business (table only; U29 writes it). Only the token's hash is stored.
