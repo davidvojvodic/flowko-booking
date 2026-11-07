@@ -510,6 +510,12 @@ model User {
 
   autoOptInFeatures Boolean @default(false)
 
+  // Flowko U25: the user's business membership (one business per user), the business actions they took
+  // signed in, and the business invites they created (see FlowkoBusiness).
+  flowkoBusinessMember FlowkoBusinessMember?  @relation("FlowkoBusinessMemberUser")
+  flowkoBookingActions FlowkoBookingAction[]  @relation("FlowkoBookingActionUser")
+  flowkoInvitesCreated FlowkoBusinessInvite[] @relation("FlowkoBusinessInviteCreatedBy")
+
   @@unique([email])
   @@unique([email, username])
   @@unique([username, organizationId])
@@ -916,6 +922,10 @@ model Booking {
   // Flowko U22: reminder e-mails to the booker already claimed for this booking (see FlowkoAttendeeReminder).
   flowkoAttendeeReminders FlowkoAttendeeReminder[]
 
+  // Flowko U25: per-booking copy of the service steps (written by U27) and the business action log.
+  flowkoBookingSteps   FlowkoBookingStep[]
+  flowkoBookingActions FlowkoBookingAction[]
+
   // @@partial_index([reassignById])
 
   @@index([eventTypeId])
@@ -942,6 +952,181 @@ model FlowkoAttendeeReminder {
   claimedAt     DateTime @default(now())
 
   @@unique([bookingId, offsetMinutes])
+}
+
+// Flowko U25: role of a business member. OWNER = full control (one per business, partial unique index
+// "FlowkoBusinessMember_one_owner" in the migration); WORKER = a column in the calendar; STAFF = booking rights
+// for all, no settings (may have no login).
+enum FlowkoBusinessRole {
+  OWNER
+  WORKER
+  STAFF
+}
+
+// Flowko U25: a LOCKED member keeps history but takes no part in the business.
+enum FlowkoMemberStatus {
+  ACTIVE
+  LOCKED
+}
+
+// Flowko U25: kind of a service step; lowercase on purpose, equal to the U24 engine's StepKind.
+enum FlowkoStepKind {
+  busy
+  processing
+}
+
+// Flowko U25: what a FlowkoBookingAction row records.
+enum FlowkoBookingActionKind {
+  CREATED
+  CANCELLED
+  RESCHEDULED
+  CONFIRMED
+  DECLINED
+  NO_SHOW
+  LOCATION_CHANGED
+  GUESTS_ADDED
+}
+
+// Flowko U25: a business (salon, studio, ...) with its members, services and booking action log. The public
+// slug shares the name space with usernames (checked in code); CHECKs on slug, colours, grid and cancel window
+// live in the migration's hand SQL.
+model FlowkoBusiness {
+  id              Int                    @id @default(autoincrement())
+  name            String
+  slug            String                 @unique
+  timeZone        String                 @default("Europe/Ljubljana")
+  phone           String?
+  address         String?
+  logoUrl         String?
+  brandColor      String?
+  darkBrandColor  String?
+  websiteUrl      String?
+  instagramHandle String?
+  openingHours    Json
+  slotGridMinutes Int                    @default(15)
+  showPrices      Boolean                @default(false)
+  selfCancelHours Int                    @default(24)
+  templateId      String?
+  members         FlowkoBusinessMember[]
+  invites         FlowkoBusinessInvite[]
+  services        FlowkoService[]
+  actions         FlowkoBookingAction[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+}
+
+// Flowko U25: a person in a business. userId is unique (one business per user) and NULL only for STAFF without
+// a login (CHECK in the migration).
+model FlowkoBusinessMember {
+  id           Int                   @id @default(autoincrement())
+  businessId   Int
+  business     FlowkoBusiness        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId       Int?                  @unique
+  user         User?                 @relation("FlowkoBusinessMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  role         FlowkoBusinessRole
+  status       FlowkoMemberStatus    @default(ACTIVE)
+  lockedAt     DateTime?
+  displayName  String
+  position     Int                   @default(0)
+  services     FlowkoServiceWorker[]
+  actedActions FlowkoBookingAction[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([businessId])
+}
+
+// Flowko U25: an invitation to join a business (table only; U29 writes it). Only the token's hash is stored.
+model FlowkoBusinessInvite {
+  id              Int                @id @default(autoincrement())
+  businessId      Int
+  business        FlowkoBusiness     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  email           String
+  name            String
+  role            FlowkoBusinessRole @default(WORKER)
+  tokenHash       String             @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdByUserId Int?
+  createdBy       User?              @relation("FlowkoBusinessInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([businessId])
+}
+
+// Flowko U25: a service of a business; steps = JSON list of busy/processing steps (validated in code with U24
+// validateSteps); priceCents NULL = no price shown.
+model FlowkoService {
+  id              Int                   @id @default(autoincrement())
+  businessId      Int
+  business        FlowkoBusiness        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name            String
+  category        String?
+  steps           Json
+  priceCents      Int?
+  onlineBookable  Boolean               @default(true)
+  slotGridMinutes Int?
+  position        Int                   @default(0)
+  workers         FlowkoServiceWorker[]
+  bookingSteps    FlowkoBookingStep[]
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([businessId, name])
+}
+
+// Flowko U25: which member performs which service.
+model FlowkoServiceWorker {
+  serviceId Int
+  service   FlowkoService        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  memberId  Int
+  member    FlowkoBusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  createdAt DateTime             @default(now())
+
+  @@id([serviceId, memberId])
+  @@index([memberId])
+}
+
+// Flowko U25: per-booking copy of the service steps with absolute times (written by U27), so editing a service
+// never changes a past booking.
+model FlowkoBookingStep {
+  id          Int            @id @default(autoincrement())
+  bookingId   Int
+  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  index       Int
+  kind        FlowkoStepKind
+  startTime   DateTime
+  endTime     DateTime
+  serviceId   Int?
+  service     FlowkoService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  serviceName String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([bookingId, index])
+}
+
+// Flowko U25: the business action log. userId = the signed-in user (SET NULL when the account goes),
+// actorMemberId = the member picked as acting person (SET NULL), actorName = stored display name.
+model FlowkoBookingAction {
+  id            Int                     @id @default(autoincrement())
+  bookingId     Int
+  booking       Booking                 @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  businessId    Int
+  business      FlowkoBusiness          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  action        FlowkoBookingActionKind
+  actorMemberId Int?
+  actorMember   FlowkoBusinessMember?   @relation(fields: [actorMemberId], references: [id], onDelete: SetNull)
+  actorName     String
+  userId        Int?
+  user          User?                   @relation("FlowkoBookingActionUser", fields: [userId], references: [id], onDelete: SetNull)
+  details       Json?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@index([bookingId])
+  @@index([businessId, createdAt])
 }
 
 model Tracking {
