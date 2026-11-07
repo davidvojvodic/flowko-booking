@@ -720,7 +720,8 @@ interface UserProps {
   email: string;
 }
 
-const FirstAttendee = ({
+// Flowko U27: exported for the test of the desk-only organizer address
+export const FirstAttendee = ({
   user,
   currentEmail,
   hideOrganizerEmail,
@@ -733,7 +734,8 @@ const FirstAttendee = ({
   if (user.email === currentEmail) {
     return <div className="inline-block">{t("you")}</div>;
   }
-  if (hideOrganizerEmail) {
+  // Flowko U27: a desk-only worker's @flowko.invalid placeholder is never shown as a mailto, whatever the event type says
+  if (hideOrganizerEmail || isSmsCalEmail(user.email)) {
     return <span className="inline-block">{user.name || ""}</span>;
   }
   return (
