@@ -3,8 +3,9 @@
 // copy and a CREATED action-log row, all in one transaction that first takes the worker's advisory lock (W2) and
 // re-runs the U24 fit (W3). Problems come back as needs_confirm with nothing written unless the desk confirms the
 // override; the who-acted member (W6) is a label, never a right. Cal's mails go out after the commit
-// (bookingMail.ts). Prismock tests inject the lock; the lock, the idempotency key and the rollback are proven on
-// Postgres (Task 6). Server only.
+// (bookingMail.ts, through sendMailAfterCommit, which never throws). Prismock tests inject the lock; the lock, the
+// idempotency key and the rollback are proven on Postgres (bookingWriter.integration-test.ts). The cancel and move
+// writers (bookingChange.ts) reuse the worker rule, the sentinel and the mail helper. Server only.
 import getICalUID from "@calcom/emails/lib/getICalUID";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getTranslation } from "@calcom/i18n/server";
@@ -18,6 +19,7 @@ import {
   placeSteps,
   totalMinutes,
 } from "@calcom/lib/flowkoSalon";
+import logger from "@calcom/lib/logger";
 import { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBookingActionKind, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import short from "short-uuid";
@@ -37,6 +39,8 @@ import { ensureWorkerMirror } from "./mirror";
 import { loadBusinessDay } from "./roster";
 
 type Tx = Prisma.TransactionClient;
+
+const log = logger.getSubLogger({ prefix: ["flowko-business-booking-writer"] });
 
 const MINUTE_MS = 60_000;
 /** W2: the advisory-lock namespace of the booking writer; the second key is the worker's user id. */
@@ -90,6 +94,31 @@ export function isIdempotencyKeyConflict(error: unknown): boolean {
   return named.some((name) => name === IDEMPOTENCY_COLUMN || name === IDEMPOTENCY_INDEX);
 }
 
+export type BusinessMailKind = "created" | "moved" | "cancelled";
+
+/**
+ * Cal's mails of a committed business booking. Loading the mail module and sending both sit inside one
+ * try/catch: a failure is logged (kind, booking id, error class) and never rejects the writer's call, whose
+ * booking is already committed.
+ */
+export async function sendMailAfterCommit(kind: BusinessMailKind, bookingId: number): Promise<void> {
+  try {
+    const mail = await import("./bookingMail");
+    const senders: Record<BusinessMailKind, (id: number) => Promise<void>> = {
+      created: mail.sendBusinessBookingCreated,
+      moved: mail.sendBusinessBookingMoved,
+      cancelled: mail.sendBusinessBookingCancelled,
+    };
+    await senders[kind](bookingId);
+  } catch (error) {
+    log.error("business booking mail not sent", {
+      kind,
+      bookingId,
+      errorClass: error instanceof Error ? error.name : typeof error,
+    });
+  }
+}
+
 /**
  * W6: who acted. `actorMemberId` = any ACTIVE member of the actor's business (staff without login and desk-only
  * workers included); missing = the actor's own member. Unknown, foreign or LOCKED ids are forbidden. A label for
@@ -112,7 +141,7 @@ export async function resolveActor(
   return { memberId: member.id, name: member.displayName };
 }
 
-type Worker = {
+export type BookableWorker = {
   memberId: number;
   userId: number;
   email: string;
@@ -125,7 +154,11 @@ type Worker = {
  * actor's role rule ignoring the worker's status (OWNER/STAFF any column member, WORKER only self; else
  * forbidden), then a LOCKED worker = worker_locked.
  */
-async function loadBookableWorker(db: FlowkoDb, access: BusinessAccess, memberId: number): Promise<Worker> {
+export async function loadBookableWorker(
+  db: FlowkoDb,
+  access: BusinessAccess,
+  memberId: number
+): Promise<BookableWorker> {
   if (!Number.isInteger(memberId)) throw new FlowkoBusinessError("forbidden");
   const member = await db.flowkoBusinessMember.findUnique({
     where: { id: memberId },
@@ -158,7 +191,7 @@ async function loadBookableWorker(db: FlowkoDb, access: BusinessAccess, memberId
 
 /** M3: Cal's default title in the worker's language: „Barvanje + Moško striženje med Ana in Marija Novak“. */
 async function bookingTitle(
-  worker: Worker,
+  worker: BookableWorker,
   services: ServiceForBooking[],
   customer: Customer,
   minutes: number
@@ -173,12 +206,12 @@ async function bookingTitle(
 }
 
 /** Each problem kind once, in the engine's order. */
-function problemKinds(problems: FitProblem[]): string[] {
+export function problemKinds(problems: FitProblem[]): string[] {
   return Array.from(new Set(problems.map((p) => p.kind)));
 }
 
 /** Thrown inside the transaction so a refused fit rolls back the lock-time writes (the lazy mirror). */
-class NeedsConfirm extends Error {
+export class NeedsConfirm extends Error {
   constructor(readonly problems: FitProblem[]) {
     super("needs_confirm");
     this.name = "NeedsConfirm";
@@ -186,7 +219,7 @@ class NeedsConfirm extends Error {
 }
 
 type Visit = {
-  worker: Worker;
+  worker: BookableWorker;
   actor: { memberId: number; name: string };
   customer: Customer;
   services: ServiceForBooking[];
@@ -364,9 +397,6 @@ export async function createBusinessBooking(
     throw error;
   }
 
-  if (deps.sendMails !== false) {
-    const { sendBusinessBookingCreated } = await import("./bookingMail");
-    await sendBusinessBookingCreated(written.bookingId);
-  }
+  if (deps.sendMails !== false) await sendMailAfterCommit("created", written.bookingId);
   return { status: "created", ...written };
 }
