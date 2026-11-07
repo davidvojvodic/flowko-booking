@@ -29,6 +29,7 @@ import { defaultCookies } from "@calcom/lib/default-cookies";
 import { isENVDev } from "@calcom/lib/env";
 import getIP from "@calcom/lib/getIP";
 import { HttpError } from "@calcom/lib/http-error";
+import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import logger from "@calcom/lib/logger";
 import { randomString } from "@calcom/lib/random";
 import { safeStringify } from "@calcom/lib/safeStringify";
@@ -908,7 +909,9 @@ export const getOptions = ({
           !existingUser ||
           existingUser.email !== user.email ||
           existingUser.locked ||
-          existingUser.twoFactorEnabled
+          existingUser.twoFactorEnabled ||
+          // Flowko U25: a desk-only worker has no password and an address nobody can read, so it never gets a link
+          isSmsCalEmail(existingUser.email)
         ) {
           log.warn("callbacks:signIn - magic link not allowed for this email, denying access");
           // Answer a link request as if the link was sent, so the response does not reveal who has an account

@@ -162,6 +162,31 @@ describe("BaseEmail.sendEmail address fields", () => {
     expect(logged).not.toContain("38640123456");
   });
 
+  // Flowko U25: a desk-only worker's placeholder address (@flowko.invalid) is a faux recipient too
+  it("sends the customer only when a desk-only placeholder is in cc", async () => {
+    await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "Stranka <stranka@example.si>",
+      cc: "desk-1@flowko.invalid",
+      subject: "Rezervacija potrjena",
+    }).sendEmail();
+
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({ to: [{ name: "Stranka", address: "stranka@example.si" }], cc: [] });
+    expect(JSON.stringify(sentPayloads[0])).not.toContain("flowko.invalid");
+  });
+
+  it("skips an email whose only recipient is a desk-only placeholder", async () => {
+    const result = await new TestEmail({
+      from: "Flowko <noreply@flowko.si>",
+      to: "Desk <desk-1@flowko.invalid>",
+      subject: "Nova rezervacija",
+    }).sendEmailOrThrow();
+
+    expect(result).toBe("skipped_faux");
+    expect(sentPayloads).toHaveLength(0);
+  });
+
   it("drops faux emails from a recipient list and sends to the rest", async () => {
     await new TestEmail({
       from: "Flowko <noreply@flowko.si>",

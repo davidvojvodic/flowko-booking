@@ -1567,6 +1567,24 @@ describe("Email (magic link) signIn callback", () => {
     expect(result).toBe(false);
   });
 
+  // Flowko U25: a desk-only worker has no password and an address nobody can read; an unlocked row must not get a link
+  it("denies a desk-only placeholder address, answering a link request like a sent link", async () => {
+    mockFindByEmail.mockResolvedValue({ id: 1, email: "desk-1@flowko.invalid", locked: false, password: null });
+
+    const request = await signInCallback({
+      user: { id: "1", email: "desk-1@flowko.invalid", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "desk-1@flowko.invalid" },
+      email: { verificationRequest: true },
+    } as any);
+    const opened = await signInCallback({
+      user: { id: "1", email: "desk-1@flowko.invalid", emailVerified: null },
+      account: { ...emailAccount, providerAccountId: "desk-1@flowko.invalid" },
+    } as any);
+
+    expect(request).toBe("http://localhost:3000/api/auth/verify-request?provider=email&type=email");
+    expect(opened).toBe(false);
+  });
+
   it("denies a user with 2FA enabled", async () => {
     mockFindByEmail.mockResolvedValue({ id: 1, email: "user@example.com", twoFactorEnabled: true });
 

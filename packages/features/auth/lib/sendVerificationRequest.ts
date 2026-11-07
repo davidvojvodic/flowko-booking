@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import path from "node:path";
 
 import { APP_NAME, WEBAPP_URL } from "@calcom/lib/constants";
+import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import { serverConfig } from "@calcom/lib/serverConfig";
 
 const transporter = nodemailer.createTransport<TransportOptions>({
@@ -16,6 +17,8 @@ const sendVerificationRequest = async ({
   identifier,
   url,
 }: Pick<SendVerificationRequestParams, "identifier" | "url">) => {
+  // Flowko U25: raw nodemailer bypasses BaseEmail's faux-address skip, so a placeholder address is checked here
+  if (isSmsCalEmail(identifier)) return;
   const emailsDir = path.resolve(process.cwd(), "..", "..", "packages/emails", "templates");
   const originalUrl = new URL(url);
   const webappUrl = new URL(process.env.NEXTAUTH_URL || WEBAPP_URL);
