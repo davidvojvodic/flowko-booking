@@ -139,6 +139,43 @@ describe("availability", () => {
     });
   });
 
+  it("treats a booking as solid when its step copy does not match its span (moved booking)", () => {
+    // Booking moved to 11:00–12:40 but its steps still sit at 09:00 (stale copy).
+    const moved = worker({ bookings: [{ start: t("11:00"), end: t("12:40"), steps: placeSteps(t("09:00"), C) }] });
+    expect(workerFree(moved)).toEqual([
+      { start: t("07:00"), end: t("11:00") },
+      { start: t("12:40"), end: t("13:00") },
+    ]);
+    expect(explainFit(moved, X, t("09:00"), rules)).toEqual([]);
+    expect(explainFit(moved, X, t("11:45"), rules)).toContainEqual({
+      kind: "overlaps_booking",
+      step: 0,
+      with: { start: t("11:00"), end: t("12:40") },
+    });
+    expect(freeStarts(moved, X, rules)).toEqual(reference(moved, X, rules));
+    // Same start, but the copy ends before the booking (10:40 vs 11:00): solid too.
+    const short = worker({ bookings: [{ start: t("09:00"), end: t("11:00"), steps: placeSteps(t("09:00"), C) }] });
+    expect(workerFree(short)).toEqual([
+      { start: t("07:00"), end: t("09:00") },
+      { start: t("11:00"), end: t("13:00") },
+    ]);
+  });
+
+  it("treats a booking as solid when its step copy has no busy step", () => {
+    const P: ServiceStep[] = [{ kind: "processing", minutes: 60 }];
+    const idle = worker({ bookings: [{ start: t("09:00"), end: t("10:00"), steps: placeSteps(t("09:00"), P) }] });
+    expect(workerFree(idle)).toEqual([
+      { start: t("07:00"), end: t("09:00") },
+      { start: t("10:00"), end: t("13:00") },
+    ]);
+    expect(explainFit(idle, X, t("09:15"), rules)).toContainEqual({
+      kind: "overlaps_booking",
+      step: 0,
+      with: { start: t("09:00"), end: t("10:00") },
+    });
+    expect(freeStarts(idle, X, rules)).toEqual(reference(idle, X, rules));
+  });
+
   it("reports off_grid and too_soon", () => {
     expect(explainFit(ana, X, t("09:31"), rules)).toContainEqual({ kind: "off_grid" });
     const strict: DayRules = { ...rules, minimumNoticeMinutes: 120, now: t("08:00") };

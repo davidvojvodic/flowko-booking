@@ -8,7 +8,10 @@ import { gridStarts } from "./time";
 
 const MINUTE_MS = 60_000;
 
-/** An existing booking; without a step copy (steps undefined or empty) it blocks its whole span (E2). */
+/**
+ * An existing booking. Its step copy is trusted only when it is non-empty, starts at `start`,
+ * ends at `end` and has at least one busy step; otherwise the booking blocks its whole span (E2).
+ */
 export type ExistingBooking = { start: Ms; end: Ms; steps?: PlacedStep[] };
 export type WorkerDay = {
   shifts: Interval[];
@@ -32,9 +35,21 @@ export type FitProblem =
   | { kind: "overlaps_booking"; step: number; with: Interval }
   | { kind: "overlaps_external"; step: number; with: Interval };
 
-/** Busy intervals of one booking (E2): its busy steps, or its whole span when it has no step copy. */
+/** True when the booking's step copy matches its span and has a busy step (a moved booking's stale copy does not). */
+function trustedSteps(b: ExistingBooking): b is ExistingBooking & { steps: PlacedStep[] } {
+  const s = b.steps;
+  return (
+    s !== undefined &&
+    s.length > 0 &&
+    s[0].start === b.start &&
+    s[s.length - 1].end === b.end &&
+    s.some((p) => p.kind === "busy")
+  );
+}
+
+/** Busy intervals of one booking (E2): its busy steps when the copy is trusted, else its whole span. */
 function bookingBusy(b: ExistingBooking): Interval[] {
-  return b.steps && b.steps.length > 0 ? busyIntervals(b.steps) : [{ start: b.start, end: b.end }];
+  return trustedSteps(b) ? busyIntervals(b.steps) : [{ start: b.start, end: b.end }];
 }
 
 /**
