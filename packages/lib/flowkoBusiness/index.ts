@@ -2,6 +2,8 @@
 // matcher). No `node:` import may enter here; server-only services live in packages/features/flowkoBusiness/.
 
 export * from "./deskEmail";
+export * from "./holidays";
 export * from "./name";
+export * from "./roster";
 export * from "./schemas";
 export * from "./templates";
