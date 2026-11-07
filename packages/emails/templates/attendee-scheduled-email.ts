@@ -7,12 +7,17 @@ import { default as cloneDeep } from "lodash/cloneDeep";
 import generateIcsFile, { GenerateIcsRole } from "../lib/generateIcsFile";
 import renderEmail from "../src/renderEmail";
 import BaseEmail from "./_base-email";
+// Flowko U27: the sender name of attendee mails
+import { attendeeFromName } from "../lib/flowkoSender";
 
 export default class AttendeeScheduledEmail extends BaseEmail {
   calEvent: CalendarEvent;
   attendee: Person;
   showAttendees: boolean | undefined;
   t: TFunction;
+  // Flowko U27: set by the templates of a booking that no longer stands: a business booking's text then offers
+  // only the call-the-business line, no cancel link (E2)
+  protected flowkoBookingCancelled = false;
 
   constructor(calEvent: CalendarEvent, attendee: Person, showAttendees?: boolean | undefined) {
     super();
@@ -47,7 +52,8 @@ export default class AttendeeScheduledEmail extends BaseEmail {
         t: this.t,
       }),
       to: `${this.attendee.name} <${this.attendee.email}>`,
-      from: `${this.calEvent.organizer.name} <${this.getMailerOptions().from}>`,
+      // Flowko U27: a business booking's mail comes from the business (E1)
+      from: `${attendeeFromName(this.calEvent)} <${this.getMailerOptions().from}>`,
       ...getReplyToHeader(
         this.calEvent,
         this.calEvent.attendees.filter(({ email }) => email !== this.attendee.email).map(({ email }) => email)
@@ -77,7 +83,7 @@ ${this.t(
 ${this.t(subtitle)}
 
 ${this.t("when")}: ${this.getFormattedDate()}
-${getRichDescription(this.calEvent, this.t)}
+${getRichDescription(this.calEvent, this.t, false, { bookingCancelled: this.flowkoBookingCancelled })}
 `.trim();
   }
 

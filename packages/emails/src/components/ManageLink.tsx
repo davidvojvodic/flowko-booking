@@ -1,4 +1,10 @@
-import { getBookingUrl, getCancelLink, getRescheduleLink } from "@calcom/lib/CalEventParser";
+import {
+  getBookingUrl,
+  getCancelLink,
+  // Flowko U27
+  getFlowkoBusinessContactLine,
+  getRescheduleLink,
+} from "@calcom/lib/CalEventParser";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
 export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person }) {
@@ -38,6 +44,18 @@ export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person })
   const isRecurringEvent = props.calEvent.recurringEvent;
   const shouldDisplayRescheduleLink = Boolean(hasRescheduleLink && !isRecurringEvent);
   const isTeamMember = props.calEvent.team?.members.some((member) => props.attendee.email === member.email);
+
+  // Flowko U27: a business booking: the cancel link and "call the business", never the reschedule link (E2)
+  if (props.calEvent.flowkoBusiness) {
+    if (!isOriginalAttendee && !isOrganizer && !isTeamMember) return null;
+    return (
+      <FlowkoBusinessManageLink
+        t={t}
+        cancelLink={hasCancelLink ? cancelLink : ""}
+        contactLine={getFlowkoBusinessContactLine(props.calEvent.flowkoBusiness, t)}
+      />
+    );
+  }
 
   if (
     (isOriginalAttendee || isOrganizer || isTeamMember) &&
@@ -118,4 +136,49 @@ export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person })
 
   // Don't have the rights to the manage link
   return null;
+}
+
+// Flowko U27: the manage block of a business booking (E2): the cancel link, then the call-the-business line.
+function FlowkoBusinessManageLink(props: {
+  t: Person["language"]["translate"];
+  cancelLink: string;
+  contactLine: string;
+}) {
+  const { t } = props;
+  return (
+    <div
+      style={{
+        fontFamily: "Roboto, Helvetica, sans-serif",
+        fontSize: "16px",
+        fontWeight: 500,
+        lineHeight: "0px",
+        textAlign: "left",
+        color: "#101010",
+      }}>
+      <p
+        style={{
+          fontWeight: 400,
+          lineHeight: "24px",
+          textAlign: "center",
+          width: "100%",
+        }}>
+        {props.cancelLink && (
+          <>
+            {t("flowko_cancel_here")}
+            <a
+              href={props.cancelLink}
+              style={{
+                color: "#374151",
+                marginLeft: "5px",
+                textDecoration: "underline",
+              }}>
+              {t("cancel_booking_link")}
+            </a>
+            <br />
+          </>
+        )}
+        {props.contactLine}
+      </p>
+    </div>
+  );
 }

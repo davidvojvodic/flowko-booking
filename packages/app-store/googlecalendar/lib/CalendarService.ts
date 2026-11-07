@@ -221,17 +221,24 @@ class GoogleCalendarService implements Calendar {
         responseStatus: "accepted",
       }));
 
+    // Flowko U27: the organizer entry's address, computed first: no organizer entry with a faux address (a
+    // desk-only worker without an external calendar) (E3). We use || instead of ?? here to handle empty strings
+    const organizerEmail =
+      hostExternalCalendarId || selectedHostDestinationCalendar?.externalId || event.organizer.email;
     const attendees: calendar_v3.Schema$EventAttendee[] = [
-      {
-        ...event.organizer,
-        id: String(event.organizer.id),
-        responseStatus: "accepted",
-        organizer: true,
-        // Tried changing the display name to the user but GCal will not let you do that. It will only display the name of the external calendar. Leaving this in just incase it works in the future.
-        displayName: event.organizer.name,
-        // We use || instead of ?? here to handle empty strings
-        email: hostExternalCalendarId || selectedHostDestinationCalendar?.externalId || event.organizer.email,
-      },
+      ...(isSmsCalEmail(organizerEmail)
+        ? []
+        : [
+            {
+              ...event.organizer,
+              id: String(event.organizer.id),
+              responseStatus: "accepted",
+              organizer: true,
+              // Tried changing the display name to the user but GCal will not let you do that. It will only display the name of the external calendar. Leaving this in just incase it works in the future.
+              displayName: event.organizer.name,
+              email: organizerEmail,
+            },
+          ]),
       ...(event.hideOrganizerEmail && !isOrganizerExempt ? [] : eventAttendees),
     ];
 

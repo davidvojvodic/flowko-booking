@@ -3,6 +3,8 @@ import { getReplyToHeader } from "@calcom/lib/getReplyToHeader";
 import generateIcsFile, { GenerateIcsRole } from "../lib/generateIcsFile";
 import renderEmail from "../src/renderEmail";
 import AttendeeScheduledEmail from "./attendee-scheduled-email";
+// Flowko U27: the sender name of attendee mails
+import { attendeeFromName } from "../lib/flowkoSender";
 
 export default class AttendeeAddGuestsEmail extends AttendeeScheduledEmail {
   async getHtml() {
@@ -21,7 +23,8 @@ export default class AttendeeAddGuestsEmail extends AttendeeScheduledEmail {
         t: this.t,
       }),
       to: `${this.attendee.name} <${this.attendee.email}>`,
-      from: `${this.calEvent.organizer.name} <${this.getMailerOptions().from}>`,
+      // Flowko U27: a business booking's mail comes from the business (E1)
+      from: `${attendeeFromName(this.calEvent)} <${this.getMailerOptions().from}>`,
       ...getReplyToHeader(this.calEvent),
       subject: `${this.t("guests_added_event_type_subject", {
         eventType: this.calEvent.type,

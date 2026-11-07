@@ -5030,5 +5030,8 @@
   "flowko_reminders_24h": "24 ur pred terminom",
   "flowko_reminders_2h": "2 uri pred terminom",
   "flowko_reminders_both": "24 ur in 2 uri pred terminom",
-  "flowko_reminders_hint": "Opomnik se ne pošlje, če je bil termin rezerviran ali potrjen pozneje kot eno uro pred načrtovanim časom pošiljanja."
+  "flowko_reminders_hint": "Opomnik se ne pošlje, če je bil termin rezerviran ali potrjen pozneje kot eno uro pred načrtovanim časom pošiljanja.",
+  "flowko_reschedule_by_phone": "Za prestavitev termina pokličite {{phone}}.",
+  "flowko_reschedule_contact": "Za prestavitev termina se obrnite na {{name}}.",
+  "flowko_cancel_here": "Termin lahko odpoveste tukaj:"
 }
