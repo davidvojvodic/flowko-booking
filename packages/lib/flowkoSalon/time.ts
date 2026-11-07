@@ -56,10 +56,16 @@ export function dayBounds(date: LocalDate, timeZone: string): Interval {
   return localInterval(date, "00:00", "24:00", timeZone);
 }
 
-/** Flowko U24: slot starts day.start + k*step minutes, all below day.end. Step must be 5, 10, 15, 20, 30 or 60. */
+/**
+ * Flowko U24: slot starts day.start + k*step minutes, all below day.end. Step must be 5, 10, 15, 20, 30 or 60.
+ * Throws RangeError on a bad step, a non-finite day.start or day.end, or day.end <= day.start.
+ */
 export function gridStarts(day: Interval, stepMinutes: number): Ms[] {
   if (!STEPS.includes(stepMinutes)) {
     throw new RangeError(`Flowko U24: step ${stepMinutes} not in {${STEPS.join(",")}}`);
+  }
+  if (!Number.isFinite(day.start) || !Number.isFinite(day.end) || day.end <= day.start) {
+    throw new RangeError(`Flowko U24: bad day [${day.start}, ${day.end})`);
   }
   const step = stepMinutes * 60_000;
   const out: Ms[] = [];

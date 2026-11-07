@@ -2,7 +2,7 @@
 // Pure; imports only within packages/lib/flowkoSalon. All times are epoch ms.
 import { contains, overlapping, subtract } from "./intervals";
 import type { Interval, Ms } from "./intervals";
-import { busyIntervals, placeSteps, totalMinutes } from "./steps";
+import { busyIntervals, placeSteps, totalMinutes, validateSteps } from "./steps";
 import type { PlacedStep, ServiceStep } from "./steps";
 import { gridStarts } from "./time";
 
@@ -90,20 +90,30 @@ function explain(day: WorkerDay, steps: ServiceStep[], start: Ms, rules: DayRule
   return problems;
 }
 
+/** Invalid steps would otherwise "fit" everywhere (no busy step = nothing to check). */
+function assertValidSteps(steps: ServiceStep[]): void {
+  const codes = validateSteps(steps);
+  if (codes.length > 0) throw new RangeError(`invalid steps: ${codes.join(",")}`);
+}
+
 /**
  * Flowko U24: every reason the steps cannot start at `start` for this worker (E6); [] = fits.
  * Order: outside_opening, off_grid, too_soon, then per busy step: time_off, overlaps_booking,
  * overlaps_external, outside_shift. Processing steps need no worker (E1).
+ * Throws RangeError("invalid steps: <codes>") when validateSteps(steps) is non-empty.
  */
 export function explainFit(day: WorkerDay, steps: ServiceStep[], start: Ms, rules: DayRules): FitProblem[] {
+  assertValidSteps(steps);
   return explain(day, steps, start, rules, context(day, rules));
 }
 
 /**
  * Flowko U24: candidate starts (E3) inside rules.day where explainFit is [], ascending, unique.
- * Throws RangeError when rules.slotStepMinutes is not 5, 10, 15, 20, 30 or 60.
+ * Throws RangeError when rules.slotStepMinutes is not 5, 10, 15, 20, 30 or 60, when rules.day is
+ * not a finite non-empty interval, or ("invalid steps: <codes>") when validateSteps(steps) is non-empty.
  */
 export function freeStarts(day: WorkerDay, steps: ServiceStep[], rules: DayRules): Ms[] {
+  assertValidSteps(steps);
   const ctx = context(day, rules);
   // ctx.candidates keeps candidateStarts' ascending insertion order.
   return Array.from(ctx.candidates).filter((s) => explain(day, steps, s, rules, ctx).length === 0);

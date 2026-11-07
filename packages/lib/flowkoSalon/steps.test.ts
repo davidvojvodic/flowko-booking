@@ -63,6 +63,19 @@ describe("steps", () => {
     ).toEqual(["bad_minutes:0", "bad_minutes:2", "bad_minutes:3", "bad_minutes:4"]);
   });
 
+  it("reports bad_kind:<index> for a kind other than busy or processing, in step order with bad_minutes", () => {
+    const busyCap = [{ kind: "Busy", minutes: 30 }] as unknown as ServiceStep[];
+    expect(validateSteps(busyCap)).toEqual(["bad_kind:0", "no_busy_step"]);
+    const mixed = [
+      { kind: "busy", minutes: 30 },
+      { kind: "wait", minutes: 7 },
+      { kind: "busy", minutes: 30 },
+      { kind: "", minutes: 10 },
+      { kind: "busy", minutes: 30 },
+    ] as unknown as ServiceStep[];
+    expect(validateSteps(mixed)).toEqual(["bad_minutes:1", "bad_kind:1", "bad_kind:3"]);
+  });
+
   it("concatServices joins services and touching busy steps merge", () => {
     const visit = concatServices([C, [{ kind: "busy", minutes: 30, serviceRef: "cut" }]]);
     expect(visit).toHaveLength(4);

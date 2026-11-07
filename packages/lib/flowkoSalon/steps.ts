@@ -11,9 +11,12 @@ export type StepKind = "busy" | "processing";
 export type ServiceStep = { kind: StepKind; minutes: number; serviceRef?: string };
 export type PlacedStep = { index: number; kind: StepKind; start: Ms; end: Ms; serviceRef?: string };
 
+const KINDS: readonly string[] = ["busy", "processing"];
+
 /**
  * Flowko U24: returns error codes for a step list, [] when valid. Codes: "empty",
- * "bad_minutes:<index>" (not an integer >= 5 and a multiple of 5, reported in step order),
+ * per step in step order "bad_minutes:<index>" (not an integer >= 5 and a multiple of 5)
+ * then "bad_kind:<index>" (kind not "busy" or "processing"),
  * then "no_busy_step", "starts_with_processing", "ends_with_processing".
  */
 export function validateSteps(steps: ServiceStep[]): string[] {
@@ -21,6 +24,7 @@ export function validateSteps(steps: ServiceStep[]): string[] {
   const errors: string[] = [];
   steps.forEach((s, i) => {
     if (!Number.isInteger(s.minutes) || s.minutes < 5 || s.minutes % 5 !== 0) errors.push(`bad_minutes:${i}`);
+    if (!KINDS.includes(s.kind)) errors.push(`bad_kind:${i}`);
   });
   if (!steps.some((s) => s.kind === "busy")) errors.push("no_busy_step");
   if (steps[0].kind === "processing") errors.push("starts_with_processing");
@@ -33,7 +37,10 @@ export function totalMinutes(steps: ServiceStep[]): number {
   return steps.reduce((sum, s) => sum + s.minutes, 0);
 }
 
-/** Flowko U24: lays the steps back to back from `start`; this is the per-booking step copy. */
+/**
+ * Flowko U24: lays the steps back to back from `start`; this is the per-booking step copy.
+ * Expects validated steps (validateSteps).
+ */
 export function placeSteps(start: Ms, steps: ServiceStep[]): PlacedStep[] {
   let cursor = start;
   return steps.map((s, index) => {

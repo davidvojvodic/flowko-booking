@@ -170,6 +170,27 @@ describe("availability", () => {
     expect(starts).toEqual(reference(day, X, r));
   });
 
+  it.each([
+    ["no steps", [] as ServiceStep[], "invalid steps: empty"],
+    [
+      "processing only",
+      [{ kind: "processing", minutes: 30 }] as ServiceStep[],
+      "invalid steps: no_busy_step,starts_with_processing,ends_with_processing",
+    ],
+    [
+      'kind "Busy"',
+      [{ kind: "Busy", minutes: 30 }] as unknown as ServiceStep[],
+      "invalid steps: bad_kind:0,no_busy_step",
+    ],
+  ])("throws RangeError on invalid steps (%s) instead of fitting everywhere", (_name, steps, message) => {
+    const none = worker({ shifts: [] });
+    expect(() => freeStarts(none, steps, rules)).toThrow(RangeError);
+    expect(() => freeStarts(none, steps, rules)).toThrow(message);
+    expect(() => freeStarts(longShift(), steps, rules)).toThrow(message);
+    expect(() => explainFit(none, steps, t("09:00"), rules)).toThrow(RangeError);
+    expect(() => explainFit(none, steps, t("09:00"), rules)).toThrow(message);
+  });
+
   it("workerFree subtracts time off, bookings' busy steps and external busy, not opening", () => {
     expect(workerFree(ana)).toEqual([
       { start: t("07:00"), end: t("09:00") },

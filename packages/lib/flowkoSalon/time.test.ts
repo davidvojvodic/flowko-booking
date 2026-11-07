@@ -44,6 +44,14 @@ describe("Flowko U24: time", () => {
     expect(starts[3]).toBe(day.start + 45 * 60_000);
   });
 
+  it("gridStarts throws RangeError on a non-finite or empty day", () => {
+    const day = localInterval("2026-11-10", "07:00", "08:00", TZ);
+    expect(() => gridStarts({ start: Number.NaN, end: day.end }, 15)).toThrow(RangeError);
+    expect(() => gridStarts({ start: day.start, end: Number.POSITIVE_INFINITY }, 15)).toThrow(RangeError);
+    expect(() => gridStarts({ start: day.end, end: day.start }, 15)).toThrow(RangeError);
+    expect(() => gridStarts({ start: day.start, end: day.start }, 15)).toThrow(RangeError);
+  });
+
   it("24:00 equals next day 00:00", () => {
     expect(wallClockToMs("2026-11-10", "24:00", TZ)).toBe(wallClockToMs("2026-11-11", "00:00", TZ));
     expect(wallClockToMs("2026-12-31", "24:00", TZ)).toBe(wallClockToMs("2027-01-01", "00:00", TZ));
