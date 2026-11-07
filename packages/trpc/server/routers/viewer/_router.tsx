@@ -55,7 +55,7 @@ export const viewerRouter = router({
   admin: adminRouter,
   apiKeys: apiKeysRouter,
   ooo: oooRouter,
-  // Flowko U26
+  // Flowko U26: viewer.flowko.* (roster API).
   flowko: flowkoRouter,
   holidays: holidaysRouter,
   travelSchedules: travelSchedulesRouter,

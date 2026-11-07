@@ -218,7 +218,9 @@ async function rosterTx<T>(db: FlowkoDb, fn: (tx: Prisma.TransactionClient) => P
   try {
     return await withFlowkoTx(db, fn);
   } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") fail("roster_conflict");
+    // Flowko U26 (final review M2): P2002 = unique violation, P2034 = write conflict or deadlock.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === "P2002" || e.code === "P2034"))
+      fail("roster_conflict");
     throw e;
   }
 }
@@ -236,20 +238,30 @@ async function storedWeek(
   return new Map(rows.map((row) => [fromDbDate(row.date), row.shifts]));
 }
 
-/** G3: the seven dates become exactly `days` (a list = a row, null = no row); other dates are not touched. */
+/**
+ * G3: the seven dates become exactly `days` (a list = a row, null = no row); other dates are not touched.
+ * Final review M1: dates before `today` (the business's today) are never changed, neither deleted nor written,
+ * so a write to the current week keeps its past days.
+ */
 async function replaceWeek(
   tx: Prisma.TransactionClient,
   memberId: number,
   dates: LocalDate[],
   days: Array<ShiftEntry[] | null>,
-  actorUserId: number
+  actorUserId: number,
+  today: LocalDate
 ): Promise<void> {
-  await tx.flowkoRosterDay.deleteMany({
-    where: { memberId, date: { gte: toDbDate(dates[0]), lte: toDbDate(dates[6]) } },
-  });
+  const first = dates[0] < today ? today : dates[0];
+  if (first <= dates[6]) {
+    await tx.flowkoRosterDay.deleteMany({
+      where: { memberId, date: { gte: toDbDate(first), lte: toDbDate(dates[6]) } },
+    });
+  }
   const data = dates.flatMap((date, i) => {
     const shifts = days[i];
-    return shifts === null ? [] : [{ memberId, date: toDbDate(date), shifts, updatedByUserId: actorUserId }];
+    return shifts === null || date < today
+      ? []
+      : [{ memberId, date: toDbDate(date), shifts, updatedByUserId: actorUserId }];
   });
   if (data.length > 0) await tx.flowkoRosterDay.createMany({ data });
 }
@@ -486,13 +498,15 @@ export async function setRosterWeek(
     if (!parsed.success) fail("bad_roster");
     const plan = parsed.data;
     const business = await loadBusiness(tx, access.businessId);
-    checkWeekWindow(monday, todayIn(business.timeZone, now));
+    const today = todayIn(business.timeZone, now);
+    checkWeekWindow(monday, today);
 
     const dates = datesOfWeek(monday);
     const stored = await storedWeek(tx, target.memberId, dates);
     const changed = WEEKDAYS.flatMap((wd, i) => {
       const entries = plan[wd];
-      if (entries === null) return [];
+      // Past days of the current week are ignored (M1), so they never ask for the opening-cap confirmation.
+      if (entries === null || dates[i] < today) return [];
       const before = shiftDaySchema.safeParse(stored.get(dates[i]));
       return before.success && sameShifts(before.data, entries) ? [] : [{ weekday: wd, entries }];
     });
@@ -503,7 +517,8 @@ export async function setRosterWeek(
       target.memberId,
       dates,
       WEEKDAYS.map((wd) => plan[wd]),
-      actorUserId
+      actorUserId,
+      today
     );
   });
 }
@@ -540,8 +555,8 @@ export async function copyRosterWeek(
         .map((m) => m.id);
     } else {
       targetIds = [];
-      for (const memberId of input.memberIds) {
-        if (targetIds.includes(memberId)) continue;
+      // Final review M2: deduplicated, ascending id order, so concurrent copies lock in the same order.
+      for (const memberId of [...new Set(input.memberIds)].sort((a, b) => a - b)) {
         const target = await targetOrFail(tx, access, memberId);
         if (!mayEditRoster(access, target)) fail("forbidden");
         targetIds.push(target.memberId);
@@ -552,14 +567,15 @@ export async function copyRosterWeek(
     const to = mondayOrFail(input.toWeekStart);
     if (from === to) fail("same_week");
     const business = await loadBusiness(tx, access.businessId);
-    checkWeekWindow(to, todayIn(business.timeZone, now));
+    const today = todayIn(business.timeZone, now);
+    checkWeekWindow(to, today);
 
     const fromDates = datesOfWeek(from);
     const toDates = datesOfWeek(to);
     for (const memberId of targetIds) {
       const source = await storedWeek(tx, memberId, fromDates);
       const days = fromDates.map((date) => (source.has(date) ? readShifts(source.get(date)) : null));
-      await replaceWeek(tx, memberId, toDates, days, actorUserId);
+      await replaceWeek(tx, memberId, toDates, days, actorUserId, today);
     }
     return { copiedMemberIds: targetIds };
   });

@@ -320,6 +320,66 @@ describe("setRosterWeek: week scope (G3)", () => {
     expect(await outcome(result)).toBe("roster_conflict");
   });
 
+  it("a write conflict or deadlock (P2034) is roster_conflict too", async () => {
+    vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Write conflict or a deadlock", {
+        code: "P2034",
+        clientVersion: "6",
+      })
+    );
+    const result = setRosterWeek(
+      db,
+      f.users.ana,
+      {
+        memberId: f.members.ana,
+        weekStart: "2026-11-09",
+        days: week({ mon: EARLY }),
+        confirmOutsideOpening: false,
+      },
+      NOW
+    );
+    expect(await outcome(result)).toBe("roster_conflict");
+  });
+
+  it("current week (NOW = Saturday 11-07): past days keep their rows, today and later follow the write", async () => {
+    const LATE = [S("12:00", "20:00")];
+    await seedRow(f.members.ana, "2026-11-03", LATE);
+    await seedRow(f.members.ana, "2026-11-06", LATE);
+    await seedRow(f.members.ana, "2026-11-08", LATE);
+    await setRosterWeek(
+      db,
+      f.users.ana,
+      {
+        memberId: f.members.ana,
+        weekStart: "2026-11-02",
+        // mon/tue/fri are past days: ignored. sat = today: written. sun = null: row deleted.
+        days: week({ mon: EARLY, tue: [], fri: [], sat: EARLY, sun: null }),
+        confirmOutsideOpening: true,
+      },
+      NOW
+    );
+    expect(await rowsOf(f.members.ana)).toEqual([
+      { date: "2026-11-03", shifts: LATE },
+      { date: "2026-11-06", shifts: LATE },
+      { date: "2026-11-07", shifts: EARLY },
+    ]);
+  });
+
+  it("a past day of the current week does not trigger the opening cap", async () => {
+    await setRosterWeek(
+      db,
+      f.users.ana,
+      {
+        memberId: f.members.ana,
+        weekStart: "2026-11-02",
+        days: week({ mon: [S("06:00", "13:00")] }),
+        confirmOutsideOpening: false,
+      },
+      NOW
+    );
+    expect(await rowsOf(f.members.ana)).toEqual([]);
+  });
+
   it("other errors pass through unchanged", async () => {
     const boom = new Error("db down");
     vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(boom);
@@ -605,6 +665,46 @@ describe("copyRosterWeek (G5)", () => {
       ["planned", []],
       ["none", []],
     ]);
+  });
+
+  it("copy onto the current week (NOW = Saturday 11-07) leaves its past days exactly as they were", async () => {
+    const LATE = [S("12:00", "20:00")];
+    await seedRow(f.members.ana, "2026-11-03", LATE);
+    await seedRow(f.members.ana, "2026-11-06", LATE);
+    await seedRow(f.members.ana, "2026-11-08", LATE);
+    // Source week 10-26: Tuesday, Friday and Saturday planned, Sunday not.
+    await seedRow(f.members.ana, "2026-10-27", EARLY);
+    await seedRow(f.members.ana, "2026-10-30", EARLY);
+    await seedRow(f.members.ana, "2026-10-31", EARLY);
+    await copyRosterWeek(
+      db,
+      f.users.olga,
+      { fromWeekStart: "2026-10-26", toWeekStart: "2026-11-02", memberIds: [f.members.ana] },
+      NOW
+    );
+    expect(await rowsOf(f.members.ana)).toEqual([
+      { date: "2026-10-27", shifts: EARLY },
+      { date: "2026-10-30", shifts: EARLY },
+      { date: "2026-10-31", shifts: EARLY },
+      { date: "2026-11-03", shifts: LATE },
+      { date: "2026-11-06", shifts: LATE },
+      { date: "2026-11-07", shifts: EARLY },
+    ]);
+  });
+
+  it("an explicit list is deduplicated and processed in ascending id order", async () => {
+    const result = await copyRosterWeek(
+      db,
+      f.users.olga,
+      {
+        fromWeekStart: "2026-11-09",
+        toWeekStart: "2026-11-16",
+        memberIds: [f.members.bor, f.members.ana, f.members.ana],
+      },
+      NOW
+    );
+    expect(result.copiedMemberIds).toEqual([f.members.ana, f.members.bor]);
+    expect(f.members.ana).toBeLessThan(f.members.bor);
   });
 
   it("a worker copying all copies only herself", async () => {
