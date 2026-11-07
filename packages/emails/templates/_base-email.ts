@@ -86,7 +86,7 @@ const LEGACY_SEND_RESULTS: Record<MailSendOutcome, string> = {
   skipped_kill_switch: "Skipped Sending Email due to active Kill Switch",
   skipped_faux: "Skipped Sending Email to faux email",
   skipped_test_mode: "Skipped sendEmail for Unit Tests",
-  // Flowko U25
+  // Flowko U25: every real recipient is a locked user's address.
   skipped_locked: "Skipped Sending Email to locked user",
 };
 

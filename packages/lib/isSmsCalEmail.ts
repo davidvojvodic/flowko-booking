@@ -1,3 +1,4 @@
+// Flowko U25: the desk-only placeholder address check.
 import { isFlowkoDeskEmail } from "./flowkoBusiness/deskEmail";
 
 export default function isSmsCalEmail(email: string) {

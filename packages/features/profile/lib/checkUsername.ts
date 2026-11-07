@@ -7,7 +7,9 @@ import { usernameClashesWithBusiness } from "@calcom/features/flowkoBusiness/nam
 import { IS_PREMIUM_USERNAME_ENABLED } from "@calcom/lib/constants";
 import { usernameCheck as checkPremiumUsername } from "@calcom/lib/server/username";
 import slugify from "@calcom/lib/slugify";
+// Flowko U25: the business-slug check reads the database.
 import prisma from "@calcom/prisma";
+
 import { checkRegularUsername } from "./checkRegularUsername";
 
 // TODO: Replace `lib/checkPremiumUsername` with `usernameCheck` and then import checkPremiumUsername directly here.

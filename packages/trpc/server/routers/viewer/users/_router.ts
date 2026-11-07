@@ -89,7 +89,7 @@ export const userAdminRouter = router({
     .input(userBodySchema.superRefine(refuseReservedUsername))
     .mutation(async ({ ctx, input }) => {
       const { prisma } = ctx;
-      await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25
+      await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25: a business's slug is never a username.
       const user = await prisma.user.create({ data: { ...input, creationSource: CreationSource.WEBAPP } });
       return { user, message: `User with id: ${user.id} added successfully` };
     }),
@@ -97,7 +97,7 @@ export const userAdminRouter = router({
     .input(userBodySchema.partial().superRefine(refuseReservedUsername))
     .mutation(async ({ ctx, input }) => {
       const { prisma, requestedUser } = ctx;
-      await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25
+      await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25: a business's slug is never a username.
 
       const user = await prisma.$transaction(async (tx) => {
         const userInternal = await tx.user.update({ where: { id: requestedUser.id }, data: input });

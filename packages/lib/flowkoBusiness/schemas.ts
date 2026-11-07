@@ -1,7 +1,8 @@
 // Flowko U25: the rules a business profile must meet (opening hours per weekday, service steps, brand colours,
 // contact fields, slot grid, self-cancel window, time zone) and the bridge from opening hours to the U24 engine's
 // DayRules.opening. Pure and client-safe: imports only zod and the pure U24 engine; no `node:` import here.
-// Issue messages are codes, never the submitted values.
+// Custom refinements report codes, never the submitted values; zod's default messages for enum/strict may name
+// the submitted value or key, so callers map any failure to bad_profile.
 import type { Interval, LocalDate, ServiceStep } from "@calcom/lib/flowkoSalon";
 import { localInterval, validateSteps, wallClockToMs } from "@calcom/lib/flowkoSalon";
 import { z } from "zod";

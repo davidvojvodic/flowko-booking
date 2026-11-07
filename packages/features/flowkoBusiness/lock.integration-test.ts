@@ -5,7 +5,8 @@
 // cannot sign in (password or magic link), a refresh of her session throws, a fresh cookie gives no server
 // session, tRPC's isAuthed lookup finds nobody, Flowko access is gone while the member list still shows her
 // LOCKED, mail to her primary and secondary address is suppressed, and her username still blocks a business
-// slug (Review Focus 1); unlock reverses it. Runs only with VITEST_MODE=integration against the throwaway DB.
+// slug (Review Focus 1); unlock reverses it. The business set-up writes no Team, Membership, Host, Profile or
+// EventType row (R14, Teams guard). Runs only with VITEST_MODE=integration against the throwaway DB.
 // Node environment: next-auth's JWT encryption (jose) rejects jsdom's Uint8Array (another realm).
 
 import process from "node:process";
@@ -73,7 +74,19 @@ async function flowkoRowCounts() {
     prisma.flowkoServiceWorker.count(),
     prisma.user.count(),
   ]);
-  return { businesses, members, services, serviceWorkers, users };
+  return { businesses, members, services, serviceWorkers, users, ...(await teamsRowCounts()) };
+}
+
+/** The upstream rows the business set-up must never write (R14; the PermissionCheckService stubs need none). */
+async function teamsRowCounts() {
+  const [teams, memberships, hosts, profiles, eventTypes] = await Promise.all([
+    prisma.team.count(),
+    prisma.membership.count(),
+    prisma.host.count(),
+    prisma.profile.count(),
+    prisma.eventType.count(),
+  ]);
+  return { teams, memberships, hosts, profiles, eventTypes };
 }
 
 /** A request carrying a freshly encoded session cookie for the user (never seen by the session cache). */
@@ -165,6 +178,16 @@ describe("strict worker lock on a real database", () => {
     expect(desk).toHaveLength(2);
     expect(desk.map((u) => u.username)).toEqual([null, null]);
     expect(new Set(desk.map((u) => u.email)).size).toBe(2);
+  });
+
+  it("the business set-up writes no Team, Membership, Host, Profile or EventType row", async () => {
+    expect(await teamsRowCounts()).toEqual({
+      teams: 0,
+      memberships: 0,
+      hosts: 0,
+      profiles: 0,
+      eventTypes: 0,
+    });
   });
 
   it("a set-up composed in one transaction leaves no Flowko row and no user when a later step fails", async () => {

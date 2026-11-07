@@ -1,6 +1,6 @@
 // Flowko U25: the generic Slovene hair-salon template (R12, P15): six services with their steps, prices empty
 // (the owner sets them), Mon-Fri 07-20, Sat 07-13, Sunday closed, 15-minute grid. The service names and
-// categories are the only new Slovene text in U25 and get one independent Slovene read (Task 9).
+// categories are the only new Slovene text in U25; independent Slovene read 2026-11-07: no changes.
 import type { FlowkoBusinessTemplate } from "./index";
 
 const WEEKDAY_HOURS = [{ from: "07:00", to: "20:00" }];
