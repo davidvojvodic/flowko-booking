@@ -17,6 +17,7 @@ import {
   type Interval,
   type PlacedStep,
   placeSteps,
+  type ServiceStep,
   totalMinutes,
 } from "@calcom/lib/flowkoSalon";
 import logger from "@calcom/lib/logger";
@@ -218,6 +219,69 @@ export class NeedsConfirm extends Error {
   }
 }
 
+/**
+ * The business-local day of a visit of `minutes` starting at `start`, and the worker's Google busy time of that
+ * day (fetched here, outside any transaction). An invalid start, or a visit ending after the local day ends
+ * (crossing midnight), is bad_booking. Shared by create and move.
+ */
+export async function placeVisitDay(
+  timeZone: string,
+  start: Date,
+  minutes: number,
+  workerUserId: number,
+  googleBusy?: WriterDeps["googleBusy"]
+): Promise<{ start: number; end: number; date: string; day: Interval; googleBusy: Interval[] }> {
+  const startMs = start instanceof Date ? start.getTime() : Number.NaN;
+  if (!Number.isFinite(startMs)) throw new FlowkoBusinessError("bad_booking");
+  const end = startMs + minutes * MINUTE_MS;
+  const date = todayIn(timeZone, new Date(startMs));
+  const day = dayBounds(date, timeZone);
+  if (end > day.end) throw new FlowkoBusinessError("bad_booking");
+  const google = await (googleBusy ?? googleBusyFor)(workerUserId, day);
+  return { start: startMs, end, date, day, googleBusy: google.busy };
+}
+
+export type FitUnderLockInput = {
+  businessId: number;
+  date: string;
+  memberId: number;
+  userId: number;
+  steps: ServiceStep[];
+  start: number;
+  googleBusy: Interval[];
+  now: Date;
+  /** A move leaves the booking itself out. */
+  exceptBookingId?: number;
+  confirmOverride: boolean;
+};
+
+/**
+ * W3: the U24 fit, run inside the transaction after the worker's lock, on the worker's current bookings of the
+ * day (notice 0, `now` on the business grid). A worker no longer in the day's columns (locked meanwhile) is
+ * worker_locked; problems without `confirmOverride` throw NeedsConfirm (the caller's transaction rolls back).
+ * Returns the problems the desk confirmed (empty when it fits). Shared by create and move.
+ */
+export async function fitUnderLock(tx: Tx, input: FitUnderLockInput): Promise<FitProblem[]> {
+  const loaded = await loadBusinessDay(tx, input.businessId, input.date);
+  const column = loaded.workers.find((w) => w.memberId === input.memberId);
+  if (!column) throw new FlowkoBusinessError("worker_locked");
+  const bookings = await loadWorkerBookings(tx, input.userId, loaded.rules.day, input.exceptBookingId);
+  const problems = explainFit(
+    { shifts: column.shifts, timeOff: column.timeOff, bookings, externalBusy: input.googleBusy },
+    input.steps,
+    input.start,
+    {
+      opening: loaded.rules.opening,
+      slotStepMinutes: loaded.rules.slotStepMinutes,
+      minimumNoticeMinutes: 0,
+      now: roundDownToGrid(input.now, loaded.rules.day, loaded.rules.slotStepMinutes),
+      day: loaded.rules.day,
+    }
+  );
+  if (problems.length > 0 && !input.confirmOverride) throw new NeedsConfirm(problems);
+  return problems;
+}
+
 type Visit = {
   worker: BookableWorker;
   actor: { memberId: number; name: string };
@@ -262,25 +326,18 @@ async function writeInTx(
   await lockWorker(tx, worker.userId);
   const mirror = await ensureWorkerMirror(tx, worker.memberId);
 
-  // W3: the fit, re-run under the lock on the worker's current bookings.
-  const loaded = await loadBusinessDay(tx, businessId, visit.date);
-  const column = loaded.workers.find((w) => w.memberId === worker.memberId);
-  if (!column) throw new FlowkoBusinessError("worker_locked");
-  const bookings = await loadWorkerBookings(tx, worker.userId, loaded.rules.day);
   const steps = combinedSteps(visit.services);
-  const problems = explainFit(
-    { shifts: column.shifts, timeOff: column.timeOff, bookings, externalBusy: visit.googleBusy },
+  const problems = await fitUnderLock(tx, {
+    businessId,
+    date: visit.date,
+    memberId: worker.memberId,
+    userId: worker.userId,
     steps,
-    visit.start,
-    {
-      opening: loaded.rules.opening,
-      slotStepMinutes: loaded.rules.slotStepMinutes,
-      minimumNoticeMinutes: 0,
-      now: roundDownToGrid(now, loaded.rules.day, loaded.rules.slotStepMinutes),
-      day: loaded.rules.day,
-    }
-  );
-  if (problems.length > 0 && !input.confirmOverride) throw new NeedsConfirm(problems);
+    start: visit.start,
+    googleBusy: visit.googleBusy,
+    now,
+    confirmOverride: input.confirmOverride,
+  });
 
   // W1: Cal's booking, written directly (the U23 fields).
   const uid = short().generate();
@@ -362,27 +419,20 @@ export async function createBusinessBooking(
     select: { timeZone: true, address: true },
   });
   if (!business) throw new FlowkoBusinessError("forbidden");
-  const start = input.start instanceof Date ? input.start.getTime() : Number.NaN;
-  if (!Number.isFinite(start)) throw new FlowkoBusinessError("bad_booking");
   const minutes = totalMinutes(combinedSteps(services));
-  const end = start + minutes * MINUTE_MS;
-  const date = todayIn(business.timeZone, new Date(start));
-  const day = dayBounds(date, business.timeZone);
-  if (end > day.end) throw new FlowkoBusinessError("bad_booking");
-
-  const google = await (deps.googleBusy ?? googleBusyFor)(worker.userId, day);
+  const placed = await placeVisitDay(business.timeZone, input.start, minutes, worker.userId, deps.googleBusy);
   const visit: Visit = {
     worker,
     actor,
     customer,
     services,
-    start,
-    end,
-    date,
+    start: placed.start,
+    end: placed.end,
+    date: placed.date,
     timeZone: business.timeZone,
     location: business.address ?? null,
     title: await bookingTitle(worker, services, customer, minutes),
-    googleBusy: google.busy,
+    googleBusy: placed.googleBusy,
   };
 
   let written: { bookingId: number; uid: string };

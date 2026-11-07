@@ -6,19 +6,19 @@
 // rows and the U22 reminder claims in place. Cal's handleCancelBooking is not used (it refuses a Cal-locked
 // organizer and disableCancelling); nothing here loads a user with a top-level user query (the excludeLockedUsers
 // extension would hide a locked worker). Mails go out after the commit and never undo a write. Server only.
-import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
-import { dayBounds, explainFit, placeSteps, type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
+import { type Interval, placeSteps, type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
 import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKeyService";
 import type { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBookingActionKind } from "@calcom/prisma/enums";
 import { getBusinessAccess, requireBookingAccess } from "./access";
-import { googleBusyFor, loadWorkerBookings, roundDownToGrid } from "./bookingDay";
 import {
   type ActorRef,
+  fitUnderLock,
   isIdempotencyKeyConflict,
   loadBookableWorker,
   lockWorkerAdvisory,
   NeedsConfirm,
+  placeVisitDay,
   problemKinds,
   resolveActor,
   sendMailAfterCommit,
@@ -28,7 +28,6 @@ import {
 import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { type BusinessBookingRef, businessBookingById, businessBookingByUid } from "./mirror";
-import { loadBusinessDay } from "./roster";
 
 type Tx = Prisma.TransactionClient;
 
@@ -201,16 +200,41 @@ function stepsFromCopy(rows: StepRow[]): ServiceStep[] {
   }));
 }
 
+/** The booking's status, start and step copy (index order); the move reads it again under the lock. */
+async function readMovable(db: FlowkoDb, bookingId: number) {
+  const booking = await db.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      status: true,
+      startTime: true,
+      flowkoBookingSteps: {
+        select: {
+          index: true,
+          kind: true,
+          startTime: true,
+          endTime: true,
+          serviceId: true,
+          serviceName: true,
+        },
+        orderBy: { index: "asc" },
+      },
+    },
+  });
+  if (!booking || booking.status !== BookingStatus.ACCEPTED) {
+    throw new FlowkoBusinessError("booking_not_active");
+  }
+  // Every business booking is written with its step copy (W1).
+  if (booking.flowkoBookingSteps.length === 0) throw new Error("Flowko U27: business booking without steps");
+  return { fromStart: booking.startTime, rows: booking.flowkoBookingSteps };
+}
+
 type MoveTarget = {
   ref: BusinessBookingRef;
   workerUserId: number;
-  rows: StepRow[];
-  steps: ServiceStep[];
-  fromStart: Date;
   start: number;
-  end: number;
   date: string;
-  googleBusy: Array<{ start: number; end: number }>;
+  dayEnd: number;
+  googleBusy: Interval[];
   actor: { memberId: number; name: string };
 };
 
@@ -225,27 +249,29 @@ async function moveInTx(
   const { ref, workerUserId } = target;
   await lockWorker(tx, workerUserId);
 
+  // Read again under the lock: a concurrent move or cancel of this booking has committed by now, so fromStart
+  // and the step copy are the ones this move replaces.
+  const { fromStart, rows } = await readMovable(tx, ref.bookingId);
+  const steps = stepsFromCopy(rows);
+  const end = target.start + totalMinutes(steps) * MINUTE_MS;
+  if (end > target.dayEnd) throw new FlowkoBusinessError("bad_booking");
+
   // W3 under the lock, the booking itself left out.
-  const loaded = await loadBusinessDay(tx, ref.businessId, target.date);
-  const column = loaded.workers.find((w) => w.memberId === ref.memberId);
-  if (!column) throw new FlowkoBusinessError("worker_locked");
-  const bookings = await loadWorkerBookings(tx, workerUserId, loaded.rules.day, ref.bookingId);
-  const problems = explainFit(
-    { shifts: column.shifts, timeOff: column.timeOff, bookings, externalBusy: target.googleBusy },
-    target.steps,
-    target.start,
-    {
-      opening: loaded.rules.opening,
-      slotStepMinutes: loaded.rules.slotStepMinutes,
-      minimumNoticeMinutes: 0,
-      now: roundDownToGrid(now, loaded.rules.day, loaded.rules.slotStepMinutes),
-      day: loaded.rules.day,
-    }
-  );
-  if (problems.length > 0 && !confirmOverride) throw new NeedsConfirm(problems);
+  const problems = await fitUnderLock(tx, {
+    businessId: ref.businessId,
+    date: target.date,
+    memberId: ref.memberId,
+    userId: workerUserId,
+    steps,
+    start: target.start,
+    googleBusy: target.googleBusy,
+    now,
+    exceptBookingId: ref.bookingId,
+    confirmOverride,
+  });
 
   const startTime = new Date(target.start);
-  const endTime = new Date(target.end);
+  const endTime = new Date(end);
   // Guarded on ACCEPTED: a cancel that won the race leaves nothing to move.
   const { count } = await tx.booking.updateMany({
     where: { id: ref.bookingId, status: BookingStatus.ACCEPTED },
@@ -258,10 +284,10 @@ async function moveInTx(
   });
   if (count !== 1) throw new FlowkoBusinessError("booking_not_active");
 
-  const byIndex = new Map(target.rows.map((row) => [String(row.index), row]));
+  const byIndex = new Map(rows.map((row) => [String(row.index), row]));
   await tx.flowkoBookingStep.deleteMany({ where: { bookingId: ref.bookingId } });
   await tx.flowkoBookingStep.createMany({
-    data: placeSteps(target.start, target.steps).map((placed) => {
+    data: placeSteps(target.start, steps).map((placed) => {
       const row = placed.serviceRef === undefined ? undefined : byIndex.get(placed.serviceRef);
       if (!row) throw new Error("Flowko U27: moved step without its row");
       return {
@@ -288,7 +314,7 @@ async function moveInTx(
       actorName: target.actor.name,
       userId: actorUserId,
       details: {
-        fromStart: target.fromStart.toISOString(),
+        fromStart: fromStart.toISOString(),
         toStart: startTime.toISOString(),
         ...(overrides.length > 0 && { overrides }),
       },
@@ -320,56 +346,28 @@ export async function moveBusinessBooking(
   if (worker.userId !== owned.userId) throw new Error("Flowko U27: mirror worker is not the organizer");
   const actor = await resolveActor(db, access, input.actorMemberId);
 
-  const booking = await db.booking.findUnique({
-    where: { id: ref.bookingId },
-    select: {
-      status: true,
-      startTime: true,
-      endTime: true,
-      flowkoBookingSteps: {
-        select: {
-          index: true,
-          kind: true,
-          startTime: true,
-          endTime: true,
-          serviceId: true,
-          serviceName: true,
-        },
-        orderBy: { index: "asc" },
-      },
-    },
-  });
-  if (!booking || booking.status !== BookingStatus.ACCEPTED) {
-    throw new FlowkoBusinessError("booking_not_active");
-  }
-  const rows = booking.flowkoBookingSteps;
-  // Every business booking is written with its step copy (W1).
-  if (rows.length === 0) throw new Error("Flowko U27: business booking without steps");
-  const steps = stepsFromCopy(rows);
-
+  // Early refusals and the visit's length; the transaction reads the booking again under the lock.
+  const { rows } = await readMovable(db, ref.bookingId);
   const business = await db.flowkoBusiness.findUnique({
     where: { id: ref.businessId },
     select: { timeZone: true },
   });
   if (!business) throw new FlowkoBusinessError("forbidden");
-  const start = input.start instanceof Date ? input.start.getTime() : Number.NaN;
-  if (!Number.isFinite(start)) throw new FlowkoBusinessError("bad_booking");
-  const end = start + totalMinutes(steps) * MINUTE_MS;
-  const date = todayIn(business.timeZone, new Date(start));
-  const day = dayBounds(date, business.timeZone);
-  if (end > day.end) throw new FlowkoBusinessError("bad_booking");
-  const google = await (deps.googleBusy ?? googleBusyFor)(worker.userId, day);
+  const placed = await placeVisitDay(
+    business.timeZone,
+    input.start,
+    totalMinutes(stepsFromCopy(rows)),
+    worker.userId,
+    deps.googleBusy
+  );
 
   const target: MoveTarget = {
     ref,
     workerUserId: worker.userId,
-    rows,
-    steps,
-    fromStart: booking.startTime,
-    start,
-    end,
-    date,
-    googleBusy: google.busy,
+    start: placed.start,
+    date: placed.date,
+    dayEnd: placed.day.end,
+    googleBusy: placed.googleBusy,
     actor,
   };
   try {

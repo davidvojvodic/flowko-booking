@@ -509,6 +509,52 @@ describe("moveBusinessBooking (W9)", () => {
     expect((await bookingOf(cut.bookingId))?.startTime).toEqual(at("09:30"));
   });
 
+  it("fromStart and the step copy are the ones stored at lock time, not the pre-read ones", async () => {
+    // Another desk's move commits while this one waits for the lock: the booking is now at 08:00 with a
+    // 50-minute processing step (08:00–08:30 busy, 08:30–09:20 processing, 09:20–09:50 busy).
+    lockWorker.mockImplementationOnce(async () => {
+      await prismock.booking.update({
+        where: { id: f.ana.bookingId },
+        data: { startTime: at("08:00"), endTime: at("09:50") },
+      });
+      const shifted: Array<[number, string, string]> = [
+        [0, "08:00", "08:30"],
+        [1, "08:30", "09:20"],
+        [2, "09:20", "09:50"],
+      ];
+      for (const [index, from, to] of shifted) {
+        await prismock.flowkoBookingStep.updateMany({
+          where: { bookingId: f.ana.bookingId, index },
+          data: { startTime: at(from), endTime: at(to) },
+        });
+      }
+    });
+
+    expect((await move(f.users.olga, f.ana.bookingId, at("09:15"))).status).toBe("moved");
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({
+      fromStart: at("08:00").toISOString(),
+      toStart: at("09:15").toISOString(),
+    });
+    expect(await bookingOf(f.ana.bookingId)).toMatchObject({ startTime: at("09:15"), endTime: at("11:05") });
+    expect(await stepTimes(f.ana.bookingId)).toEqual([
+      [0, "busy", at("09:15"), at("09:45"), f.services.colouring, "Barvanje"],
+      [1, "processing", at("09:45"), at("10:35"), f.services.colouring, "Barvanje"],
+      [2, "busy", at("10:35"), at("11:05"), f.services.colouring, "Barvanje"],
+    ]);
+  });
+
+  it("a cancel committed while the move waited for the lock → booking_not_active, nothing written", async () => {
+    lockWorker.mockImplementationOnce(async () => {
+      await prismock.booking.update({
+        where: { id: f.ana.bookingId },
+        data: { status: BookingStatus.CANCELLED },
+      });
+    });
+    await expectCode(move(f.users.olga, f.ana.bookingId, at("09:15")), "booking_not_active");
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
+    expect(await actionsOf(f.ana.bookingId)).toHaveLength(1);
+  });
+
   it("Dan's booking (LOCKED worker) → worker_locked", async () => {
     await expectCode(move(f.users.olga, f.dan.bookingId, at("09:15")), "worker_locked");
     expect(lockWorker).not.toHaveBeenCalled();
