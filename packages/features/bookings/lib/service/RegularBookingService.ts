@@ -34,6 +34,12 @@ import type { BuiltCalendarEvent } from "@calcom/features/CalendarEventBuilder";
 import { CalendarEventBuilder } from "@calcom/features/CalendarEventBuilder";
 import { isCalVideoEnabled } from "@calcom/features/conferencing/lib/videoClient";
 import { getSpamCheckService } from "@calcom/features/di/watchlist/containers/SpamCheckService.container";
+// Flowko U27: Cal's booking service refuses business bookings (G1)
+import {
+  assertNotBusinessBooking,
+  assertNotMirrorEventType,
+  assertNotNonOwnerMemberEventType,
+} from "@calcom/features/flowkoBusiness/calGuards";
 import {
   type EventTypeBrandingData,
   getEventTypeService,
@@ -554,6 +560,13 @@ async function handler(
   ) {
     throw new HttpError({ statusCode: 400, message: ErrorCode.SeatsAndRecurringNotAvailable });
   }
+
+  // Flowko U27 (G1): only the Flowko services write business bookings. Refused before any write: a worker
+  // mirror, an event type owned by a worker or staff member of a business (D2), and a reschedule of a business
+  // booking (a business booking has no seats, so its own uid is the only way to name it here).
+  await assertNotMirrorEventType(eventType.id);
+  await assertNotNonOwnerMemberEventType(eventType.userId);
+  if (rawBookingData.rescheduleUid) await assertNotBusinessBooking({ uid: rawBookingData.rescheduleUid });
 
   // Early validation: Check reschedule restrictions if rescheduling
   await validateRescheduleRestrictions({

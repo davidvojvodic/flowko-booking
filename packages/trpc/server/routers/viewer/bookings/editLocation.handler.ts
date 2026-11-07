@@ -5,6 +5,8 @@ import { getAppFromSlug } from "@calcom/app-store/utils";
 import { sendLocationChangeEmailsAndSMS } from "@calcom/emails/email-manager";
 import EventManager from "@calcom/features/bookings/lib/EventManager";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
+// Flowko U27: Cal's booking actions refuse business bookings (G2)
+import { assertNotBusinessBookingTrpc } from "@calcom/features/flowkoBusiness/calGuards";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import { CredentialAccessService } from "@calcom/features/credentials/services/CredentialAccessService";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
@@ -273,6 +275,9 @@ export function getLocationForOrganizerDefaultConferencingAppInEvtFormat({
 export async function editLocationHandler({ ctx, input, actionSource }: EditLocationOptions) {
   const { newLocation, credentialId: conferenceCredentialId } = input;
   const { booking, user: loggedInUser } = ctx;
+
+  // Flowko U27 (G2): a business booking's place is the business; before any lookup or write.
+  await assertNotBusinessBookingTrpc({ id: booking.id });
 
   const oldLocation = booking.location;
 

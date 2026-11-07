@@ -24,6 +24,8 @@ vi.mock("@calcom/prisma", () => ({
   default: {},
   prisma: {},
 }));
+// Flowko U27: no business booking here (the G2 refusal is covered in reportBooking.handler.flowko-u27.test.ts)
+vi.mock("@calcom/features/flowkoBusiness/calGuards", () => ({ assertNotBusinessBookingTrpc: vi.fn(async () => undefined) }));
 
 describe("reportBookingHandler", () => {
   const mockUser = {

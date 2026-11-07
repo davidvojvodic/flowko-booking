@@ -2,6 +2,8 @@ import { PrismaBookingReportRepository } from "@calcom/features/bookingReport/re
 
 import handleCancelBooking from "@calcom/features/bookings/lib/handleCancelBooking";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
+// Flowko U27: Cal's booking actions refuse business bookings (G2)
+import { assertNotBusinessBookingTrpc } from "@calcom/features/flowkoBusiness/calGuards";
 import { BookingAccessService } from "@calcom/features/bookings/services/BookingAccessService";
 import logger from "@calcom/lib/logger";
 import prisma from "@calcom/prisma";
@@ -37,6 +39,9 @@ export const reportBookingHandler = async ({ ctx, input }: ReportBookingOptions)
   if (!hasAccess) {
     throw new TRPCError({ code: "FORBIDDEN", message: "You don't have access to this booking" });
   }
+
+  // Flowko U27 (G2): reporting would cancel through handleCancelBooking; refused before any write.
+  await assertNotBusinessBookingTrpc({ uid: bookingUid });
 
   const booking = await bookingRepo.findByUidIncludeReport({ bookingUid });
 

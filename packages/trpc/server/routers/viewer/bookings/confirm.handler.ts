@@ -12,6 +12,8 @@ import { handleConfirmation } from "@calcom/features/bookings/lib/handleConfirma
 import { handleWebhookTrigger } from "@calcom/features/bookings/lib/handleWebhookTrigger";
 import { processPaymentRefund } from "@calcom/features/bookings/lib/payment/processPaymentRefund";
 import { BookingAccessService } from "@calcom/features/bookings/services/BookingAccessService";
+// Flowko U27: Cal's booking actions refuse business bookings (G2)
+import { assertNotBusinessBookingTrpc } from "@calcom/features/flowkoBusiness/calGuards";
 import {
   type EventTypeBrandingData,
   getEventTypeService,
@@ -179,6 +181,10 @@ export const confirmHandler = async ({ ctx, input }: ConfirmOptions) => {
       message: "not_authorized_to_confirm_booking",
     });
   }
+
+  // Flowko U27 (G2): a business booking is never confirmed or declined here (nor via /api/link and
+  // /api/verify-booking-token, which call this handler); after the access check, before any write.
+  await assertNotBusinessBookingTrpc({ id: booking.id });
 
   // Do not move this before authorization check.
   // This is done to avoid exposing extra information to the requester.

@@ -16,6 +16,8 @@ const { appFindMany, updateLocation, updateLocationById, sendLocationChangeEmail
   }));
 
 vi.mock("@calcom/prisma", () => ({ prisma: { app: { findMany: appFindMany } }, default: {} }));
+// Flowko U27: no business booking here (the G2 refusal is covered in editLocation.handler.flowko-u27.test.ts)
+vi.mock("@calcom/features/flowkoBusiness/calGuards", () => ({ assertNotBusinessBookingTrpc: vi.fn(async () => undefined) }));
 vi.mock("@calcom/features/bookings/lib/EventManager", () => ({
   default: vi.fn(function EventManager() {
     return { updateLocation };
