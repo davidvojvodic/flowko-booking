@@ -13,6 +13,7 @@ import type { MoveModeState } from "./useMoveMode";
 
 export const deskTrpc = {
   dayQuery: vi.fn(),
+  weekQuery: vi.fn(),
   membersQuery: vi.fn(),
   servicesQuery: vi.fn(),
   freeStartsQuery: vi.fn(),
@@ -28,6 +29,13 @@ export const deskTrpc = {
 /** Defaults: members + services answered, no free starts, no customers, every write rejects until a test says. */
 export function resetDeskTrpc() {
   Object.values(deskTrpc).forEach((fn) => fn.mockReset());
+  deskTrpc.weekQuery.mockReturnValue({
+    data: undefined,
+    dataUpdatedAt: 0,
+    refetch: vi.fn(),
+    isPending: true,
+    error: null,
+  });
   deskTrpc.membersQuery.mockReturnValue({ data: members });
   deskTrpc.servicesQuery.mockReturnValue({ data: services });
   deskTrpc.freeStartsQuery.mockReturnValue({ data: undefined, isFetching: false });
@@ -59,6 +67,7 @@ export const trpcModule = {
       flowko: {
         bookings: {
           day: { useQuery: (...args: unknown[]) => deskTrpc.dayQuery(...args) },
+          week: { useQuery: (...args: unknown[]) => deskTrpc.weekQuery(...args) },
           freeStarts: { useQuery: (...args: unknown[]) => deskTrpc.freeStartsQuery(...args) },
           customers: { useQuery: (...args: unknown[]) => deskTrpc.customersQuery(...args) },
           create: { useMutation: mutation((input) => deskTrpc.create(input)) },

@@ -4,6 +4,7 @@
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
 import type { DeskBooking, DeskMember, DeskService, DeskView } from "@calcom/features/flowkoBusiness/desk";
+import { weekDates } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 
 export const TZ = "Europe/Ljubljana";
@@ -17,9 +18,14 @@ export const DAN = 6;
 
 export const at = (hm: string, date: string = DATE) => wallClockToMs(date, hm, TZ);
 export const iso = (hm: string, date: string = DATE) => new Date(at(hm, date)).toISOString();
-export const iv = (from: string, to: string, date: string = DATE) => ({ start: at(from, date), end: at(to, date) });
+export const iv = (from: string, to: string, date: string = DATE) => ({
+  start: at(from, date),
+  end: at(to, date),
+});
 
-export function booking(over: Partial<DeskBooking> & Pick<DeskBooking, "bookingId" | "memberId">): DeskBooking {
+export function booking(
+  over: Partial<DeskBooking> & Pick<DeskBooking, "bookingId" | "memberId">
+): DeskBooking {
   return {
     status: "ACCEPTED",
     start: iso("11:00"),
@@ -132,6 +138,31 @@ export function deskView(over: Partial<DeskView["days"][number]> = {}, date: str
       },
     ],
   };
+}
+
+/** Wednesday 2026-11-18 10:00-10:30, Ana's second booking of the week. */
+export const wednesdayCut = booking({
+  bookingId: 201,
+  memberId: ANA,
+  start: iso("10:00", "2026-11-18"),
+  end: iso("10:30", "2026-11-18"),
+  customer: { name: "Petra Kos", phone: "+38641765432", email: null },
+});
+
+/**
+ * The week view answer (Task 8): `memberId`'s column on each of the 7 days from `weekStart`. Bookings only on
+ * the fixture's own dates: Monday 16th (Barvanje for Ana, Bor's 13:00) and Wednesday 18th (Ana's cut).
+ */
+export function weekViewOf(memberId: number = ANA, weekStart: string = DATE): DeskView {
+  const base = deskView();
+  const days = weekDates(weekStart).map((date) => {
+    const day = deskView({}, date).days[0];
+    const bookings = [...base.days[0].bookings, wednesdayCut].filter(
+      (b) => b.memberId === memberId && b.start.slice(0, 10) === date
+    );
+    return { ...day, columns: day.columns.filter((c) => c.memberId === memberId), bookings };
+  });
+  return { ...base, days };
 }
 
 export const members: DeskMember[] = [

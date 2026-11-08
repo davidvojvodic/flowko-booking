@@ -2,7 +2,8 @@
 // in the URL (?date=, default today in the business time zone from the server's clock), polling every 30 s
 // (R13), the „who are you“ chip (R9), and on a phone one column at a time with a worker select (R15). Taps open
 // the booking sheet (empty spot) or the details sheet (a booking); in move mode (R12) a tap moves the booking
-// instead, and the mode survives a date change because its state lives here.
+// instead, and the mode survives a date change because its state lives here. From md up the week view (D2,
+// ?view=week&worker=) shows one worker x seven days; a phone always gets the day view.
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,9 +23,11 @@ import { DateBar, useDeskParams } from "./DateBar";
 import { DayGrid } from "./DayGrid";
 import type { DeskContextValue } from "./DeskContext";
 import { DeskContext } from "./DeskContext";
+import { WeekGrid, mondayOf } from "./WeekGrid";
 import type { DeskBookTarget } from "./WorkerColumn";
+import { WorkerPicker } from "./WorkerPicker";
 import { useDeskActor } from "./useDeskActor";
-import { useDeskDay, useDeskMembers } from "./useDeskData";
+import { useDeskDay, useDeskMembers, useDeskWeek } from "./useDeskData";
 import { useDeskWrites } from "./useDeskWrites";
 import { useMoveMode } from "./useMoveMode";
 
@@ -42,8 +45,21 @@ export default function DeskView() {
     todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone, new Date())
   );
   const date = params.state.date ?? today;
-  const day = useDeskDay(date);
+  // Flowko U28 (D2): the week view from md up; weekStart = the Monday of the business-zone date (not the browser's
+  // or the profile's week start). The worker: ?worker= if it has a column, else the user's own, else the first.
+  const weekMode = params.state.view === "week" && !isPhone;
   const members = useDeskMembers();
+  const workers = useMemo(() => (members.data ?? []).filter((m) => m.hasColumn), [members.data]);
+  const meId = business.status === "member" ? business.me.memberId : null;
+  const weekWorker =
+    (
+      workers.find((w) => w.memberId === params.state.worker) ??
+      workers.find((w) => w.memberId === meId) ??
+      workers[0]
+    )?.memberId ?? null;
+  const dayQuery = useDeskDay(date, { enabled: !weekMode });
+  const weekQuery = useDeskWeek(mondayOf(date), weekWorker, { enabled: weekMode });
+  const day = weekMode ? weekQuery : dayQuery;
   const view = day.view;
 
   useEffect(() => {
@@ -79,10 +95,13 @@ export default function DeskView() {
       : view?.days.flatMap((d) => d.bookings).find((b) => b.bookingId === detailsBookingId);
 
   const columns = view?.days[0]?.columns ?? [];
+  const openDay = (d: string) => {
+    params.setView("day");
+    params.setDate(d === today ? null : d);
+  };
   const phoneMemberId = isPhone
-    ? (columns.find((c) => c.memberId === params.state.worker) ??
-        columns.find((c) => c.isMe) ??
-        columns[0])?.memberId ?? null
+    ? ((columns.find((c) => c.memberId === params.state.worker) ?? columns.find((c) => c.isMe) ?? columns[0])
+        ?.memberId ?? null)
     : null;
 
   const context: DeskContextValue = {
@@ -107,13 +126,20 @@ export default function DeskView() {
           <DateBar
             date={date}
             today={today}
-            // Flowko U28: the week view comes with Task 8; until then the desk shows the day.
-            view="day"
+            view={weekMode ? "week" : "day"}
+            weekAvailable={!isPhone}
             onDateChange={params.setDate}
-            onViewChange={params.setView}
+            onViewChange={(next) => {
+              // Flowko U28 (R12): „move me to Thursday“: the week opens on the moving booking's worker.
+              if (next === "week" && moving) params.setWorker(moving.memberId);
+              params.setView(next);
+            }}
           />
           <ActorChip actor={actor} />
         </div>
+        {weekMode && workers.length > 0 && (
+          <WorkerPicker workers={workers} value={weekWorker} onChange={params.setWorker} />
+        )}
         {moving && (
           <div
             data-testid="desk-move-banner"
@@ -140,7 +166,18 @@ export default function DeskView() {
             </select>
           </label>
         )}
-        {view && (
+        {view && weekMode && (
+          <WeekGrid
+            view={view}
+            receivedAt={day.receivedAt}
+            onBook={onBook}
+            canBook={canBook}
+            onOpenDetails={onOpenDetails}
+            onOpenDay={openDay}
+            movingMemberId={moving?.memberId ?? null}
+          />
+        )}
+        {view && !weekMode && (
           <DayGrid
             view={view}
             date={date}
@@ -160,7 +197,12 @@ export default function DeskView() {
             </Button>
           </div>
         )}
-        {!view && !day.error && <p className="text-subtle py-12 text-center text-sm">{t("loading")}</p>}
+        {!view && !day.error && weekMode && members.data && weekWorker === null && (
+          <p className="text-subtle py-12 text-center text-sm">{t("flowko_desk_no_columns")}</p>
+        )}
+        {!view && !day.error && !(weekMode && members.data && weekWorker === null) && (
+          <p className="text-subtle py-12 text-center text-sm">{t("loading")}</p>
+        )}
       </div>
       {view && bookTarget && (
         <BookingSheet

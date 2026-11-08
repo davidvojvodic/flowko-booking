@@ -8,13 +8,9 @@ import { trpc } from "@calcom/trpc/react";
 
 export const DESK_POLL_MS = 30_000;
 
-export function useDeskDay(date: string) {
+function useInvalidateDesk() {
   const utils = trpc.useUtils();
-  const query = trpc.viewer.flowko.bookings.day.useQuery(
-    { date },
-    { refetchInterval: DESK_POLL_MS, refetchOnWindowFocus: true }
-  );
-  const invalidate = useCallback(
+  return useCallback(
     () =>
       Promise.all([
         utils.viewer.flowko.bookings.day.invalidate(),
@@ -22,6 +18,14 @@ export function useDeskDay(date: string) {
       ]),
     [utils]
   );
+}
+
+export function useDeskDay(date: string, options: { enabled?: boolean } = {}) {
+  const query = trpc.viewer.flowko.bookings.day.useQuery(
+    { date },
+    { refetchInterval: DESK_POLL_MS, refetchOnWindowFocus: true, enabled: options.enabled ?? true }
+  );
+  const invalidate = useInvalidateDesk();
   // Flowko U28: an annotation, not a cast: the inferred route output must stay assignable to DeskView.
   const view: DeskView | undefined = query.data;
   return {
@@ -38,4 +42,29 @@ export function useDeskDay(date: string) {
 /** ACTIVE members of the business (staff and desk-only included): the „who are you“ list (R9). */
 export function useDeskMembers() {
   return trpc.viewer.flowko.business.members.useQuery(undefined, { staleTime: 60_000 });
+}
+
+/**
+ * Flowko U28 (D2): one worker x seven days; `weekStart` is the Monday of the business-zone week. Same polling as the
+ * day (R13). `memberId` null (no worker chosen yet) keeps the query off.
+ */
+export function useDeskWeek(weekStart: string, memberId: number | null, options: { enabled?: boolean } = {}) {
+  const query = trpc.viewer.flowko.bookings.week.useQuery(
+    { weekStart, memberId: memberId ?? 0 },
+    {
+      refetchInterval: DESK_POLL_MS,
+      refetchOnWindowFocus: true,
+      enabled: (options.enabled ?? true) && memberId !== null,
+    }
+  );
+  const invalidate = useInvalidateDesk();
+  const view: DeskView | undefined = query.data;
+  return {
+    view,
+    isPending: query.isPending,
+    error: query.error,
+    receivedAt: query.dataUpdatedAt,
+    refetch: query.refetch,
+    invalidate,
+  };
 }

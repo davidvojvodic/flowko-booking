@@ -124,7 +124,13 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
   const offered = services.filter(
     (s) => (memberId !== null && s.workerMemberIds.includes(memberId)) || selected.includes(s.id)
   );
-  const workerChoices = columns.filter((c) => !c.locked && c.memberId !== reenter?.memberId);
+  // Flowko U28: a week view holds one worker's column, so the others come from the member list (those with a column).
+  const workerChoices = useMemo(() => {
+    const byId = new Map<number, { memberId: number; displayName: string }>();
+    for (const c of columns) if (!c.locked) byId.set(c.memberId, c);
+    for (const m of ctx.actor.choices) if (m.hasColumn && !byId.has(m.memberId)) byId.set(m.memberId, m);
+    return Array.from(byId.values()).filter((c) => c.memberId !== reenter?.memberId);
+  }, [columns, ctx.actor.choices, reenter?.memberId]);
 
   const toggle = (id: number) => {
     const next = selected.includes(id)

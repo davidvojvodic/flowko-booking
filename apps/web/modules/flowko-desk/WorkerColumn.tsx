@@ -49,11 +49,14 @@ export function WorkerColumn(props: {
   onOpenDetails: (bookingId: number) => void;
   /** Flowko U28 (R12): move mode is on for another worker's booking: this column is dimmed. */
   dimmed?: boolean;
+  /** Flowko U28 (week view): the test-id key of this column; the week shows one worker seven times (default: the member id). */
+  testKey?: string | number;
 }) {
   const { t } = useLocale();
   const { column, bookings, range, pxPerMinute } = props;
   const px = (at: Ms) => toPx(at, range, pxPerMinute);
   const tappable = !column.locked && props.onBook !== undefined;
+  const key = props.testKey ?? column.memberId;
 
   const bands = useMemo(
     () =>
@@ -110,7 +113,7 @@ export function WorkerColumn(props: {
 
   return (
     <div
-      data-testid={`desk-column-${column.memberId}`}
+      data-testid={`desk-column-${key}`}
       data-tap={tappable ? "book" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
       onClick={tappable ? onClick : undefined}
@@ -140,7 +143,7 @@ export function WorkerColumn(props: {
       ))}
       {pastEnd > range.from && (
         <div
-          data-testid={`desk-past-${column.memberId}`}
+          data-testid={`desk-past-${key}`}
           aria-hidden
           className="bg-emphasis pointer-events-none absolute inset-x-0 top-0 opacity-40"
           style={{ height: `${px(pastEnd)}px` }}
@@ -173,7 +176,7 @@ export function WorkerColumn(props: {
       })}
       {column.googleUnavailable && (
         <div
-          data-testid={`desk-google-unavailable-${column.memberId}`}
+          data-testid={`desk-google-unavailable-${key}`}
           data-pattern="hatched"
           className="text-subtle absolute inset-0 z-[5] px-1.5 pt-1 text-xs font-medium"
           style={{ backgroundImage: HATCH, pointerEvents: "none" }}>
