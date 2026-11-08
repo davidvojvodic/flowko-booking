@@ -92,10 +92,11 @@ describe("salon (mirror) booking actions (U27)", () => {
     expect(cancel.disabled).toBe(false);
   });
 
-  it("leaves confirm/reject and no-show as Cal decides on a mirror row", () => {
+  it("leaves confirm/reject as Cal decides on a mirror row (no-show: see the U28 test)", () => {
     const mirror = context({ flowkoMirror: true }, { isPending: true });
     expect(ids(getPendingActions(mirror))).toEqual(["confirm", "reject"]);
-    expect(ids(getAfterEventActions(mirror))).toContain("no_show");
+    // Flowko U28 (D4): the no_show action is gone on a mirror row
+    expect(ids(getAfterEventActions(mirror))).not.toContain("no_show");
   });
 
   it("leaves an ordinary row unchanged", () => {

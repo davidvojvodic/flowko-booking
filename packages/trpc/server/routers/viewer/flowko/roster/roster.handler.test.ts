@@ -301,7 +301,7 @@ describe("flowko router wiring (Flowko U26)", () => {
     expect(ENDPOINTS).toContain("flowko");
   });
 
-  // Flowko U27: bookings.* and business.me joined the flowko router (13 keys).
+  // Flowko U27: bookings.* and business.me joined the flowko router (13 keys); Flowko U28 added six (19 keys).
   it("flowkoRouter serves the roster.* procedures and the U27 ones", () => {
     expect(Object.keys(flowkoRouter._def.procedures).sort()).toEqual(
       [
@@ -318,6 +318,13 @@ describe("flowko router wiring (Flowko U26)", () => {
         "bookings.cancel",
         "bookings.move",
         "business.me",
+        // Flowko U28
+        "bookings.day",
+        "bookings.week",
+        "bookings.customers",
+        "bookings.noShow",
+        "business.services",
+        "business.members",
       ].sort()
     );
   });

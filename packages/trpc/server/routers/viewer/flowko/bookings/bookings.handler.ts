@@ -3,7 +3,9 @@
 // flowkoTrpcError; `needs_confirm` is returned as data, never thrown.
 import { getFreeStarts } from "@calcom/features/flowkoBusiness/bookingDay";
 import { cancelBusinessBooking, moveBusinessBooking } from "@calcom/features/flowkoBusiness/bookingChange";
+import { setBusinessNoShow } from "@calcom/features/flowkoBusiness/bookingNoShow";
 import { createBusinessBooking } from "@calcom/features/flowkoBusiness/bookingWriter";
+import { findCustomers, getDeskDay, getDeskWeek } from "@calcom/features/flowkoBusiness/desk";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import { prisma } from "@calcom/prisma";
 import type { TrpcSessionUser } from "@calcom/trpc/server/types";
@@ -12,8 +14,12 @@ import { flowkoTrpcError } from "../flowkoTrpcError";
 import type {
   TCancelBookingInput,
   TCreateBookingInput,
+  TCustomersInput,
+  TDayInput,
   TFreeStartsInput,
   TMoveBookingInput,
+  TNoShowInput,
+  TWeekInput,
 } from "./bookings.schema";
 
 type Ctx = { user: NonNullable<TrpcSessionUser> };
@@ -22,6 +28,14 @@ type Opts<T> = { ctx: Ctx; input: T };
 async function limited(ctx: Ctx): Promise<void> {
   await checkRateLimitAndThrowError({
     identifier: `flowkoBookings:${ctx.user.id}`,
+    rateLimitingType: "common",
+  });
+}
+
+// Flowko U28 (R13): the desk polls its reads every 30 s, so they have their own bucket and never eat the write one.
+async function limitedDesk(ctx: Ctx): Promise<void> {
+  await checkRateLimitAndThrowError({
+    identifier: `flowkoDesk:${ctx.user.id}`,
     rateLimitingType: "common",
   });
 }
@@ -84,6 +98,36 @@ export async function moveHandler({ ctx, input }: Opts<TMoveBookingInput>) {
         confirmOverride: input.confirmOverride,
         actorMemberId: input.actorMemberId,
       },
+      new Date()
+    )
+  );
+}
+
+// Flowko U28: desk reads (no booking uid in any answer) and the desk's no-show.
+export async function dayHandler({ ctx, input }: Opts<TDayInput>) {
+  await limitedDesk(ctx);
+  return guarded(() => getDeskDay(prisma, ctx.user.id, { date: input.date }, new Date()));
+}
+
+export async function weekHandler({ ctx, input }: Opts<TWeekInput>) {
+  await limitedDesk(ctx);
+  return guarded(() =>
+    getDeskWeek(prisma, ctx.user.id, { weekStart: input.weekStart, memberId: input.memberId }, new Date())
+  );
+}
+
+export async function customersHandler({ ctx, input }: Opts<TCustomersInput>) {
+  await limitedDesk(ctx);
+  return guarded(() => findCustomers(prisma, ctx.user.id, { query: input.query }));
+}
+
+export async function noShowHandler({ ctx, input }: Opts<TNoShowInput>) {
+  await limited(ctx);
+  return guarded(() =>
+    setBusinessNoShow(
+      prisma,
+      ctx.user.id,
+      { bookingId: input.bookingId, noShow: input.noShow, actorMemberId: input.actorMemberId },
       new Date()
     )
   );

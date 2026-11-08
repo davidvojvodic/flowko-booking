@@ -49,6 +49,17 @@ export function shouldShowReportAction(context: BookingActionContext): boolean {
   return !isFlowkoMirrorBooking(context.booking);
 }
 
+// Flowko U28 (D4): Cal's markNoShow refuses a business booking; the desk has its own no-show (bookings.noShow).
+// So a mirror row offers no no-show action, no attendee toggle and no no-show dialog (no dead buttons).
+export function shouldShowNoShowAction(context: BookingActionContext): boolean {
+  return !isFlowkoMirrorBooking(context.booking);
+}
+
+/** Whether the booking list's attendee menus show the no-show toggle: past booking, not a mirror row. */
+export function shouldShowAttendeeNoShow(booking: BookingItemProps, isBookingInPast: boolean): boolean {
+  return isBookingInPast && !isFlowkoMirrorBooking(booking);
+}
+
 export function getPendingActions(context: BookingActionContext): ActionType[] {
   const { booking, isPending, isTabRecurring, isTabUnconfirmed, isRecurring, showPendingPayment, t } =
     context;
@@ -223,13 +234,18 @@ export function getAfterEventActions(context: BookingActionContext): ActionType[
           disabled: cardCharged,
         }
       : null,
-    {
-      id: "no_show",
-      label:
-        attendeeList.length === 1 && attendeeList[0].noShow ? t("unmark_as_no_show") : t("mark_as_no_show"),
-      icon: attendeeList.length === 1 && attendeeList[0].noShow ? "eye" : "eye-off",
-      disabled: false, // This would be controlled by booking state in the component
-    },
+    // Flowko U28 (D4): not on a salon mirror row, see shouldShowNoShowAction
+    shouldShowNoShowAction(context)
+      ? {
+          id: "no_show",
+          label:
+            attendeeList.length === 1 && attendeeList[0].noShow
+              ? t("unmark_as_no_show")
+              : t("mark_as_no_show"),
+          icon: attendeeList.length === 1 && attendeeList[0].noShow ? "eye" : "eye-off",
+          disabled: false, // This would be controlled by booking state in the component
+        }
+      : null,
   ];
 
   return actions.filter(Boolean) as ActionType[];

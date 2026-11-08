@@ -40,6 +40,7 @@ import {
   getReportAction,
   shouldShowEditActions,
   shouldShowPendingActions,
+  shouldShowNoShowAction, // Flowko U28
   shouldShowReportAction, // Flowko U27
 } from "./bookingActions";
 
@@ -448,7 +449,8 @@ export function BookingActionsDropdown({
         />
       )}
       {/* Cal video recording dialogs removed (enterprise) */}
-      {isNoShowDialogOpen && (
+      {/* Flowko U28: no Cal no-show dialog on a salon mirror row */}
+      {isNoShowDialogOpen && shouldShowNoShowAction(actionContext) && (
         <NoShowAttendeesDialog
           bookingUid={booking.uid}
           attendees={attendeeList}

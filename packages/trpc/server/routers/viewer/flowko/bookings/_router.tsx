@@ -4,8 +4,12 @@ import { router } from "../../../../trpc";
 import {
   ZCancelBookingInput,
   ZCreateBookingInput,
+  ZCustomersInput,
+  ZDayInput,
   ZFreeStartsInput,
   ZMoveBookingInput,
+  ZNoShowInput,
+  ZWeekInput,
 } from "./bookings.schema";
 
 const load = () => import("./bookings.handler");
@@ -22,5 +26,18 @@ export const bookingsRouter = router({
   }),
   move: authedProcedure.input(ZMoveBookingInput).mutation(async ({ ctx, input }) => {
     return (await load()).moveHandler({ ctx, input });
+  }),
+  // Flowko U28: the desk's reads (own rate-limit bucket) and its no-show write.
+  day: authedProcedure.input(ZDayInput).query(async ({ ctx, input }) => {
+    return (await load()).dayHandler({ ctx, input });
+  }),
+  week: authedProcedure.input(ZWeekInput).query(async ({ ctx, input }) => {
+    return (await load()).weekHandler({ ctx, input });
+  }),
+  customers: authedProcedure.input(ZCustomersInput).query(async ({ ctx, input }) => {
+    return (await load()).customersHandler({ ctx, input });
+  }),
+  noShow: authedProcedure.input(ZNoShowInput).mutation(async ({ ctx, input }) => {
+    return (await load()).noShowHandler({ ctx, input });
   }),
 });
