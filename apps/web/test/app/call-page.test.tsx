@@ -1,11 +1,10 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactElement } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 // Flowko U27: the call-the-business page (/poklicite/<business slug>) a worker's Cal pages redirect to. Shows the
 // business's name, phone (tel: link) and address; no customer data. This file lives outside apps/web/app on
 // purpose: pagesAndRewritePaths.ts scans the file names there as top-level routes. Real translations
 // (packages/i18n/locales); only the business lookup and the request locale are mocked.
+import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   locale: "sl",
@@ -42,15 +41,16 @@ describe("/poklicite/<slug> call page (Flowko U27)", () => {
       "salon-a": { name: "Salon A", phone: "+386 1 234 56 78", address: "Slovenska cesta 1, Ljubljana" },
       "salon-b": { name: "Salon B", phone: null, address: null },
       "salon-c": { name: "Salon & Co", phone: "  ", address: "Trg 2" },
+      "salon-d": { name: "Frizerstvo Maja s.p.", phone: null, address: null },
     };
   });
   afterEach(cleanup);
 
   it("shows the name, a tel: link on the phone and the address in Slovene", async () => {
     await renderPage("salon-a");
-    expect(screen.getByRole("heading").textContent).toBe("Rezervacija pri Salon A");
+    expect(screen.getByRole("heading").textContent).toBe("Rezervacija termina: Salon A");
     expect(screen.getByTestId("flowko-call-body").textContent).toBe(
-      "Termin rezervirate, prestavite ali odpoveste po telefonu: +386 1 234 56 78"
+      "Termin lahko rezervirate, prestavite ali odpoveste po telefonu: +386 1 234 56 78."
     );
     const link = screen.getByTestId("flowko-call-phone");
     expect(link.getAttribute("href")).toBe("tel:+38612345678");
@@ -63,8 +63,10 @@ describe("/poklicite/<slug> call page (Flowko U27)", () => {
   it("speaks English when the visitor's language is English", async () => {
     mocks.locale = "en";
     await renderPage("salon-a");
-    expect(screen.getByRole("heading").textContent).toBe("Booking at Salon A");
-    expect(screen.getByTestId("flowko-call-body").textContent).toContain("call: +386 1 234 56 78");
+    expect(screen.getByRole("heading").textContent).toBe("Booking: Salon A");
+    expect(screen.getByTestId("flowko-call-body").textContent).toBe(
+      "You can book, reschedule or cancel by phone: +386 1 234 56 78."
+    );
     expect(screen.getByTestId("flowko-call-address").textContent).toBe(
       "Address: Slovenska cesta 1, Ljubljana"
     );
@@ -73,7 +75,7 @@ describe("/poklicite/<slug> call page (Flowko U27)", () => {
   it("without a phone it says to contact the business, and shows no phone link or address", async () => {
     await renderPage("salon-b");
     expect(screen.getByTestId("flowko-call-body").textContent).toBe(
-      "Za rezervacijo ali spremembo termina se obrnite na Salon B."
+      "Za rezervacijo, prestavitev ali odpoved termina se obrnite na ponudnika storitve: Salon B."
     );
     expect(screen.queryByTestId("flowko-call-phone")).toBeNull();
     expect(screen.queryByTestId("flowko-call-address")).toBeNull();
@@ -81,11 +83,22 @@ describe("/poklicite/<slug> call page (Flowko U27)", () => {
 
   it("a blank phone counts as no phone; an ampersand in the name is shown once-escaped, not as &amp;", async () => {
     await renderPage("salon-c");
-    expect(screen.getByRole("heading").textContent).toBe("Rezervacija pri Salon & Co");
+    expect(screen.getByRole("heading").textContent).toBe("Rezervacija termina: Salon & Co");
     expect(screen.getByTestId("flowko-call-body").textContent).toBe(
-      "Za rezervacijo ali spremembo termina se obrnite na Salon & Co."
+      "Za rezervacijo, prestavitev ali odpoved termina se obrnite na ponudnika storitve: Salon & Co."
     );
     expect(screen.queryByTestId("flowko-call-phone")).toBeNull();
+  });
+
+  it("a name that ends with a full stop does not get a second one; the phone's full stop stays outside the link", async () => {
+    await renderPage("salon-d");
+    expect(screen.getByTestId("flowko-call-body").textContent).toBe(
+      "Za rezervacijo, prestavitev ali odpoved termina se obrnite na ponudnika storitve: Frizerstvo Maja s.p."
+    );
+    cleanup();
+    await renderPage("salon-a");
+    expect(screen.getByTestId("flowko-call-phone").textContent).toBe("+386 1 234 56 78");
+    expect(screen.getByTestId("flowko-call-body").textContent?.endsWith("78.")).toBe(true);
   });
 
   it("an unknown slug is not found", async () => {

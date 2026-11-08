@@ -6,6 +6,7 @@ import { getLocale } from "@calcom/features/auth/lib/getLocale";
 import { i18n } from "@calcom/i18n/next-i18next.config";
 import { getTranslation } from "@calcom/i18n/server";
 import { APP_NAME } from "@calcom/lib/constants";
+import { dropDoubledFullStop } from "@calcom/lib/flowkoBusiness/sentence";
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
 import { loadCallPageBusiness } from "@lib/flowko/callPage";
 import type { PageProps } from "app/_types";
@@ -75,7 +76,11 @@ const CallPage = async ({ params }: PageProps) => {
                 {afterPhone}
               </>
             ) : (
-              t("flowko_call_body_no_phone", { name: business.name, ...raw })
+              // the sentence ends with the name and a full stop: no ".." after "s.p." or "d.o.o."
+              dropDoubledFullStop(
+                t("flowko_call_body_no_phone", { name: business.name, ...raw }),
+                business.name
+              )
             )}
           </p>
           {address ? (

@@ -14,6 +14,7 @@ import type {
 } from "@calcom/types/Calendar";
 
 import { WEBAPP_URL } from "./constants";
+import { dropDoubledFullStop } from "./flowkoBusiness/sentence"; // Flowko U27: no ".." after a name that ends with "."
 import isSmsCalEmail from "./isSmsCalEmail";
 import {
   buildPlatformCancelLink,
@@ -297,7 +298,10 @@ type FlowkoBusinessRef = { name: string; phone: string | null };
 export const getFlowkoBusinessContactLine = (business: FlowkoBusinessRef, t: TFunction) =>
   business.phone
     ? t("flowko_reschedule_by_phone", { phone: business.phone, interpolation: { escapeValue: false } })
-    : t("flowko_reschedule_contact", { name: business.name, interpolation: { escapeValue: false } });
+    : dropDoubledFullStop(
+        t("flowko_reschedule_contact", { name: business.name, interpolation: { escapeValue: false } }),
+        business.name
+      );
 
 // Flowko U27: a business booking's manage lines (E2): the cancel link (unless the booking is cancelled or
 // cancelling is off) and the contact line. Text, .ics and calendar descriptions; the mail HTML is ManageLink.

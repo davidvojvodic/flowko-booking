@@ -5032,10 +5032,10 @@
   "flowko_reminders_both": "24 ur in 2 uri pred terminom",
   "flowko_reminders_hint": "Opomnik se ne pošlje, če je bil termin rezerviran ali potrjen pozneje kot eno uro pred načrtovanim časom pošiljanja.",
   "flowko_reschedule_by_phone": "Za prestavitev termina pokličite {{phone}}.",
-  "flowko_reschedule_contact": "Za prestavitev termina se obrnite na {{name}}.",
+  "flowko_reschedule_contact": "Za prestavitev termina se obrnite na ponudnika storitve: {{name}}.",
   "flowko_cancel_here": "Termin lahko odpoveste tukaj:",
-  "flowko_call_title": "Rezervacija pri {{name}}",
-  "flowko_call_body_phone": "Termin rezervirate, prestavite ali odpoveste po telefonu: {{phone}}",
-  "flowko_call_body_no_phone": "Za rezervacijo ali spremembo termina se obrnite na {{name}}.",
+  "flowko_call_title": "Rezervacija termina: {{name}}",
+  "flowko_call_body_phone": "Termin lahko rezervirate, prestavite ali odpoveste po telefonu: {{phone}}.",
+  "flowko_call_body_no_phone": "Za rezervacijo, prestavitev ali odpoved termina se obrnite na ponudnika storitve: {{name}}.",
   "flowko_call_address": "Naslov: {{address}}"
 }

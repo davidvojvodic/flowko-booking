@@ -67,7 +67,7 @@ const lastMail = () => {
 
 const BUSINESS = { name: "Salon Lepota", phone: "+38641123456" };
 const PHONE_LINE = "Za prestavitev termina pokličite +38641123456.";
-const CONTACT_LINE = "Za prestavitev termina se obrnite na Salon Lepota.";
+const CONTACT_LINE = "Za prestavitev termina se obrnite na ponudnika storitve: Salon Lepota.";
 const CANCEL_HERE = "Termin lahko odpoveste tukaj:";
 const CANCEL_LINK = "https://booking.example.com/booking/booking-uid?cancel=true&allRemainingBookings=false";
 const DESK = "desk-x@flowko.invalid";
@@ -243,7 +243,12 @@ describe("U27 business booking mails (E1, E2)", () => {
     await new AttendeeScheduledEmail(calEvent, booker).sendEmail();
 
     expect(displayName(lastMail().from)).toBe('"Frizerstvo \\"Ana\\", s.p."');
-    expect(mails()[0].text).toContain('Za prestavitev termina se obrnite na Frizerstvo "Ana", s.p..');
+    // the name ends with "." already: the sentence's own full stop is dropped, in the text and in the HTML
+    const sentence = 'Za prestavitev termina se obrnite na ponudnika storitve: Frizerstvo "Ana", s.p.';
+    expect(mails()[0].text).toContain(sentence);
+    expect(mails()[0].text).not.toContain("s.p..");
+    expect(plain(mails()[0].html)).toContain(sentence);
+    expect(plain(mails()[0].html)).not.toContain("s.p..");
   });
 
   it("attendeeFromName falls back to the organizer's name", async () => {
@@ -446,10 +451,14 @@ describe("U27 business on the built calendar event (E1)", () => {
 describe("U27 strings", () => {
   it("are in both languages, as written", () => {
     expect(sl.flowko_reschedule_by_phone).toBe("Za prestavitev termina pokličite {{phone}}.");
-    expect(sl.flowko_reschedule_contact).toBe("Za prestavitev termina se obrnite na {{name}}.");
+    expect(sl.flowko_reschedule_contact).toBe(
+      "Za prestavitev termina se obrnite na ponudnika storitve: {{name}}."
+    );
     expect(sl.flowko_cancel_here).toBe("Termin lahko odpoveste tukaj:");
     expect(en.flowko_reschedule_by_phone).toBe("To reschedule, call {{phone}}.");
-    expect(en.flowko_reschedule_contact).toBe("To reschedule, contact {{name}}.");
+    expect(en.flowko_reschedule_contact).toBe(
+      "To reschedule, please contact the service provider: {{name}}."
+    );
     expect(en.flowko_cancel_here).toBe("You can cancel the appointment here:");
   });
 });
