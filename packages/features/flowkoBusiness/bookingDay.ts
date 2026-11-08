@@ -13,6 +13,7 @@ import {
   type Interval,
   type LocalDate,
   type PlacedStep,
+  roundDownToGrid, // Flowko U28: moved to flowkoSalon/time.ts
   type ServiceStep,
 } from "@calcom/lib/flowkoSalon";
 import logger from "@calcom/lib/logger";
@@ -22,7 +23,6 @@ import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { loadBusinessDay } from "./roster";
 
-const MINUTE_MS = 60_000;
 const MAX_SERVICES_PER_VISIT = 5;
 /** W3: bookings in these states hold the worker's time. */
 const HOLDING_STATUSES = [BookingStatus.ACCEPTED, BookingStatus.PENDING, BookingStatus.AWAITING_HOST];
@@ -139,11 +139,8 @@ export async function googleBusyFor(
   }
 }
 
-/** E4: `now` rounded down to the business grid anchored at the day's start, as epoch ms. */
-export function roundDownToGrid(now: Date, day: Interval, stepMinutes: number): number {
-  const stepMs = stepMinutes * MINUTE_MS;
-  return day.start + Math.floor((now.getTime() - day.start) / stepMs) * stepMs;
-}
+// Flowko U28: roundDownToGrid moved to @calcom/lib/flowkoSalon (client-safe, shared with the desk); re-exported here.
+export { roundDownToGrid };
 
 export type ServiceForBooking = { id: number; name: string; steps: ServiceStep[] };
 

@@ -1,7 +1,7 @@
 // Flowko U24: tests for wall-clock conversion and the day grid (Europe/Ljubljana DST). Run with TZ=UTC.
 import { describe, expect, it } from "vitest";
 
-import { dayBounds, gridStarts, localInterval, wallClockToMs } from "./time";
+import { dayBounds, gridStarts, localInterval, roundDownToGrid, wallClockToMs } from "./time";
 
 const TZ = "Europe/Ljubljana";
 const HOUR = 3600e3;
@@ -67,5 +67,16 @@ describe("Flowko U24: time", () => {
     expect(() => wallClockToMs("2026-11-10", "9:00", TZ)).toThrow(RangeError);
     expect(() => wallClockToMs("2026-11-10", "09:60", TZ)).toThrow(RangeError);
     expect(() => wallClockToMs("26-11-10", "09:00", TZ)).toThrow(RangeError);
+  });
+});
+
+// Flowko U28: roundDownToGrid moved here from bookingDay.ts (U27 cases kept).
+describe("Flowko U28: roundDownToGrid", () => {
+  const day = dayBounds("2026-11-09", TZ);
+  it("rounds now down to the grid anchored at the day start", () => {
+    expect(iso(roundDownToGrid(new Date("2026-11-09T06:07:00Z"), day, 15))).toBe("2026-11-09T06:00:00.000Z");
+    expect(roundDownToGrid(new Date("2026-11-09T06:07:00Z"), day, 15)).toBe(wallClockToMs("2026-11-09", "07:00", TZ));
+    expect(roundDownToGrid(new Date("2026-11-09T06:15:00Z"), day, 15)).toBe(wallClockToMs("2026-11-09", "07:15", TZ));
+    expect(roundDownToGrid(new Date("2026-11-09T06:44:59Z"), day, 30)).toBe(wallClockToMs("2026-11-09", "07:30", TZ));
   });
 });

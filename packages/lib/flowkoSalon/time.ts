@@ -72,3 +72,9 @@ export function gridStarts(day: Interval, stepMinutes: number): Ms[] {
   for (let t = day.start; t < day.end; t += step) out.push(t);
   return out;
 }
+
+/** Flowko U28: E4 — `now` rounded down to the business grid anchored at the day's start, as epoch ms (moved from bookingDay.ts). */
+export function roundDownToGrid(now: Date, day: Interval, stepMinutes: number): Ms {
+  const stepMs = stepMinutes * 60_000;
+  return day.start + Math.floor((now.getTime() - day.start) / stepMs) * stepMs;
+}

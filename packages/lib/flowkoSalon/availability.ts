@@ -36,7 +36,8 @@ export type FitProblem =
   | { kind: "overlaps_external"; step: number; with: Interval };
 
 /** True when the booking's step copy matches its span and has a busy step (a moved booking's stale copy does not). */
-function trustedSteps(b: ExistingBooking): b is ExistingBooking & { steps: PlacedStep[] } {
+// Flowko U28: exported for the desk helpers (no behaviour change).
+export function trustedSteps(b: ExistingBooking): b is ExistingBooking & { steps: PlacedStep[] } {
   const s = b.steps;
   return (
     s !== undefined &&
