@@ -104,7 +104,8 @@ async function setUp(): Promise<Fixture> {
     address: "Glavna ulica 1, Ljubljana",
   });
   const a = created.businessId;
-  await prismock.flowkoBusiness.update({ where: { id: a }, data: { openHolidays: [] } });
+  // Flowko U29a: S7, the U27/U28 actor tests assume the shared device switch on (U28b behaviour).
+  await prismock.flowkoBusiness.update({ where: { id: a }, data: { openHolidays: [], sharedDevice: true } });
   const ana = await makeUser("Ana");
   const bor = await makeUser("Bor");
   const rok = await makeUser("Rok");
@@ -780,5 +781,108 @@ describe("move and cancel: a WORKER may not label an action with another member 
       actorName: "Cene",
       userId: f.users.rok,
     });
+  });
+});
+
+// Flowko U29a: S7, with the shared device switch off an OWNER/STAFF session always acts as itself.
+describe("sharedDevice off (U29a S7)", () => {
+  beforeEach(async () => {
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { sharedDevice: false } });
+  });
+
+  const sharedDeviceReads = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter((call) => {
+      const select = (call[0] as { select?: Record<string, unknown> } | undefined)?.select;
+      return select?.sharedDevice === true;
+    }).length;
+
+  it("Olga (OWNER) moves naming Cene (ACTIVE), Dan (LOCKED), Zala (foreign) or an unknown id → Olga, no error", async () => {
+    const cases: [number, string][] = [
+      [f.members.cene, "09:15"],
+      [f.members.dan, "09:30"],
+      [f.members.zala, "09:45"],
+      [999_999, "10:00"],
+    ];
+    for (const [actorMemberId, time] of cases) {
+      expect(await move(f.users.olga, f.ana.bookingId, at(time), { actorMemberId })).toMatchObject({
+        status: "moved",
+      });
+    }
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("10:00"));
+    const actions = await actionsOf(f.ana.bookingId);
+    expect(actions.map((a) => [a.action, a.actorMemberId, a.actorName, a.userId])).toEqual([
+      ["CREATED", f.members.olga, "Olga", f.users.olga],
+      ["RESCHEDULED", f.members.olga, "Olga", f.users.olga],
+      ["RESCHEDULED", f.members.olga, "Olga", f.users.olga],
+      ["RESCHEDULED", f.members.olga, "Olga", f.users.olga],
+      ["RESCHEDULED", f.members.olga, "Olga", f.users.olga],
+    ]);
+  });
+
+  it("cancel: Rok (STAFF) naming Dan (LOCKED) → Rok; Olga naming Zala (foreign) → Olga", async () => {
+    await cancelBusinessBooking(
+      db,
+      f.users.rok,
+      { bookingId: f.bor.bookingId, actorMemberId: f.members.dan },
+      NOW
+    );
+    expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
+      action: "CANCELLED",
+      actorMemberId: f.members.rok,
+      actorName: "Rok",
+      userId: f.users.rok,
+    });
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.ana.bookingId, actorMemberId: f.members.zala },
+      NOW
+    );
+    expect((await actionsOf(f.ana.bookingId))[1]).toMatchObject({
+      action: "CANCELLED",
+      actorMemberId: f.members.olga,
+      actorName: "Olga",
+    });
+    expect((await bookingOf(f.bor.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+  });
+
+  it("Ana (WORKER) naming Olga → forbidden on move and cancel, nothing written", async () => {
+    await expectCode(
+      move(f.users.ana, f.ana.bookingId, at("09:15"), { actorMemberId: f.members.olga }),
+      "forbidden"
+    );
+    await expectCode(
+      cancelBusinessBooking(
+        db,
+        f.users.ana,
+        { bookingId: f.ana.bookingId, actorMemberId: f.members.olga },
+        NOW
+      ),
+      "forbidden"
+    );
+    expect(await bookingOf(f.ana.bookingId)).toMatchObject({
+      status: BookingStatus.ACCEPTED,
+      startTime: at("09:00"),
+    });
+    expect(await actionsOf(f.ana.bookingId)).toHaveLength(1);
+    expect(lockWorker).not.toHaveBeenCalled();
+  });
+
+  it("no read of the switch when actorMemberId is absent or the own member", async () => {
+    const findUnique = vi.spyOn(prismock.flowkoBusiness, "findUnique");
+    const findFirst = vi.spyOn(prismock.flowkoBusiness, "findFirst");
+    await move(f.users.olga, f.ana.bookingId, at("09:15"));
+    await move(f.users.olga, f.ana.bookingId, at("09:30"), { actorMemberId: f.members.olga });
+    await cancelBusinessBooking(
+      db,
+      f.users.rok,
+      { bookingId: f.bor.bookingId, actorMemberId: f.members.rok },
+      NOW
+    );
+    await cancel(f.users.olga, f.dan.bookingId);
+    expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(0);
+    await move(f.users.olga, f.ana.bookingId, at("09:45"), { actorMemberId: f.members.cene });
+    expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(1);
   });
 });

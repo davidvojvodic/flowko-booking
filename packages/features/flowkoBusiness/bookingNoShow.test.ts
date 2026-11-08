@@ -91,7 +91,8 @@ async function setUp(): Promise<Fixture> {
     address: "Glavna ulica 1, Ljubljana",
   });
   const a = created.businessId;
-  await prismock.flowkoBusiness.update({ where: { id: a }, data: { openHolidays: [] } });
+  // Flowko U29a: S7, the U27/U28 actor tests assume the shared device switch on (U28b behaviour).
+  await prismock.flowkoBusiness.update({ where: { id: a }, data: { openHolidays: [], sharedDevice: true } });
   const ana = await makeUser("Ana");
   const bor = await makeUser("Bor");
   const rok = await makeUser("Rok");
@@ -329,5 +330,67 @@ describe("setBusinessNoShow (D4)", () => {
       "forbidden"
     );
     expect(await actionCount()).toBe(0);
+  });
+});
+
+// Flowko U29a: S7, with the shared device switch off an OWNER/STAFF session always acts as itself.
+describe("sharedDevice off (U29a S7)", () => {
+  beforeEach(async () => {
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { sharedDevice: false } });
+  });
+
+  const sharedDeviceReads = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter((call) => {
+      const select = (call[0] as { select?: Record<string, unknown> } | undefined)?.select;
+      return select?.sharedDevice === true;
+    }).length;
+
+  it("Olga (OWNER) naming Cene (ACTIVE), Dan (LOCKED), Zala (foreign) or an unknown id → Olga, no error", async () => {
+    const dan = await prismock.flowkoBusinessMember.findFirst({
+      where: { businessId: f.a, status: FlowkoMemberStatus.LOCKED },
+    });
+    const zala = await prismock.flowkoBusinessMember.findFirst({ where: { businessId: { not: f.a } } });
+    expect(dan?.id).toBeDefined();
+    expect(zala?.id).toBeDefined();
+    const ids = [f.members.cene, dan?.id, zala?.id, 999_999];
+    let value = true;
+    for (const id of ids) {
+      expect(await noShow(f.users.olga, f.ana, value, STARTED, id)).toEqual({
+        status: "updated",
+        noShow: value,
+      });
+      value = !value;
+    }
+    expect((await noShowActions(f.ana)).map((a) => [a.actorMemberId, a.actorName, a.userId])).toEqual(
+      ids.map(() => [f.members.olga, "Olga", f.users.olga])
+    );
+  });
+
+  it("Rok (STAFF) naming Recepcija → Rok", async () => {
+    const recepcija = await prismock.flowkoBusinessMember.findFirst({ where: { displayName: "Recepcija" } });
+    await noShow(f.users.rok, f.ana, true, STARTED, recepcija?.id);
+    expect((await noShowActions(f.ana))[0]).toMatchObject({
+      actorMemberId: f.members.rok,
+      actorName: "Rok",
+      userId: f.users.rok,
+    });
+  });
+
+  it("Ana (WORKER) naming Olga or Cene → forbidden, nothing written", async () => {
+    await expectCode(noShow(f.users.ana, f.ana, true, STARTED, f.members.olga), "forbidden");
+    await expectCode(noShow(f.users.ana, f.ana, true, STARTED, f.members.cene), "forbidden");
+    expect(await attendeeFlags(f.ana)).toEqual([false]);
+    expect(await actionCount()).toBe(0);
+  });
+
+  it("no read of the switch when actorMemberId is absent or the own member", async () => {
+    const findUnique = vi.spyOn(prismock.flowkoBusiness, "findUnique");
+    const findFirst = vi.spyOn(prismock.flowkoBusiness, "findFirst");
+    await noShow(f.users.olga, f.ana, true);
+    await noShow(f.users.olga, f.ana, false, STARTED, null);
+    await noShow(f.users.rok, f.ana, true, STARTED, f.members.rok);
+    expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(0);
+    await noShow(f.users.olga, f.ana, false, STARTED, f.members.cene);
+    expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(1);
   });
 });

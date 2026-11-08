@@ -141,17 +141,28 @@ export async function sendMailAfterCommit(kind: BusinessMailKind, bookingId: num
  * workers included); missing = the actor's own member. Unknown, foreign or LOCKED ids are forbidden. A label for
  * the action log, never a right. Flowko U28 (R9): a WORKER acts only as herself; naming another member is
  * forbidden (OWNER and STAFF, the shared desk, may name any ACTIVE member).
+ * Flowko U29a (S7): naming another member counts only when the business has the shared device switch on; off,
+ * an OWNER/STAFF session is recorded as itself whatever id it names (a stale desk choice never fails a
+ * write). The switch is read only when another member is named, so the common path costs no extra query.
  */
 export async function resolveActor(
   tx: FlowkoDb,
   access: BusinessAccess,
   actorMemberId?: number | null
 ): Promise<{ memberId: number; name: string }> {
-  const id = actorMemberId ?? access.memberId;
+  let id = actorMemberId ?? access.memberId;
   if (!Number.isInteger(id)) throw new FlowkoBusinessError("forbidden");
   // Flowko U28: R9, the history must not misstate who acted.
   if (access.role === FlowkoBusinessRole.WORKER && id !== access.memberId) {
     throw new FlowkoBusinessError("forbidden");
+  }
+  // Flowko U29a: S7, the shared device switch (null/missing = off).
+  if (id !== access.memberId) {
+    const business = await tx.flowkoBusiness.findUnique({
+      where: { id: access.businessId },
+      select: { sharedDevice: true },
+    });
+    if (business?.sharedDevice !== true) id = access.memberId;
   }
   const member = await tx.flowkoBusinessMember.findUnique({
     where: { id },
