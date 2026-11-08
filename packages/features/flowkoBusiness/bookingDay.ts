@@ -25,7 +25,8 @@ import { loadBusinessDay } from "./roster";
 
 const MAX_SERVICES_PER_VISIT = 5;
 /** W3: bookings in these states hold the worker's time. */
-const HOLDING_STATUSES = [BookingStatus.ACCEPTED, BookingStatus.PENDING, BookingStatus.AWAITING_HOST];
+// Flowko U28: exported for the desk read service (desk.ts).
+export const HOLDING_STATUSES = [BookingStatus.ACCEPTED, BookingStatus.PENDING, BookingStatus.AWAITING_HOST];
 
 const log = logger.getSubLogger({ prefix: ["flowko-booking-day"] });
 
