@@ -17,15 +17,19 @@ import { notFound } from "next/navigation";
 // A control character no translation or interpolated value contains: marks where the phone link goes.
 const PHONE_MARK = "\u0001";
 
+// Flowko U27: David 2026-11-08, Slovene businesses: when the locale lookup fails or yields an unsupported
+// locale the page speaks Slovene, never English.
+const FALLBACK_LOCALE = "sl";
+
 function toSupportedLocale(locale: string | null | undefined): string | null {
   return locale && i18n.locales.includes(locale) ? locale : null;
 }
 
 async function getRequestLocale(): Promise<string> {
   try {
-    return toSupportedLocale(await getLocale(buildLegacyRequest(await headers(), await cookies()))) ?? "en";
+    return toSupportedLocale(await getLocale(buildLegacyRequest(await headers(), await cookies()))) ?? FALLBACK_LOCALE;
   } catch {
-    return "en";
+    return FALLBACK_LOCALE;
   }
 }
 

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   locale: "sl",
+  throwLocale: false,
   businesses: {} as Record<string, { name: string; phone: string | null; address: string | null }>,
 }));
 
@@ -15,7 +16,12 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
   cookies: async () => ({ getAll: () => [], get: () => undefined }),
 }));
-vi.mock("@calcom/features/auth/lib/getLocale", () => ({ getLocale: vi.fn(async () => mocks.locale) }));
+vi.mock("@calcom/features/auth/lib/getLocale", () => ({
+  getLocale: vi.fn(async () => {
+    if (mocks.throwLocale) throw new Error("locale lookup failed");
+    return mocks.locale;
+  }),
+}));
 vi.mock("@lib/flowko/callPage", () => ({
   loadCallPageBusiness: vi.fn(async (slug: string) => mocks.businesses[slug] ?? null),
 }));
@@ -37,6 +43,7 @@ async function renderPage(slug: string) {
 describe("/poklicite/<slug> call page (Flowko U27)", () => {
   beforeEach(() => {
     mocks.locale = "sl";
+    mocks.throwLocale = false;
     mocks.businesses = {
       "salon-a": { name: "Salon A", phone: "+386 1 234 56 78", address: "Slovenska cesta 1, Ljubljana" },
       "salon-b": { name: "Salon B", phone: null, address: null },
@@ -69,6 +76,25 @@ describe("/poklicite/<slug> call page (Flowko U27)", () => {
     );
     expect(screen.getByTestId("flowko-call-address").textContent).toBe(
       "Address: Slovenska cesta 1, Ljubljana"
+    );
+  });
+
+  // Flowko U27 (David 2026-11-08): the businesses are Slovene, so the error / unsupported-locale path is Slovene too.
+  it("falls back to Slovene, not English, when the locale lookup throws", async () => {
+    mocks.throwLocale = true;
+    await renderPage("salon-a");
+    expect(screen.getByRole("heading").textContent).toBe("Rezervacija termina: Salon A");
+    expect(screen.getByTestId("flowko-call-address").textContent).toBe(
+      "Naslov: Slovenska cesta 1, Ljubljana"
+    );
+  });
+
+  it("falls back to Slovene, not English, when the locale is not a supported one", async () => {
+    mocks.locale = "xx";
+    await renderPage("salon-a");
+    expect(screen.getByRole("heading").textContent).toBe("Rezervacija termina: Salon A");
+    expect(screen.getByTestId("flowko-call-body").textContent).toBe(
+      "Termin lahko rezervirate, prestavite ali odpoveste po telefonu: +386 1 234 56 78."
     );
   });
 
