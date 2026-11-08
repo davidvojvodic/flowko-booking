@@ -1,5 +1,6 @@
 import { useIsEmbed } from "@calcom/embed-core/embed-iframe";
 import { useIsStandalone } from "@calcom/lib/hooks/useIsStandalone";
+import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import classNames from "@calcom/ui/classNames";
 import { useSession } from "next-auth/react";
 import { useMemo } from "react";
@@ -63,9 +64,16 @@ const getNavigationItems = (): NavigationItemType[] => [
   },
 ];
 
-const useNavigationItems = () => {
+// Flowko U27: Cal's Event types and Availability screens are the business owner's; a WORKER or STAFF member gets
+// the bookings list (exported for the test)
+const CAL_SCREEN_NAVIGATION_ITEMS = ["event_types_page_title", "availability"];
+
+export const useNavigationItems = () => {
+  const hidesCalScreens = useFlowkoHidesCalScreens(); // Flowko U27
   return useMemo(() => {
-    const items = getNavigationItems();
+    const items = getNavigationItems().filter(
+      (item) => !(hidesCalScreens && CAL_SCREEN_NAVIGATION_ITEMS.includes(item.name)) // Flowko U27
+    );
 
     const desktopNavigationItems = items.filter((item) => item.name !== MORE_SEPARATOR_NAME);
     const mobileNavigationBottomItems = items.filter(
@@ -80,7 +88,7 @@ const useNavigationItems = () => {
       mobileNavigationBottomItems,
       mobileNavigationMoreItems,
     };
-  }, []);
+  }, [hidesCalScreens]); // Flowko U27: the flag arrives after the first render
 };
 
 export const Navigation = () => {

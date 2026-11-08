@@ -7,6 +7,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { HttpError } from "@calcom/lib/http-error";
 import type { RouterOutputs } from "@calcom/trpc/react";
 import { trpc } from "@calcom/trpc/react";
+import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import useMeQuery from "@calcom/trpc/react/hooks/useMeQuery";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
 import { showToast } from "@calcom/ui/components/toast";
@@ -26,6 +27,7 @@ export function AvailabilityList({ availabilities }: AvailabilityListProps) {
   const utils = trpc.useUtils();
   const router = useRouter();
   const { data: user } = useMeQuery();
+  const hidesCalScreens = useFlowkoHidesCalScreens(); // Flowko U27
 
   const deleteMutation = trpc.viewer.availability.schedule.delete.useMutation({
     onMutate: async ({ scheduleId }) => {
@@ -154,12 +156,15 @@ export function AvailabilityList({ availabilities }: AvailabilityListProps) {
               ))}
             </ul>
           </div>
-          <div className="text-default mb-16 mt-4 block text-center text-sm">
-            {t("temporarily_out_of_office")}{" "}
-            <Link href="settings/my-account/out-of-office" className="underline">
-              {t("add_a_redirect")}
-            </Link>
-          </div>
+          {/* Flowko U27: out of office is the business owner's; a WORKER or STAFF member has no such screen */}
+          {!hidesCalScreens && (
+            <div className="text-default mb-16 mt-4 block text-center text-sm">
+              {t("temporarily_out_of_office")}{" "}
+              <Link href="settings/my-account/out-of-office" className="underline">
+                {t("add_a_redirect")}
+              </Link>
+            </div>
+          )}
           {bulkUpdateModal && (
             <BulkEditDefaultForEventsModal
               isPending={bulkUpdateDefaultAvailabilityMutation.isPending}

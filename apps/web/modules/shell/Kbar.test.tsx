@@ -19,6 +19,11 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({
   useLocale: () => ({ t: (key: string) => key, i18n: { language: "sl" } }),
 }));
 
+// Flowko U27: the Cal-screens flag; an owner (not hidden) here, so the cases below are unchanged
+vi.mock("@calcom/web/lib/flowko/useFlowkoHidesCalScreens", () => ({
+  useFlowkoHidesCalScreens: () => false,
+}));
+
 vi.mock("@calcom/app-store/appStoreMetaData", () => ({ appStoreMetadata: {} }));
 
 vi.mock("@calcom/trpc/react", () => ({

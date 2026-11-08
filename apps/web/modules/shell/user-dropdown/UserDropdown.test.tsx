@@ -23,6 +23,11 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({
   }),
 }));
 
+// Flowko U27: the Cal-screens flag; the owner's menu (not hidden) here, so the cases below are unchanged
+vi.mock("@calcom/web/lib/flowko/useFlowkoHidesCalScreens", () => ({
+  useFlowkoHidesCalScreens: () => false,
+}));
+
 vi.mock("@calcom/lib/hooks/useUserAgentData", () => ({
   useUserAgentData: () => ({
     os: "linux",

@@ -9,6 +9,7 @@ import { useIsStandalone } from "@calcom/lib/hooks/useIsStandalone";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
+import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import classNames from "@calcom/ui/classNames";
 import { Badge } from "@calcom/ui/components/badge";
 import { Button } from "@calcom/ui/components/button";
@@ -267,7 +268,8 @@ interface SettingsPermissions {
   canUpdateOrganization?: boolean;
 }
 
-const useTabs = ({
+// Flowko U27: exported for the test
+export const useTabs = ({
   isDelegationCredentialEnabled,
   isPbacEnabled,
   permissions,
@@ -280,12 +282,15 @@ const useTabs = ({
   const { data: user } = trpc.viewer.me.get.useQuery({ includePasswordAdded: true });
   const orgBranding = null as { id?: number; slug?: string; name?: string; logoUrl?: string | null } | null;
   const isAdmin = session.data?.user.role === UserPermissionRole.ADMIN;
+  const hidesCalScreens = useFlowkoHidesCalScreens(); // Flowko U27
 
   const processTabsMemod = useMemo(() => {
     const processedTabs = getTabs(orgBranding).map((tab) => {
       if (tab.href === "/settings/my-account") {
         return {
           ...tab,
+          // Flowko U27: Out of office (and Holidays, a tab of the same page) is the owner's; a WORKER or STAFF member has none
+          children: tab.children?.filter((child) => !(hidesCalScreens && child.name === "out_of_office")),
           name: user?.name || "my_account",
           icon: undefined,
           avatar: getUserAvatarUrl(user),
@@ -376,7 +381,15 @@ const useTabs = ({
       if (isAdmin) return true;
       return !adminRequiredKeys.includes(tab.name);
     });
-  }, [isAdmin, orgBranding, user, isDelegationCredentialEnabled, isPbacEnabled, permissions]);
+  }, [
+    isAdmin,
+    orgBranding,
+    user,
+    isDelegationCredentialEnabled,
+    isPbacEnabled,
+    permissions,
+    hidesCalScreens, // Flowko U27
+  ]);
 
   return processTabsMemod;
 };

@@ -1,6 +1,7 @@
 import { SUPPORT_MAIL_ADDRESS } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import useMeQuery from "@calcom/trpc/react/hooks/useMeQuery";
+import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import classNames from "@calcom/ui/classNames";
 import { Avatar } from "@calcom/ui/components/avatar";
 import {
@@ -35,6 +36,7 @@ interface UserDropdownProps {
 export function UserDropdown({ small }: UserDropdownProps) {
   const { t } = useLocale();
   const { data: user, isPending } = useMeQuery();
+  const hidesCalScreens = useFlowkoHidesCalScreens(); // Flowko U27
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -108,10 +110,13 @@ export function UserDropdown({ small }: UserDropdownProps) {
               <SettingsIcon />
               {t("my_settings")}
             </MenuItem>
-            <MenuItem render={<Link href="/settings/my-account/out-of-office" />}>
-              <MoonIcon />
-              {t("out_of_office")}
-            </MenuItem>
+            {/* Flowko U27: Out of office is the business owner's; a WORKER or STAFF member has none */}
+            {!hidesCalScreens && (
+              <MenuItem render={<Link href="/settings/my-account/out-of-office" />}>
+                <MoonIcon />
+                {t("out_of_office")}
+              </MenuItem>
+            )}
             <MenuSeparator />
           </>
 
