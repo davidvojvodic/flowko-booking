@@ -62,14 +62,14 @@ describe("historyLines (U28 history)", () => {
       t
     );
     expect(lines).toEqual([
-      "Ustvaril: Olga · 15. 11. 2026 11:00",
+      "Ustvarjeno: Olga · 15. 11. 2026 11:00",
       "Shranjeno kljub opozorilom: prekrivanje s terminom, zunaj izmene",
-      "Prestavil: Rok · iz 08:30 na 09:00 · 15. 11. 2026 13:00",
-      "Prestavil: Rok · iz 17. 11. 08:30 na 16. 11. 09:00 · 15. 11. 2026 13:05",
+      "Prestavljeno: Rok · 08:30 → 09:00 · 15. 11. 2026 13:00",
+      "Prestavljeno: Rok · 17. 11. 08:30 → 16. 11. 09:00 · 15. 11. 2026 13:05",
       "Shranjeno kljub opozorilom: odsotnost",
-      "Ni prišla/prišel: Olga · 16. 11. 2026 09:30",
-      "Preklicano »ni prišla/prišel«: neznano · 16. 11. 2026 09:40",
-      "Odpovedal: Ana · 16. 11. 2026 10:00",
+      "Neprihod označil(a): Olga · 16. 11. 2026 09:30",
+      "Neprihod preklical(a): neznano · 16. 11. 2026 09:40",
+      "Odpovedano: Ana · 16. 11. 2026 10:00",
     ]);
   });
 
@@ -105,7 +105,7 @@ describe("BookingDetailsSheet (U28)", () => {
       "mailto:marija@example.com"
     );
     expect(screen.getAllByTestId("desk-history-line").map((l) => l.textContent)).toEqual([
-      "Ustvaril: Olga · 15. 11. 2026 11:00",
+      "Ustvarjeno: Olga · 15. 11. 2026 11:00",
     ]);
   });
 
@@ -132,7 +132,7 @@ describe("BookingDetailsSheet (U28)", () => {
 
   it("a colleague's booking for a worker offers no action", () => {
     renderDetails({ ...barvanje, ...none });
-    expect(screen.queryAllByRole("button", { name: /Prestavi|Odpovej|prišla|neprihod/i })).toEqual([]);
+    expect(screen.queryAllByRole("button", { name: /Prestavi|Odpovej|neprihod/i })).toEqual([]);
     expect(screen.queryByLabelText("Čas")).toBeNull();
   });
 
@@ -186,8 +186,8 @@ describe("BookingDetailsSheet (U28)", () => {
     renderDetails({ ...barvanje, ...all, noShow: true });
     expect(button("Označi neprihod")).toBeNull();
     // the badge keeps the noun key (flowko_desk_no_show_mark); the button has its own action key
-    expect(screen.getByText("Ni prišla/prišel")).toBeInTheDocument();
-    fireEvent.click(button("Prekliči »ni prišla/prišel«") as HTMLElement);
+    expect(screen.getByText("Neprihod")).toBeInTheDocument();
+    fireEvent.click(button("Prekliči neprihod") as HTMLElement);
     await waitFor(() =>
       expect(deskTrpc.noShow).toHaveBeenCalledWith({ bookingId: 101, noShow: false, actorMemberId: OLGA })
     );

@@ -177,7 +177,7 @@ describe("BookingSheet create (U28 R10, R13)", () => {
       within(dialog)
         .getAllByTestId("desk-problem")
         .map((l) => l.textContent)
-    ).toEqual(["Fen: prekriva se s terminom 13:00–13:30.", "Moško striženje: zunaj izmene delavca."]);
+    ).toEqual(["Fen: prekriva se s terminom 13:00–13:30.", "Moško striženje: zunaj izmene."]);
     fireEvent.click(within(dialog).getByRole("button", { name: "Vseeno shrani" }));
     await waitFor(() => expect(deskTrpc.create).toHaveBeenCalledTimes(2));
     expect(deskTrpc.create.mock.calls[1][0]).toMatchObject({ confirmOverride: true, serviceIds: [3, 2] });
@@ -225,7 +225,7 @@ describe("BookingSheet create (U28 R10, R13)", () => {
       within(dialog)
         .getAllByTestId("desk-problem")
         .map((l) => l.textContent)
-    ).toEqual(["Google koledar trenutno ni dosegljiv"]);
+    ).toEqual(["Google koledar trenutno ni dosegljiv."]);
   });
 
   it("in_past is a field error on the time, with no dialog and no toast", async () => {
@@ -247,7 +247,7 @@ describe("BookingSheet create (U28 R10, R13)", () => {
     fillCustomer("Marija", "123");
     save();
     expect(
-      await screen.findByText("Preverite stranko: ime ter veljaven telefon ali e-pošto.")
+      await screen.findByText("Preverite podatke stranke: ime ter veljavna telefonska številka ali e-pošta.")
     ).toBeInTheDocument();
     expect(toast).not.toHaveBeenCalled();
   });
@@ -345,7 +345,7 @@ describe("BookingSheet re-enter with another worker (U28 R12)", () => {
     save();
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(
-        "Nov termin pri: Bor je shranjen, starega pa ni bilo mogoče odpovedati. Zdaj obstajata oba; starega odpovejte ročno.",
+        "Nov termin (Bor) je shranjen, starega pa ni bilo mogoče odpovedati. Zdaj obstajata oba termina; starega odpovejte ročno.",
         "warning"
       )
     );
@@ -356,7 +356,7 @@ describe("BookingSheet re-enter with another worker (U28 R12)", () => {
   it("a booking whose service was deleted starts with no services and says so", () => {
     renderSheet(reenter({ ...barvanje, serviceIds: null }));
     expect(
-      screen.getByText("Storitev tega termina ne obstaja več. Storitve izberite znova.")
+      screen.getByText("Ena od storitev tega termina ne obstaja več. Storitve izberite znova.")
     ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(OLGA) } });
     expect(chip("Barvanje")).toHaveAttribute("aria-pressed", "false");

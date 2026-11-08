@@ -35,12 +35,12 @@ describe("ConfirmProblemsDialog (U28 R8)", () => {
     );
     expect(lines).toEqual([
       "Zunaj delovnega časa.",
-      "Začetek ni na mreži terminov.",
-      "Manj vnaprej, kot dovoljujejo pravila rezervacij.",
-      "Barvanje: zunaj izmene delavca.",
-      "Barvanje: delavec je odsoten 14:00–15:00.",
+      "Začetek se ne ujema z razmiki med termini.",
+      "Rezervirano manj vnaprej, kot dovoljujejo pravila rezervacij.",
+      "Barvanje: zunaj izmene.",
+      "Barvanje: odsotnost 14:00–15:00.",
       "Moško striženje: prekriva se s terminom 09:30–10:00.",
-      "Barvanje: prekriva se z zasedenostjo v koledarju 12:00–13:00.",
+      "Barvanje: v koledarju je zasedeno 12:00–13:00.",
     ]);
   });
 
@@ -58,7 +58,7 @@ describe("ConfirmProblemsDialog (U28 R8)", () => {
     );
     expect(lines).toEqual([
       "Barvanje: prekriva se s terminom 10:10–10:40.",
-      "Google koledar trenutno ni dosegljiv",
+      "Google koledar trenutno ni dosegljiv.",
     ]);
   });
 

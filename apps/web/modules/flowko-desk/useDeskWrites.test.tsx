@@ -91,9 +91,9 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     ["worker_locked", "Ta delavec je zaklenjen."],
     ["service_not_assigned", "Delavec ne opravlja ene od izbranih storitev."],
     ["bad_booking", "Tega termina ni mogoče spremeniti."],
-    ["booking_not_started", "Odsotnosti ni mogoče označiti pred začetkom termina."],
+    ["booking_not_started", "Neprihoda ni mogoče označiti pred začetkom termina."],
     ["in_past", "Termin je v preteklosti. Izberite poznejši čas."],
-    ["bad_customer", "Preverite stranko: ime ter veljaven telefon ali e-pošto."],
+    ["bad_customer", "Preverite podatke stranke: ime ter veljavna telefonska številka ali e-pošta."],
   ])("%s → refetch, then its own text", async (code, text) => {
     deskTrpc.move.mockImplementation(async () => {
       log.push("move");
@@ -143,7 +143,7 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     expect(deskTrpc.cancel).toHaveBeenCalledWith({ bookingId: 101, reason: "x", actorMemberId: 1 });
     expect(actor.clear).toHaveBeenCalled();
     expect(actor.openPicker).toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith("Tega ne smete. Izberite, kdo ste.", "error");
+    expect(toast).toHaveBeenCalledWith("Za to nimate dovoljenja. Izberite, kdo ste.", "error");
   });
 
   it("forbidden for a fixed WORKER does not ask her to choose who she is", async () => {
@@ -153,7 +153,7 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     await act(async () => {
       outcome = await writes().create(createInput);
     });
-    expect(toast).toHaveBeenCalledWith("Tega ne smete. Urejate lahko samo svoje termine.", "error");
+    expect(toast).toHaveBeenCalledWith("Za to nimate dovoljenja. Urejate lahko samo svoje termine.", "error");
     expect(outcome).toMatchObject({ code: "forbidden", message: "flowko_desk_error_forbidden_self" });
   });
 
@@ -192,11 +192,11 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     await act(async () => {
       await writes().noShow({ bookingId: 101, noShow: true });
     });
-    expect(toast).toHaveBeenLastCalledWith("Označeno: ni prišla/prišel.", "success");
+    expect(toast).toHaveBeenLastCalledWith("Označeno kot neprihod.", "success");
     await act(async () => {
       await writes().noShow({ bookingId: 101, noShow: false });
     });
-    expect(toast).toHaveBeenLastCalledWith("Oznaka »ni prišla/prišel« je odstranjena.", "success");
+    expect(toast).toHaveBeenLastCalledWith("Oznaka neprihoda je odstranjena.", "success");
   });
 
   it("deskErrorCode reads the Flowko code, then the tRPC code", () => {

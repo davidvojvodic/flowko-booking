@@ -38,7 +38,7 @@ describe("DayGrid (U28)", () => {
 
   it("renders the columns in roster order, the locked one last and labelled, without a tap target", () => {
     renderGrid();
-    expect(headers()).toEqual(["Olga", "Ana", "Bor", "Cene", "Dan (zaklenjen)"]);
+    expect(headers()).toEqual(["Olga", "Ana", "Bor", "Cene", "Dan (zaklenjeno)"]);
     for (const id of [OLGA, ANA, BOR, CENE]) {
       expect(screen.getByTestId(`desk-column-${id}`).getAttribute("data-tap")).toBe("book");
     }

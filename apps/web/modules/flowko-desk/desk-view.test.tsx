@@ -71,7 +71,7 @@ describe("DeskView (U28)", () => {
   it("on a tablet shows every column, today by default, and asks who is at the desk", () => {
     renderDesk();
     expect(requestedDates()).toContain("2026-11-16");
-    expect(headers()).toEqual(["Olga", "Ana", "Bor", "Cene", "Dan (zaklenjen)"]);
+    expect(headers()).toEqual(["Olga", "Ana", "Bor", "Cene", "Dan (zaklenjeno)"]);
     expect(screen.getByRole("button", { name: "Kdo ste?" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Delavec")).toBeNull();
   });
@@ -225,7 +225,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     openBarvanje();
     fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
     expect(screen.queryByRole("dialog", { name: "Barvanje" })).toBeNull();
-    expect(banner()?.textContent).toContain("Izberite nov čas za Marija Novak");
+    expect(banner()?.textContent).toContain("Izberite nov čas za termin: Marija Novak");
     expect(column(BOR)).toHaveAttribute("data-dimmed", "true");
     expect(column(ANA)).not.toHaveAttribute("data-dimmed");
     fireEvent.click(column(BOR), { clientY: yOf("13:30") });
@@ -330,7 +330,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     fireEvent.click(column(ANA), { clientY: yOf("15:00") });
     const dialog = await screen.findByRole("dialog", { name: "Termin ni v skladu s pravili" });
     expect(refetch).toHaveBeenCalled();
-    expect(dialog.textContent).toContain("Barvanje: zunaj izmene delavca.");
+    expect(dialog.textContent).toContain("Barvanje: zunaj izmene.");
     fireEvent.click(screen.getByRole("button", { name: "Vseeno shrani" }));
     await waitFor(() =>
       expect(deskTrpc.move).toHaveBeenLastCalledWith(expect.objectContaining({ confirmOverride: true }))
@@ -514,7 +514,7 @@ describe("DeskView week view (U28 D2)", () => {
       screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
     );
     fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
-    expect(banner()?.textContent).toContain("Izberite nov čas za Marija Novak");
+    expect(banner()?.textContent).toContain("Izberite nov čas za termin: Marija Novak");
     expect(wcol("2026-11-19")).not.toHaveAttribute("data-dimmed");
     fireEvent.click(wcol("2026-11-19"), { clientY: yOf("11:00", "2026-11-19") });
     await waitFor(() =>
@@ -623,6 +623,6 @@ describe("DeskView week view (U28 D2)", () => {
       data: [{ memberId: 5, displayName: "Rok", role: "STAFF", hasColumn: false, deskOnly: false }],
     });
     renderDesk("?view=week");
-    expect(screen.getByText("Ni še delavcev.")).toBeInTheDocument();
+    expect(screen.getByText("Delavcev še ni.")).toBeInTheDocument();
   });
 });
