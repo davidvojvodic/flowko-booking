@@ -1,5 +1,5 @@
 import { getPublicEvent } from "@calcom/features/eventtypes/lib/getPublicEvent";
-import { mirrorOfEventType } from "@calcom/features/flowkoBusiness/mirror";
+import { mirrorOfEventType } from "@calcom/features/flowkoBusiness/mirror"; // Flowko U27
 import prisma from "@calcom/prisma";
 
 export type GetPublicEventInput = {

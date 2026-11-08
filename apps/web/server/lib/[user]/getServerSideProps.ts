@@ -18,7 +18,7 @@ import type { EventType, User } from "@calcom/prisma/client";
 import { RedirectType } from "@calcom/prisma/enums";
 import type { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import type { UserProfile } from "@calcom/types/UserProfile";
-import { callPageForUser, callPagePath } from "@lib/flowko/callPage";
+import { callPageForUser, callPagePath } from "@lib/flowko/callPage"; // Flowko U27
 import { handleOrgRedirect } from "@lib/handleOrgRedirect";
 import type { EmbedProps } from "app/WithEmbedSSR";
 import type { GetServerSideProps } from "next";

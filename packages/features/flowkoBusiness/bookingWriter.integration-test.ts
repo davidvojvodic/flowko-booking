@@ -12,6 +12,7 @@
 import type { ShiftEntry, WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKeyService";
+import logger from "@calcom/lib/logger"; // Flowko U27: the spy on the "mail not sent" log line (Review Focus 4)
 import prisma from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole } from "@calcom/prisma/enums";
@@ -456,40 +457,56 @@ describe("Review Focus 4: phone-only customer at a desk-only worker (the mail tr
   it("Mojca, phone-only customer → 0 transport calls; e-mail customer → 1 call, to the customer, no flowko.invalid", async () => {
     vi.stubEnv("INTEGRATION_TEST_MODE", "false");
     const mails = { googleBusy: noGoogle };
+    // Every sub-logger is a tslog Logger whose `error` lives on the prototype (the same spy as bookingChange.test.ts),
+    // so this catches the writer's catch (sendMailAfterCommit) and the mail module's own catch (sendLogged) alike:
+    // a `fromBooking` that threw for the phone-only booking would be swallowed there and log this line, while
+    // 0 transport calls alone would still hold.
+    const logError = vi
+      .spyOn(Object.getPrototypeOf(logger) as { error: (...args: unknown[]) => unknown }, "error")
+      .mockImplementation(() => undefined);
+    const mailNotSent = () =>
+      logError.mock.calls.filter((call) => call[0] === "business booking mail not sent");
 
-    await created(
-      create(
-        { workerMemberId: fx.members.mojca, serviceIds: [fx.services.colouring], start: at(MON, "09:00") },
-        mails
-      )
-    );
-    expect(transport.sent).toHaveLength(0);
+    try {
+      await created(
+        create(
+          { workerMemberId: fx.members.mojca, serviceIds: [fx.services.colouring], start: at(MON, "09:00") },
+          mails
+        )
+      );
+      expect(transport.sent).toHaveLength(0);
+      // The mail code ran and found nothing to send; it did not fail.
+      expect(mailNotSent()).toEqual([]);
 
-    const customer = `eva-${RUN}@example.com`;
-    await created(
-      create(
-        {
-          workerMemberId: fx.members.mojca,
-          start: at(MON, "12:00"),
-          customer: { name: "Eva Kos", email: customer },
-        },
-        mails
-      )
-    );
-    // Positive control: the customer's confirmation reaches the transport.
-    expect(transport.sent).toHaveLength(1);
-    const sent = transport.sent[0] as {
-      to: Array<{ address: string }>;
-      text: string;
-      html: string;
-      icalEvent?: { content?: string };
-    };
-    expect(sent.to.map((t) => t.address)).toEqual([customer]);
-    expect(sent.icalEvent?.content).toContain("BEGIN:VCALENDAR");
-    for (const part of [sent.text, sent.html, sent.icalEvent?.content ?? ""]) {
-      expect(part).not.toContain("flowko.invalid");
+      const customer = `eva-${RUN}@example.com`;
+      await created(
+        create(
+          {
+            workerMemberId: fx.members.mojca,
+            start: at(MON, "12:00"),
+            customer: { name: "Eva Kos", email: customer },
+          },
+          mails
+        )
+      );
+      // Positive control: the customer's confirmation reaches the transport.
+      expect(transport.sent).toHaveLength(1);
+      expect(mailNotSent()).toEqual([]);
+      const sent = transport.sent[0] as {
+        to: Array<{ address: string }>;
+        text: string;
+        html: string;
+        icalEvent?: { content?: string };
+      };
+      expect(sent.to.map((t) => t.address)).toEqual([customer]);
+      expect(sent.icalEvent?.content).toContain("BEGIN:VCALENDAR");
+      for (const part of [sent.text, sent.html, sent.icalEvent?.content ?? ""]) {
+        expect(part).not.toContain("flowko.invalid");
+      }
+      expect(JSON.stringify(sent)).not.toContain("flowko.invalid");
+    } finally {
+      logError.mockRestore();
     }
-    expect(JSON.stringify(sent)).not.toContain("flowko.invalid");
   });
 });
 

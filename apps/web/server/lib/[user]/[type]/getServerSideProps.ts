@@ -9,7 +9,7 @@ import { UserRepository } from "@calcom/features/users/repositories/UserReposito
 import slugify from "@calcom/lib/slugify";
 import { prisma } from "@calcom/prisma";
 import { BookingStatus, RedirectType } from "@calcom/prisma/enums";
-import { callPageForUser, callPageForUserSlug, callPagePath } from "@lib/flowko/callPage";
+import { callPageForUser, callPageForUserSlug, callPagePath } from "@lib/flowko/callPage"; // Flowko U27
 import { handleOrgRedirect } from "@lib/handleOrgRedirect";
 import { getUsersInOrgContext } from "@server/lib/[user]/getServerSideProps";
 import type { GetServerSidePropsContext } from "next";

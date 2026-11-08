@@ -10,7 +10,7 @@ import { getDefaultEvent } from "@calcom/features/eventtypes/lib/defaultEvents";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { maybeGetBookingUidFromSeat } from "@calcom/lib/server/maybeGetBookingUidFromSeat";
 import prisma, { bookingMinimalSelect } from "@calcom/prisma";
-import { callPageForBookingUid, callPagePath } from "@lib/flowko/callPage";
+import { callPageForBookingUid, callPagePath } from "@lib/flowko/callPage"; // Flowko U27
 
 const querySchema = z.object({
   uid: z.string(),

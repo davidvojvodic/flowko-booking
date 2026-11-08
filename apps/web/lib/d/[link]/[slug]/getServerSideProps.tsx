@@ -11,7 +11,7 @@ import { UserRepository } from "@calcom/features/users/repositories/UserReposito
 import slugify from "@calcom/lib/slugify";
 import prisma from "@calcom/prisma";
 import { RedirectType } from "@calcom/prisma/enums";
-import { callPageForEventType, callPageForUser, callPagePath } from "@lib/flowko/callPage";
+import { callPageForEventType, callPageForUser, callPagePath } from "@lib/flowko/callPage"; // Flowko U27
 import { getRedirectWithOriginAndSearchString } from "@lib/handleOrgRedirect";
 import type { inferSSRProps } from "@lib/types/inferSSRProps";
 import type { EmbedProps } from "app/WithEmbedSSR";
