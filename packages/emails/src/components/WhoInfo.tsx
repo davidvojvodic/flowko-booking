@@ -6,7 +6,8 @@ import type { CalendarEvent } from "@calcom/types/Calendar";
 import { Info } from "./Info";
 
 export const PersonInfo = ({ name = "", email = "", role = "", phoneNumber = "" }) => {
-  const displayEmail = !isSmsCalEmail(email);
+  // Flowko U28: an empty address (hidden organizer) renders no link, in every mail
+  const displayEmail = !!email && !isSmsCalEmail(email);
   const formattedPhoneNumber = !!phoneNumber ? `${phoneNumber} ` : "";
 
   return (

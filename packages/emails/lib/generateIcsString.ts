@@ -13,6 +13,7 @@ import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
 import { serverConfig } from "@calcom/lib/serverConfig";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
+import type { GenerateIcsRole } from "./generateIcsFile"; // Flowko U28
 
 export enum BookingAction {
   Create = "create",
@@ -66,11 +67,14 @@ const generateIcsString = ({
   status,
   partstat = "ACCEPTED",
   t,
+  role,
 }: {
   event: ICSCalendarEvent;
   status: EventStatus;
   partstat?: ParticipationStatus;
   t?: TFunction;
+  // Flowko U28: "organizer" = the worker's .ics (GenerateIcsRole), no customer cancel link for a business booking (D3)
+  role?: `${GenerateIcsRole}`;
 }): string | undefined => {
   const location = getVideoCallUrlFromCalEvent(event) || event.location;
 
@@ -98,7 +102,10 @@ const generateIcsString = ({
     productId: "-//Flowko//Rezervacije//SL",
     title: event.title,
     // Flowko U27: a CANCELLED .ics of a business booking has no cancel link (E2)
-    description: getRichDescription(event, t, false, { bookingCancelled: status === "CANCELLED" }),
+    description: getRichDescription(event, t, false, {
+      bookingCancelled: status === "CANCELLED",
+      withoutCancelLink: role === "organizer", // Flowko U28 (D3)
+    }),
     organizer: {
       name: event.organizer.name,
       ...(hideOrganizerEmail ? { email: getHiddenOrganizerEmail() } : { email: event.organizer.email }),

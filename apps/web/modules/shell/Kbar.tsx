@@ -7,6 +7,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { isMac } from "@calcom/lib/isMac";
 import { UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
+import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
 import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import { Tooltip } from "@calcom/ui/components/tooltip";
 import { ArrowDownIcon, ArrowUpIcon, CommandIcon, CornerDownLeftIcon, SearchIcon } from "@coss/ui/icons";
@@ -241,6 +242,10 @@ function buildKbarActions(push: (href: string) => void): Action[] {
 
 function useEventTypesAction(): void {
   const router = useRouter();
+  // Flowko U28 (R16 f): the per-event-type shortcuts are Cal's Event types screen; only a user in no business or
+  // the business owner has it (loading counts as not yet: no query, no shortcuts).
+  const { status, me } = useFlowkoBusiness();
+  const enabled = status === "none" || (status === "member" && me.role === "OWNER");
   const { data } = trpc.viewer.eventTypes.getEventTypesFromGroup.useInfiniteQuery(
     {
       limit: 100,
@@ -249,12 +254,15 @@ function useEventTypesAction(): void {
     {
       refetchOnWindowFocus: false,
       staleTime: 1 * 60 * 60 * 1000,
+      enabled, // Flowko U28
       getNextPageParam: (lastPage: { nextCursor?: number | null }) => lastPage.nextCursor,
     }
   );
 
-  const eventTypeActions: Action[] =
-    data?.pages?.flatMap((page) => {
+  // Flowko U28: cached pages of an earlier query must not register either
+  const eventTypeActions: Action[] = !enabled
+    ? []
+    : data?.pages?.flatMap((page) => {
       return (
         page?.eventTypes?.map((item) => ({
           id: `event-type-${item.id}`,
@@ -271,7 +279,7 @@ function useEventTypesAction(): void {
     actions = eventTypeActions;
   }
 
-  useRegisterActions(actions, [data]);
+  useRegisterActions(actions, [data, enabled]); // Flowko U28: enabled
 }
 
 function useUpcomingBookingsAction(): void {

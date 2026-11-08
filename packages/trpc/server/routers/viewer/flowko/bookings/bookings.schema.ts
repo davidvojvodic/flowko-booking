@@ -20,9 +20,10 @@ export const ZCreateBookingInput = z
     start: startSchema,
     customer: z
       .object({
-        name: z.string(),
-        email: z.string().nullish(),
-        phone: z.string().nullish(),
+        // Flowko U28 (R17): early 400 instead of a lookup first
+        name: z.string().max(80),
+        email: z.string().max(254).nullish(),
+        phone: z.string().max(32).nullish(),
       })
       .strict(),
     confirmOverride: z.boolean().default(false),
@@ -49,3 +50,19 @@ export const ZMoveBookingInput = z
   })
   .strict();
 export type TMoveBookingInput = z.infer<typeof ZMoveBookingInput>;
+
+// Flowko U28: the desk's reads and its no-show write. Dates are real calendar dates (localDateSchema); the week must
+// start on a Monday, which the service checks (bad_roster).
+export const ZDayInput = z.object({ date: localDateSchema }).strict();
+export type TDayInput = z.infer<typeof ZDayInput>;
+
+export const ZWeekInput = z.object({ weekStart: localDateSchema, memberId: idSchema }).strict();
+export type TWeekInput = z.infer<typeof ZWeekInput>;
+
+export const ZCustomersInput = z.object({ query: z.string().trim().min(1).max(80) }).strict();
+export type TCustomersInput = z.infer<typeof ZCustomersInput>;
+
+export const ZNoShowInput = z
+  .object({ bookingId: idSchema, noShow: z.boolean(), actorMemberId: actorMemberIdSchema })
+  .strict();
+export type TNoShowInput = z.infer<typeof ZNoShowInput>;

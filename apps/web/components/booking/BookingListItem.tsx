@@ -56,6 +56,7 @@ import {
   shouldShowPendingActions,
   shouldShowRecurringCancelAction,
   shouldShowIndividualReportButton,
+  shouldShowAttendeeNoShow, // Flowko U28
   type BookingActionContext,
   getReportAction,
   isActionDisabled,
@@ -428,7 +429,8 @@ function BookingListItem(booking: BookingItemProps) {
                   user={booking.user}
                   currentEmail={userEmail}
                   bookingUid={booking.uid}
-                  isBookingInPast={isBookingInPast}
+                  // Flowko U28: Cal's attendee no-show controls are gone on a salon mirror row (the desk has its own)
+                  isBookingInPast={shouldShowAttendeeNoShow(booking, isBookingInPast)}
                   hideOrganizerEmail={booking.eventType?.hideOrganizerEmail}
                   organizerEmail={booking.user?.email}
                   eventTypeHosts={booking.eventType?.hosts}

@@ -257,9 +257,10 @@ describe("redirectIfCalScreensHidden", () => {
     ["Ana (WORKER)", () => f.ana.id],
     ["Rok (STAFF)", () => f.rok.id],
     ["Dan (locked WORKER)", () => f.dan.id],
-  ])("%s goes to the bookings list", async (_name, id) => {
-    await expect(redirectIfCalScreensHidden(id())).rejects.toThrow("NEXT_REDIRECT /bookings/upcoming");
-    expect(mocks.redirect).toHaveBeenCalledWith("/bookings/upcoming");
+  ])("%s goes to the desk", async (_name, id) => {
+    // Flowko U28: was /bookings/upcoming; the desk sends a locked member on to the bookings list
+    await expect(redirectIfCalScreensHidden(id())).rejects.toThrow("NEXT_REDIRECT /koledar");
+    expect(mocks.redirect).toHaveBeenCalledWith("/koledar");
   });
 
   it.each([
@@ -295,5 +296,31 @@ describe("the six Cal pages call the guard after their session read", () => {
     // exactly one call, not inside a try block
     expect(source.match(/redirectIfCalScreensHidden\(/g)).toHaveLength(1);
     expect(source).not.toMatch(/try\s*\{[^}]*redirectIfCalScreensHidden/);
+  });
+});
+
+// Flowko U28: the same redirect above the loading boundary. A page's loading.tsx shows its skeleton before the page
+// body runs, so the page-level call alone flashes the Cal screen; a segment layout runs first.
+const LAYOUTS = [
+  "apps/web/app/(use-page-wrapper)/(main-nav)/event-types/layout.tsx",
+  "apps/web/app/(use-page-wrapper)/(main-nav)/availability/layout.tsx",
+  "apps/web/app/(use-page-wrapper)/event-types/[type]/layout.tsx",
+  "apps/web/app/(use-page-wrapper)/availability/[schedule]/layout.tsx",
+];
+
+describe("the four Cal segment layouts call the guard after their session read (U28)", () => {
+  it.each(LAYOUTS)("%s", (file) => {
+    const source = readFileSync(resolve(ROOT, file), "utf8");
+    expect(source).toContain('import { redirectIfCalScreensHidden } from "@lib/flowko/calScreensPage";');
+    const sessionRead = source.indexOf("await getServerSession(");
+    const loginRedirect = source.indexOf('redirect("/auth/login")');
+    const guard = source.indexOf("await redirectIfCalScreensHidden(session.user.id);");
+    expect(source).toMatch(/export default async function \w+\(/);
+    expect(sessionRead).toBeGreaterThan(-1);
+    expect(loginRedirect).toBeGreaterThan(sessionRead);
+    expect(guard).toBeGreaterThan(loginRedirect);
+    expect(source.match(/redirectIfCalScreensHidden\(/g)).toHaveLength(1);
+    expect(source).not.toMatch(/\btry\s*\{/);
+    expect(source).toContain("<>{children}</>");
   });
 });

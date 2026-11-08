@@ -7,7 +7,9 @@ import {
 } from "@calcom/lib/CalEventParser";
 import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 
-export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person }) {
+// Flowko U28: isOrganizer = the mail is the worker's (BaseScheduledEmail's isOrganizer), a business booking's
+// worker gets no customer cancel link (D3).
+export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person; isOrganizer?: boolean }) {
   // Only the original attendee can make changes to the event
   // Guests cannot
   const t = props.attendee.language.translate;
@@ -48,10 +50,12 @@ export function ManageLink(props: { calEvent: CalendarEvent; attendee: Person })
   // Flowko U27: a business booking: the cancel link and "call the business", never the reschedule link (E2)
   if (props.calEvent.flowkoBusiness) {
     if (!isOriginalAttendee && !isOrganizer && !isTeamMember) return null;
+    // Flowko U28: the cancel link is the customer's right; the worker's mail carries the contact line only (D3)
+    const isWorkerMail = props.isOrganizer === true || (isOrganizer && !isOriginalAttendee);
     return (
       <FlowkoBusinessManageLink
         t={t}
-        cancelLink={hasCancelLink ? cancelLink : ""}
+        cancelLink={hasCancelLink && !isWorkerMail ? cancelLink : ""}
         contactLine={getFlowkoBusinessContactLine(props.calEvent.flowkoBusiness, t)}
       />
     );

@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   getBusinessAccess: vi.fn(),
+  listDeskServices: vi.fn(),
+  listDeskMembers: vi.fn(),
   checkRateLimitAndThrowError: vi.fn(),
   prisma: { flowkoBusiness: { findUnique: vi.fn() } },
 }));
@@ -14,10 +16,14 @@ vi.mock("@calcom/lib/checkRateLimitAndThrowError", () => ({
   checkRateLimitAndThrowError: m.checkRateLimitAndThrowError,
 }));
 vi.mock("@calcom/features/flowkoBusiness/access", () => ({ getBusinessAccess: m.getBusinessAccess }));
+vi.mock("@calcom/features/flowkoBusiness/desk", () => ({
+  listDeskServices: m.listDeskServices,
+  listDeskMembers: m.listDeskMembers,
+}));
 
 import { FlowkoBusinessError } from "@calcom/features/flowkoBusiness/errors";
 
-import { meHandler } from "./business.handler";
+import { membersHandler, meHandler, servicesHandler } from "./business.handler";
 
 const ctx = { user: { id: 7 } } as never;
 
@@ -80,5 +86,47 @@ describe("viewer.flowko.business.me (Flowko U27)", () => {
     const boom = new Error("db down");
     m.getBusinessAccess.mockRejectedValue(boom);
     await expect(meHandler({ ctx })).rejects.toBe(boom);
+  });
+});
+
+// Flowko U28: desk reads, own rate-limit bucket.
+describe.each([
+  ["services", servicesHandler, m.listDeskServices],
+  ["members", membersHandler, m.listDeskMembers],
+] as const)("viewer.flowko.business.%s (Flowko U28)", (_name, handler, service) => {
+  beforeEach(() => {
+    service.mockReset();
+    m.checkRateLimitAndThrowError.mockReset();
+    m.checkRateLimitAndThrowError.mockResolvedValue({ success: true });
+  });
+
+  it("calls its service with the session user id, after the flowkoDesk:<id> limiter", async () => {
+    service.mockResolvedValue("result");
+    await expect(handler({ ctx })).resolves.toBe("result");
+    expect(service).toHaveBeenCalledWith(m.prisma, 7);
+    expect(m.checkRateLimitAndThrowError).toHaveBeenCalledWith({
+      identifier: "flowkoDesk:7",
+      rateLimitingType: "common",
+    });
+    expect(m.checkRateLimitAndThrowError.mock.invocationCallOrder[0]).toBeLessThan(
+      service.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("a rate-limit refusal stops the call before the service runs", async () => {
+    const limited = new Error("429");
+    m.checkRateLimitAndThrowError.mockRejectedValue(limited);
+    await expect(handler({ ctx })).rejects.toBe(limited);
+    expect(service).not.toHaveBeenCalled();
+  });
+
+  it("maps forbidden to FORBIDDEN and rethrows others unchanged", async () => {
+    service.mockRejectedValue(new FlowkoBusinessError("forbidden"));
+    const err = await handler({ ctx }).catch((e) => e);
+    expect(err).toBeInstanceOf(TRPCError);
+    expect(err.code).toBe("FORBIDDEN");
+    const boom = new Error("db down");
+    service.mockRejectedValue(boom);
+    await expect(handler({ ctx })).rejects.toBe(boom);
   });
 });

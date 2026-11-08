@@ -26,7 +26,10 @@ export type FlowkoBusinessErrorCode =
   | "not_business_booking"
   | "booking_not_active"
   | "worker_locked"
-  | "bad_booking";
+  | "bad_booking"
+  // Flowko U28: the desk (R6 no booking in the past, D4 no-show only once the booking has started).
+  | "in_past"
+  | "booking_not_started";
 
 export class FlowkoBusinessError extends Error {
   constructor(readonly code: FlowkoBusinessErrorCode) {

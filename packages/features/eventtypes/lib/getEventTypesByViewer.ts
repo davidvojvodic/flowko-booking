@@ -93,6 +93,7 @@ export const getEventTypesByViewer = async (user: User, filters?: Filters) => {
           {
             where: {
               teamId: null,
+              flowkoWorkerMirror: { is: null }, // Flowko U28: the worker mirrors stay out of Cal's lists
             },
             orderBy: [
               {

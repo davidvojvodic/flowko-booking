@@ -35,6 +35,7 @@ export default function generateIcsFile({
       event: calEvent,
       status,
       t,
+      role, // Flowko U28: the worker's .ics carries no customer cancel link (D3)
     }),
     method: status === "CANCELLED" ? "CANCEL" : "REQUEST",
   };

@@ -80,7 +80,10 @@ export const BaseScheduledEmail = (
       callToAction={
         props.callToAction === null
           ? null
-          : props.callToAction || <ManageLink attendee={props.attendee} calEvent={props.calEvent} />
+          : props.callToAction || (
+              // Flowko U28: isOrganizer tells ManageLink it is the worker's mail (D3)
+              <ManageLink attendee={props.attendee} calEvent={props.calEvent} isOrganizer={props.isOrganizer} />
+            )
       }
       subtitle={props.subtitle || <>{t("emailed_you_and_any_other_attendees")}</>}>
       {props.calEvent.rejectionReason && (

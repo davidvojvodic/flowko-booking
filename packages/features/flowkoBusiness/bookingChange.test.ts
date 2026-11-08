@@ -256,14 +256,15 @@ const move = (
   actorUserId: number,
   bookingId: number,
   start: Date,
-  over: { confirmOverride?: boolean; actorMemberId?: number } = {},
+  // Flowko U28: `now` per call (R6).
+  over: { confirmOverride?: boolean; actorMemberId?: number; now?: Date } = {},
   deps: WriterDeps = {}
 ) =>
   moveBusinessBooking(
     db,
     actorUserId,
     { bookingId, start, confirmOverride: over.confirmOverride ?? false, actorMemberId: over.actorMemberId },
-    NOW,
+    over.now ?? NOW,
     { lockWorker, googleBusy, ...deps }
   );
 
@@ -493,6 +494,7 @@ describe("moveBusinessBooking (W9)", () => {
           with: { start: at("09:30").getTime(), end: at("10:00").getTime() },
         },
       ],
+      googleUnavailable: false, // Flowko U28: R7
     });
     expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
     expect(await stepTimes(f.ana.bookingId)).toEqual(stepsBefore);
@@ -652,5 +654,131 @@ describe("mails after commit never undo the write (the writer's one helper)", ()
     await move(f.users.olga, f.ana.bookingId, at("09:15"), {}, { sendMails: false });
     expect(mail.cancelled).not.toHaveBeenCalled();
     expect(mail.moved).not.toHaveBeenCalled();
+  });
+});
+
+// Flowko U28: no move into the past or of an ended booking (R6), the Google-unavailable flag (R7) and the
+// WORKER actor rule (R9) on move and cancel.
+/** Mon 16 Nov 08:07 in Ljubljana: the 08:00 slot is the current one; Ana's Barvanje runs 09:00–10:40. */
+const DESK_NOW = new Date("2026-11-16T07:07:00Z");
+
+describe("moveBusinessBooking: the past (R6, U28)", () => {
+  it("to 07:45 when it is 08:07 → in_past, even with confirmOverride; nothing written, no lock", async () => {
+    await expectCode(move(f.users.olga, f.ana.bookingId, at("07:45"), { now: DESK_NOW }), "in_past");
+    await expectCode(
+      move(f.users.olga, f.ana.bookingId, at("07:45"), { now: DESK_NOW, confirmOverride: true }),
+      "in_past"
+    );
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
+    expect(await actionsOf(f.ana.bookingId)).toHaveLength(1);
+    expect(lockWorker).not.toHaveBeenCalled();
+    expect(googleBusy).not.toHaveBeenCalled();
+  });
+
+  it("to 08:00, the current slot → moved", async () => {
+    expect((await move(f.users.olga, f.ana.bookingId, at("08:00"), { now: DESK_NOW })).status).toBe("moved");
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("08:00"));
+  });
+
+  it("a booking that has ended → booking_not_active, even to a future time", async () => {
+    await expectCode(
+      move(f.users.olga, f.ana.bookingId, at("12:00"), { now: at("10:40"), confirmOverride: true }),
+      "booking_not_active"
+    );
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
+    expect(lockWorker).not.toHaveBeenCalled();
+  });
+
+  it("a booking that ended while the move waited for the lock → booking_not_active, nothing written", async () => {
+    // Another desk moved it to 06:00–07:40 (already over at 08:07) while this move waited.
+    lockWorker.mockImplementationOnce(async () => {
+      await prismock.booking.update({
+        where: { id: f.ana.bookingId },
+        data: { startTime: at("06:00"), endTime: at("07:40") },
+      });
+    });
+    await expectCode(
+      move(f.users.olga, f.ana.bookingId, at("12:00"), { now: DESK_NOW }),
+      "booking_not_active"
+    );
+    expect(await actionsOf(f.ana.bookingId)).toHaveLength(1);
+  });
+});
+
+describe("moveBusinessBooking: Google unavailable (R7, U28)", () => {
+  it("a failing Google → needs_confirm with googleUnavailable true; the override moves it", async () => {
+    googleBusy.mockImplementation(async (_userId, day) => ({ busy: [day], unavailable: true }));
+    const refused = await move(f.users.olga, f.ana.bookingId, at("09:15"));
+    expect(refused).toMatchObject({ status: "needs_confirm", googleUnavailable: true });
+    if (refused.status !== "needs_confirm") return;
+    expect(refused.problems.map((p) => p.kind)).toContain("overlaps_external");
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
+
+    const moved = await move(f.users.olga, f.ana.bookingId, at("09:15"), { confirmOverride: true });
+    expect(moved).toEqual({ status: "moved", bookingId: f.ana.bookingId, uid: f.ana.uid });
+  });
+
+  it("without Google trouble a problem answers googleUnavailable false", async () => {
+    // 14:30: the last busy step runs past Ana's shift (07–15).
+    const refused = await move(f.users.olga, f.ana.bookingId, at("14:30"));
+    expect(refused).toMatchObject({ status: "needs_confirm", googleUnavailable: false });
+  });
+});
+
+describe("move and cancel: a WORKER may not label an action with another member (R9, U28)", () => {
+  it("Ana moves her own with actorMemberId = Olga → forbidden, nothing written", async () => {
+    await expectCode(
+      move(f.users.ana, f.ana.bookingId, at("09:15"), { actorMemberId: f.members.olga }),
+      "forbidden"
+    );
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
+    expect(await actionsOf(f.ana.bookingId)).toHaveLength(1);
+    expect(lockWorker).not.toHaveBeenCalled();
+  });
+
+  it("Ana cancels her own with actorMemberId = Olga → forbidden, the booking stays ACCEPTED", async () => {
+    await expectCode(
+      cancelBusinessBooking(
+        db,
+        f.users.ana,
+        { bookingId: f.ana.bookingId, actorMemberId: f.members.olga },
+        NOW
+      ),
+      "forbidden"
+    );
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.ACCEPTED);
+    expect(await actionsOf(f.ana.bookingId)).toHaveLength(1);
+  });
+
+  it("Ana with her own id → ok (move, then cancel)", async () => {
+    await move(f.users.ana, f.ana.bookingId, at("09:15"), { actorMemberId: f.members.ana });
+    await cancelBusinessBooking(
+      db,
+      f.users.ana,
+      { bookingId: f.ana.bookingId, actorMemberId: f.members.ana },
+      NOW
+    );
+    const actions = await actionsOf(f.ana.bookingId);
+    expect(actions.map((a) => [a.action, a.actorMemberId])).toEqual([
+      ["CREATED", f.members.olga],
+      ["RESCHEDULED", f.members.ana],
+      ["CANCELLED", f.members.ana],
+    ]);
+  });
+
+  it("Olga and Rok naming Cene → ok (U27 W6 unchanged)", async () => {
+    await move(f.users.olga, f.ana.bookingId, at("09:15"), { actorMemberId: f.members.cene });
+    await cancelBusinessBooking(
+      db,
+      f.users.rok,
+      { bookingId: f.bor.bookingId, actorMemberId: f.members.cene },
+      NOW
+    );
+    expect((await actionsOf(f.ana.bookingId))[1]).toMatchObject({ actorMemberId: f.members.cene });
+    expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
+      actorMemberId: f.members.cene,
+      actorName: "Cene",
+      userId: f.users.rok,
+    });
   });
 });

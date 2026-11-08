@@ -1,5 +1,6 @@
 import { useIsEmbed } from "@calcom/embed-core/embed-iframe";
 import { useIsStandalone } from "@calcom/lib/hooks/useIsStandalone";
+import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
 import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import classNames from "@calcom/ui/classNames";
 import { useSession } from "next-auth/react";
@@ -11,6 +12,13 @@ import { MobileNavigationItem, MobileNavigationMoreItem, NavigationItem } from "
 import { useMobileMoreItems } from "./useMobileMoreItems";
 
 export const MORE_SEPARATOR_NAME = "more";
+
+// Flowko U28: the desk entry, first in the list, for business members only (see useNavigationItems)
+const FLOWKO_DESK_NAVIGATION_ITEM: NavigationItemType = {
+  name: "flowko_desk_nav",
+  href: "/koledar",
+  icon: "calendar-days",
+};
 
 const getNavigationItems = (): NavigationItemType[] => [
   {
@@ -70,10 +78,17 @@ const CAL_SCREEN_NAVIGATION_ITEMS = ["event_types_page_title", "availability"];
 
 export const useNavigationItems = () => {
   const hidesCalScreens = useFlowkoHidesCalScreens(); // Flowko U27
+  // Flowko U28 (R16): while the membership is loading neither the desk entry nor Cal's Event types and
+  // Availability show (no flash of screens a worker must not see); a member gets the desk entry, a user in no
+  // business (or an error) today's list.
+  const { status } = useFlowkoBusiness();
   return useMemo(() => {
-    const items = getNavigationItems().filter(
-      (item) => !(hidesCalScreens && CAL_SCREEN_NAVIGATION_ITEMS.includes(item.name)) // Flowko U27
+    const calItems = getNavigationItems().filter(
+      (item) =>
+        !(hidesCalScreens && CAL_SCREEN_NAVIGATION_ITEMS.includes(item.name)) && // Flowko U27
+        !(status === "loading" && CAL_SCREEN_NAVIGATION_ITEMS.includes(item.name)) // Flowko U28
     );
+    const items = status === "member" ? [FLOWKO_DESK_NAVIGATION_ITEM, ...calItems] : calItems; // Flowko U28
 
     const desktopNavigationItems = items.filter((item) => item.name !== MORE_SEPARATOR_NAME);
     const mobileNavigationBottomItems = items.filter(
@@ -88,7 +103,7 @@ export const useNavigationItems = () => {
       mobileNavigationBottomItems,
       mobileNavigationMoreItems,
     };
-  }, [hidesCalScreens]); // Flowko U27: the flag arrives after the first render
+  }, [hidesCalScreens, status]); // Flowko U27/U28: the flag and the status arrive after the first render
 };
 
 export const Navigation = () => {

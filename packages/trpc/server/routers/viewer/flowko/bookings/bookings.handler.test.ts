@@ -9,6 +9,10 @@ const m = vi.hoisted(() => ({
   createBusinessBooking: vi.fn(),
   cancelBusinessBooking: vi.fn(),
   moveBusinessBooking: vi.fn(),
+  getDeskDay: vi.fn(),
+  getDeskWeek: vi.fn(),
+  findCustomers: vi.fn(),
+  setBusinessNoShow: vi.fn(),
   checkRateLimitAndThrowError: vi.fn(),
   prisma: { marker: "prisma" },
 }));
@@ -24,6 +28,14 @@ vi.mock("@calcom/features/flowkoBusiness/bookingWriter", () => ({
 vi.mock("@calcom/features/flowkoBusiness/bookingChange", () => ({
   cancelBusinessBooking: m.cancelBusinessBooking,
   moveBusinessBooking: m.moveBusinessBooking,
+}));
+vi.mock("@calcom/features/flowkoBusiness/desk", () => ({
+  getDeskDay: m.getDeskDay,
+  getDeskWeek: m.getDeskWeek,
+  findCustomers: m.findCustomers,
+}));
+vi.mock("@calcom/features/flowkoBusiness/bookingNoShow", () => ({
+  setBusinessNoShow: m.setBusinessNoShow,
 }));
 
 import { FlowkoBusinessError } from "@calcom/features/flowkoBusiness/errors";
@@ -41,6 +53,8 @@ type Case = {
   service: ReturnType<typeof vi.fn>;
   run: () => Promise<unknown>;
   args: unknown[];
+  // Flowko U28: the desk reads have their own bucket
+  limiterId?: string;
 };
 
 const cases: Case[] = [
@@ -96,6 +110,35 @@ const cases: Case[] = [
       }),
     args: [m.prisma, 7, { bookingId: 9, start: new Date(START), confirmOverride: true }, expect.any(Date)],
   },
+  // Flowko U28
+  {
+    name: "day",
+    service: m.getDeskDay,
+    run: () => handlers.dayHandler({ ctx, input: { date: "2026-11-16" } }),
+    args: [m.prisma, 7, { date: "2026-11-16" }, expect.any(Date)],
+    limiterId: "flowkoDesk:7",
+  },
+  {
+    name: "week",
+    service: m.getDeskWeek,
+    run: () => handlers.weekHandler({ ctx, input: { weekStart: "2026-11-16", memberId: 3 } }),
+    args: [m.prisma, 7, { weekStart: "2026-11-16", memberId: 3 }, expect.any(Date)],
+    limiterId: "flowkoDesk:7",
+  },
+  {
+    name: "customers",
+    service: m.findCustomers,
+    run: () => handlers.customersHandler({ ctx, input: { query: "ana" } }),
+    args: [m.prisma, 7, { query: "ana" }],
+    limiterId: "flowkoDesk:7",
+  },
+  {
+    name: "noShow",
+    service: m.setBusinessNoShow,
+    run: () =>
+      handlers.noShowHandler({ ctx, input: { bookingId: 9, noShow: true, actorMemberId: 4 } }),
+    args: [m.prisma, 7, { bookingId: 9, noShow: true, actorMemberId: 4 }, expect.any(Date)],
+  },
 ];
 
 describe("viewer.flowko.bookings handlers (Flowko U27)", () => {
@@ -143,12 +186,12 @@ describe("viewer.flowko.bookings handlers (Flowko U27)", () => {
     await expect(c.run()).rejects.toBe(boom);
   });
 
-  it.each(cases)("$name rate limits as flowkoBookings:<id>, before the service", async (c) => {
+  it.each(cases)("$name rate limits as flowkoBookings:<id> (desk reads: flowkoDesk:<id>), before the service", async (c) => {
     c.service.mockResolvedValue(undefined);
     await c.run();
     expect(m.checkRateLimitAndThrowError).toHaveBeenCalledTimes(1);
     expect(m.checkRateLimitAndThrowError).toHaveBeenCalledWith({
-      identifier: "flowkoBookings:7",
+      identifier: c.limiterId ?? "flowkoBookings:7",
       rateLimitingType: "common",
     });
     expect(m.checkRateLimitAndThrowError.mock.invocationCallOrder[0]).toBeLessThan(
@@ -165,10 +208,39 @@ describe("viewer.flowko.bookings handlers (Flowko U27)", () => {
 
   it("needs_confirm comes back as data, not an error (create and move)", async () => {
     const problems = [{ kind: "overlap" }];
-    m.createBusinessBooking.mockResolvedValue({ status: "needs_confirm", problems });
-    m.moveBusinessBooking.mockResolvedValue({ status: "needs_confirm", problems });
-    await expect(cases[1].run()).resolves.toEqual({ status: "needs_confirm", problems });
-    await expect(cases[3].run()).resolves.toEqual({ status: "needs_confirm", problems });
+    // Flowko U28: needs_confirm carries googleUnavailable (Task 3)
+    const answer = { status: "needs_confirm", problems, googleUnavailable: false };
+    m.createBusinessBooking.mockResolvedValue(answer);
+    m.moveBusinessBooking.mockResolvedValue(answer);
+    await expect(cases[1].run()).resolves.toEqual(answer);
+    await expect(cases[3].run()).resolves.toEqual(answer);
+  });
+
+  // Flowko U28: Task 3 added googleUnavailable to needs_confirm
+  it("needs_confirm keeps googleUnavailable as data", async () => {
+    const answer = { status: "needs_confirm", problems: [], googleUnavailable: true };
+    m.createBusinessBooking.mockResolvedValue(answer);
+    await expect(cases[1].run()).resolves.toEqual(answer);
+  });
+
+  it.each(["in_past", "booking_not_started"])("%s maps to BAD_REQUEST with the code as message", async (code) => {
+    m.setBusinessNoShow.mockRejectedValue(new FlowkoBusinessError(code as never));
+    m.createBusinessBooking.mockRejectedValue(new FlowkoBusinessError(code as never));
+    for (const c of [cases[1], cases[7]]) {
+      const err = await c.run().catch((e) => e);
+      expect(err).toBeInstanceOf(TRPCError);
+      expect(err.code).toBe("BAD_REQUEST");
+      expect(err.message).toBe(code);
+    }
+  });
+
+  it("day and week take 'now' from the server clock, not the input", async () => {
+    m.getDeskDay.mockResolvedValue({});
+    const before = Date.now();
+    await cases[4].run();
+    const now = m.getDeskDay.mock.calls[0][3] as Date;
+    expect(now.getTime()).toBeGreaterThanOrEqual(before);
+    expect(now.getTime()).toBeLessThanOrEqual(Date.now());
   });
 });
 
@@ -184,6 +256,11 @@ const okInputs = {
   },
   cancel: { bookingId: 9, reason: null, actorMemberId: 2 },
   move: { bookingId: 9, start: START, confirmOverride: true, actorMemberId: null },
+  // Flowko U28
+  day: { date: "2026-11-16" },
+  week: { weekStart: "2026-11-16", memberId: 3 },
+  customers: { query: "ana" },
+  noShow: { bookingId: 9, noShow: false, actorMemberId: null },
 } as const;
 
 const schemaByName = {
@@ -191,6 +268,10 @@ const schemaByName = {
   create: schemas.ZCreateBookingInput,
   cancel: schemas.ZCancelBookingInput,
   move: schemas.ZMoveBookingInput,
+  day: schemas.ZDayInput,
+  week: schemas.ZWeekInput,
+  customers: schemas.ZCustomersInput,
+  noShow: schemas.ZNoShowInput,
 } as const;
 
 describe("bookings input schemas (Flowko U27)", () => {
@@ -276,8 +357,40 @@ describe("bookings input schemas (Flowko U27)", () => {
   });
 });
 
+describe("desk input schemas (Flowko U28)", () => {
+  it("date: a real ISO calendar date; a dotted date fails", () => {
+    expect(schemas.ZDayInput.safeParse({ date: "2026-11-16" }).success).toBe(true);
+    expect(schemas.ZDayInput.safeParse({ date: "16.11.2026" }).success).toBe(false);
+    expect(schemas.ZWeekInput.safeParse({ weekStart: "16.11.2026", memberId: 1 }).success).toBe(false);
+    expect(schemas.ZWeekInput.safeParse({ weekStart: "2026-11-16", memberId: 0 }).success).toBe(false);
+  });
+
+  it("query: trimmed, 1 to 80 chars; blank and 81 chars fail", () => {
+    const parsed = schemas.ZCustomersInput.safeParse({ query: "  ana  " });
+    expect(parsed.success && parsed.data.query).toBe("ana");
+    expect(schemas.ZCustomersInput.safeParse({ query: "x".repeat(80) }).success).toBe(true);
+    expect(schemas.ZCustomersInput.safeParse({ query: "x".repeat(81) }).success).toBe(false);
+    expect(schemas.ZCustomersInput.safeParse({ query: "   " }).success).toBe(false);
+  });
+
+  it("noShow must be a real boolean", () => {
+    expect(schemas.ZNoShowInput.safeParse({ bookingId: 1, noShow: "true" }).success).toBe(false);
+    expect(schemas.ZNoShowInput.safeParse({ bookingId: 1 }).success).toBe(false);
+    expect(schemas.ZNoShowInput.safeParse({ bookingId: 1, noShow: true }).success).toBe(true);
+  });
+
+  it("create customer caps (R17): name 80, e-mail 254, phone 32; one over fails", () => {
+    const ok = (customer: unknown) =>
+      schemas.ZCreateBookingInput.safeParse({ ...okInputs.create, customer }).success;
+    expect(ok({ name: "n".repeat(80), email: "e".repeat(254), phone: "1".repeat(32) })).toBe(true);
+    expect(ok({ name: "n".repeat(81) })).toBe(false);
+    expect(ok({ name: "Ana", email: "e".repeat(255) })).toBe(false);
+    expect(ok({ name: "Ana", phone: "1".repeat(33) })).toBe(false);
+  });
+});
+
 describe("flowko router wiring (Flowko U27)", () => {
-  it("flowkoRouter serves the eight roster.* procedures plus the five U27 ones", () => {
+  it("flowkoRouter serves the eight roster.* procedures plus the five U27 ones and six U28 ones", () => {
     expect(Object.keys(flowkoRouter._def.procedures).sort()).toEqual(
       [
         "roster.week",
@@ -293,6 +406,13 @@ describe("flowko router wiring (Flowko U27)", () => {
         "bookings.cancel",
         "bookings.move",
         "business.me",
+        // Flowko U28
+        "bookings.day",
+        "bookings.week",
+        "bookings.customers",
+        "bookings.noShow",
+        "business.services",
+        "business.members",
       ].sort()
     );
   });
