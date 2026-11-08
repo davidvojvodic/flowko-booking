@@ -2,6 +2,7 @@ import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import { eventTypesRouter } from "@calcom/trpc/server/routers/viewer/eventTypes/_router";
 import { EventTypeWebWrapper } from "@calcom/web/modules/event-types/components/EventTypeWebWrapper";
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
+import { redirectIfCalScreensHidden } from "@lib/flowko/calScreensPage";
 import { createRouterCaller, getTRPCContext } from "app/_trpc/context";
 import type { PageProps, ReadonlyHeaders, ReadonlyRequestCookies } from "app/_types";
 import { _generateMetadata } from "app/_utils";
@@ -43,6 +44,8 @@ const ServerPage = async ({ params }: PageProps) => {
   if (!session?.user?.id) {
     return redirect("/auth/login");
   }
+  // Flowko U27: a non-owner business member has no Cal screens, only the bookings list.
+  await redirectIfCalScreensHidden(session.user.id);
 
   const parsed = querySchema.safeParse(await params);
   if (!parsed.success) {

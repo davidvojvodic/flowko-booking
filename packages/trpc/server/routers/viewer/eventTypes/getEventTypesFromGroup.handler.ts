@@ -1,3 +1,5 @@
+// Flowko U27: the worker mirror stays out of the event-type list.
+import { mirrorIdsOfUser } from "@calcom/features/flowkoBusiness/mirror";
 import { EventTypeRepository } from "@calcom/features/eventtypes/repositories/eventTypeRepository";
 import { hasFilter } from "@calcom/features/filters/lib/hasFilter";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
@@ -47,11 +49,15 @@ export const getEventTypesFromGroup = async ({
 
   const eventTypes: EventType[] = [];
   const eventTypeRepo = new EventTypeRepository(ctx.prisma);
+  // Flowko U27: in the query (not after it) so the page size and the next cursor stay right. A mirror never has a
+  // team, so the team branch below needs no filter.
+  const { eventTypeIds: mirrorEventTypeIds } = await mirrorIdsOfUser(prisma, ctx.user.id);
 
   if (shouldListUserEvents || !teamId) {
     const baseQueryConditions = {
       teamId: null,
       schedulingType: null,
+      ...(mirrorEventTypeIds.length > 0 ? { id: { notIn: mirrorEventTypeIds } } : {}), // Flowko U27
       ...(searchQuery ? { title: { contains: searchQuery, mode: "insensitive" as Prisma.QueryMode } } : {}),
     };
 

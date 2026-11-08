@@ -4,6 +4,7 @@ import { getTeamsFiltersFromQuery } from "@calcom/features/filters/lib/getTeamsF
 import type { RouterOutputs } from "@calcom/trpc/react";
 import { eventTypesRouter } from "@calcom/trpc/server/routers/viewer/eventTypes/_router";
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
+import { redirectIfCalScreensHidden } from "@lib/flowko/calScreensPage";
 import { createRouterCaller, getTRPCContext } from "app/_trpc/context";
 import type { PageProps, ReadonlyHeaders, ReadonlyRequestCookies } from "app/_types";
 import { _generateMetadata } from "app/_utils";
@@ -53,6 +54,8 @@ const Page = async ({ searchParams }: PageProps): Promise<ReactElement> => {
   if (!session?.user?.id) {
     return redirect("/auth/login");
   }
+  // Flowko U27: a non-owner business member has no Cal screens, only the bookings list.
+  await redirectIfCalScreensHidden(session.user.id);
 
   // Check if user needs onboarding and redirect before fetching event types data
   // Use organizationId from session profile if available to avoid extra query

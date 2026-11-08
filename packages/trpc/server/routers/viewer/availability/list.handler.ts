@@ -1,3 +1,5 @@
+// Flowko U27: the worker mirror's empty schedule stays out of the availability list.
+import { mirrorIdsOfUser } from "@calcom/features/flowkoBusiness/mirror";
 import { ScheduleRepository } from "@calcom/features/schedules/repositories/ScheduleRepository";
 import { prisma } from "@calcom/prisma";
 
@@ -14,9 +16,13 @@ export type GetAvailabilityListHandlerReturn = Awaited<ReturnType<typeof listHan
 export const listHandler = async ({ ctx }: ListOptions) => {
   const { user } = ctx;
 
+  // Flowko U27: in this handler's own query; an empty result returns before the default-schedule write below.
+  const { scheduleIds: mirrorScheduleIds } = await mirrorIdsOfUser(prisma, user.id);
+
   const schedules = await prisma.schedule.findMany({
     where: {
       userId: user.id,
+      ...(mirrorScheduleIds.length > 0 ? { id: { notIn: mirrorScheduleIds } } : {}), // Flowko U27
     },
     select: {
       id: true,
