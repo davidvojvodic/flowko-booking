@@ -1,5 +1,7 @@
 import getEventTypeById from "@calcom/features/eventtypes/lib/getEventTypeById";
+import { mirrorOfEventType } from "@calcom/features/flowkoBusiness/mirror"; // Flowko U28
 import type { PrismaClient } from "@calcom/prisma";
+import { TRPCError } from "@trpc/server"; // Flowko U28
 
 import type { TrpcSessionUser } from "../../../types";
 import type { TGetInputSchema } from "./get.schema";
@@ -12,7 +14,11 @@ type GetOptions = {
   input: TGetInputSchema;
 };
 
-export const getHandler = ({ ctx, input }: GetOptions) => {
+export const getHandler = async ({ ctx, input }: GetOptions) => {
+  // Flowko U28: a worker mirror is never read through Cal's event-type screens, for anyone (the owner included)
+  if (await mirrorOfEventType(ctx.prisma, input.id)) {
+    throw new TRPCError({ code: "NOT_FOUND" });
+  }
   return getEventTypeById({
     currentOrganizationId: ctx.user.profile?.organizationId ?? null,
     eventTypeId: input.id,

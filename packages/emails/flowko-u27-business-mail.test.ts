@@ -26,6 +26,7 @@ import AttendeeReminderEmail from "./templates/attendee-reminder-email";
 import AttendeeRescheduledEmail from "./templates/attendee-rescheduled-email";
 import AttendeeScheduledEmail from "./templates/attendee-scheduled-email";
 import OrganizerCancelledEmail from "./templates/organizer-cancelled-email";
+import OrganizerRescheduledEmail from "./templates/organizer-rescheduled-email"; // Flowko U28
 import OrganizerScheduledEmail from "./templates/organizer-scheduled-email";
 import { attendeeFromName } from "./lib/flowkoSender";
 
@@ -383,6 +384,93 @@ describe("U27 desk organizer address never shown (E3)", () => {
     const mail = lastMail();
     expect(icsOrganizer(mail.icalEvent?.content ?? "")).toContain("mailto:host@example.com");
     expect(mail.text).toContain("host@example.com");
+  });
+});
+
+// Flowko U28 (D3, R16 d): the worker's (organizer) scheduled and rescheduled mails of a business booking carry the
+// contact line and no customer cancel link, in HTML, text and .ics; the customer's mails keep it. An empty address
+// (hidden organizer) renders no link in any mail; a normal organizer still renders its mailto link.
+describe("U28 worker mails of a business booking (D3)", () => {
+  it.each([
+    ["OrganizerScheduledEmail", OrganizerScheduledEmail],
+    ["OrganizerRescheduledEmail", OrganizerRescheduledEmail],
+  ] as const)("%s has the contact line and no cancel link in HTML, text and .ics", async (_name, Template) => {
+    const { calEvent } = await buildEvent({ flowkoBusiness: BUSINESS });
+
+    await new Template({ calEvent }).sendEmail();
+
+    const mail = lastMail();
+    const html = plain(mail.html);
+    const description = icsDescription(mail.icalEvent?.content ?? "");
+    for (const body of [html, mail.text, description]) {
+      expect(body).toContain(PHONE_LINE);
+      expect(body).not.toContain(CANCEL_HERE);
+      expect(body).not.toContain("cancel=true");
+      expect(body).not.toContain("?changes=true");
+      expect(body).not.toContain("/reschedule/");
+    }
+    expect(html).not.toContain("Odpovej");
+  });
+
+  it("the customer's scheduled mail keeps the cancel link in HTML, text and .ics", async () => {
+    const { calEvent, booker } = await buildEvent({ flowkoBusiness: BUSINESS });
+
+    await new AttendeeScheduledEmail(calEvent, booker).sendEmail();
+
+    const mail = lastMail();
+    expect(plain(mail.html)).toContain("/booking/booking-uid?cancel=true");
+    expect(mail.text).toContain(`${CANCEL_HERE} ${CANCEL_LINK}`);
+    expect(icsDescription(mail.icalEvent?.content ?? "")).toContain(`${CANCEL_HERE} ${CANCEL_LINK}`);
+  });
+
+  it("the worker's mail without a phone names the business and has no cancel link", async () => {
+    const { calEvent } = await buildEvent({ flowkoBusiness: { ...BUSINESS, phone: null } });
+
+    await new OrganizerScheduledEmail({ calEvent }).sendEmail();
+
+    const mail = lastMail();
+    for (const body of [plain(mail.html), mail.text, icsDescription(mail.icalEvent?.content ?? "")]) {
+      expect(body).toContain(CONTACT_LINE);
+      expect(body).not.toContain("cancel=true");
+    }
+  });
+
+  it("the worker's mail of a plain booking is unchanged: the manage link stays", async () => {
+    const { calEvent } = await buildEvent();
+
+    await new OrganizerScheduledEmail({ calEvent }).sendEmail();
+
+    const mail = lastMail();
+    expect(mail.text).toContain("?changes=true");
+    expect(icsDescription(mail.icalEvent?.content ?? "")).toContain("?changes=true");
+  });
+});
+
+describe("U28 no empty mailto link (R16 d)", () => {
+  it("a customer mail with a hidden organizer has no empty mailto link", async () => {
+    const { calEvent, booker } = await buildEvent({ hideOrganizerEmail: true, flowkoBusiness: BUSINESS });
+
+    await new AttendeeScheduledEmail(calEvent, booker).sendEmail();
+
+    const html = lastMail().html;
+    expect(html).not.toMatch(/href="mailto:"/);
+    expect(html).toContain('href="mailto:booker@example.com"');
+  });
+
+  it("a plain mail with a hidden organizer has no empty mailto link either", async () => {
+    const { calEvent, booker } = await buildEvent({ hideOrganizerEmail: true });
+
+    await new AttendeeScheduledEmail(calEvent, booker).sendEmail();
+
+    expect(lastMail().html).not.toMatch(/href="mailto:"/);
+  });
+
+  it("a normal organizer still renders its mailto link", async () => {
+    const { calEvent, booker } = await buildEvent({ hideOrganizerEmail: false });
+
+    await new AttendeeScheduledEmail(calEvent, booker).sendEmail();
+
+    expect(lastMail().html).toContain('href="mailto:host@example.com"');
   });
 });
 

@@ -1,4 +1,6 @@
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
+import { mirrorOfEventType } from "@calcom/features/flowkoBusiness/mirror"; // Flowko U28
+import { prisma } from "@calcom/prisma"; // Flowko U28
 import { eventTypesRouter } from "@calcom/trpc/server/routers/viewer/eventTypes/_router";
 import { EventTypeWebWrapper } from "@calcom/web/modules/event-types/components/EventTypeWebWrapper";
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
@@ -8,7 +10,7 @@ import type { PageProps, ReadonlyHeaders, ReadonlyRequestCookies } from "app/_ty
 import { _generateMetadata } from "app/_utils";
 import { unstable_cache } from "next/cache";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 const querySchema = z.object({
@@ -52,6 +54,10 @@ const ServerPage = async ({ params }: PageProps) => {
     throw new Error("Invalid Event Type id");
   }
   const eventTypeId = parsed.data.type;
+  // Flowko U28: a worker mirror has no Cal screen, for anyone (the owner included)
+  if (await mirrorOfEventType(prisma, eventTypeId)) {
+    notFound();
+  }
   const _headers = await headers();
   const _cookies = await cookies();
 

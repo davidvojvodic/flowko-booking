@@ -309,10 +309,12 @@ const getFlowkoBusinessManage = (
   calEvent: Parameters<typeof getCancelLink>[0] & { disableCancelling?: boolean },
   business: FlowkoBusinessRef,
   t: TFunction,
-  bookingCancelled = false
+  bookingCancelled = false,
+  // Flowko U28: the worker's mails carry no cancel link (D3)
+  withoutCancelLink = false
 ): { cancel: { label: string; link: string } | null; contact: string } => {
   const contact = getFlowkoBusinessContactLine(business, t);
-  const link = bookingCancelled || calEvent.disableCancelling ? "" : getCancelLink(calEvent);
+  const link = bookingCancelled || withoutCancelLink || calEvent.disableCancelling ? "" : getCancelLink(calEvent);
   return { cancel: link ? { label: t("flowko_cancel_here"), link } : null, contact };
 };
 
@@ -350,7 +352,9 @@ export const getManageLink = (
   },
   t: TFunction,
   // Flowko U27: the booking is cancelled (cancelled templates, a CANCELLED .ics)
-  flowkoBookingCancelled = false
+  flowkoBookingCancelled = false,
+  // Flowko U28: the worker's mail (text, .ics): contact line only, no cancel link (D3)
+  flowkoWithoutCancelLink = false
 ) => {
   if (calEvent.platformClientId) {
     return getPlatformManageLink(calEvent, t);
@@ -362,7 +366,8 @@ export const getManageLink = (
       calEvent,
       calEvent.flowkoBusiness,
       t,
-      flowkoBookingCancelled
+      flowkoBookingCancelled,
+      flowkoWithoutCancelLink
     );
     return cancel ? `${cancel.label} ${cancel.link}\n${contact}` : contact;
   }
@@ -624,7 +629,8 @@ export const getRichDescription = (
   t_?: TFunction /*, attendee?: Person*/,
   includeAppStatus = false,
   // Flowko U27: a cancelled business booking shows only the contact line (E2)
-  flowkoOptions: { bookingCancelled?: boolean } = {}
+  // Flowko U28: withoutCancelLink = the worker's mail, no cancel link (D3)
+  flowkoOptions: { bookingCancelled?: boolean; withoutCancelLink?: boolean } = {}
 ) => {
   const t = t_ ?? calEvent.organizer.language.translate;
 
@@ -663,7 +669,7 @@ export const getRichDescription = (
     includeAppStatus ? getAppsStatus(t, calEvent.appsStatus) : "",
     // TODO: Only the original attendee can make changes to the event
     // Guests cannot
-    calEvent.seatsPerTimeSlot ? "" : getManageLink(calEvent, t, flowkoOptions.bookingCancelled),
+    calEvent.seatsPerTimeSlot ? "" : getManageLink(calEvent, t, flowkoOptions.bookingCancelled, flowkoOptions.withoutCancelLink),
     calEvent.paymentInfo ? `${t("pay_now")}:\n${calEvent.paymentInfo.link}` : "",
   ]
     .filter(Boolean) // Remove empty strings

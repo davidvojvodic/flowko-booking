@@ -8,6 +8,8 @@ type ListWithTeamOptions = {
   };
 };
 
+// Flowko U28: the first (personal) arm leaves the worker mirrors out; a mirror never has a team, so the second arm
+// needs no filter.
 export const listWithTeamHandler = async ({ ctx }: ListWithTeamOptions) => {
   const userId = ctx.user.id;
   const query = Prisma.sql`SELECT "public"."EventType"."id", "public"."EventType"."teamId", "public"."EventType"."title", "public"."EventType"."slug", "public"."EventType"."length", "j1"."name" as "teamName", "u"."username" as "username"
@@ -15,6 +17,7 @@ export const listWithTeamHandler = async ({ ctx }: ListWithTeamOptions) => {
     LEFT JOIN "public"."Team" AS "j1" ON ("j1"."id") = ("public"."EventType"."teamId")
     LEFT JOIN "public"."users" AS "u" ON ("u"."id") = ("public"."EventType"."userId")
     WHERE "public"."EventType"."userId" = ${userId}
+    AND NOT EXISTS (SELECT 1 FROM "FlowkoWorkerMirror" m WHERE m."eventTypeId" = "public"."EventType"."id")
     UNION
     SELECT "public"."EventType"."id", "public"."EventType"."teamId", "public"."EventType"."title", "public"."EventType"."slug", "public"."EventType"."length", "j1"."name" as "teamName", "u"."username" as "username"
     FROM "public"."EventType"

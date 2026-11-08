@@ -18,6 +18,7 @@ export const listHandler = async ({ ctx }: ListOptions) => {
     where: {
       userId: ctx.user.id,
       team: null,
+      flowkoWorkerMirror: { is: null }, // Flowko U28: the worker mirrors stay out of Cal's lists
     },
     select: {
       id: true,
