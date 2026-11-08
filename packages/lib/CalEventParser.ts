@@ -14,6 +14,7 @@ import type {
 } from "@calcom/types/Calendar";
 
 import { WEBAPP_URL } from "./constants";
+import { dropDoubledFullStop } from "./flowkoBusiness/sentence"; // Flowko U27: no ".." after a name that ends with "."
 import isSmsCalEmail from "./isSmsCalEmail";
 import {
   buildPlatformCancelLink,
@@ -74,14 +75,16 @@ export const getWho = (
     )
     .join("\n");
 
-  const organizer = calEvent.hideOrganizerEmail
+  // Flowko U27: a faux organizer address (a desk-only worker's @flowko.invalid) is hidden like hideOrganizerEmail (E3)
+  const hideOrganizerEmail = calEvent.hideOrganizerEmail || isSmsCalEmail(calEvent.organizer.email);
+  const organizer = hideOrganizerEmail
     ? `${calEvent.organizer.name} - ${t("organizer")}`
     : `${calEvent.organizer.name} - ${t("organizer")}\n${calEvent.organizer.email}`;
 
   const teamMembers = calEvent.team?.members
     ? calEvent.team.members
         .map((member) =>
-          calEvent.hideOrganizerEmail
+          hideOrganizerEmail
             ? `${member.name} - ${t("team_member")}`
             : `${member.name} - ${t("team_member")}\n${member.email}`
         )
@@ -288,6 +291,44 @@ export const getPlatformManageLink = (
   return res;
 };
 
+// Flowko U27: the business of a business booking (CalendarEvent.flowkoBusiness).
+type FlowkoBusinessRef = { name: string; phone: string | null };
+
+// Flowko U27: the line that replaces the reschedule link of a business booking (E2): its phone, else its name.
+export const getFlowkoBusinessContactLine = (business: FlowkoBusinessRef, t: TFunction) =>
+  business.phone
+    ? t("flowko_reschedule_by_phone", { phone: business.phone, interpolation: { escapeValue: false } })
+    : dropDoubledFullStop(
+        t("flowko_reschedule_contact", { name: business.name, interpolation: { escapeValue: false } }),
+        business.name
+      );
+
+// Flowko U27: a business booking's manage lines (E2): the cancel link (unless the booking is cancelled or
+// cancelling is off) and the contact line. Text, .ics and calendar descriptions; the mail HTML is ManageLink.
+const getFlowkoBusinessManage = (
+  calEvent: Parameters<typeof getCancelLink>[0] & { disableCancelling?: boolean },
+  business: FlowkoBusinessRef,
+  t: TFunction,
+  bookingCancelled = false
+): { cancel: { label: string; link: string } | null; contact: string } => {
+  const contact = getFlowkoBusinessContactLine(business, t);
+  const link = bookingCancelled || calEvent.disableCancelling ? "" : getCancelLink(calEvent);
+  return { cancel: link ? { label: t("flowko_cancel_here"), link } : null, contact };
+};
+
+// Flowko U27: the HTML of getFlowkoBusinessManage (Office 365 event bodies), the cancel link clickable.
+const getFlowkoBusinessManageHtml = (
+  calEvent: Parameters<typeof getFlowkoBusinessManage>[0],
+  business: FlowkoBusinessRef,
+  t: TFunction
+) => {
+  const { cancel, contact } = getFlowkoBusinessManage(calEvent, business, t);
+  const cancelHtml = cancel
+    ? `<p><strong>${cancel.label}</strong> <a href="${cancel.link}">${t("cancel_booking_link")}</a></p>`
+    : "";
+  return `${cancelHtml}<p>${contact}</p>`;
+};
+
 export const getManageLink = (
   calEvent: {
     platformClientId?: string | null;
@@ -303,11 +344,27 @@ export const getManageLink = (
     team?: {
       id: number;
     };
+    // Flowko U27
+    flowkoBusiness?: FlowkoBusinessRef | null;
+    disableCancelling?: boolean;
   },
-  t: TFunction
+  t: TFunction,
+  // Flowko U27: the booking is cancelled (cancelled templates, a CANCELLED .ics)
+  flowkoBookingCancelled = false
 ) => {
   if (calEvent.platformClientId) {
     return getPlatformManageLink(calEvent, t);
+  }
+
+  // Flowko U27: a business booking offers the cancel link and "call the business", never the manage page (E2)
+  if (calEvent.flowkoBusiness) {
+    const { cancel, contact } = getFlowkoBusinessManage(
+      calEvent,
+      calEvent.flowkoBusiness,
+      t,
+      flowkoBookingCancelled
+    );
+    return cancel ? `${cancel.label} ${cancel.link}\n${contact}` : contact;
   }
 
   return `${t("need_to_reschedule_or_cancel")} ${calEvent.bookerUrl ?? WEBAPP_URL}/booking/${getUid(
@@ -465,6 +522,9 @@ type RichDescriptionCalEvent = {
   additionalInformation?: AdditionalInformation;
   location?: string | null;
   uid?: string | null;
+  // Flowko U27
+  flowkoBusiness?: FlowkoBusinessRef | null;
+  disableCancelling?: boolean;
 };
 
 export const getRichDescriptionHTML = (
@@ -543,7 +603,10 @@ export const getRichDescriptionHTML = (
       )
     ),
     includeAppStatus ? textToHtml(getAppsStatus(t, calEvent.appsStatus)) : "",
-    manageLinkHtml,
+    // Flowko U27: a business booking's cancel link and contact line instead (E2)
+    calEvent.flowkoBusiness
+      ? getFlowkoBusinessManageHtml(calEvent, calEvent.flowkoBusiness, t)
+      : manageLinkHtml,
     calEvent.paymentInfo
       ? `<p><strong>${t("pay_now")}:</strong> <a href="${calEvent.paymentInfo.link}">${
           calEvent.paymentInfo.link
@@ -559,7 +622,9 @@ export const getRichDescriptionHTML = (
 export const getRichDescription = (
   calEvent: RichDescriptionCalEvent,
   t_?: TFunction /*, attendee?: Person*/,
-  includeAppStatus = false
+  includeAppStatus = false,
+  // Flowko U27: a cancelled business booking shows only the contact line (E2)
+  flowkoOptions: { bookingCancelled?: boolean } = {}
 ) => {
   const t = t_ ?? calEvent.organizer.language.translate;
 
@@ -598,7 +663,7 @@ export const getRichDescription = (
     includeAppStatus ? getAppsStatus(t, calEvent.appsStatus) : "",
     // TODO: Only the original attendee can make changes to the event
     // Guests cannot
-    calEvent.seatsPerTimeSlot ? "" : getManageLink(calEvent, t),
+    calEvent.seatsPerTimeSlot ? "" : getManageLink(calEvent, t, flowkoOptions.bookingCancelled),
     calEvent.paymentInfo ? `${t("pay_now")}:\n${calEvent.paymentInfo.link}` : "",
   ]
     .filter(Boolean) // Remove empty strings

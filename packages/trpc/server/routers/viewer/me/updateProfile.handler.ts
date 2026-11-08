@@ -1,5 +1,7 @@
 import { getPremiumMonthlyPlanPriceId } from "@calcom/app-store/stripepayment/lib/utils";
 import { sendChangeOfEmailVerification } from "@calcom/features/auth/lib/verifyEmail";
+// Flowko U27 (E4): no e-mail change to or from the desk placeholder domain.
+import { refuseDeskAddress, refuseDeskEmailChange } from "@calcom/features/flowkoBusiness/deskEmailGuard";
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
 import { checkUsername } from "@calcom/features/profile/lib/checkUsername";
 import { ScheduleRepository } from "@calcom/features/schedules/repositories/ScheduleRepository";
@@ -40,6 +42,11 @@ type UpdateProfileOptions = {
 
 export const updateProfileHandler = async ({ ctx, input }: UpdateProfileOptions) => {
   const { user } = ctx;
+  // Flowko U27 (E4): before any lookup or write; the primary e-mail and every non-deleted secondary e-mail.
+  refuseDeskEmailChange(user.email, input.email);
+  for (const secondary of input.secondaryEmails ?? []) {
+    if (!secondary.isDeleted) refuseDeskAddress(secondary.email);
+  }
   const billingService = await getBillingProviderService();
   const userMetadata = handleUserMetadata({ ctx, input });
   const locale = input.locale || user.locale;

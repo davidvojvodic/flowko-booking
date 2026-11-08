@@ -40,6 +40,7 @@ import {
   getReportAction,
   shouldShowEditActions,
   shouldShowPendingActions,
+  shouldShowReportAction, // Flowko U27
 } from "./bookingActions";
 
 interface BookingActionsDropdownProps {
@@ -314,6 +315,7 @@ export function BookingActionsDropdown({
   })) as ActionType[];
 
   const reportAction = getReportAction(actionContext);
+  const showReportAction = shouldShowReportAction(actionContext); // Flowko U27: not on a salon mirror row
   const reportActionWithHandler = {
     ...reportAction,
     onClick: () => setIsOpenReportDialog(true),
@@ -502,7 +504,7 @@ export function BookingActionsDropdown({
     const hasAvailableAfterAction = afterEventActions.some((action) => !action.disabled);
 
     // Check report and cancel actions
-    const isReportAvailable = !reportActionWithHandler.disabled;
+    const isReportAvailable = showReportAction && !reportActionWithHandler.disabled; // Flowko U27
     const isCancelAvailable = !cancelEventAction.disabled;
 
     return (
@@ -579,7 +581,10 @@ export function BookingActionsDropdown({
                 <DropdownMenuSeparator />
               </>
             )}
-            <DropdownMenuLabel className="px-2 pb-1 pt-1.5">{t("edit_event")}</DropdownMenuLabel>
+            {/* Flowko U27: a salon mirror row has no edit actions, so no empty section */}
+            {editEventActions.length > 0 && (
+              <DropdownMenuLabel className="px-2 pb-1 pt-1.5">{t("edit_event")}</DropdownMenuLabel>
+            )}
             {editEventActions.map((action) => (
               <DropdownMenuItem className="rounded-lg" key={action.id} disabled={action.disabled}>
                 <DropdownItem
@@ -599,7 +604,7 @@ export function BookingActionsDropdown({
                 </DropdownItem>
               </DropdownMenuItem>
             ))}
-            <DropdownMenuSeparator />
+            {editEventActions.length > 0 && <DropdownMenuSeparator />}
             <DropdownMenuLabel className="px-2 pb-1 pt-1.5">{t("after_event")}</DropdownMenuLabel>
             {afterEventActions.map((action) => (
               <DropdownMenuItem className="rounded-lg" key={action.id} disabled={action.disabled}>
@@ -620,27 +625,29 @@ export function BookingActionsDropdown({
                 </DropdownItem>
               </DropdownMenuItem>
             ))}
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="rounded-lg"
-                key={reportActionWithHandler.id}
-                disabled={reportActionWithHandler.disabled}>
-                <DropdownItem
-                  type="button"
-                  color={reportActionWithHandler.color}
-                  StartIcon={reportActionWithHandler.icon}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    reportActionWithHandler.onClick?.();
-                  }}
-                  disabled={reportActionWithHandler.disabled}
-                  data-testid={reportActionWithHandler.id}
-                  className={reportActionWithHandler.disabled ? "text-muted" : undefined}>
-                  {reportActionWithHandler.label}
-                </DropdownItem>
-              </DropdownMenuItem>
-            </>
+            {showReportAction && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="rounded-lg"
+                  key={reportActionWithHandler.id}
+                  disabled={reportActionWithHandler.disabled}>
+                  <DropdownItem
+                    type="button"
+                    color={reportActionWithHandler.color}
+                    StartIcon={reportActionWithHandler.icon}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      reportActionWithHandler.onClick?.();
+                    }}
+                    disabled={reportActionWithHandler.disabled}
+                    data-testid={reportActionWithHandler.id}
+                    className={reportActionWithHandler.disabled ? "text-muted" : undefined}>
+                    {reportActionWithHandler.label}
+                  </DropdownItem>
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <Tooltip
               content={isBookingInPast ? t("cannot_cancel_past_booking") : ""}

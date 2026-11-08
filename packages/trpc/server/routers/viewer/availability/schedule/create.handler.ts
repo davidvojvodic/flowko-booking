@@ -5,6 +5,7 @@ import type { Prisma } from "@calcom/prisma/client";
 import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
+import { assertNotMirrorEventTypeWrite } from "../../flowko/calScreensGuard"; // Flowko U27
 import type { TCreateInputSchema } from "./create.schema";
 
 type CreateOptions = {
@@ -19,6 +20,8 @@ export type CreateScheduleHandlerReturn = Awaited<ReturnType<typeof createHandle
 export const createHandler = async ({ input, ctx }: CreateOptions) => {
   const { user } = ctx;
   if (input.eventTypeId) {
+    // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+    await assertNotMirrorEventTypeWrite(input.eventTypeId);
     const eventType = await prisma.eventType.findUnique({
       where: {
         id: input.eventTypeId,

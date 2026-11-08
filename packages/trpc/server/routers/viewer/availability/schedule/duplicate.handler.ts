@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
 import type { TScheduleDuplicateSchema } from "./duplicate.schema";
+import { assertNotMirrorSchedule } from "../../flowko/calScreensGuard"; // Flowko U27
 
 type DuplicateScheduleOptions = {
   ctx: {
@@ -16,6 +17,8 @@ type DuplicateScheduleOptions = {
 export type DuplicateScheduleHandlerReturn = Awaited<ReturnType<typeof duplicateHandler>>;
 
 export const duplicateHandler = async ({ ctx, input }: DuplicateScheduleOptions) => {
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorSchedule(input.scheduleId);
   try {
     const { scheduleId } = input;
     const { user } = ctx;

@@ -1,3 +1,5 @@
+// Flowko U27: a cancelled business booking's call-the-business line
+import { flowkoCancelledCallToAction } from "../components/ManageLink";
 import { AttendeeScheduledEmail } from "./AttendeeScheduledEmail";
 
 const declinedTitle = (isRecurring: boolean, released: boolean) => {
@@ -16,7 +18,8 @@ export const AttendeeDeclinedEmail = (props: React.ComponentProps<typeof Attende
       title={declinedTitle(isRecurring, released)}
       headerType="xCircle"
       subject="event_declined_subject"
-      callToAction={null}
+      // Flowko U27: a business booking keeps the call-the-business line (E2)
+      callToAction={flowkoCancelledCallToAction(props.calEvent, props.attendee.language.translate)}
       {...(released && {
         subtitle: <>{props.attendee.language.translate("flowko_previous_time_released_book_again")}</>,
       })}

@@ -32,6 +32,8 @@ const TOP_LEVEL_ROUTES = [
   "more",
   "onboarding",
   "payment",
+  // Flowko U27: the call-the-business page /poklicite/<business slug>
+  "poklicite",
   "refer",
   "reschedule",
   "router",

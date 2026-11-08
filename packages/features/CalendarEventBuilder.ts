@@ -209,6 +209,8 @@ export class CalendarEventBuilder {
       .withUid(uid)
       .withOneTimePassword(oneTimePassword)
       .withOrganization(organizationId)
+      // Flowko U27: set for a booking on a worker mirror (E1)
+      .withFlowkoBusiness(eventType.flowkoWorkerMirror?.business ?? null)
       .withAssignmentReason(
         assignmentReason?.[0]?.reasonEnum
           ? {
@@ -518,6 +520,15 @@ export class CalendarEventBuilder {
     this.event = {
       ...this.event,
       assignmentReason,
+    };
+    return this;
+  }
+
+  // Flowko U27: the business of a business booking (E1); null for every other booking
+  withFlowkoBusiness(flowkoBusiness: CalendarEvent["flowkoBusiness"]) {
+    this.event = {
+      ...this.event,
+      flowkoBusiness,
     };
     return this;
   }

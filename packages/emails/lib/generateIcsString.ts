@@ -5,6 +5,8 @@ import { RRule } from "rrule";
 
 import { getRichDescription } from "@calcom/lib/CalEventParser";
 import { getVideoCallUrlFromCalEvent } from "@calcom/lib/CalEventParser";
+// Flowko U27: a desk-only worker's placeholder organizer address
+import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import { ORGANIZER_EMAIL_EXEMPT_DOMAINS, WEBAPP_URL } from "@calcom/lib/constants";
 import { emailSchema } from "@calcom/lib/emailSchema";
 import { ErrorCode } from "@calcom/lib/errorCodes";
@@ -36,6 +38,9 @@ export type ICSCalendarEvent = Pick<
   | "type"
   | "hideCalendarEventDetails"
   | "hideOrganizerEmail"
+  // Flowko U27: the business booking's manage lines (E2)
+  | "flowkoBusiness"
+  | "disableCancelling"
 >;
 
 const toICalDateArray = (date: string): DateArray => {
@@ -80,6 +85,9 @@ const generateIcsString = ({
   const isOrganizerExempt = ORGANIZER_EMAIL_EXEMPT_DOMAINS?.split(",")
     .filter((domain) => domain.trim() !== "")
     .some((domain) => event.organizer.email.toLowerCase().endsWith(domain.toLowerCase()));
+  // Flowko U27: a faux organizer address (desk-only worker) is never the ORGANIZER, exempt domain or not (E3)
+  const hideOrganizerEmail =
+    (event.hideOrganizerEmail && !isOrganizerExempt) || isSmsCalEmail(event.organizer.email);
 
   const icsEvent = createEvent({
     uid: event.iCalUID || event.uid!,
@@ -89,12 +97,11 @@ const generateIcsString = ({
     startInputType: "utc",
     productId: "-//Flowko//Rezervacije//SL",
     title: event.title,
-    description: getRichDescription(event, t),
+    // Flowko U27: a CANCELLED .ics of a business booking has no cancel link (E2)
+    description: getRichDescription(event, t, false, { bookingCancelled: status === "CANCELLED" }),
     organizer: {
       name: event.organizer.name,
-      ...(event.hideOrganizerEmail && !isOrganizerExempt
-        ? { email: getHiddenOrganizerEmail() }
-        : { email: event.organizer.email }),
+      ...(hideOrganizerEmail ? { email: getHiddenOrganizerEmail() } : { email: event.organizer.email }),
     },
     ...{ recurrenceRule },
     attendees: [

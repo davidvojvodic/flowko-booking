@@ -120,6 +120,25 @@ describe("getUserEventGroups", () => {
     });
   });
 
+  describe("Flowko U27: worker mirrors", () => {
+    // The result is groups, profiles and permissions only: no event type is listed here (they come from
+    // getEventTypesFromGroup / bulkEventFetch, which leave a worker mirror out), so there is nothing to filter.
+    // This pins that shape: a field that lists event types would have to filter mirrors first.
+    it("returns no event types, so a hidden mirror cannot appear in it", async () => {
+      const { ProfileRepository } = await import("@calcom/features/profile/repositories/ProfileRepository");
+      vi.mocked(ProfileRepository.findByUpIdWithAuth).mockResolvedValue(mockProfile);
+      mockFindAllByUpIdIncludeTeam.mockResolvedValue([]);
+      mockFilterTeamsByEventTypeReadPermission.mockResolvedValue([]);
+
+      const result = await getUserEventGroups({ ctx: mockCtx, input: null });
+
+      expect(Object.keys(result).sort()).toEqual(["eventTypeGroups", "profiles", "teamPermissions"]);
+      for (const group of result.eventTypeGroups) {
+        expect(Object.keys(group)).not.toContain("eventTypes");
+      }
+    });
+  });
+
   describe("Team memberships", () => {
     it("should include team events when team memberships exist", async () => {
       const { ProfileRepository } = await import("@calcom/features/profile/repositories/ProfileRepository");

@@ -148,3 +148,21 @@ describe("Flowko U22: flowkoReminders in event-type metadata", () => {
     });
   });
 });
+
+// Flowko U27: the mirror marker has to survive the metadata schemas (they strip unknown keys).
+describe("Flowko U27: flowkoMirror in event-type metadata", () => {
+  it("keeps flowkoMirror next to flowkoReminders", () => {
+    const reminders = { enabled: true, offsets: [1440, 120] };
+    const parsed = EventTypeMetaDataSchema.parse({ flowkoMirror: true, flowkoReminders: reminders });
+    expect(parsed).toEqual({ flowkoMirror: true, flowkoReminders: reminders });
+  });
+
+  it("rejects flowkoMirror: false", () => {
+    expect(EventTypeMetaDataSchema.safeParse({ flowkoMirror: false }).success).toBe(false);
+  });
+
+  it("leaves an absent flowkoMirror absent", () => {
+    const parsed = EventTypeMetaDataSchema.parse({ disableSuccessPage: true });
+    expect(parsed && "flowkoMirror" in parsed).toBe(false);
+  });
+});

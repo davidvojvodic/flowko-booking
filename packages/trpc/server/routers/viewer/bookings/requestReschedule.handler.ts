@@ -8,6 +8,8 @@ import { sendRequestRescheduleEmailAndSMS } from "@calcom/emails/email-manager";
 import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
+// Flowko U27: Cal's booking actions refuse business bookings (G2)
+import { assertNotBusinessBookingTrpc } from "@calcom/features/flowkoBusiness/calGuards";
 import { deleteMeeting } from "@calcom/features/conferencing/lib/videoClient";
 import getWebhooks from "@calcom/features/webhooks/lib/getWebhooks";
 import {
@@ -76,6 +78,9 @@ export const requestRescheduleHandler = async ({ ctx, input, source }: RequestRe
   if (!isBookingOrganizer) {
     throw new TRPCError({ code: "FORBIDDEN", message: "not_booking_owner" });
   }
+
+  // Flowko U27 (G2): a business booking is moved only by the Flowko services; before any write.
+  await assertNotBusinessBookingTrpc({ id: bookingToReschedule.id });
 
   const event: Partial<EventType> = bookingToReschedule.eventType ?? {};
   await bookingRepository.updateBookingStatus({

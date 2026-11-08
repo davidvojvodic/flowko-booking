@@ -321,7 +321,13 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
   const giphyImage = giphyAppData?.thankYouPage;
   const isRoundRobin = eventType.schedulingType === SchedulingType.ROUND_ROBIN;
 
-  const eventName = getEventName(eventNameObject, true);
+  // Flowko U27: a business booking (on a hidden mirror event type) keeps the title it was stored with, e.g.
+  // "Barvanje med Ana in Marija Novak"; the mirror's "{Event type title}" template would show the business name.
+  // Like the round-robin branch below, it falls back to the built name when the title is not a string.
+  const eventName =
+    eventType.metadata?.flowkoMirror === true && typeof bookingInfo.title === "string"
+      ? bookingInfo.title
+      : getEventName(eventNameObject, true);
   // Confirmation can be needed in two cases as of now
   // - Event Type has require confirmation option enabled always
   // - EventType has conditionally enabled confirmation option based on how far the booking is scheduled.
@@ -510,7 +516,12 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
           eventName={eventName}
           startTime={bookingInfo.startTime}
           endTime={bookingInfo.endTime}
-          organizer={bookingInfo.user}
+          // Flowko U27: the schema.org markup is page source too; a desk-only worker's placeholder address is left out
+          organizer={
+            bookingInfo.user && bookingInfo.user.email && isSmsCalEmail(bookingInfo.user.email)
+              ? { ...bookingInfo.user, email: null }
+              : bookingInfo.user
+          }
           attendees={bookingInfo.attendees}
           location={locationToDisplay}
           description={bookingInfo.description}
@@ -700,7 +711,9 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
                                     </span>
                                     <Badge variant="blue">{t("host")}</Badge>
                                   </div>
-                                  {!bookingInfo.eventType?.hideOrganizerEmail && (
+                                  {/* Flowko U27: a desk-only worker's @flowko.invalid placeholder is not shown as host e-mail */}
+                                  {!bookingInfo.eventType?.hideOrganizerEmail &&
+                                    !isSmsCalEmail(bookingInfo?.userPrimaryEmail ?? bookingInfo.user.email ?? "") && (
                                     <p className="text-default" data-testid="booking-host-email">
                                       {bookingInfo?.userPrimaryEmail ?? bookingInfo.user.email}
                                     </p>

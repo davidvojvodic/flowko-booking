@@ -9,6 +9,7 @@ import { UserRepository } from "@calcom/features/users/repositories/UserReposito
 import slugify from "@calcom/lib/slugify";
 import { prisma } from "@calcom/prisma";
 import { BookingStatus, RedirectType } from "@calcom/prisma/enums";
+import { callPageForUser, callPageForUserSlug, callPagePath } from "@lib/flowko/callPage"; // Flowko U27
 import { handleOrgRedirect } from "@lib/handleOrgRedirect";
 import { getUsersInOrgContext } from "@server/lib/[user]/getServerSideProps";
 import type { GetServerSidePropsContext } from "next";
@@ -146,6 +147,15 @@ async function getDynamicGroupPageProps(context: GetServerSidePropsContext) {
     } as const;
   }
 
+  // Flowko U27: a dynamic group with a worker or receptionist of a business in it is never booked on Cal's page;
+  // the embed wrapper adds /embed to this destination.
+  for (const member of users) {
+    const businessSlug = await callPageForUser(member.id);
+    if (businessSlug) {
+      return { redirect: { permanent: false, destination: callPagePath(businessSlug, false) } } as const;
+    }
+  }
+
   // We use this to both prefetch the query on the server,
   // as well as to check if the event exist, so we c an show a 404 otherwise.
 
@@ -239,6 +249,13 @@ async function getUserPageProps(context: GetServerSidePropsContext) {
   }
 
   const org = isValidOrgDomain ? currentOrgDomain : null;
+
+  // Flowko U27: a worker's or receptionist's page, and the owner's hidden mirror slug, go to the call page. Before
+  // getPublicEvent: a mirror is hidden and would 404 there instead of redirecting. The embed wrapper adds /embed.
+  const businessSlug = await callPageForUserSlug(user.id, slug);
+  if (businessSlug) {
+    return { redirect: { permanent: false, destination: callPagePath(businessSlug, false) } } as const;
+  }
 
   // We use this to both prefetch the query on the server,
   // as well as to check if the event exist, so we can show a 404 otherwise.

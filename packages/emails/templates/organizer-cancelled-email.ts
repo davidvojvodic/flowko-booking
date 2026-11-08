@@ -7,6 +7,9 @@ import OrganizerScheduledEmail from "./organizer-scheduled-email";
 import type { Reassigned } from "./organizer-scheduled-email";
 
 export default class OrganizerCancelledEmail extends OrganizerScheduledEmail {
+  // Flowko U27: the booking no longer stands (E2)
+  protected flowkoBookingCancelled = true;
+
   protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
     const toAddresses = [this.teamMember?.email || this.calEvent.organizer.email];
     const subject = this.reassigned ? "event_reassigned_subject" : "event_cancelled_subject";

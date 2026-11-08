@@ -18,6 +18,7 @@ import type { EventType, User } from "@calcom/prisma/client";
 import { RedirectType } from "@calcom/prisma/enums";
 import type { EventTypeMetaDataSchema } from "@calcom/prisma/zod-utils";
 import type { UserProfile } from "@calcom/types/UserProfile";
+import { callPageForUser, callPagePath } from "@lib/flowko/callPage"; // Flowko U27
 import { handleOrgRedirect } from "@lib/handleOrgRedirect";
 import type { EmbedProps } from "app/WithEmbedSSR";
 import type { GetServerSideProps } from "next";
@@ -140,6 +141,13 @@ export const getServerSideProps: GetServerSideProps<UserPageProps> = async (cont
   }
 
   const [user] = usersInOrgContext; //to be used when dealing with single user, not dynamic group
+
+  // Flowko U27: a column worker or receptionist of a business is booked by the business, never on Cal's page; the
+  // embed wrapper adds /embed to this destination.
+  const businessSlug = await callPageForUser(user.id);
+  if (businessSlug) {
+    return { redirect: { permanent: false, destination: callPagePath(businessSlug, false) } } as const;
+  }
 
   const branding = getBrandingForUser({ user });
 

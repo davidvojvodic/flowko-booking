@@ -34,6 +34,21 @@ export interface BookingActionContext {
   t: (key: string) => string;
 }
 
+// Flowko U27: a salon (mirror) booking is the desk's own record of a worker's appointment (event type metadata
+// flowkoMirror, set by the booking writer). Cal's reschedule, reschedule request, edit location, additional
+// guests and report would act on the mirror, not on the salon booking; cancel stays (it is routed to the
+// step-aware cancel), as do confirm/reject and no-show.
+const MIRROR_HIDDEN_EDIT_ACTIONS = ["reschedule", "reschedule_request", "change_location", "add_members"];
+
+export function isFlowkoMirrorBooking(booking: BookingItemProps): boolean {
+  const metadata = booking.eventType?.metadata as { flowkoMirror?: unknown } | null | undefined;
+  return metadata?.flowkoMirror === true;
+}
+
+export function shouldShowReportAction(context: BookingActionContext): boolean {
+  return !isFlowkoMirrorBooking(context.booking);
+}
+
 export function getPendingActions(context: BookingActionContext): ActionType[] {
   const { booking, isPending, isTabRecurring, isTabUnconfirmed, isRecurring, showPendingPayment, t } =
     context;
@@ -165,7 +180,11 @@ export function getEditEventActions(context: BookingActionContext): ActionType[]
       : null,
   ];
 
-  return actions.filter(Boolean) as ActionType[];
+  // Flowko U27: see isFlowkoMirrorBooking
+  const hideOnMirror = isFlowkoMirrorBooking(booking);
+  return (actions.filter(Boolean) as ActionType[]).filter(
+    (action) => !(hideOnMirror && MIRROR_HIDDEN_EDIT_ACTIONS.includes(action.id))
+  );
 }
 
 // Flowko: without teams the organizer is a booking's only host. U8c's booker view drops user.id (and the
@@ -233,6 +252,7 @@ export function shouldShowRecurringCancelAction(context: BookingActionContext): 
 
 export function shouldShowIndividualReportButton(context: BookingActionContext): boolean {
   const { booking, isPending, isUpcoming, isCancelled, isRejected } = context;
+  if (!shouldShowReportAction(context)) return false; // Flowko U27
   const hasDropdown = shouldShowEditActions(context);
   // Flowko: only the host may report (see isViewerTheHost)
   if (!isViewerTheHost(booking)) return false;

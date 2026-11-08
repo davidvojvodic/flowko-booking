@@ -435,7 +435,8 @@ const nextConfig = (phase: string): NextConfig => {
         // the /embed.js rewrite to /embed/embed.js
         "embed\\.js/?$",
         // /booking/:uid/embed and /reschedule/:uid/embed
-        "(?:booking|reschedule)/[^/]+/embed/?$",
+        // Flowko U27: and /poklicite/:slug/embed, the call page an embedded worker page redirects to
+        "(?:booking|reschedule|poklicite)/[^/]+/embed/?$",
         // /:user/embed and /:user/:type/embed
         `(?!(?:${reservedFirstSegments.join("|")})/)[^/]+(?:/[^/]+)?/embed/?$`,
       ];

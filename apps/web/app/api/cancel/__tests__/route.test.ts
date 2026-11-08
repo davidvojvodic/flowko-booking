@@ -45,6 +45,9 @@ vi.mock("@calcom/features/bookings/lib/handleCancelBooking", () => ({
   default: vi.fn(),
 }));
 
+// Flowko U27: no business booking here (the W8 diversion is covered in route.flowko-u27.test.ts)
+vi.mock("@calcom/features/flowkoBusiness/mirror", () => ({ businessBookingByUid: vi.fn(async () => null) }));
+
 vi.mock("@calcom/web/lib/validateCsrfToken", () => ({
   validateCsrfToken: vi.fn().mockResolvedValue(null),
 }));

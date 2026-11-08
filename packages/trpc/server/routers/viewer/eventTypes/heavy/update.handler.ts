@@ -18,6 +18,7 @@ import { eventTypeLocations } from "@calcom/prisma/zod-utils";
 import { TRPCError } from "@trpc/server";
 import type { GetServerSidePropsContext, NextApiResponse } from "next";
 import type { TrpcSessionUser } from "../../../../types";
+import { assertNotMirrorEventTypeWrite } from "../../flowko/calScreensGuard"; // Flowko U27
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNoSuccessRedirect } from "../ensureNoSuccessRedirect";
@@ -62,6 +63,8 @@ type UpdateOptions = {
 export type UpdateEventTypeReturn = Awaited<ReturnType<typeof updateHandler>>;
 
 export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorEventTypeWrite(input.id);
   const {
     schedule,
     instantMeetingSchedule,

@@ -5,8 +5,9 @@
 // (injected disconnectGoogle = disconnectGoogleOfUser; a failure leaves the lock in effect). A desk-only worker
 // gets only the member status (P3: it cannot sign in anyway, and a Cal-locked organizer breaks Cal's cancel); the
 // owner can never be locked. Unlock reverses both flags and never goes through Cal's admin handler (it mails).
-// lockMember does not refuse a worker with future bookings: that refusal (A2) sits in the set-up script, the only
-// lock caller before U29, until U27 lifts it; the list is returned for U27's lock-then-list. Server only.
+// lockMember does not refuse a worker with future bookings: the refusal (A2) that sat in the set-up script is lifted
+// in U27 (W10); the script prints the business bookings and the owner cancels each through
+// viewer.flowko.bookings.cancel. The list is returned for the lock-then-list. Server only.
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { mayManageBusiness, requireBusinessAccess } from "./access";

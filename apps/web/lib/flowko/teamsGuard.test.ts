@@ -63,6 +63,8 @@ const FLOWKO_PATHS = [
   /^packages\/lib\/flowkoBusiness\//,
   /^packages\/features\/flowkoBusiness\//,
   /^apps\/web\/lib\/flowko\//,
+  // Flowko U27: the call-the-business page.
+  /^apps\/web\/app\/\(booking-page-wrapper\)\/poklicite\//,
   // Flowko U26: the tRPC routers of viewer.flowko.* (roster API).
   /^packages\/trpc\/server\/routers\/viewer\/flowko\//,
   // Flowko U26: the page that serves viewer.flowko.* (/api/trpc/flowko/[trpc]).

@@ -290,6 +290,9 @@ model EventType {
   createdAt DateTime? @default(now())
   updatedAt DateTime? @updatedAt
 
+  // Flowko U27: the business worker this event type mirrors (hidden, never a team or host event type).
+  flowkoWorkerMirror FlowkoWorkerMirror?
+
   // @@partial_index([instantMeetingScheduleId])
 
   @@unique([userId, slug])
@@ -1020,6 +1023,8 @@ model FlowkoBusiness {
   invites         FlowkoBusinessInvite[]
   services        FlowkoService[]
   actions         FlowkoBookingAction[]
+  // Flowko U27: the mirror rows of the business workers.
+  workerMirrors   FlowkoWorkerMirror[]
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 }
@@ -1044,6 +1049,8 @@ model FlowkoBusinessMember {
   absences     FlowkoAbsence[]
   services     FlowkoServiceWorker[]
   actedActions FlowkoBookingAction[]
+  // Flowko U27: the member's mirror event type and schedule (one row).
+  mirror       FlowkoWorkerMirror?
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
 
@@ -1078,6 +1085,24 @@ model FlowkoAbsence {
   createdAt       DateTime             @default(now())
 
   @@index([memberId, startDate])
+}
+
+// Flowko U27: links a business worker to its hidden mirror EventType and its empty Schedule (the Cal rows that
+// let Cal's own booking checks see the worker). One row per member, event type and schedule; the row goes when
+// any of the three goes. Written by U27 only; no teamId, parentId, profileId or hosts on the mirror event type.
+model FlowkoWorkerMirror {
+  id          Int                  @id @default(autoincrement())
+  businessId  Int
+  business    FlowkoBusiness       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  memberId    Int                  @unique
+  member      FlowkoBusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  eventTypeId Int                  @unique
+  eventType   EventType            @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
+  scheduleId  Int                  @unique
+  schedule    Schedule             @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  createdAt   DateTime             @default(now())
+
+  @@index([businessId])
 }
 
 // Flowko U25: an invitation to join a business (table only; U29 writes it). Only the token's hash is stored.
@@ -1149,6 +1174,8 @@ model FlowkoBookingStep {
   updatedAt   DateTime       @updatedAt
 
   @@unique([bookingId, index])
+  // Flowko U27: the service's delete (SET NULL) and the per-service lookups.
+  @@index([serviceId])
 }
 
 // Flowko U25: the business action log. userId = the signed-in user (SET NULL when the account goes),
@@ -1171,6 +1198,9 @@ model FlowkoBookingAction {
 
   @@index([bookingId])
   @@index([businessId, createdAt])
+  // Flowko U27: the SET NULL on account and member deletes.
+  @@index([userId])
+  @@index([actorMemberId])
 }
 
 model Tracking {
@@ -1197,6 +1227,9 @@ model Schedule {
   timeZone             String?
   availability         Availability[]
   Host                 Host[]
+
+  // Flowko U27: set when this is a business worker's (empty) mirror schedule.
+  flowkoWorkerMirror FlowkoWorkerMirror?
 
   @@index([userId])
 }

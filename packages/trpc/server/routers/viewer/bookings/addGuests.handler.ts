@@ -6,6 +6,8 @@ import { BookingEmailSmsHandler } from "@calcom/features/bookings/lib/BookingEma
 import { isOrganizerEmailHidden } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import EventManager from "@calcom/features/bookings/lib/EventManager";
 import { BookingRepository } from "@calcom/features/bookings/repositories/BookingRepository";
+// Flowko U27: Cal's booking actions refuse business bookings (G2)
+import { assertNotBusinessBookingTrpc } from "@calcom/features/flowkoBusiness/calGuards";
 import {
   type EventTypeBrandingData,
   getEventTypeService,
@@ -54,6 +56,9 @@ export const addGuestsHandler = async ({
   const booking = await getBooking(bookingId);
 
   await validateUserPermissions(booking, user);
+
+  // Flowko U27 (G2): no guests on a business booking; before the organizer load and any write.
+  await assertNotBusinessBookingTrpc({ id: booking.id });
 
   validateGuestsFieldEnabled(booking);
 

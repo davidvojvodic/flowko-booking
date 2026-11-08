@@ -20,6 +20,8 @@ export default class OrganizerScheduledEmail extends BaseEmail {
   teamMember?: Person;
   reassigned?: Reassigned;
   attendee?: Person;
+  // Flowko U27: set by the cancelled template: a business booking's text then has no cancel link (E2)
+  protected flowkoBookingCancelled = false;
 
   constructor(input: {
     calEvent: CalendarEvent;
@@ -100,7 +102,7 @@ ${this.t(
 ${this.t(subtitle)}
 ${extraInfo}
 ${this.t("when")}: ${this.getFormattedDate()}
-${getRichDescription(this.calEvent, this.t, true)}
+${getRichDescription(this.calEvent, this.t, true, { bookingCancelled: this.flowkoBookingCancelled })}
 ${callToAction}
 `.trim();
   }

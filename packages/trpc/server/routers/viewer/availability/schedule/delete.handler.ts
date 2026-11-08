@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
 import type { TDeleteInputSchema } from "./delete.schema";
+import { assertNotMirrorSchedule } from "../../flowko/calScreensGuard"; // Flowko U27
 
 type DeleteOptions = {
   ctx: {
@@ -15,6 +16,8 @@ type DeleteOptions = {
 
 export const deleteHandler = async ({ input, ctx }: DeleteOptions) => {
   const { user } = ctx;
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorSchedule(input.scheduleId);
   const hostRepo = new HostRepository(prisma);
 
   const scheduleToDelete = await prisma.schedule.findUnique({

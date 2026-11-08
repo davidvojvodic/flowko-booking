@@ -7,6 +7,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { isMac } from "@calcom/lib/isMac";
 import { UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
+import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import { Tooltip } from "@calcom/ui/components/tooltip";
 import { ArrowDownIcon, ArrowUpIcon, CommandIcon, CornerDownLeftIcon, SearchIcon } from "@coss/ui/icons";
 import type { Action } from "kbar";
@@ -54,14 +55,6 @@ const getApps: AppAction[] = Object.values(appStoreMetadata).map(({ name, slug }
 
 const KBAR_ACTION_CONFIGS: ActionConfig[] = [
   {
-    id: "event-types",
-    name: "event_types_page_title",
-    section: "event_types_page_title",
-    shortcut: ["e", "t"],
-    keywords: "event types",
-    href: "/event-types",
-  },
-  {
     id: "app-store",
     name: "app_store",
     section: "apps",
@@ -100,14 +93,6 @@ const KBAR_ACTION_CONFIGS: ActionConfig[] = [
     shortcut: ["c", "b"],
     keywords: "cancelled bookings",
     href: "/bookings/cancelled",
-  },
-  {
-    id: "schedule",
-    name: "availability",
-    section: "availability",
-    shortcut: ["s", "a"],
-    keywords: "schedule availability",
-    href: "/availability",
   },
   {
     id: "profile",
@@ -195,6 +180,28 @@ const KBAR_ACTION_CONFIGS: ActionConfig[] = [
     shortcut: ["m", "b"],
     keywords: "billing view manage",
     href: "/settings/billing",
+  },
+];
+
+// Flowko U27: Cal's Event types and Availability shortcuts moved out of the static list. KBarProvider reads its
+// actions once, and the Cal-screens flag arrives after the first render, so useCalScreenActions registers these
+// two unless the user is a non-owner business member
+const CAL_SCREEN_KBAR_ACTION_CONFIGS: ActionConfig[] = [
+  {
+    id: "event-types",
+    name: "event_types_page_title",
+    section: "event_types_page_title",
+    shortcut: ["e", "t"],
+    keywords: "event types",
+    href: "/event-types",
+  },
+  {
+    id: "schedule",
+    name: "availability",
+    section: "availability",
+    shortcut: ["s", "a"],
+    keywords: "schedule availability",
+    href: "/availability",
   },
 ];
 
@@ -325,6 +332,20 @@ function useAdminActions(): void {
   useRegisterActions(adminActions, [adminActions]);
 }
 
+// Flowko U27: see CAL_SCREEN_KBAR_ACTION_CONFIGS
+function useCalScreenActions(): void {
+  const router = useRouter();
+  const hidesCalScreens = useFlowkoHidesCalScreens();
+
+  const calScreenActions: Action[] = useMemo(
+    () =>
+      hidesCalScreens ? [] : CAL_SCREEN_KBAR_ACTION_CONFIGS.map((config) => configToAction(config, router.push)),
+    [hidesCalScreens, router.push]
+  );
+
+  useRegisterActions(calScreenActions, [calScreenActions]);
+}
+
 const KBarRoot = ({ children }: { children: ReactNode }): JSX.Element => {
   const router = useRouter();
   const actions = useMemo(() => buildKbarActions(router.push), [router.push]);
@@ -343,6 +364,7 @@ const KBarContent = (): JSX.Element => {
   const { t } = useLocale();
   // Flowko: registered here, outside the portal, so the admin shortcut works before the palette is opened
   useAdminActions();
+  useCalScreenActions(); // Flowko U27
 
   return (
     <KBarPortal>

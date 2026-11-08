@@ -4,6 +4,8 @@ import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-util
 import dayjs from "@calcom/dayjs";
 import { sendCancelledEmailsAndSMS } from "@calcom/emails/email-manager";
 import { BookingReferenceRepository } from "@calcom/features/bookingReference/repositories/BookingReferenceRepository";
+// Flowko U27: Cal's cancel refuses business bookings (W8)
+import { assertNotBusinessBooking } from "@calcom/features/flowkoBusiness/calGuards";
 import EventManager from "@calcom/features/bookings/lib/EventManager";
 import { getCalEventResponses } from "@calcom/features/bookings/lib/getCalEventResponses";
 import { processNoShowFeeOnCancellation } from "@calcom/features/bookings/lib/payment/processNoShowFeeOnCancellation";
@@ -117,6 +119,9 @@ async function handler(input: CancelBookingInput, dependencies?: Dependencies) {
     }
     throw error;
   }
+  // Flowko U27 (W8): a business booking is cancelled only by the Flowko services (step-aware; /api/cancel diverts
+  // the customer's link there), never here, whoever the caller (reportBooking included). Before any write.
+  await assertNotBusinessBooking({ id: bookingToDelete.id });
   const {
     userId,
     platformBookingUrl,

@@ -4,6 +4,8 @@ import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 import generateIcsFile, { GenerateIcsRole } from "../lib/generateIcsFile";
 import renderEmail from "../src/renderEmail";
 import AttendeeScheduledEmail from "./attendee-scheduled-email";
+// Flowko U27: the sender name of attendee mails
+import { attendeeFromName } from "../lib/flowkoSender";
 
 export default class AttendeeUpdatedEmail extends AttendeeScheduledEmail {
   protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
@@ -14,7 +16,8 @@ export default class AttendeeUpdatedEmail extends AttendeeScheduledEmail {
         status: "CONFIRMED",
       }),
       to: `${this.attendee.name} <${this.attendee.email}>`,
-      from: `${this.calEvent.organizer.name} <${this.getMailerOptions().from}>`,
+      // Flowko U27: a business booking's mail comes from the business (E1)
+      from: `${attendeeFromName(this.calEvent)} <${this.getMailerOptions().from}>`,
       ...getReplyToHeader(
         this.calEvent,
         this.calEvent.attendees.filter(({ email }) => email !== this.attendee.email).map(({ email }) => email)

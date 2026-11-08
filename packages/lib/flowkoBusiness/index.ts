@@ -6,4 +6,5 @@ export * from "./holidays";
 export * from "./name";
 export * from "./roster";
 export * from "./schemas";
+export * from "./sentence";
 export * from "./templates";

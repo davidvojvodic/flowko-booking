@@ -5,9 +5,14 @@ import type { NextRequest } from "next/server";
 
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import handleCancelBooking from "@calcom/features/bookings/lib/handleCancelBooking";
+// Flowko U27: a business booking's cancel link goes to Flowko's step-aware customer cancel (W8)
+import { cancelBusinessBookingAsCustomer } from "@calcom/features/flowkoBusiness/bookingChange";
+import { FlowkoBusinessError } from "@calcom/features/flowkoBusiness/errors";
+import { businessBookingByUid } from "@calcom/features/flowkoBusiness/mirror";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import getIP from "@calcom/lib/getIP";
 import { piiHasher } from "@calcom/lib/server/PiiHasher";
+import prisma from "@calcom/prisma"; // Flowko U27
 import { bookingCancelWithCsrfSchema } from "@calcom/prisma/zod-utils";
 import { validateCsrfToken } from "@calcom/web/lib/validateCsrfToken";
 
@@ -54,6 +59,40 @@ async function handler(req: NextRequest) {
 
   // Strip integer id to ensure lookup is always by uid
   const { id: _id, ...safeBookingData } = bookingData;
+
+  // Flowko U27 (W8): after CSRF and the rate limit, a business booking is cancelled by Flowko's customer cancel
+  // (step-aware; staff cancel for a member who may act on it), never by handleCancelBooking, which refuses it.
+  // Its refusals answer 400 with the code as message (the cancel form shows data.message).
+  const businessBooking = await businessBookingByUid(prisma, bookingData.uid);
+  if (businessBooking) {
+    try {
+      await cancelBusinessBookingAsCustomer(
+        prisma,
+        {
+          uid: businessBooking.uid,
+          reason: bookingData.cancellationReason ?? null,
+          sessionUserId: session?.user?.id ?? null,
+        },
+        new Date()
+      );
+    } catch (error) {
+      if (error instanceof FlowkoBusinessError) {
+        return NextResponse.json({ success: false, message: error.code }, { status: 400 });
+      }
+      throw error;
+    }
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Booking successfully cancelled.",
+        onlyRemovedAttendee: false,
+        bookingId: businessBooking.bookingId,
+        bookingUid: businessBooking.uid,
+        isPlatformManagedUserBooking: false,
+      },
+      { status: 200 }
+    );
+  }
 
   const result = await handleCancelBooking({
     bookingData: safeBookingData,

@@ -983,6 +983,34 @@ describe("createEvent", () => {
     expect(insertCall.sendUpdates).toBe("none");
   });
 
+  // Flowko U27 (E3): a desk-only worker's placeholder address never becomes the Google organizer entry
+  test("should add no organizer entry for a desk-only worker without an external calendar id", async () => {
+    const calendarService = BuildCalendarService(mockCredential);
+    setFullMockOAuthManagerRequest();
+
+    const eventsInsertMock = vi.fn().mockResolvedValue({ data: { id: "mock-event-id" } });
+    calendarMock.calendar_v3.Calendar().events.insert = eventsInsertMock;
+
+    await calendarService.createEvent(
+      {
+        ...calEventWithBookerDetails,
+        organizer: { ...calEventWithBookerDetails.organizer, email: "desk-x@flowko.invalid" },
+      },
+      mockCredential.id
+    );
+    await calendarService.createEvent(calEventWithBookerDetails, mockCredential.id);
+
+    expect(eventsInsertMock).toHaveBeenCalledTimes(2);
+    const [desk, normal] = eventsInsertMock.mock.calls.map(
+      (call) => call[0].requestBody.attendees as { email: string; organizer?: boolean }[]
+    );
+    expect(desk.map((attendee) => attendee.email)).toEqual(["booker@example.com"]);
+    expect(desk.some((attendee) => attendee.organizer)).toBe(false);
+    expect(JSON.stringify(desk)).not.toContain("flowko.invalid");
+    // A normal organizer keeps the entry
+    expect(normal.find((attendee) => attendee.organizer)?.email).toBe("organizer@example.com");
+  });
+
   test("should not log or rethrow attendee details or the access token when the insert fails", async () => {
     const calendarService = BuildCalendarService(mockCredential);
     setFullMockOAuthManagerRequest();
