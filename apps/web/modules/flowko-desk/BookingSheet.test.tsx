@@ -1,6 +1,7 @@
 // Flowko U28: the booking sheet (R10, R12, R13): create with worker + start from the tap, services in tap order,
 // lookup, free-start chips, the override dialog after a refetch, field errors, and re-enter with another worker
-// (create first, then cancel the old booking with „Prestavljeno k: {{name}}“).
+// (create first, then cancel the old booking with „Prestavljeno k: {{name}}“). U28b B2: the customer section
+// shows the search first, „Nova stranka“ fields on demand, a picked customer as a card.
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,8 +47,11 @@ const createAtBor = (hm = "13:30"): BookingSheetTarget => ({ kind: "create", mem
 const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
 const chip = (name: string) => screen.getByRole("button", { name });
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Shrani" }));
+const saveButton = () => screen.getByRole("button", { name: "Shrani" });
 
+// Flowko U28b (B2): the new-customer fields appear only after „Nova stranka“.
 function fillCustomer(name = "Marija Novak", phone = "041 123 456") {
+  fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
   fireEvent.change(field("Ime in priimek"), { target: { value: name } });
   fireEvent.change(field("Telefon"), { target: { value: phone } });
 }
@@ -92,27 +96,12 @@ describe("BookingSheet create (U28 R10, R13)", () => {
     expect(chip("Fen")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("refuses to send without services, customer name or contact", async () => {
+  it("with a customer but no service, Save says to choose a service", async () => {
     renderSheet(createAtBor());
+    fillCustomer();
     save();
     expect(await screen.findByText("Izberite vsaj eno storitev.")).toBeInTheDocument();
-    expect(screen.getByText("Vpišite ime stranke.")).toBeInTheDocument();
-    expect(screen.getByText("Vpišite telefon ali e-pošto.")).toBeInTheDocument();
     expect(deskTrpc.create).not.toHaveBeenCalled();
-  });
-
-  it("a lookup result fills name, phone and e-mail; „Nova stranka“ clears them", async () => {
-    deskTrpc.customersQuery.mockReturnValue({ data: [marija], isFetching: false });
-    renderSheet(createAtBor());
-    fireEvent.change(field("Ime ali telefon"), { target: { value: "Mar" } });
-    fireEvent.click(await screen.findByRole("button", { name: /Marija Novak/ }, { timeout: 2000 }));
-    expect(field("Ime in priimek").value).toBe("Marija Novak");
-    expect(field("Telefon").value).toBe("+38641123456");
-    expect(field("E-pošta").value).toBe("marija@example.com");
-    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
-    expect(field("Ime in priimek").value).toBe("");
-    expect(field("Telefon").value).toBe("");
-    expect(field("E-pošta").value).toBe("");
   });
 
   it("a free-start chip of the chosen worker sets the time", async () => {
@@ -274,6 +263,110 @@ describe("BookingSheet create (U28 R10, R13)", () => {
   });
 });
 
+// Flowko U28b (B2): the customer section shows the search first; „Nova stranka“ reveals the fields (pre-filled from
+// the typed text); a picked customer is a card with „Zamenjaj“; Save waits for a customer.
+describe("BookingSheet customer section (U28b B2)", () => {
+  beforeEach(() => {
+    resetDeskTrpc();
+    toast.mockReset();
+    log.length = 0;
+  });
+
+  const customerFields = () =>
+    ["Ime in priimek", "Telefon", "E-pošta"].map((l) => screen.queryByLabelText(l));
+
+  it("starts with only the search and „Nova stranka“; Save is disabled", () => {
+    renderSheet(createAtBor());
+    expect(field("Ime ali telefon")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nova stranka" })).toBeInTheDocument();
+    expect(customerFields()).toEqual([null, null, null]);
+    expect(screen.queryByTestId("desk-customer-card")).toBeNull();
+    fireEvent.click(chip("Fen"));
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("a picked result is a card (name, phone, e-mail) and is what Save sends", async () => {
+    deskTrpc.customersQuery.mockReturnValue({ data: [marija], isFetching: false });
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 9, uid: "u" });
+    renderSheet(createAtBor());
+    fireEvent.click(chip("Fen"));
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Mar" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Marija Novak/ }, { timeout: 2000 }));
+    const card = screen.getByTestId("desk-customer-card");
+    expect(card.textContent).toContain("Marija Novak");
+    expect(card.textContent).toContain("+38641123456");
+    expect(card.textContent).toContain("marija@example.com");
+    expect(screen.queryByLabelText("Ime ali telefon")).toBeNull();
+    expect(customerFields()).toEqual([null, null, null]);
+    expect(saveButton()).not.toBeDisabled();
+    save();
+    await waitFor(() => expect(deskTrpc.create).toHaveBeenCalled());
+    expect(deskTrpc.create).toHaveBeenCalledWith({
+      workerMemberId: BOR,
+      serviceIds: [3],
+      start: iso("13:30"),
+      customer: { name: "Marija Novak", phone: "+38641123456", email: "marija@example.com" },
+      confirmOverride: false,
+      actorMemberId: OLGA,
+    });
+  });
+
+  it("„Zamenjaj“ goes back to the search and Save waits again", async () => {
+    deskTrpc.customersQuery.mockReturnValue({ data: [marija], isFetching: false });
+    renderSheet(createAtBor());
+    fireEvent.click(chip("Fen"));
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Mar" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Marija Novak/ }, { timeout: 2000 }));
+    fireEvent.click(screen.getByRole("button", { name: "Zamenjaj" }));
+    expect(screen.queryByTestId("desk-customer-card")).toBeNull();
+    expect(field("Ime ali telefon").value).toBe("");
+    expect(customerFields()).toEqual([null, null, null]);
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("„Nova stranka“ after typed letters pre-fills the name; Save waits for a phone or an e-mail", async () => {
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 9, uid: "u" });
+    renderSheet(createAtBor());
+    fireEvent.click(chip("Fen"));
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Marija Novak" } });
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    expect(field("Ime in priimek").value).toBe("Marija Novak");
+    expect(field("Telefon").value).toBe("");
+    expect(field("E-pošta").value).toBe("");
+    expect(saveButton()).toBeDisabled();
+    fireEvent.change(field("E-pošta"), { target: { value: "marija@example.com" } });
+    expect(saveButton()).not.toBeDisabled();
+    save();
+    await waitFor(() => expect(deskTrpc.create).toHaveBeenCalled());
+    expect(deskTrpc.create.mock.calls[0][0]).toMatchObject({
+      customer: { name: "Marija Novak", phone: null, email: "marija@example.com" },
+    });
+  });
+
+  it("„Nova stranka“ after a typed number pre-fills the phone; Save waits for the name", () => {
+    renderSheet(createAtBor());
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "041 123 456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    expect(field("Ime in priimek").value).toBe("");
+    expect(field("Telefon").value).toBe("041 123 456");
+    expect(saveButton()).toBeDisabled();
+    fireEvent.change(field("Ime in priimek"), { target: { value: "   " } });
+    expect(saveButton()).toBeDisabled();
+    fireEvent.change(field("Ime in priimek"), { target: { value: "Marija" } });
+    expect(saveButton()).not.toBeDisabled();
+  });
+
+  it("a result picked while the new-customer fields are open replaces them with the card", async () => {
+    deskTrpc.customersQuery.mockReturnValue({ data: [marija], isFetching: false });
+    renderSheet(createAtBor());
+    fillCustomer("Nekdo", "040 000 000");
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Mar" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Marija Novak/ }, { timeout: 2000 }));
+    expect(screen.getByTestId("desk-customer-card").textContent).toContain("Marija Novak");
+    expect(customerFields()).toEqual([null, null, null]);
+  });
+});
+
 describe("BookingSheet re-enter with another worker (U28 R12)", () => {
   beforeEach(() => {
     resetDeskTrpc();
@@ -297,7 +390,10 @@ describe("BookingSheet re-enter with another worker (U28 R12)", () => {
     const options = Array.from(select.options).map((o) => o.textContent);
     expect(options).toEqual(["Izberite delavca", "Olga", "Bor", "Cene"]);
     expect(chip("Barvanje")).toHaveAttribute("aria-pressed", "true");
-    expect(field("Ime in priimek").value).toBe("Marija Novak");
+    // Flowko U28b (B2): the old booking's customer is the card; no search, no fields.
+    expect(screen.getByTestId("desk-customer-card").textContent).toContain("Marija Novak");
+    expect(screen.queryByLabelText("Ime in priimek")).toBeNull();
+    expect(screen.queryByLabelText("Ime ali telefon")).toBeNull();
     expect(field("Čas").value).toBe("09:00");
     fireEvent.change(select, { target: { value: String(OLGA) } });
     save();

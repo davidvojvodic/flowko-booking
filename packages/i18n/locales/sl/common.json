@@ -5136,5 +5136,6 @@
   "flowko_desk_prev_week": "Prejšnji teden",
   "flowko_desk_next_week": "Naslednji teden",
   "flowko_desk_week_phone_hint": "Tedenski pogled je na voljo na tablici ali računalniku.",
-  "flowko_desk_no_show_mark_action": "Označi neprihod"
+  "flowko_desk_no_show_mark_action": "Označi neprihod",
+  "flowko_desk_customer_change": "Zamenjaj"
 }

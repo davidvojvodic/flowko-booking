@@ -346,7 +346,8 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     openBarvanje();
     fireEvent.click(screen.getByRole("button", { name: "Prestavi k drugemu delavcu" }));
     expect(screen.getByRole("dialog", { name: "Prestavi k drugemu delavcu" })).toBeInTheDocument();
-    expect((screen.getByLabelText("Ime in priimek") as HTMLInputElement).value).toBe("Marija Novak");
+    // Flowko U28b (B2): the old booking's customer shows as the card.
+    expect(screen.getByTestId("desk-customer-card").textContent).toContain("Marija Novak");
   });
 });
 
@@ -643,6 +644,7 @@ describe("DeskView who acts, free starts (U28b B1, B3)", () => {
     fireEvent.click(column(BOR), { clientY: yOf("13:30") });
     const sheet = screen.getByRole("dialog", { name: "Nov termin" });
     fireEvent.click(within(sheet).getByRole("button", { name: "Fen" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Nova stranka" }));
     fireEvent.change(within(sheet).getByLabelText("Ime in priimek"), { target: { value: "Marija Novak" } });
     fireEvent.change(within(sheet).getByLabelText("Telefon"), { target: { value: "041 123 456" } });
     fireEvent.click(within(sheet).getByRole("button", { name: "Shrani" }));

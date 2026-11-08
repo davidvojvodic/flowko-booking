@@ -6,6 +6,10 @@
 // created FIRST and only then the old one cancelled with „Prestavljeno k: {{name}}“, so the customer's slot is
 // never lost; a failed cancel says both bookings exist. `needs_confirm` opens the override dialog (after the
 // refetch in useDeskWrites); `in_past` and `bad_customer` show at their fields.
+// Flowko U28b (B2): the customer section shows the search first („Ime ali telefon“ + „Nova stranka“); a picked
+// customer is a compact card with „Zamenjaj“ (back to the search); „Nova stranka“ reveals the name/phone/e-mail
+// fields, pre-filled from the typed text; re-enter opens with the old customer as the card. Save stays disabled
+// until a customer is chosen or the new-customer fields are valid. The create payload is unchanged.
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -32,7 +36,8 @@ import {
 import { showToast } from "@calcom/ui/components/toast";
 
 import { ConfirmProblemsDialog, stepNamesOf } from "./ConfirmProblemsDialog";
-import { CustomerField } from "./CustomerField";
+import { CustomerCard, CustomerField } from "./CustomerField";
+import type { CustomerPrefill } from "./CustomerField";
 import { useDeskContext } from "./DeskContext";
 import { FreeStartChips } from "./FreeStartChips";
 import type { DeskCreateInput, DeskWriteCode } from "./useDeskWrites";
@@ -48,6 +53,18 @@ const FIELD_CODES: readonly DeskWriteCode[] = ["in_past", "bad_customer"];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // Messages are i18n keys. R17 caps: name 80, phone 32, e-mail 254 (the route refuses longer ones).
+// Flowko U28b: the customer part on its own, so Save can wait for a valid customer (B2).
+const customerSchema = z
+  .object({
+    name: z.string().trim().min(1, "flowko_desk_required_name").max(80, "flowko_desk_error_bad_customer"),
+    phone: z.string().trim().max(32, "flowko_desk_error_bad_customer"),
+    email: z.string().trim().max(254, "flowko_desk_error_bad_customer"),
+  })
+  .refine((c) => c.phone !== "" || c.email !== "", {
+    message: "flowko_desk_required_contact",
+    path: ["phone"],
+  });
+
 const schema = z.object({
   memberId: z
     .number()
@@ -59,18 +76,12 @@ const schema = z.object({
     .string()
     .refine((v) => localDateSchema.safeParse(v).success, { message: "flowko_desk_required_time" }),
   time: z.string().regex(TIME_RE, "flowko_desk_required_time"),
-  customer: z
-    .object({
-      name: z.string().trim().min(1, "flowko_desk_required_name").max(80, "flowko_desk_error_bad_customer"),
-      phone: z.string().trim().max(32, "flowko_desk_error_bad_customer"),
-      email: z.string().trim().max(254, "flowko_desk_error_bad_customer"),
-    })
-    .refine((c) => c.phone !== "" || c.email !== "", {
-      message: "flowko_desk_required_contact",
-      path: ["phone"],
-    }),
+  customer: customerSchema,
 });
 type Values = z.infer<typeof schema>;
+
+/** Flowko U28b (B2): search = nothing chosen yet; card = a picked (or the re-entered) customer; new = the fields. */
+type CustomerMode = "search" | "card" | "new";
 
 type Pending = { payload: DeskCreateInput; problems: FitProblem[]; googleUnavailable: boolean };
 
@@ -119,6 +130,11 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
   // Flowko U28: the „Vseeno shrani“ resend runs outside handleSubmit; while it runs, Save and the dialog's confirm
   // are off, so a second tap cannot resend without the override.
   const [busy, setBusy] = useState(false);
+  // Flowko U28b (B2): re-enter starts with the old booking's customer as the card; a new booking with the search.
+  const [customerMode, setCustomerMode] = useState<CustomerMode>(reenter ? "card" : "search");
+  const customer = form.watch("customer");
+  const customerReady =
+    customerMode === "card" || (customerMode === "new" && customerSchema.safeParse(customer).success);
 
   const workerName = (id: number) =>
     columns.find((c) => c.memberId === id)?.displayName ??
@@ -149,6 +165,19 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
     form.setValue("customer.name", c.name, opts);
     form.setValue("customer.phone", c.phone ?? "", opts);
     form.setValue("customer.email", c.email ?? "", opts);
+  };
+  const pickCustomer = (c: { name: string; phone: string | null; email: string | null }) => {
+    setCustomer(c);
+    setCustomerMode("card");
+  };
+  const newCustomer = (prefill: CustomerPrefill) => {
+    setCustomer({ name: prefill.name, phone: prefill.phone, email: "" });
+    setCustomerMode("new");
+  };
+  const changeCustomer = () => {
+    setCustomer({ name: "", phone: "", email: "" });
+    form.clearErrors("customer");
+    setCustomerMode("search");
   };
 
   async function save(payload: DeskCreateInput) {
@@ -319,38 +348,57 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
 
             <div className="flex flex-col gap-3">
               <span className="text-emphasis text-sm font-medium">{t("flowko_desk_customer")}</span>
-              <CustomerField
-                onPick={setCustomer}
-                onNew={() => setCustomer({ name: "", phone: "", email: "" })}
-              />
-              <TextField
-                label={t("flowko_desk_customer_name")}
-                maxLength={80}
-                {...form.register("customer.name")}
-              />
-              {fieldError(errors.customer?.name?.message)}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <TextField
-                  type="tel"
-                  label={t("flowko_desk_customer_phone")}
-                  maxLength={32}
-                  {...form.register("customer.phone")}
+              {customerMode === "card" ? (
+                <CustomerCard
+                  customer={{
+                    name: customer.name,
+                    phone: customer.phone || null,
+                    email: customer.email || null,
+                  }}
+                  onChange={changeCustomer}
                 />
-                <TextField
-                  type="email"
-                  label={t("flowko_desk_customer_email")}
-                  maxLength={254}
-                  {...form.register("customer.email")}
-                />
-              </div>
-              {fieldError(errors.customer?.phone?.message ?? errors.customer?.email?.message)}
+              ) : (
+                <CustomerField onPick={pickCustomer} onNew={newCustomer} />
+              )}
+              {customerMode === "new" && (
+                <>
+                  <TextField
+                    label={t("flowko_desk_customer_name")}
+                    maxLength={80}
+                    {...form.register("customer.name")}
+                  />
+                  {fieldError(errors.customer?.name?.message)}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <TextField
+                      type="tel"
+                      label={t("flowko_desk_customer_phone")}
+                      maxLength={32}
+                      {...form.register("customer.phone")}
+                    />
+                    <TextField
+                      type="email"
+                      label={t("flowko_desk_customer_email")}
+                      maxLength={254}
+                      {...form.register("customer.email")}
+                    />
+                  </div>
+                  {fieldError(errors.customer?.phone?.message ?? errors.customer?.email?.message)}
+                </>
+              )}
+              {/* Flowko U28b: a server refusal of a carded customer (bad_customer, a contact-less old one) shows here. */}
+              {customerMode === "card" &&
+                fieldError(
+                  errors.customer?.name?.message ??
+                    errors.customer?.phone?.message ??
+                    errors.customer?.email?.message
+                )}
             </div>
           </SheetBody>
           <SheetFooter>
             <Button color="secondary" onClick={onClose}>
               {t("cancel")}
             </Button>
-            <Button type="submit" loading={isSubmitting || busy} disabled={busy}>
+            <Button type="submit" loading={isSubmitting || busy} disabled={busy || !customerReady}>
               {t("save")}
             </Button>
           </SheetFooter>
