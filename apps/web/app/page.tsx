@@ -5,6 +5,7 @@ import { checkOnboardingRedirect } from "@calcom/features/auth/lib/onboardingUti
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
+import { deskHomeFor } from "@lib/flowko/deskPage"; // Flowko U28
 
 const RedirectPage = async () => {
   const session = await getServerSession({ req: buildLegacyRequest(await headers(), await cookies()) });
@@ -21,6 +22,12 @@ const RedirectPage = async () => {
   });
   if (onboardingPath) {
     redirect(onboardingPath);
+  }
+
+  // Flowko U28: a business member (any role) lands on the desk
+  const home = await deskHomeFor(session.user.id);
+  if (home) {
+    redirect(home);
   }
 
   redirect("/event-types");

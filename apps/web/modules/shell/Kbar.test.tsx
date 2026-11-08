@@ -24,6 +24,11 @@ vi.mock("@calcom/web/lib/flowko/useFlowkoHidesCalScreens", () => ({
   useFlowkoHidesCalScreens: () => false,
 }));
 
+// Flowko U28 (R16 f): the business state; a user in no business here, so the cases below are unchanged
+vi.mock("@calcom/web/lib/flowko/useFlowkoBusiness", () => ({
+  useFlowkoBusiness: () => ({ status: "none", me: null }),
+}));
+
 vi.mock("@calcom/app-store/appStoreMetaData", () => ({ appStoreMetadata: {} }));
 
 vi.mock("@calcom/trpc/react", () => ({

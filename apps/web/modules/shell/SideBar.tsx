@@ -17,6 +17,7 @@ import { useSession } from "next-auth/react";
 import { KBarTrigger } from "./Kbar";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { Navigation } from "./navigation/Navigation";
+import { useFlowkoHomeHref } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
 import { useBottomNavItems } from "./useBottomNavItems";
 import { ProfileDropdown } from "./user-dropdown/ProfileDropdown";
 import { UserDropdown } from "./user-dropdown/UserDropdown";
@@ -46,6 +47,7 @@ export function SideBar({ bannersHeight, user }: SideBarProps) {
   const { t, isLocaleReady } = useLocale();
 
   const publicPageUrl = `${WEBAPP_URL}/${user?.orgAwareUsername}`;
+  const homeHref = useFlowkoHomeHref(); // Flowko U28: the desk for a business member
 
   const bottomNavItems = useBottomNavItems({
     publicPageUrl,
@@ -115,7 +117,7 @@ export function SideBar({ bannersHeight, user }: SideBarProps) {
             </div>
           </header>
           {/* logo icon for tablet */}
-          <Link href="/event-types" className="text-center md:inline lg:hidden">
+          <Link href={homeHref} className="text-center md:inline lg:hidden">
             <Logo small icon />
           </Link>
           <Navigation />

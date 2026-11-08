@@ -9,6 +9,10 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({
 }));
 vi.mock("@calcom/lib/hooks/useIsStandalone", () => ({ useIsStandalone: () => false }));
 vi.mock("@calcom/ui/components/credits", () => ({ Credits: () => null }));
+const mockMe = vi.fn();
+vi.mock("@calcom/trpc/react", () => ({
+  trpc: { viewer: { flowko: { business: { me: { useQuery: () => mockMe() } } } } },
+}));
 vi.mock("@calcom/ui/components/logo", () => ({ Logo: () => null }));
 vi.mock("next-auth/react", () => ({ useSession: () => ({ status: "authenticated", data: {} }) }));
 vi.mock("./Kbar", () => ({ KBarTrigger: () => null }));
@@ -27,6 +31,7 @@ vi.mock("./LanguageSwitcher", () => ({
 describe("SideBar: the language switcher (Flowko U14)", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    mockMe.mockReturnValue({ data: null });
   });
 
   it("sits below the Settings item, at lg only: the collapsed tablet rail shows none", () => {
@@ -40,5 +45,30 @@ describe("SideBar: the language switcher (Flowko U14)", () => {
     const settings = screen.getByRole("link", { name: "settings" });
     expect(settings.compareDocumentPosition(switcher) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(switcher.className.split(" ")).toEqual(expect.arrayContaining(["hidden", "lg:flex"]));
+  });
+});
+
+describe("SideBar: the tablet logo link (Flowko U28)", () => {
+  const logoHref = (): string | null => {
+    render(
+      <TooltipProvider>
+        <SideBar bannersHeight={0} user={null} />
+      </TooltipProvider>
+    );
+    return document.querySelector("a.text-center")?.getAttribute("href") ?? null;
+  };
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("goes to the desk for a business member", () => {
+    mockMe.mockReturnValue({ data: { role: "WORKER", hidesCalScreens: true } });
+    expect(logoHref()).toBe("/koledar");
+  });
+
+  it("goes to the event types for a user in no business", () => {
+    mockMe.mockReturnValue({ data: null });
+    expect(logoHref()).toBe("/event-types");
   });
 });

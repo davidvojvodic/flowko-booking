@@ -27,6 +27,8 @@ const TOP_LEVEL_ROUTES = [
   "event-types",
   "getting-started",
   "icons",
+  // Flowko U28: the desk /koledar (the business calendar)
+  "koledar",
   "maintenance",
   "members",
   "more",

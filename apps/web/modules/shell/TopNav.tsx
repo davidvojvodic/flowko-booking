@@ -6,6 +6,7 @@ import { useIsStandalone } from "@calcom/lib/hooks/useIsStandalone";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { SettingsIcon } from "@coss/ui/icons";
 import { Logo } from "@calcom/ui/components/logo";
+import { useFlowkoHomeHref } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
 
 import { KBarTrigger } from "./Kbar";
 import { UserDropdown } from "./user-dropdown/UserDropdown";
@@ -20,12 +21,13 @@ export function TopNavContainer() {
 function TopNav() {
   const isEmbed = useIsEmbed();
   const { t } = useLocale();
+  const homeHref = useFlowkoHomeHref(); // Flowko U28: the desk for a business member
   return (
     <>
       <nav
         style={isEmbed ? { display: "none" } : {}}
         className="bg-cal-muted/50 border-subtle sticky top-0 z-40 flex w-full items-center justify-between border-b px-4 py-1.5 backdrop-blur-lg sm:p-4 md:hidden">
-        <Link href="/event-types">
+        <Link href={homeHref}>
           <Logo />
         </Link>
         <div className="flex items-center gap-2 self-center">

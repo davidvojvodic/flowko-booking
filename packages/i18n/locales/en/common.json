@@ -4977,5 +4977,8 @@
   "flowko_call_body_no_phone": "To book, reschedule or cancel, please contact the service provider: {{name}}.",
   "flowko_call_address": "Address: {{address}}",
   "flowko_desk_error_in_past": "This time has already passed. Choose a later time.",
-  "flowko_desk_error_booking_not_started": "No-show can only be marked once the appointment has started."
+  "flowko_desk_error_booking_not_started": "No-show can only be marked once the appointment has started.",
+  "flowko_desk_nav": "Calendar",
+  "flowko_desk_title": "Calendar",
+  "flowko_desk_subtitle": "Every worker's appointments, day by day"
 }

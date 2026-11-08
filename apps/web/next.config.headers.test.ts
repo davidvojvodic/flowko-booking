@@ -153,6 +153,9 @@ describe("next.config headers(): framing protection (U13-08)", () => {
     // Flowko U27: the call page itself is never framed by another site, and has no /embed index
     "/poklicite/salon-a",
     "/poklicite/embed",
+    // Flowko U28: the desk is a dashboard route; it and its /embed shape stay locked to this origin
+    "/koledar",
+    "/koledar/embed",
     "/flowko-test/ogled/extra/embed",
     "/flowko-test/ogled/embedded",
     "/flowko-test/ogled/embed/extra",

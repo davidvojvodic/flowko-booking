@@ -9,6 +9,7 @@ import { useIsStandalone } from "@calcom/lib/hooks/useIsStandalone";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
+import { useFlowkoHomeHref } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
 import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import classNames from "@calcom/ui/classNames";
 import { Badge } from "@calcom/ui/components/badge";
@@ -394,10 +395,12 @@ export const useTabs = ({
   return processTabsMemod;
 };
 
-const BackButtonInSidebar = ({ name }: { name: string }) => {
+// Flowko U28: exported for the test; the desk for a business member
+export const BackButtonInSidebar = ({ name }: { name: string }) => {
+  const homeHref = useFlowkoHomeHref();
   return (
     <Link
-      href="/event-types"
+      href={homeHref}
       className="group my-6 todesktop:mt-10 flex h-6 max-h-6 w-full flex-row items-center rounded-md px-3 py-2 font-medium text-emphasis text-sm leading-4 transition hover:bg-subtle group-hover:text-default [&[aria-current='page']]:bg-emphasis [&[aria-current='page']]:text-emphasis"
       data-testid={`vertical-tab-${name}`}>
       <ArrowLeftIcon className="h-4 w-4 stroke-[2px] md:mt-0 ltr:mr-[10px] rtl:ml-[10px] rtl:rotate-180" />

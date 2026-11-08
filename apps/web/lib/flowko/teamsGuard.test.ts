@@ -65,6 +65,9 @@ const FLOWKO_PATHS = [
   /^apps\/web\/lib\/flowko\//,
   // Flowko U27: the call-the-business page.
   /^apps\/web\/app\/\(booking-page-wrapper\)\/poklicite\//,
+  // Flowko U28: the desk page (/koledar) and its client modules.
+  /^apps\/web\/app\/\(use-page-wrapper\)\/\(main-nav\)\/koledar\//,
+  /^apps\/web\/modules\/flowko-desk\//,
   // Flowko U26: the tRPC routers of viewer.flowko.* (roster API).
   /^packages\/trpc\/server\/routers\/viewer\/flowko\//,
   // Flowko U26: the page that serves viewer.flowko.* (/api/trpc/flowko/[trpc]).
