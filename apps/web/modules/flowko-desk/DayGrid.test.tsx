@@ -95,4 +95,16 @@ describe("DayGrid (U28)", () => {
     expect(screen.getByTestId("desk-booking-102")).toBeInTheDocument();
     expect(screen.queryByTestId("desk-booking-101")).toBeNull();
   });
+
+  // Flowko U28b (B4): the sticky hour column and header (z-40/z-50) stay inside the grid's own stacking context,
+  // so on a phone they never paint over the shell's fixed bottom navigation (z-30).
+  it("keeps the sticky hour column inside the grid's own stacking context, below the mobile nav (B4)", () => {
+    renderGrid();
+    const scroll = screen.getByTestId("desk-grid-scroll");
+    expect(scroll.classList.contains("isolate")).toBe(true);
+    expect(Array.from(scroll.classList).some((c) => /^z-/.test(c))).toBe(false);
+    const axis = screen.getAllByTestId("desk-hour")[0].closest(".sticky") as HTMLElement;
+    expect(axis).not.toBeNull();
+    expect(scroll.contains(axis)).toBe(true);
+  });
 });

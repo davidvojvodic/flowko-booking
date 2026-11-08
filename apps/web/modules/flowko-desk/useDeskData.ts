@@ -1,6 +1,8 @@
 // Flowko U28: the desk's reads. The day polls every 30 s and on window focus (R13: no push channel, two tablets
 // are normal); `invalidate` refreshes every day and week view after a desk write, `refetch` the shown day (the
 // write hooks refetch before a dialog or an error shows, R13).
+// Flowko U28b (B3): `invalidate` covers the free starts too, so a booking sheet never offers a start a desk write
+// just took.
 import { useCallback } from "react";
 
 import type { DeskView } from "@calcom/features/flowkoBusiness/desk";
@@ -15,6 +17,7 @@ function useInvalidateDesk() {
       Promise.all([
         utils.viewer.flowko.bookings.day.invalidate(),
         utils.viewer.flowko.bookings.week.invalidate(),
+        utils.viewer.flowko.bookings.freeStarts.invalidate(),
       ]),
     [utils]
   );

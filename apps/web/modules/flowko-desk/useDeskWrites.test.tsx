@@ -1,6 +1,8 @@
 // Flowko U28: the desk's writes (R9, R13): the actor goes with every write, the picker opens first when nobody is
 // chosen, `needs_confirm` and every error refetch the day before anything shows, each error code has its own text,
 // `forbidden` clears the stored actor and reopens the picker.
+// Flowko U28b (B1, B3): no picker is ever forced open (a `forbidden` answer clears the stored choice and shows its
+// text); the refetch before a dialog or a message refreshes the shown free starts too.
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -73,16 +75,33 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it("opens the picker instead of writing when nobody is chosen", async () => {
-    const actor = actorState({ actor: null, needsChoice: true });
+  it("with the actor not known yet (member list loading) sends nothing and opens no picker", async () => {
+    const actor = actorState({ actor: null });
     const { writes } = setup(actor);
     let outcome: unknown;
     await act(async () => {
       outcome = await writes().cancel({ bookingId: 101 });
     });
     expect(outcome).toEqual({ kind: "needs_actor" });
-    expect(actor.openPicker).toHaveBeenCalled();
+    expect(actor.openPicker).not.toHaveBeenCalled();
     expect(deskTrpc.cancel).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("Koledarja ni bilo mogoče naložiti.", "error");
+  });
+
+  it("needs_confirm and errors refetch the shown free starts with the day (B3)", async () => {
+    deskTrpc.create.mockResolvedValueOnce({ status: "needs_confirm", problems: [], googleUnavailable: false });
+    deskTrpc.create.mockRejectedValueOnce(trpcError("duplicate_time"));
+    const { writes, refetch } = setup();
+    await act(async () => {
+      await writes().create(createInput);
+    });
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(deskTrpc.refetchFreeStarts).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await writes().create(createInput);
+    });
+    expect(refetch).toHaveBeenCalledTimes(2);
+    expect(deskTrpc.refetchFreeStarts).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -134,7 +153,7 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     expect(outcome).toMatchObject({ kind: "error", code: "in_past" });
   });
 
-  it("forbidden clears the stored actor and reopens the picker", async () => {
+  it("forbidden clears the stored actor and shows its text, no picker (B1)", async () => {
     deskTrpc.cancel.mockRejectedValue(trpcError("forbidden", "FORBIDDEN"));
     const { writes, actor } = setup();
     await act(async () => {
@@ -142,7 +161,7 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     });
     expect(deskTrpc.cancel).toHaveBeenCalledWith({ bookingId: 101, reason: "x", actorMemberId: 1 });
     expect(actor.clear).toHaveBeenCalled();
-    expect(actor.openPicker).toHaveBeenCalled();
+    expect(actor.openPicker).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith("Za to nimate dovoljenja. Izberite, kdo ste.", "error");
   });
 

@@ -262,13 +262,14 @@ describe("BookingSheet create (U28 R10, R13)", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("with nobody chosen at the desk, save opens the picker and sends nothing", async () => {
-    const actor = actorState({ actor: null, needsChoice: true });
+  it("with the actor not known yet, save sends nothing and opens no picker (U28b B1)", async () => {
+    const actor = actorState({ actor: null });
     renderSheet(createAtBor(), { actor });
     fireEvent.click(chip("Fen"));
     fillCustomer();
     save();
-    await waitFor(() => expect(actor.openPicker).toHaveBeenCalled());
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Koledarja ni bilo mogoče naložiti.", "error"));
+    expect(actor.openPicker).not.toHaveBeenCalled();
     expect(deskTrpc.create).not.toHaveBeenCalled();
   });
 });

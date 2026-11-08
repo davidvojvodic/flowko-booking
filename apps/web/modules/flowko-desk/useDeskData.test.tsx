@@ -1,4 +1,5 @@
 // Flowko U28: the day query polls every 30 s and on window focus (R13); invalidate covers day and week.
+// Flowko U28b (B3): and the free starts, so a sheet never offers a start a desk write just took.
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,11 +10,18 @@ const weekQuery = vi.fn();
 const membersQuery = vi.fn();
 const invalidateDay = vi.fn();
 const invalidateWeek = vi.fn();
+const invalidateFreeStarts = vi.fn();
 vi.mock("@calcom/trpc/react", () => ({
   trpc: {
     useUtils: () => ({
       viewer: {
-        flowko: { bookings: { day: { invalidate: invalidateDay }, week: { invalidate: invalidateWeek } } },
+        flowko: {
+          bookings: {
+            day: { invalidate: invalidateDay },
+            week: { invalidate: invalidateWeek },
+            freeStarts: { invalidate: invalidateFreeStarts },
+          },
+        },
       },
     }),
     viewer: {
@@ -42,12 +50,20 @@ describe("useDeskData (U28 R13)", () => {
     expect(result.current.refetch).toBe(refetch);
   });
 
-  it("invalidate refreshes both the day and the week", async () => {
+  it("invalidate refreshes the day, the week and the free starts (B3)", async () => {
     dayQuery.mockReturnValue({ data: undefined, refetch: vi.fn(), dataUpdatedAt: 0 });
     const { result } = renderHook(() => useDeskDay("2026-11-16"));
     await result.current.invalidate();
     expect(invalidateDay).toHaveBeenCalled();
     expect(invalidateWeek).toHaveBeenCalled();
+    expect(invalidateFreeStarts).toHaveBeenCalled();
+  });
+
+  it("the week's invalidate refreshes the free starts too (B3)", async () => {
+    weekQuery.mockReturnValue({ data: undefined, refetch: vi.fn(), dataUpdatedAt: 0 });
+    const { result } = renderHook(() => useDeskWeek("2026-11-16", 2));
+    await result.current.invalidate();
+    expect(invalidateFreeStarts).toHaveBeenCalled();
   });
 
   it("polls the week like the day and asks for the chosen worker's Monday-based week", () => {

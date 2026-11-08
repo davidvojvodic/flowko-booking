@@ -1,14 +1,14 @@
 // Flowko U28: the desk entry: data, date from the URL (business today by default), „who are you“ chip, and the
 // phone layout (one column at a time with a worker select, R15).
 import { TooltipProvider } from "@radix-ui/react-tooltip";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NuqsTestingAdapter, type UrlUpdateEvent } from "nuqs/adapters/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeskView as DeskViewData } from "@calcom/features/flowkoBusiness/desk";
 
 import DeskView from "./desk-view";
-import { ANA, BOR, NOW, OLGA, at, deskView, iso, localeT, weekViewOf } from "./desk.fixture";
+import { ANA, BOR, CENE, NOW, OLGA, at, deskView, iso, localeT, weekViewOf } from "./desk.fixture";
 import { deskTrpc, resetDeskTrpc } from "./desk.testDoubles";
 
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
@@ -68,11 +68,14 @@ describe("DeskView (U28)", () => {
     cleanup();
   });
 
-  it("on a tablet shows every column, today by default, and asks who is at the desk", () => {
+  it("on a tablet shows every column, today by default, and names the signed-in member on the chip (U28b B1)", () => {
     renderDesk();
     expect(requestedDates()).toContain("2026-11-16");
     expect(headers()).toEqual(["Olga", "Ana", "Bor", "Cene", "Dan (zaklenjeno)"]);
-    expect(screen.getByRole("button", { name: "Kdo ste?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ste: Olga" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Kdo ste?" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryAllByTestId(/^desk-actor-option-/)).toHaveLength(0);
     expect(screen.queryByLabelText("Delavec")).toBeNull();
   });
 
@@ -624,5 +627,100 @@ describe("DeskView week view (U28 D2)", () => {
     });
     renderDesk("?view=week");
     expect(screen.getByText("Delavcev še ni.")).toBeInTheDocument();
+  });
+});
+
+// Flowko U28b (B1, B3): „Kdo ste?“ is optional: the signed-in member acts unless this device chose someone else;
+// every desk write refreshes the free starts with the day and week.
+describe("DeskView who acts, free starts (U28b B1, B3)", () => {
+  const yOf = (hm: string) => ((at(hm) - at("08:00")) / 60_000) * 2;
+  const column = (memberId: number) => screen.getByTestId(`desk-column-${memberId}`);
+  const chipButton = () => screen.getByTestId("desk-actor-chip");
+  // The Cal dialog carries no accessible name, so the picker is found by its options.
+  const pickerOptions = () => screen.queryAllByTestId(/^desk-actor-option-/);
+
+  async function bookFenAtBor() {
+    fireEvent.click(column(BOR), { clientY: yOf("13:30") });
+    const sheet = screen.getByRole("dialog", { name: "Nov termin" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Fen" }));
+    fireEvent.change(within(sheet).getByLabelText("Ime in priimek"), { target: { value: "Marija Novak" } });
+    fireEvent.change(within(sheet).getByLabelText("Telefon"), { target: { value: "041 123 456" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Shrani" }));
+    await waitFor(() => expect(deskTrpc.create).toHaveBeenCalled());
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDeskTrpc();
+    toast.mockReset();
+    window.localStorage.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    isPhone.mockReturnValue(false);
+    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: OLGA, role: "OWNER" } });
+    answer(deskView());
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 7, uid: "u" });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("an OWNER with no stored choice books as herself; no picker opens; free starts are invalidated", async () => {
+    renderDesk();
+    expect(chipButton().textContent).toBe("Ste: Olga");
+    await bookFenAtBor();
+    expect(deskTrpc.create).toHaveBeenCalledWith(expect.objectContaining({ actorMemberId: OLGA }));
+    expect(pickerOptions()).toHaveLength(0);
+    await waitFor(() => expect(deskTrpc.invalidateFreeStarts).toHaveBeenCalled());
+    expect(deskTrpc.invalidateDay).toHaveBeenCalled();
+    expect(deskTrpc.invalidateWeek).toHaveBeenCalled();
+  });
+
+  it("the chip opens the picker; choosing Cene stores her and later writes name her; choosing herself resets", async () => {
+    renderDesk();
+    expect(pickerOptions()).toHaveLength(0);
+    fireEvent.click(chipButton());
+    expect(screen.getByText("Kdo ste?")).toBeInTheDocument();
+    expect(pickerOptions().map((o) => o.textContent)).toEqual(["Olga", "Ana", "Bor", "Cene", "Rok"]);
+    fireEvent.click(screen.getByTestId(`desk-actor-option-${CENE}`));
+    expect(window.localStorage.getItem("flowko-desk-actor:9")).toBe(String(CENE));
+    expect(chipButton().textContent).toBe("Ste: Cene");
+    await bookFenAtBor();
+    expect(deskTrpc.create).toHaveBeenLastCalledWith(expect.objectContaining({ actorMemberId: CENE }));
+
+    fireEvent.click(chipButton());
+    fireEvent.click(screen.getByTestId(`desk-actor-option-${OLGA}`));
+    expect(window.localStorage.getItem("flowko-desk-actor:9")).toBeNull();
+    expect(chipButton().textContent).toBe("Ste: Olga");
+  });
+
+  it("a stored member who is no longer active falls back to the signed-in member", () => {
+    window.localStorage.setItem("flowko-desk-actor:9", "77");
+    renderDesk();
+    expect(chipButton().textContent).toBe("Ste: Olga");
+  });
+
+  it("forbidden clears the stored choice and shows its text, no picker", async () => {
+    window.localStorage.setItem("flowko-desk-actor:9", String(CENE));
+    deskTrpc.create.mockRejectedValue(Object.assign(new Error("forbidden"), { data: { code: "FORBIDDEN" } }));
+    renderDesk();
+    expect(chipButton().textContent).toBe("Ste: Cene");
+    await bookFenAtBor();
+    expect(deskTrpc.create).toHaveBeenCalledWith(expect.objectContaining({ actorMemberId: CENE }));
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith("Za to nimate dovoljenja. Izberite, kdo ste.", "error")
+    );
+    expect(window.localStorage.getItem("flowko-desk-actor:9")).toBeNull();
+    expect(chipButton().textContent).toBe("Ste: Olga");
+    expect(pickerOptions()).toHaveLength(0);
+  });
+
+  it("a WORKER's chip is fixed to herself and not a button", () => {
+    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    window.localStorage.setItem("flowko-desk-actor:9", String(BOR));
+    renderDesk();
+    expect(chipButton().textContent).toBe("Ste: Ana");
+    expect(chipButton().tagName).toBe("SPAN");
   });
 });

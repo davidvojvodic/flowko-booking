@@ -209,3 +209,23 @@ describe("weekRanges (U28 R14)", () => {
     );
   });
 });
+
+describe("WeekGrid stacking (U28b B4)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("keeps the sticky hour column inside the grid's own stacking context, below the mobile nav", () => {
+    renderWeek();
+    const scroll = screen.getByTestId("desk-grid-scroll");
+    expect(scroll.classList.contains("isolate")).toBe(true);
+    expect(Array.from(scroll.classList).some((c) => /^z-/.test(c))).toBe(false);
+    const axis = screen.getAllByTestId("desk-hour")[0].closest(".sticky") as HTMLElement;
+    expect(scroll.contains(axis)).toBe(true);
+  });
+});
