@@ -11,6 +11,7 @@ import { UserRepository } from "@calcom/features/users/repositories/UserReposito
 import slugify from "@calcom/lib/slugify";
 import prisma from "@calcom/prisma";
 import { RedirectType } from "@calcom/prisma/enums";
+import { callPageForEventType, callPageForUser, callPagePath } from "@lib/flowko/callPage";
 import { getRedirectWithOriginAndSearchString } from "@lib/handleOrgRedirect";
 import type { inferSSRProps } from "@lib/types/inferSSRProps";
 import type { EmbedProps } from "app/WithEmbedSSR";
@@ -48,6 +49,15 @@ async function getUserPageProps(context: GetServerSidePropsContext) {
 
   if (!hashedLink) {
     return notFound;
+  }
+
+  // Flowko U27: a private link on a worker mirror or on a worker's or receptionist's own event type goes to the
+  // business's call page (a team event type has no owner user).
+  const businessSlug =
+    (await callPageForEventType(hashedLink.eventTypeId)) ??
+    (hashedLink.eventType.userId !== null ? await callPageForUser(hashedLink.eventType.userId) : null);
+  if (businessSlug) {
+    return { redirect: { permanent: false, destination: callPagePath(businessSlug, false) } };
   }
 
   const username = hashedLink.eventType.users[0]?.username;

@@ -75,6 +75,8 @@ export default defineConfig({
       { find: "~", replacement: path.resolve(__dirname, "apps/web/modules") },
       // apps/web path aliases
       { find: "@lib", replacement: path.resolve(__dirname, "apps/web/lib") },
+      // Flowko U27: apps/web/tsconfig's `@server/*`; the [user]/[type] page imports getUsersInOrgContext through it
+      { find: "@server", replacement: path.resolve(__dirname, "apps/web/server") },
       { find: "@components", replacement: path.resolve(__dirname, "apps/web/components") },
       { find: "app", replacement: path.resolve(__dirname, "apps/web/app") },
       { find: "@calcom/web", replacement: path.resolve(__dirname, "apps/web") },

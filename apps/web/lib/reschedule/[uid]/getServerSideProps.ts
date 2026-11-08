@@ -10,6 +10,7 @@ import { getDefaultEvent } from "@calcom/features/eventtypes/lib/defaultEvents";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { maybeGetBookingUidFromSeat } from "@calcom/lib/server/maybeGetBookingUidFromSeat";
 import prisma, { bookingMinimalSelect } from "@calcom/prisma";
+import { callPageForBookingUid, callPagePath } from "@lib/flowko/callPage";
 
 const querySchema = z.object({
   uid: z.string(),
@@ -99,6 +100,14 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
       notFound: true,
     } as const;
   }
+
+  // Flowko U27: a business booking is moved only by the business. Before buildEventUrlFromBooking, which throws for
+  // a desk-only organizer; the embed wrapper adds /embed to this destination.
+  const businessSlug = await callPageForBookingUid(uid);
+  if (businessSlug) {
+    return { redirect: { destination: callPagePath(businessSlug, false), permanent: false } };
+  }
+
   const eventType = booking.eventType ? booking.eventType : getDefaultEvent(dynamicEventSlugRef);
 
   const userRepo = new UserRepository(prisma);
