@@ -68,6 +68,8 @@ export default function DeskView() {
   const moveMode = useMoveMode(writes, { onMoved: closeDetails });
   const moving = moveMode.moving;
   const onBook = (target: DeskBookTarget) => (moving ? moveMode.tap(target) : setBookTarget(target));
+  // Flowko U28 (R5): a WORKER (fixed actor) books and moves only in her own column; the server refuses the rest.
+  const canBook = (column: { isMe: boolean }) => !actor.fixed || column.isMe;
   const onOpenDetails = (bookingId: number) => {
     if (!moving) setDetailsBookingId(bookingId);
   };
@@ -145,6 +147,7 @@ export default function DeskView() {
             receivedAt={day.receivedAt}
             onlyMemberId={phoneMemberId}
             onBook={onBook}
+            canBook={canBook}
             onOpenDetails={onOpenDetails}
             movingMemberId={moving?.memberId ?? null}
           />

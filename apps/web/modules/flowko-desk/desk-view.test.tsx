@@ -178,6 +178,23 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     expect((screen.getByLabelText("Čas") as HTMLInputElement).value).toBe("13:30");
   });
 
+  it("a WORKER's tap on a colleague's column opens no sheet; her own column does (R5)", () => {
+    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    dayQuery.mockImplementation((input: { date: string }) => {
+      const view = deskView({}, input.date);
+      view.me = { memberId: ANA, role: "WORKER" };
+      view.days[0].columns = view.days[0].columns.map((c) => ({ ...c, isMe: c.memberId === ANA }));
+      return { data: view, dataUpdatedAt: NOW.getTime(), refetch, isPending: false, error: null };
+    });
+    renderDesk();
+    expect(column(BOR)).not.toHaveAttribute("data-tap");
+    fireEvent.click(column(BOR), { clientY: yOf("13:30") });
+    expect(screen.queryByRole("dialog", { name: "Nov termin" })).toBeNull();
+    expect(column(ANA)).toHaveAttribute("data-tap", "book");
+    fireEvent.click(column(ANA), { clientY: yOf("11:00") });
+    expect(screen.getByRole("dialog", { name: "Nov termin" })).toBeInTheDocument();
+  });
+
   it("a tap on a booking opens its details", () => {
     renderDesk();
     expect(openBarvanje()).toBeInTheDocument();

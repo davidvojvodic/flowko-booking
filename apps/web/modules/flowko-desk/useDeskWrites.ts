@@ -3,6 +3,7 @@
 // every error refetch the shown day BEFORE the caller shows a dialog or a message, so a booking another tablet
 // just made is drawn under it. Each error code has its own text `flowko_desk_error_<code>`; codes the caller shows
 // at a field (`fieldCodes`) come back without a toast. `forbidden` clears the stored actor and reopens the picker
+// (a fixed WORKER gets `flowko_desk_error_forbidden_self` instead)
 // (the chosen member may have been locked meanwhile). Success invalidates every day and week view.
 import type { FitProblem } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -120,7 +121,8 @@ export function useDeskWrites(deps: DeskWriteDeps): DeskWrites {
         actor.clear();
         actor.openPicker();
       }
-      const message = errorKey(code);
+      // A WORKER is fixed to herself: no picker to offer, so her text does not ask her to choose.
+      const message = code === "forbidden" && actor.fixed ? "flowko_desk_error_forbidden_self" : errorKey(code);
       const atField = code !== "unknown" && opts.fieldCodes?.includes(code);
       if (opts.toasts !== "none" && !atField) showToast(t(message), "error");
       return { kind: "error", code, message };

@@ -146,6 +146,17 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     expect(toast).toHaveBeenCalledWith("Tega ne smete. Izberite, kdo ste.", "error");
   });
 
+  it("forbidden for a fixed WORKER does not ask her to choose who she is", async () => {
+    deskTrpc.create.mockRejectedValue(trpcError("forbidden", "FORBIDDEN"));
+    const { writes } = setup(actorState({ actor: { memberId: 2, displayName: "Ana" }, fixed: true }));
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await writes().create(createInput);
+    });
+    expect(toast).toHaveBeenCalledWith("Tega ne smete. Urejate lahko samo svoje termine.", "error");
+    expect(outcome).toMatchObject({ code: "forbidden", message: "flowko_desk_error_forbidden_self" });
+  });
+
   it("an unknown failure says something went wrong", async () => {
     deskTrpc.cancel.mockRejectedValue(new Error("boom"));
     const { writes } = setup();

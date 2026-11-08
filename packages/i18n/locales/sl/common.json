@@ -5131,5 +5131,6 @@
   "flowko_desk_cancel_booking": "Odpovej termin",
   "flowko_desk_cancel_reason": "Razlog (neobvezno)",
   "flowko_desk_no_show_mark": "Ni prišla/prišel",
-  "flowko_desk_no_show_undo": "Prekliči »ni prišla/prišel«"
+  "flowko_desk_no_show_undo": "Prekliči »ni prišla/prišel«",
+  "flowko_desk_error_forbidden_self": "Tega ne smete. Urejate lahko samo svoje termine."
 }

@@ -5069,5 +5069,6 @@
   "flowko_desk_cancel_booking": "Cancel booking",
   "flowko_desk_cancel_reason": "Reason (optional)",
   "flowko_desk_no_show_mark": "No-show",
-  "flowko_desk_no_show_undo": "Undo no-show"
+  "flowko_desk_no_show_undo": "Undo no-show",
+  "flowko_desk_error_forbidden_self": "Not allowed. You can change only your own bookings."
 }

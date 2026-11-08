@@ -29,6 +29,8 @@ export function DayGrid(props: {
   receivedAt: number;
   onlyMemberId?: number | null;
   onBook: (target: DeskBookTarget) => void;
+  /** Flowko U28 (R5): columns that take taps; a WORKER books only her own column. Default: every unlocked one. */
+  canBook?: (column: { memberId: number; isMe: boolean }) => boolean;
   onOpenDetails: (bookingId: number) => void;
   /** Flowko U28 (R12): move mode for this worker's booking: every other column is dimmed. */
   movingMemberId?: number | null;
@@ -112,7 +114,7 @@ export function DayGrid(props: {
                     timeZone={tz}
                     stepMinutes={view.slotStepMinutes}
                     pastUntil={pastUntil}
-                    onBook={c.locked ? undefined : props.onBook}
+                    onBook={c.locked || (props.canBook && !props.canBook(c)) ? undefined : props.onBook}
                     onOpenDetails={props.onOpenDetails}
                     dimmed={
                       props.movingMemberId !== undefined &&
