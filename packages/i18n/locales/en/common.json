@@ -5064,8 +5064,6 @@
   "flowko_desk_override_overlaps_booking": "overlapping booking",
   "flowko_desk_override_overlaps_external": "overlapping calendar busy time",
   "flowko_desk_move": "Move",
-  "flowko_desk_move_to": "Move to this time",
-  "flowko_desk_move_banner": "Choose a new time for {{name}}",
   "flowko_desk_cancel_booking": "Cancel booking",
   "flowko_desk_cancel_reason": "Reason (optional)",
   "flowko_desk_no_show_mark": "No-show",
@@ -5075,5 +5073,10 @@
   "flowko_desk_next_week": "Next week",
   "flowko_desk_week_phone_hint": "The week view is available on a tablet or computer.",
   "flowko_desk_no_show_mark_action": "Mark no-show",
-  "flowko_desk_customer_change": "Change"
+  "flowko_desk_customer_change": "Change",
+  "flowko_desk_move_panel_title": "Move booking",
+  "flowko_desk_move_confirm": "Confirm move",
+  "flowko_desk_move_on_calendar": "or pick a time on the calendar",
+  "flowko_desk_move_banner_column": "Click the new time in the column: {{name}}",
+  "flowko_desk_move_services_gone": "This booking's services no longer exist, so free times cannot be shown. Enter the time."
 }

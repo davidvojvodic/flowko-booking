@@ -2,12 +2,14 @@
 // what“, design §3, oldest first, overrides listed), and the actions its server flags allow (R5): „Prestavi“
 // (tap mode, or the date + time field here, R12), „Prestavi k drugemu delavcu“ (re-enter, only `mayReenter`),
 // no-show and its undo (D4), cancel with an optional reason. Every write goes through useDeskWrites (actor, R13).
+// Flowko U28c (David, 2026-11-08): „Prestavi“ opens a move panel inside this sheet (date, the booking's worker's
+// free starts, time, „Potrdi prestavitev“ through moveMode.moveTo); a link under it starts the calendar tap mode.
 import { useState } from "react";
 
 import dayjs from "@calcom/dayjs";
 import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
-import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
+import { localDateSchema, todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import type { Ms } from "@calcom/lib/flowkoSalon";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -19,6 +21,7 @@ import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@calcom
 
 import { ms } from "./BookingBlock";
 import { useDeskContext } from "./DeskContext";
+import { FreeStartChips } from "./FreeStartChips";
 import { useDeskWrites } from "./useDeskWrites";
 
 type T = (key: string, opts?: Record<string, unknown>) => string;
@@ -74,8 +77,10 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
   const timeZone = ctx.view?.timeZone ?? "UTC";
   const startMs = ms(booking.start);
 
+  // Flowko U28c (M2): the move panel, closed until „Prestavi“; date = the booking's business-local date, no time.
+  const [moveOpen, setMoveOpen] = useState(false);
   const [moveDate, setMoveDate] = useState(() => todayIn(timeZone, new Date(startMs)));
-  const [moveTime, setMoveTime] = useState(() => formatHm(startMs, timeZone));
+  const [moveTime, setMoveTime] = useState("");
   const [moveError, setMoveError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -167,9 +172,11 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
                 {booking.mayMove && (
                   <Button
                     StartIcon="arrow-right"
+                    aria-expanded={moveOpen}
                     onClick={() => {
-                      ctx.moveMode.start(booking);
-                      onClose();
+                      // Flowko U28c (M2): opens the move panel below; the calendar mode is the panel's link.
+                      setMoveError(null);
+                      setMoveOpen(true);
                     }}>
                     {t("flowko_desk_move")}
                   </Button>
@@ -200,33 +207,73 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
                   </Button>
                 )}
               </div>
-              {booking.mayMove && (
-                <div className="flex flex-col gap-2">
-                  <div className="grid grid-cols-2 gap-3">
-                    <TextField
-                      name="flowko-desk-move-date"
-                      type="date"
-                      label={t("date")}
-                      value={moveDate}
-                      onChange={(e) => setMoveDate(e.target.value)}
-                    />
-                    <TextField
-                      name="flowko-desk-move-time"
-                      type="time"
-                      label={t("time")}
-                      step={(ctx.view?.slotStepMinutes ?? 15) * 60}
-                      value={moveTime}
-                      onChange={(e) => setMoveTime(e.target.value)}
-                    />
-                  </div>
+              {booking.mayMove && moveOpen && (
+                // Flowko U28c (M2, M3): the move panel; the details above stay visible.
+                <div
+                  data-testid="desk-move-panel"
+                  className="border-default bg-muted flex flex-col gap-3 rounded-md border p-3">
+                  <h3 className="text-emphasis text-sm font-semibold">{t("flowko_desk_move_panel_title")}</h3>
+                  <TextField
+                    name="flowko-desk-move-date"
+                    type="date"
+                    label={t("date")}
+                    value={moveDate}
+                    onChange={(e) => setMoveDate(e.target.value)}
+                  />
+                  {booking.serviceIds === null ? (
+                    <p data-testid="desk-move-services-gone" className="text-subtle text-sm">
+                      {t("flowko_desk_move_services_gone")}
+                    </p>
+                  ) : (
+                    localDateSchema.safeParse(moveDate).success && (
+                      <FreeStartChips
+                        date={moveDate}
+                        serviceIds={booking.serviceIds}
+                        memberId={booking.memberId}
+                        timeZone={timeZone}
+                        value={moveTime}
+                        onPick={setMoveTime}
+                      />
+                    )
+                  )}
+                  <TextField
+                    name="flowko-desk-move-time"
+                    type="time"
+                    label={t("time")}
+                    step={(ctx.view?.slotStepMinutes ?? 15) * 60}
+                    value={moveTime}
+                    onChange={(e) => setMoveTime(e.target.value)}
+                  />
                   {moveError && (
                     <p role="alert" className="text-error text-sm">
                       {t(moveError)}
                     </p>
                   )}
-                  <Button color="secondary" disabled={busy} onClick={() => void moveToField()}>
-                    {t("flowko_desk_move_to")}
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      color="secondary"
+                      onClick={() => {
+                        setMoveError(null);
+                        setMoveOpen(false);
+                      }}>
+                      {t("cancel")}
+                    </Button>
+                    <Button
+                      disabled={busy || moveTime === ""}
+                      loading={busy}
+                      onClick={() => void moveToField()}>
+                      {t("flowko_desk_move_confirm")}
+                    </Button>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-subtle hover:text-emphasis self-start text-sm underline"
+                    onClick={() => {
+                      ctx.moveMode.start(booking);
+                      onClose();
+                    }}>
+                    {t("flowko_desk_move_on_calendar")}
+                  </button>
                 </div>
               )}
             </section>

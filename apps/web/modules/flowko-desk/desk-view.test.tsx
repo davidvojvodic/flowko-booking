@@ -51,6 +51,11 @@ function renderDesk(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void
 
 const headers = () => screen.getAllByTestId(/^desk-column-header-/).map((h) => h.textContent);
 const requestedDates = () => dayQuery.mock.calls.map((c) => (c[0] as { date: string }).date);
+// Flowko U28c (M3): calendar move mode starts from the move panel's link („Prestavi“ opens the panel first).
+function startCalendarMove() {
+  fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+  fireEvent.click(screen.getByRole("button", { name: "ali izberite čas na koledarju" }));
+}
 
 describe("DeskView (U28)", () => {
   beforeEach(() => {
@@ -226,9 +231,9 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
   it("„Prestavi“: banner, other columns dimmed, a tap elsewhere ignored, a tap in the column moves", async () => {
     renderDesk();
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     expect(screen.queryByRole("dialog", { name: "Barvanje" })).toBeNull();
-    expect(banner()?.textContent).toContain("Izberite nov čas za termin: Marija Novak");
+    expect(banner()?.textContent).toContain("Kliknite nov čas v stolpcu: Ana");
     expect(column(BOR)).toHaveAttribute("data-dimmed", "true");
     expect(column(ANA)).not.toHaveAttribute("data-dimmed");
     fireEvent.click(column(BOR), { clientY: yOf("13:30") });
@@ -250,7 +255,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
   it("move mode stays on the next day and a tap there moves to that day", async () => {
     renderDesk();
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
     await waitFor(() => expect(requestedDates()).toContain("2026-11-17"));
     expect(banner()).not.toBeNull();
@@ -265,7 +270,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
   it("in move mode a tap on the moving booking's own busy segment moves it to that grid start (R12: „15 min later“)", async () => {
     renderDesk();
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     const ownBusy = screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement;
     expect(ownBusy.style.pointerEvents).toBe("none");
     fireEvent.click(ownBusy, { clientY: yOf("09:15") + 1 });
@@ -295,7 +300,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     renderDesk("?worker=2");
     expect(headers()).toEqual(["Ana"]);
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(BOR) } });
     expect(headers()).toEqual(["Ana"]);
     expect((screen.getByLabelText("Delavec") as HTMLSelectElement).value).toBe(String(ANA));
@@ -306,7 +311,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
   it("„Prekliči“ and Esc leave move mode; a booking tap opens nothing while moving", () => {
     renderDesk();
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.click(
       screen.getByTestId("desk-booking-102").querySelector('[data-kind="busy"]') as HTMLElement
     );
@@ -314,7 +319,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Prekliči" }));
     expect(banner()).toBeNull();
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(banner()).toBeNull();
   });
@@ -329,7 +334,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
       .mockResolvedValueOnce({ status: "moved", bookingId: 101, uid: "u" });
     renderDesk();
     openBarvanje();
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.click(column(ANA), { clientY: yOf("15:00") });
     const dialog = await screen.findByRole("dialog", { name: "Termin ni v skladu s pravili" });
     expect(refetch).toHaveBeenCalled();
@@ -339,6 +344,52 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
       expect(deskTrpc.move).toHaveBeenLastCalledWith(expect.objectContaining({ confirmOverride: true }))
     );
     await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  // Flowko U28c (M2): the move panel in the sheet goes through the same move path as the calendar.
+  it("the move panel: „Potrdi prestavitev“ moves, toasts, closes the sheet", async () => {
+    renderDesk();
+    openBarvanje();
+    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    fireEvent.change(screen.getByLabelText("Datum"), { target: { value: "2026-11-18" } });
+    fireEvent.change(screen.getByLabelText("Čas"), { target: { value: "11:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Potrdi prestavitev" }));
+    await waitFor(() =>
+      expect(deskTrpc.move).toHaveBeenCalledWith({
+        bookingId: 101,
+        start: iso("11:00", "2026-11-18"),
+        confirmOverride: false,
+        actorMemberId: OLGA,
+      })
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Barvanje" })).toBeNull());
+    expect(toast).toHaveBeenCalledWith("Termin je prestavljen.", "success");
+    expect(banner()).toBeNull();
+  });
+
+  it("the move panel: needs_confirm refetches, then the override dialog resends with confirmOverride", async () => {
+    deskTrpc.move
+      .mockResolvedValueOnce({
+        status: "needs_confirm",
+        problems: [{ kind: "outside_shift", step: 2 }],
+        googleUnavailable: false,
+      })
+      .mockResolvedValueOnce({ status: "moved", bookingId: 101, uid: "u" });
+    renderDesk();
+    openBarvanje();
+    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    fireEvent.change(screen.getByLabelText("Čas"), { target: { value: "15:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Potrdi prestavitev" }));
+    const dialog = await screen.findByRole("dialog", { name: "Termin ni v skladu s pravili" });
+    expect(refetch).toHaveBeenCalled();
+    expect(dialog.textContent).toContain("Barvanje: zunaj izmene.");
+    fireEvent.click(screen.getByRole("button", { name: "Vseeno shrani" }));
+    await waitFor(() =>
+      expect(deskTrpc.move).toHaveBeenLastCalledWith(
+        expect.objectContaining({ start: iso("15:00"), confirmOverride: true })
+      )
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Barvanje" })).toBeNull());
   });
 
   it("„Prestavi k drugemu delavcu“ opens the booking sheet for the same customer", () => {
@@ -517,8 +568,8 @@ describe("DeskView week view (U28 D2)", () => {
     fireEvent.click(
       screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
     );
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
-    expect(banner()?.textContent).toContain("Izberite nov čas za termin: Marija Novak");
+    startCalendarMove();
+    expect(banner()?.textContent).toContain("Kliknite nov čas v stolpcu: Ana");
     expect(wcol("2026-11-19")).not.toHaveAttribute("data-dimmed");
     fireEvent.click(wcol("2026-11-19"), { clientY: yOf("11:00", "2026-11-19") });
     await waitFor(() =>
@@ -538,7 +589,7 @@ describe("DeskView week view (U28 D2)", () => {
     fireEvent.click(
       screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
     );
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.click(screen.getByRole("radio", { name: "Bor" }));
     expect(banner()).not.toBeNull();
     expect(wcol("2026-11-19")).toHaveAttribute("data-dimmed", "true");
@@ -552,7 +603,7 @@ describe("DeskView week view (U28 D2)", () => {
     fireEvent.click(
       screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
     );
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.click(screen.getByRole("radio", { name: "Teden" }));
     await waitFor(() => expect(screen.getAllByTestId(/^desk-week-header-/)).toHaveLength(7));
     expect(banner()).not.toBeNull();
@@ -575,7 +626,7 @@ describe("DeskView week view (U28 D2)", () => {
     fireEvent.click(
       screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
     );
-    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    startCalendarMove();
     fireEvent.click(wcol("2026-11-19"), { clientY: yOf("15:30", "2026-11-19") });
     await screen.findByRole("dialog", { name: "Termin ni v skladu s pravili" });
     expect(weekRefetch).toHaveBeenCalled();
