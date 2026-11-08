@@ -89,7 +89,11 @@ describe("useDeskWrites (U28 R9, R13)", () => {
   });
 
   it("needs_confirm and errors refetch the shown free starts with the day (B3)", async () => {
-    deskTrpc.create.mockResolvedValueOnce({ status: "needs_confirm", problems: [], googleUnavailable: false });
+    deskTrpc.create.mockResolvedValueOnce({
+      status: "needs_confirm",
+      problems: [],
+      googleUnavailable: false,
+    });
     deskTrpc.create.mockRejectedValueOnce(trpcError("duplicate_time"));
     const { writes, refetch } = setup();
     await act(async () => {
@@ -162,7 +166,10 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     expect(deskTrpc.cancel).toHaveBeenCalledWith({ bookingId: 101, reason: "x", actorMemberId: 1 });
     expect(actor.clear).toHaveBeenCalled();
     expect(actor.openPicker).not.toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith("Za to nimate dovoljenja. Izberite, kdo ste.", "error");
+    expect(toast).toHaveBeenCalledWith(
+      "Za to nimate dovoljenja. Izbira osebe je ponastavljena; poskusite znova.",
+      "error"
+    );
   });
 
   it("forbidden for a fixed WORKER does not ask her to choose who she is", async () => {

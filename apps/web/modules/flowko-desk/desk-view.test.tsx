@@ -711,7 +711,10 @@ describe("DeskView who acts, free starts (U28b B1, B3)", () => {
     await bookFenAtBor();
     expect(deskTrpc.create).toHaveBeenCalledWith(expect.objectContaining({ actorMemberId: CENE }));
     await waitFor(() =>
-      expect(toast).toHaveBeenCalledWith("Za to nimate dovoljenja. Izberite, kdo ste.", "error")
+      expect(toast).toHaveBeenCalledWith(
+        "Za to nimate dovoljenja. Izbira osebe je ponastavljena; poskusite znova.",
+        "error"
+      )
     );
     expect(window.localStorage.getItem("flowko-desk-actor:9")).toBeNull();
     expect(chipButton().textContent).toBe("Ste: Olga");

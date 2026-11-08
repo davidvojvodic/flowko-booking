@@ -365,6 +365,75 @@ describe("BookingSheet customer section (U28b B2)", () => {
     expect(screen.getByTestId("desk-customer-card").textContent).toContain("Marija Novak");
     expect(customerFields()).toEqual([null, null, null]);
   });
+
+  // Flowko U28b review fixes: a second „Nova stranka“ merges into what is typed, never blanks it.
+  it("a second „Nova stranka“ with an empty search keeps what was typed", () => {
+    renderSheet(createAtBor());
+    fillCustomer("Marija Novak", "041 123 456");
+    fireEvent.change(field("E-pošta"), { target: { value: "marija@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    expect(field("Ime in priimek").value).toBe("Marija Novak");
+    expect(field("Telefon").value).toBe("041 123 456");
+    expect(field("E-pošta").value).toBe("marija@example.com");
+  });
+
+  it("a phone typed in the search and „Nova stranka“ again fills the phone and keeps the name", () => {
+    renderSheet(createAtBor());
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    fireEvent.change(field("Ime in priimek"), { target: { value: "Marija Novak" } });
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "041 123 456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    expect(field("Ime in priimek").value).toBe("Marija Novak");
+    expect(field("Telefon").value).toBe("041 123 456");
+  });
+
+  it("the new-customer fields say what is missing while Save is disabled", () => {
+    renderSheet(createAtBor());
+    fireEvent.click(chip("Fen"));
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    fireEvent.change(field("Ime in priimek"), { target: { value: "Marija" } });
+    const hint = screen.getByText("Vpišite telefon ali e-pošto.");
+    expect(hint).not.toHaveAttribute("role", "alert");
+    expect(screen.queryByText("Vpišite ime stranke.")).toBeNull();
+    expect(saveButton()).toBeDisabled();
+    fireEvent.change(field("Telefon"), { target: { value: "041 123 456" } });
+    expect(screen.queryByText("Vpišite telefon ali e-pošto.")).toBeNull();
+    expect(saveButton()).not.toBeDisabled();
+    fireEvent.change(field("Ime in priimek"), { target: { value: "" } });
+    expect(screen.getByText("Vpišite ime stranke.")).not.toHaveAttribute("role", "alert");
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("a picked result that the customer rules refuse opens the editable fields, not the card", async () => {
+    deskTrpc.customersQuery.mockReturnValue({
+      data: [{ name: "Brez kontakta", phone: null, email: null }],
+      isFetching: false,
+    });
+    renderSheet(createAtBor());
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Brez" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Brez kontakta/ }, { timeout: 2000 }));
+    expect(screen.queryByTestId("desk-customer-card")).toBeNull();
+    expect(field("Ime in priimek").value).toBe("Brez kontakta");
+    expect(saveButton()).toBeDisabled();
+  });
+
+  // Focus follows the customer section's state changes.
+  it("„Nova stranka“ focuses the first empty field", () => {
+    renderSheet(createAtBor());
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Marija" } });
+    fireEvent.click(screen.getByRole("button", { name: "Nova stranka" }));
+    expect(document.activeElement).toBe(field("Telefon"));
+  });
+
+  it("a picked result focuses „Zamenjaj“; „Zamenjaj“ focuses the search", async () => {
+    deskTrpc.customersQuery.mockReturnValue({ data: [marija], isFetching: false });
+    renderSheet(createAtBor());
+    fireEvent.change(field("Ime ali telefon"), { target: { value: "Mar" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Marija Novak/ }, { timeout: 2000 }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Zamenjaj" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zamenjaj" }));
+    expect(document.activeElement).toBe(field("Ime ali telefon"));
+  });
 });
 
 describe("BookingSheet re-enter with another worker (U28 R12)", () => {
@@ -457,6 +526,30 @@ describe("BookingSheet re-enter with another worker (U28 R12)", () => {
     ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(OLGA) } });
     expect(chip("Barvanje")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  // Flowko U28b review fixes: a carded customer the rules refuse stays editable.
+  it("re-enter with an 81-character name opens the editable fields, not the card", () => {
+    const longName = "M".repeat(81);
+    renderSheet(reenter({ ...barvanje, customer: { ...barvanje.customer, name: longName } }));
+    expect(screen.queryByTestId("desk-customer-card")).toBeNull();
+    expect(field("Ime in priimek").value).toBe(longName);
+    expect(field("Telefon").value).toBe("+38641123456");
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("a server bad_customer for the carded customer opens the fields with the error", async () => {
+    deskTrpc.create.mockRejectedValue(trpcError("bad_customer"));
+    renderSheet(reenter());
+    fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(BOR) } });
+    save();
+    expect(
+      await screen.findByText("Preverite podatke stranke: ime ter veljavna telefonska številka ali e-pošta.")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("desk-customer-card")).toBeNull();
+    expect(field("Ime in priimek").value).toBe("Marija Novak");
+    expect(field("Telefon").value).toBe("+38641123456");
+    expect(deskTrpc.cancel).not.toHaveBeenCalled();
   });
 
   it("a refused create cancels nothing", async () => {

@@ -5043,7 +5043,7 @@
   "flowko_desk_error_service_not_assigned": "The worker does not do one of the chosen services.",
   "flowko_desk_error_bad_booking": "This booking cannot be changed.",
   "flowko_desk_error_bad_customer": "Check the customer: a name and a valid phone number or e-mail address.",
-  "flowko_desk_error_forbidden": "Not allowed. Choose who you are.",
+  "flowko_desk_error_forbidden": "Not allowed. The person at this device was reset; try again.",
   "flowko_desk_error_TOO_MANY_REQUESTS": "Too many requests. Try again in a moment.",
   "flowko_desk_steps": "Steps",
   "flowko_desk_step_busy": "Work",

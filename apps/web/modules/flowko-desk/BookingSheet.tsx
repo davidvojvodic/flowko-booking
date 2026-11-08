@@ -10,8 +10,12 @@
 // customer is a compact card with „Zamenjaj“ (back to the search); „Nova stranka“ reveals the name/phone/e-mail
 // fields, pre-filled from the typed text; re-enter opens with the old customer as the card. Save stays disabled
 // until a customer is chosen or the new-customer fields are valid. The create payload is unchanged.
+// Flowko U28b review fixes: a second „Nova stranka“ only fills empty fields (never blanks typed ones); the new-customer
+// fields say what is missing (muted, until a submit); the card is only for a customer the rules accept (else the
+// fields, pre-filled, so they stay editable; a server bad_customer on a card opens them too); focus follows the
+// section's state (first empty field, „Zamenjaj“, the search).
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -82,6 +86,9 @@ type Values = z.infer<typeof schema>;
 
 /** Flowko U28b (B2): search = nothing chosen yet; card = a picked (or the re-entered) customer; new = the fields. */
 type CustomerMode = "search" | "card" | "new";
+type Customer = { name: string; phone: string | null; email: string | null };
+/** Flowko U28b review fixes: where focus goes after a customer-section change (a new object each time). */
+type FocusRequest = { to: CustomerMode };
 
 type Pending = { payload: DeskCreateInput; problems: FitProblem[]; googleUnavailable: boolean };
 
@@ -131,10 +138,22 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
   // are off, so a second tap cannot resend without the override.
   const [busy, setBusy] = useState(false);
   // Flowko U28b (B2): re-enter starts with the old booking's customer as the card; a new booking with the search.
-  const [customerMode, setCustomerMode] = useState<CustomerMode>(reenter ? "card" : "search");
+  // Review fix: a re-entered customer the rules refuse (a long name, no contact) starts in the editable fields.
+  const [customerMode, setCustomerMode] = useState<CustomerMode>(() =>
+    !reenter ? "search" : customerSchema.safeParse(form.getValues("customer")).success ? "card" : "new"
+  );
   const customer = form.watch("customer");
-  const customerReady =
-    customerMode === "card" || (customerMode === "new" && customerSchema.safeParse(customer).success);
+  const customerCheck = customerSchema.safeParse(customer);
+  const customerReady = customerMode === "card" || (customerMode === "new" && customerCheck.success);
+  // Flowko U28b review fix: what the new-customer fields still miss, per field (shown muted until a submit).
+  const customerHint = (fields: ReadonlyArray<"name" | "phone" | "email">) =>
+    customerCheck.success
+      ? undefined
+      : customerCheck.error.issues.find((i) => fields.includes(i.path[0] as "name" | "phone" | "email"))
+          ?.message;
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const changeRef = useRef<HTMLAnchorElement | HTMLButtonElement>(null);
 
   const workerName = (id: number) =>
     columns.find((c) => c.memberId === id)?.displayName ??
@@ -160,25 +179,55 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
     form.setValue("serviceIds", next, { shouldValidate: form.formState.isSubmitted });
   };
 
-  const setCustomer = (c: { name: string; phone: string | null; email: string | null }) => {
+  const setCustomer = (c: Customer) => {
     const opts = { shouldValidate: form.formState.isSubmitted };
     form.setValue("customer.name", c.name, opts);
     form.setValue("customer.phone", c.phone ?? "", opts);
     form.setValue("customer.email", c.email ?? "", opts);
   };
-  const pickCustomer = (c: { name: string; phone: string | null; email: string | null }) => {
+  const toMode = (mode: CustomerMode) => {
+    setCustomerMode(mode);
+    setFocusRequest({ to: mode });
+  };
+  const pickCustomer = (c: Customer) => {
     setCustomer(c);
-    setCustomerMode("card");
+    // Flowko U28b review fix: a customer the rules refuse stays editable instead of a card that cannot be saved.
+    toMode(customerSchema.safeParse(form.getValues("customer")).success ? "card" : "new");
   };
   const newCustomer = (prefill: CustomerPrefill) => {
-    setCustomer({ name: prefill.name, phone: prefill.phone, email: "" });
-    setCustomerMode("new");
+    if (customerMode === "new") {
+      // Flowko U28b review fix: already open, so only empty fields take the search text; nothing typed is lost.
+      const current = form.getValues("customer");
+      setCustomer({
+        name: current.name.trim() === "" && prefill.name !== "" ? prefill.name : current.name,
+        phone: current.phone.trim() === "" && prefill.phone !== "" ? prefill.phone : current.phone,
+        email: current.email,
+      });
+    } else {
+      setCustomer({ name: prefill.name, phone: prefill.phone, email: "" });
+    }
+    toMode("new");
   };
   const changeCustomer = () => {
     setCustomer({ name: "", phone: "", email: "" });
     form.clearErrors("customer");
-    setCustomerMode("search");
+    toMode("search");
   };
+
+  // Flowko U28b review fix: after a customer-section change, focus the first empty field („Nova stranka“), the
+  // card's „Zamenjaj“ (a picked result) or the search („Zamenjaj“), instead of leaving it on an unmounted button.
+  useEffect(() => {
+    if (!focusRequest) return;
+    if (focusRequest.to === "search") searchRef.current?.focus();
+    if (focusRequest.to === "card") changeRef.current?.focus();
+    if (focusRequest.to === "new") {
+      const { name, phone } = form.getValues("customer");
+      if (name.trim() === "") form.setFocus("customer.name");
+      else if (phone.trim() === "") form.setFocus("customer.phone");
+    }
+    // Only a new request moves focus; getValues/setFocus are stable form methods.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
 
   async function save(payload: DeskCreateInput) {
     const outcome = await writes.create(payload, {
@@ -191,7 +240,11 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
     }
     if (outcome.kind === "error") {
       if (outcome.code === "in_past") form.setError("time", { message: outcome.message });
-      if (outcome.code === "bad_customer") form.setError("customer.name", { message: outcome.message });
+      if (outcome.code === "bad_customer") {
+        // Flowko U28b review fix: a refused card opens the fields (values kept) so the desk can correct them.
+        if (customerMode === "card") setCustomerMode("new");
+        form.setError("customer.name", { message: outcome.message });
+      }
       return;
     }
     if (outcome.kind !== "done") return;
@@ -245,6 +298,9 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
         {t(key)}
       </p>
     ) : null;
+  // Flowko U28b review fix: a muted „what is missing“ line for the new-customer fields (not an alert).
+  const hint = (key: string | undefined) =>
+    key ? <p className="text-subtle mt-1 text-sm">{t(key)}</p> : null;
   const pendingServices = pending
     ? pending.payload.serviceIds
         .map((id) => services.find((s) => s.id === id))
@@ -356,9 +412,10 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
                     email: customer.email || null,
                   }}
                   onChange={changeCustomer}
+                  changeRef={changeRef}
                 />
               ) : (
-                <CustomerField onPick={pickCustomer} onNew={newCustomer} />
+                <CustomerField onPick={pickCustomer} onNew={newCustomer} searchRef={searchRef} />
               )}
               {customerMode === "new" && (
                 <>
@@ -367,7 +424,8 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
                     maxLength={80}
                     {...form.register("customer.name")}
                   />
-                  {fieldError(errors.customer?.name?.message)}
+                  {fieldError(errors.customer?.name?.message) ??
+                    hint(errors.customer ? undefined : customerHint(["name"]))}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <TextField
                       type="tel"
@@ -382,16 +440,10 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
                       {...form.register("customer.email")}
                     />
                   </div>
-                  {fieldError(errors.customer?.phone?.message ?? errors.customer?.email?.message)}
+                  {fieldError(errors.customer?.phone?.message ?? errors.customer?.email?.message) ??
+                    hint(errors.customer ? undefined : customerHint(["phone", "email"]))}
                 </>
               )}
-              {/* Flowko U28b: a server refusal of a carded customer (bad_customer, a contact-less old one) shows here. */}
-              {customerMode === "card" &&
-                fieldError(
-                  errors.customer?.name?.message ??
-                    errors.customer?.phone?.message ??
-                    errors.customer?.email?.message
-                )}
             </div>
           </SheetBody>
           <SheetFooter>
