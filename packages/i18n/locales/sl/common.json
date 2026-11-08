@@ -5140,5 +5140,6 @@
   "flowko_desk_move_confirm": "Potrdi prestavitev",
   "flowko_desk_move_on_calendar": "ali izberite čas na koledarju",
   "flowko_desk_move_banner_column": "Kliknite nov čas v stolpcu: {{name}}",
-  "flowko_desk_move_services_gone": "Storitve tega termina ne obstajajo več, zato prostih terminov ni mogoče prikazati. Vpišite čas."
+  "flowko_desk_move_services_gone": "Ena od storitev tega termina ne obstaja več, zato prostih terminov ni mogoče prikazati. Vpišite čas.",
+  "flowko_desk_move_banner": "Izberite nov čas za termin: {{name}}"
 }

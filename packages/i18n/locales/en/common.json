@@ -5078,5 +5078,6 @@
   "flowko_desk_move_confirm": "Confirm move",
   "flowko_desk_move_on_calendar": "or pick a time on the calendar",
   "flowko_desk_move_banner_column": "Click the new time in the column: {{name}}",
-  "flowko_desk_move_services_gone": "This booking's services no longer exist, so free times cannot be shown. Enter the time."
+  "flowko_desk_move_services_gone": "One of this booking's services no longer exists, so free times cannot be shown. Enter the time.",
+  "flowko_desk_move_banner": "Choose a new time for {{name}}"
 }

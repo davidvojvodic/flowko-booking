@@ -97,11 +97,12 @@ export default function DeskView() {
       : view?.days.flatMap((d) => d.bookings).find((b) => b.bookingId === detailsBookingId);
 
   const columns = view?.days[0]?.columns ?? [];
-  // Flowko U28c (M3): the moving booking's worker, by name (never declined), for the banner.
+  // Flowko U28c (M3): the moving booking's worker, by name (never declined), for the banner. An empty name falls
+  // through to the next source; with none at all the banner names the customer instead (review).
   const movingWorkerName = moving
-    ? ((members.data ?? []).find((m) => m.memberId === moving.memberId)?.displayName ??
-      columns.find((c) => c.memberId === moving.memberId)?.displayName ??
-      "")
+    ? (members.data ?? []).find((m) => m.memberId === moving.memberId)?.displayName ||
+      columns.find((c) => c.memberId === moving.memberId)?.displayName ||
+      ""
     : "";
   const openDay = (d: string) => {
     params.setView("day");
@@ -185,7 +186,11 @@ export default function DeskView() {
             data-testid="desk-move-banner"
             role="status"
             className="bg-semantic-info-subtle text-emphasis border-semantic-info flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-base font-semibold">
-            <span>{t("flowko_desk_move_banner_column", { name: movingWorkerName })}</span>
+            <span>
+              {movingWorkerName
+                ? t("flowko_desk_move_banner_column", { name: movingWorkerName })
+                : t("flowko_desk_move_banner", { name: moving.customer.name })}
+            </span>
             <Button color="secondary" onClick={moveMode.stop}>
               {t("cancel")}
             </Button>

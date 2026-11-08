@@ -115,6 +115,8 @@ const U28_KEYS = [
   "flowko_desk_move_on_calendar",
   "flowko_desk_move_banner_column",
   "flowko_desk_move_services_gone",
+  // Flowko U28c (review): the banner when no worker name is known (names the customer).
+  "flowko_desk_move_banner",
 ];
 
 const placeholders = (text: string): string[] =>

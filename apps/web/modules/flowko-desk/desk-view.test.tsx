@@ -252,6 +252,38 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     expect(toast).toHaveBeenCalledWith("Termin je prestavljen.", "success");
   });
 
+  // Flowko U28c (review): no worker name to show → the banner names the booking's customer, never ends in „: “.
+  it("move banner without a worker name names the booking's customer", () => {
+    const unnamed = (date: string) => {
+      const v = deskView({}, date);
+      return {
+        ...v,
+        days: v.days.map((d) => ({
+          ...d,
+          columns: d.columns.map((c) => (c.memberId === ANA ? { ...c, displayName: "" } : c)),
+        })),
+      };
+    };
+    dayQuery.mockImplementation((input: { date: string }) => ({
+      data: unnamed(input.date),
+      dataUpdatedAt: NOW.getTime(),
+      refetch,
+      isPending: false,
+      error: null,
+    }));
+    deskTrpc.membersQuery.mockReturnValue({
+      data: [
+        { memberId: OLGA, displayName: "Olga", role: "OWNER", hasColumn: true, deskOnly: false },
+        { memberId: BOR, displayName: "Bor", role: "WORKER", hasColumn: true, deskOnly: false },
+      ],
+    });
+    renderDesk();
+    openBarvanje();
+    startCalendarMove();
+    expect(banner()?.textContent).toContain("Izberite nov čas za termin: Marija Novak");
+    expect(banner()?.textContent).not.toContain("v stolpcu");
+  });
+
   it("move mode stays on the next day and a tap there moves to that day", async () => {
     renderDesk();
     openBarvanje();

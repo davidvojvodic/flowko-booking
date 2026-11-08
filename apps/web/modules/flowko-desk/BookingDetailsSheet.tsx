@@ -4,7 +4,7 @@
 // no-show and its undo (D4), cancel with an optional reason. Every write goes through useDeskWrites (actor, R13).
 // Flowko U28c (David, 2026-11-08): „Prestavi“ opens a move panel inside this sheet (date, the booking's worker's
 // free starts, time, „Potrdi prestavitev“ through moveMode.moveTo); a link under it starts the calendar tap mode.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import dayjs from "@calcom/dayjs";
 import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
@@ -85,6 +85,16 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  // Flowko U28c (review): opening the panel brings it into view (it sits under the action row, below the fold on a
+  // phone) and moves focus to its heading, so Tab goes straight to Datum. The heading, not Datum itself: focusing a
+  // date input would pop the native date picker on phones.
+  const panelRef = useRef<HTMLFormElement>(null);
+  const panelTitleRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!moveOpen) return;
+    panelRef.current?.scrollIntoView?.({ block: "nearest" });
+    panelTitleRef.current?.focus();
+  }, [moveOpen]);
 
   const steps = booking.steps ?? [
     { kind: null, start: booking.start, end: booking.end, serviceName: booking.serviceNames.join(", ") },
@@ -208,11 +218,21 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
                 )}
               </div>
               {booking.mayMove && moveOpen && (
-                // Flowko U28c (M2, M3): the move panel; the details above stay visible.
-                <div
+                // Flowko U28c (M2, M3): the move panel; the details above stay visible. A form, so Enter confirms.
+                <form
+                  ref={panelRef}
                   data-testid="desk-move-panel"
-                  className="border-default bg-muted flex flex-col gap-3 rounded-md border p-3">
-                  <h3 className="text-emphasis text-sm font-semibold">{t("flowko_desk_move_panel_title")}</h3>
+                  className="border-default bg-muted flex flex-col gap-3 rounded-md border p-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!busy && moveTime !== "") void moveToField();
+                  }}>
+                  <h3
+                    ref={panelTitleRef}
+                    tabIndex={-1}
+                    className="text-emphasis text-sm font-semibold outline-none">
+                    {t("flowko_desk_move_panel_title")}
+                  </h3>
                   <TextField
                     name="flowko-desk-move-date"
                     type="date"
@@ -258,10 +278,7 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
                       }}>
                       {t("cancel")}
                     </Button>
-                    <Button
-                      disabled={busy || moveTime === ""}
-                      loading={busy}
-                      onClick={() => void moveToField()}>
+                    <Button type="submit" disabled={busy || moveTime === ""} loading={busy}>
                       {t("flowko_desk_move_confirm")}
                     </Button>
                   </div>
@@ -274,7 +291,7 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
                     }}>
                     {t("flowko_desk_move_on_calendar")}
                   </button>
-                </div>
+                </form>
               )}
             </section>
           )}

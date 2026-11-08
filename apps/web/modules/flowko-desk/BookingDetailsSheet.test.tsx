@@ -234,6 +234,42 @@ describe("BookingDetailsSheet (U28)", () => {
     expect(screen.getByLabelText("Čas")).toBeInTheDocument();
   });
 
+  // Flowko U28c (review): opening the panel brings it into view and moves focus to it (the Datum field is next).
+  it("opening the panel scrolls it into view and focuses its heading", () => {
+    const scrollIntoView = vi.fn();
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderDetails({ ...barvanje, ...all });
+      fireEvent.click(button("Prestavi") as HTMLElement);
+      const panel = screen.getByTestId("desk-move-panel");
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      expect(document.activeElement).toBe(within(panel).getByRole("heading", { name: "Prestavi termin" }));
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
+  // Flowko U28c (review): Enter in Čas confirms; with no time nothing is sent.
+  it("Enter in the panel confirms the move; without a time it sends nothing", async () => {
+    const moveTo = vi.fn().mockResolvedValue({ kind: "done", data: {} });
+    renderDetails({ ...barvanje, ...all }, { moveMode: moveModeState({ moveTo }) });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    const panel = screen.getByTestId("desk-move-panel");
+    fireEvent.submit(panel);
+    expect(moveTo).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Čas"), { target: { value: "14:15" } });
+    fireEvent.submit(panel);
+    await waitFor(() =>
+      expect(moveTo).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 101 }), at("14:15"), {
+        fieldCodes: ["in_past"],
+      })
+    );
+    expect(button("Potrdi prestavitev")).toHaveAttribute("type", "submit");
+    expect(within(panel).getByRole("button", { name: "Prekliči" })).toHaveAttribute("type", "button");
+    expect(button("ali izberite čas na koledarju")).toHaveAttribute("type", "button");
+  });
+
   it("„Prekliči“ closes the panel, back to the details", () => {
     renderDetails({ ...barvanje, ...all });
     fireEvent.click(button("Prestavi") as HTMLElement);
