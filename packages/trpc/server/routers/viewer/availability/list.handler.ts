@@ -45,6 +45,12 @@ export const listHandler = async ({ ctx }: ListOptions) => {
   try {
     const scheduleRepository = new ScheduleRepository(prisma);
     defaultScheduleId = await scheduleRepository.getDefaultScheduleId(user.id);
+    // Flowko U27: the repository's fallback (first schedule of the user) may be the mirror's empty schedule.
+    // The first non-mirror schedule becomes the default instead, as it would for a user without a mirror (M5);
+    // schedules is non-empty and has no mirror here.
+    if (defaultScheduleId !== null && mirrorScheduleIds.includes(defaultScheduleId)) {
+      defaultScheduleId = schedules[0].id;
+    }
 
     if (!user.defaultScheduleId) {
       await prisma.user.update({

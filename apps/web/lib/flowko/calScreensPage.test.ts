@@ -221,6 +221,35 @@ describe("Cal's lists leave the worker mirrors out", () => {
     expect(after?.defaultScheduleId).toBe(before?.defaultScheduleId);
     expect(after?.defaultScheduleId).not.toBe(anaMirror.scheduleId);
   });
+  it("availability.list never makes the mirror schedule the default: null default, mirror schedule has the lowest id", async () => {
+    const anaMember = await prismock.flowkoBusinessMember.findUnique({
+      where: { userId: f.ana.id },
+      select: { id: true },
+    });
+    // The mirror comes first (lowest schedule id); the ordinary schedule is created afterwards; no default is set.
+    const anaMirror = await ensureWorkerMirror(tx, anaMember!.id);
+    const ordinary = await prismock.schedule.create({
+      data: { name: "Ana hours", userId: f.ana.id, timeZone: "Europe/Ljubljana" },
+      select: { id: true },
+    });
+    expect(anaMirror.scheduleId).toBeLessThan(ordinary.id);
+    const row = await prismock.user.findUnique({
+      where: { id: f.ana.id },
+      select: { defaultScheduleId: true },
+    });
+    expect(row?.defaultScheduleId).toBeNull();
+
+    const result = await listHandler({ ctx: { user: { id: f.ana.id, defaultScheduleId: null } } });
+
+    expect(result.schedules.map((s) => s.id)).toEqual([ordinary.id]);
+    expect(result.schedules[0].isDefault).toBe(true);
+    const after = await prismock.user.findUnique({
+      where: { id: f.ana.id },
+      select: { defaultScheduleId: true },
+    });
+    expect(after?.defaultScheduleId).toBe(ordinary.id);
+    expect(after?.defaultScheduleId).not.toBe(anaMirror.scheduleId);
+  });
 });
 
 describe("redirectIfCalScreensHidden", () => {
