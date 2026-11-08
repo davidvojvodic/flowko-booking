@@ -4,6 +4,8 @@ import {
 } from "@calcom/features/auth/signup/utils/reservedUsernames";
 // Flowko U25: business slugs and usernames share one name space.
 import { usernameClashesWithBusiness } from "@calcom/features/flowkoBusiness/nameSpace";
+// Flowko U27 (E4): no e-mail change to or from the desk placeholder domain.
+import { refuseDeskAddress, refuseDeskEmailChange } from "@calcom/features/flowkoBusiness/deskEmailGuard";
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { CreationSource, RedirectType } from "@calcom/prisma/enums";
 import { UserSchema } from "@calcom/prisma/zod/modelSchema/UserSchema";
@@ -90,6 +92,7 @@ export const userAdminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { prisma } = ctx;
       await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25: a business's slug is never a username.
+      refuseDeskAddress(input.email); // Flowko U27 (E4): nobody is given a desk placeholder address.
       const user = await prisma.user.create({ data: { ...input, creationSource: CreationSource.WEBAPP } });
       return { user, message: `User with id: ${user.id} added successfully` };
     }),
@@ -98,6 +101,7 @@ export const userAdminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { prisma, requestedUser } = ctx;
       await refuseBusinessSlugUsername(prisma, input.username); // Flowko U25: a business's slug is never a username.
+      refuseDeskEmailChange(requestedUser.email, input.email); // Flowko U27 (E4): before any write.
 
       const user = await prisma.$transaction(async (tx) => {
         const userInternal = await tx.user.update({ where: { id: requestedUser.id }, data: input });

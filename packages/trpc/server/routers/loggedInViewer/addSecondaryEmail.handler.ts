@@ -1,4 +1,6 @@
 import { sendEmailVerification } from "@calcom/features/auth/lib/verifyEmail";
+// Flowko U27 (E4): the desk placeholder domain is never a secondary e-mail.
+import { refuseDeskAddress } from "@calcom/features/flowkoBusiness/deskEmailGuard";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import { prisma } from "@calcom/prisma";
 import type { TrpcSessionUser } from "@calcom/trpc/server/types";
@@ -16,6 +18,8 @@ type AddSecondaryEmailOptions = {
 
 export const addSecondaryEmailHandler = async ({ ctx, input }: AddSecondaryEmailOptions) => {
   const { user } = ctx;
+
+  refuseDeskAddress(input.email); // Flowko U27 (E4)
 
   await checkRateLimitAndThrowError({
     rateLimitingType: "core",
