@@ -97,6 +97,13 @@ export default function DeskView() {
       : view?.days.flatMap((d) => d.bookings).find((b) => b.bookingId === detailsBookingId);
 
   const columns = view?.days[0]?.columns ?? [];
+  // Flowko U28c (M3): the moving booking's worker, by name (never declined), for the banner. An empty name falls
+  // through to the next source; with none at all the banner names the customer instead (review).
+  const movingWorkerName = moving
+    ? (members.data ?? []).find((m) => m.memberId === moving.memberId)?.displayName ||
+      columns.find((c) => c.memberId === moving.memberId)?.displayName ||
+      ""
+    : "";
   const openDay = (d: string) => {
     params.setView("day");
     params.setDate(d === today ? null : d);
@@ -158,17 +165,6 @@ export default function DeskView() {
         {weekMode && workers.length > 0 && (
           <WorkerPicker workers={workers} value={weekWorker} onChange={params.setWorker} />
         )}
-        {moving && (
-          <div
-            data-testid="desk-move-banner"
-            role="status"
-            className="bg-semantic-info-subtle text-emphasis flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-medium">
-            <span>{t("flowko_desk_move_banner", { name: moving.customer.name })}</span>
-            <Button color="secondary" size="sm" onClick={moveMode.stop}>
-              {t("cancel")}
-            </Button>
-          </div>
-        )}
         {isPhone && columns.length > 0 && (
           <label className="text-default flex items-center gap-2 text-sm">
             <span>{t("flowko_desk_worker")}</span>
@@ -183,6 +179,22 @@ export default function DeskView() {
               ))}
             </select>
           </label>
+        )}
+        {moving && (
+          // Flowko U28c (M3): a clearer banner right on top of the grid, naming the worker whose column to tap.
+          <div
+            data-testid="desk-move-banner"
+            role="status"
+            className="bg-semantic-info-subtle text-emphasis border-semantic-info flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-base font-semibold">
+            <span>
+              {movingWorkerName
+                ? t("flowko_desk_move_banner_column", { name: movingWorkerName })
+                : t("flowko_desk_move_banner", { name: moving.customer.name })}
+            </span>
+            <Button color="secondary" onClick={moveMode.stop}>
+              {t("cancel")}
+            </Button>
+          </div>
         )}
         {view && weekMode && (
           <WeekGrid

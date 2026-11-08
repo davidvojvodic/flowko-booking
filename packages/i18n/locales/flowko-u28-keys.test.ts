@@ -98,8 +98,6 @@ const U28_KEYS = [
   "flowko_desk_override_overlaps_booking",
   "flowko_desk_override_overlaps_external",
   "flowko_desk_move",
-  "flowko_desk_move_to",
-  "flowko_desk_move_banner",
   "flowko_desk_cancel_booking",
   "flowko_desk_cancel_reason",
   "flowko_desk_no_show_mark",
@@ -111,6 +109,14 @@ const U28_KEYS = [
   "flowko_desk_no_show_mark_action",
   // Flowko U28b: the customer card's „Zamenjaj“ (B2).
   "flowko_desk_customer_change",
+  // Flowko U28c: the move panel in the booking sheet and the clearer calendar move banner (M2, M3, M5).
+  "flowko_desk_move_panel_title",
+  "flowko_desk_move_confirm",
+  "flowko_desk_move_on_calendar",
+  "flowko_desk_move_banner_column",
+  "flowko_desk_move_services_gone",
+  // Flowko U28c (review): the banner when no worker name is known (names the customer).
+  "flowko_desk_move_banner",
 ];
 
 const placeholders = (text: string): string[] =>

@@ -1,13 +1,13 @@
 // Flowko U28: the booking details sheet (R5, R12, D4): what the booking is, its history („who did what“), and the
 // actions its flags allow: move (tap mode or date + time), move to another worker, no-show and its undo, cancel
-// with an optional reason. Every write carries the actor.
+// with an optional reason. Every write carries the actor. Flowko U28c: „Prestavi“ opens a move panel in the sheet.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
 
 import { BookingDetailsSheet, historyLines } from "./BookingDetailsSheet";
-import { OLGA, TZ, at, barvanje, iso, localeT } from "./desk.fixture";
+import { ANA, BOR, OLGA, TZ, at, barvanje, iso, localeT } from "./desk.fixture";
 import { DeskTestProvider, contextValue, deskTrpc, moveModeState, resetDeskTrpc } from "./desk.testDoubles";
 
 vi.mock("@calcom/trpc/react", async () => (await import("./desk.testDoubles")).trpcModule);
@@ -31,6 +31,18 @@ function renderDetails(booking: DeskBooking, over: Parameters<typeof contextValu
 }
 
 const button = (name: string) => screen.queryByRole("button", { name });
+
+// Flowko U28c: bookings.freeStarts for the move panel (Ana = barvanje's worker).
+const freeAnswer = {
+  date: "2026-11-16",
+  timeZone: TZ,
+  slotStepMinutes: 15,
+  holiday: null,
+  workers: [
+    { memberId: ANA, displayName: "Ana", starts: [iso("10:40"), iso("11:00")], googleUnavailable: false },
+    { memberId: BOR, displayName: "Bor", starts: [iso("13:30")], googleUnavailable: false },
+  ],
+};
 
 describe("historyLines (U28 history)", () => {
   it("names who did what and when, overrides listed", () => {
@@ -136,33 +148,159 @@ describe("BookingDetailsSheet (U28)", () => {
     expect(screen.queryByLabelText("Čas")).toBeNull();
   });
 
-  it("„Prestavi“ enters move mode and closes the sheet", () => {
-    const { ctx, onClose } = renderDetails({ ...barvanje, ...all });
-    fireEvent.click(button("Prestavi") as HTMLElement);
-    expect(ctx.moveMode.start).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 101 }));
-    expect(onClose).toHaveBeenCalled();
+  // Flowko U28c (M1): one „Prestavi“ button; no date/time block until it is pressed.
+  it("shows one „Prestavi“ and no date/time block by default", () => {
+    renderDetails({ ...barvanje, ...all });
+    expect(screen.getAllByRole("button", { name: "Prestavi" })).toHaveLength(1);
+    expect(screen.queryByLabelText("Datum")).toBeNull();
+    expect(screen.queryByLabelText("Čas")).toBeNull();
+    expect(button("Potrdi prestavitev")).toBeNull();
+    expect(button("Prestavi na izbrani čas")).toBeNull();
   });
 
-  it("the date + time field moves the booking; in_past shows under the field", async () => {
+  it("no mayMove: no „Prestavi“", () => {
+    renderDetails({ ...barvanje, ...all, mayMove: false });
+    expect(button("Prestavi")).toBeNull();
+    expect(button("Prestavi k drugemu delavcu")).not.toBeNull();
+  });
+
+  // Flowko U28c (M2): „Prestavi“ opens the move panel inside the sheet; the details stay visible.
+  it("„Prestavi“ opens the panel with the booking's date and that worker's free starts", () => {
+    deskTrpc.freeStartsQuery.mockReturnValue({ data: freeAnswer, isFetching: false });
+    const { ctx, onClose } = renderDetails({ ...barvanje, ...all });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    expect(ctx.moveMode.start).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    const panel = screen.getByTestId("desk-move-panel");
+    expect(within(panel).getByRole("heading", { name: "Prestavi termin" })).toBeInTheDocument();
+    expect(screen.getByTestId("desk-details-time")).toBeInTheDocument();
+    expect((screen.getByLabelText("Datum") as HTMLInputElement).value).toBe("2026-11-16");
+    expect((screen.getByLabelText("Čas") as HTMLInputElement).value).toBe("");
+    expect(deskTrpc.freeStartsQuery).toHaveBeenLastCalledWith(
+      { date: "2026-11-16", serviceIds: [1] },
+      expect.objectContaining({ enabled: true })
+    );
+    // Ana's starts, not Bor's.
+    expect(screen.getAllByTestId("desk-free-start").map((c) => c.textContent)).toEqual(["10:40", "11:00"]);
+    expect(button("Potrdi prestavitev")).toBeDisabled();
+  });
+
+  it("a chip fills Čas and „Potrdi prestavitev“ moves to that start", async () => {
+    deskTrpc.freeStartsQuery.mockReturnValue({ data: freeAnswer, isFetching: false });
+    const moveTo = vi.fn().mockResolvedValue({ kind: "done", data: {} });
+    renderDetails({ ...barvanje, ...all }, { moveMode: moveModeState({ moveTo }) });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    fireEvent.click(screen.getAllByTestId("desk-free-start")[1]);
+    expect((screen.getByLabelText("Čas") as HTMLInputElement).value).toBe("11:00");
+    expect(button("Potrdi prestavitev")).not.toBeDisabled();
+    fireEvent.click(button("Potrdi prestavitev") as HTMLElement);
+    await waitFor(() =>
+      expect(moveTo).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 101 }), at("11:00"), {
+        fieldCodes: ["in_past"],
+      })
+    );
+  });
+
+  it("another date refetches the free starts; the typed time on that date is the start; in_past under the field", async () => {
     const moveTo = vi
       .fn()
       .mockResolvedValue({ kind: "error", code: "in_past", message: "flowko_desk_error_in_past" });
     renderDetails({ ...barvanje, ...all }, { moveMode: moveModeState({ moveTo }) });
-    expect((screen.getByLabelText("Datum") as HTMLInputElement).value).toBe("2026-11-16");
-    expect((screen.getByLabelText("Čas") as HTMLInputElement).value).toBe("09:00");
-    fireEvent.change(screen.getByLabelText("Datum"), { target: { value: "2026-11-19" } });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    fireEvent.change(screen.getByLabelText("Datum"), { target: { value: "2026-11-24" } });
+    expect(deskTrpc.freeStartsQuery).toHaveBeenLastCalledWith(
+      { date: "2026-11-24", serviceIds: [1] },
+      expect.objectContaining({ enabled: true })
+    );
     fireEvent.change(screen.getByLabelText("Čas"), { target: { value: "12:00" } });
-    fireEvent.click(button("Prestavi na izbrani čas") as HTMLElement);
+    fireEvent.click(button("Potrdi prestavitev") as HTMLElement);
     await waitFor(() =>
       expect(moveTo).toHaveBeenCalledWith(
         expect.objectContaining({ bookingId: 101 }),
-        at("12:00", "2026-11-19"),
-        {
-          fieldCodes: ["in_past"],
-        }
+        at("12:00", "2026-11-24"),
+        { fieldCodes: ["in_past"] }
       )
     );
+    expect(at("12:00", "2026-11-24")).toBe(Date.parse("2026-11-24T11:00:00.000Z"));
     expect(await screen.findByText("Termin je v preteklosti. Izberite poznejši čas.")).toBeInTheDocument();
+  });
+
+  it("services gone: a short note and only the time field", () => {
+    renderDetails({ ...barvanje, ...all, serviceIds: null });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    expect(screen.getByTestId("desk-move-services-gone")).toBeInTheDocument();
+    expect(screen.queryByText("Prosti termini")).toBeNull();
+    expect(deskTrpc.freeStartsQuery).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Čas")).toBeInTheDocument();
+  });
+
+  // Flowko U28c (review): opening the panel brings it into view and moves focus to it (the Datum field is next).
+  it("opening the panel scrolls it into view and focuses its heading", () => {
+    const scrollIntoView = vi.fn();
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderDetails({ ...barvanje, ...all });
+      fireEvent.click(button("Prestavi") as HTMLElement);
+      const panel = screen.getByTestId("desk-move-panel");
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      expect(document.activeElement).toBe(within(panel).getByRole("heading", { name: "Prestavi termin" }));
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
+  // Flowko U28c (review): Enter in Čas confirms; with no time nothing is sent.
+  it("Enter in the panel confirms the move; without a time it sends nothing", async () => {
+    const moveTo = vi.fn().mockResolvedValue({ kind: "done", data: {} });
+    renderDetails({ ...barvanje, ...all }, { moveMode: moveModeState({ moveTo }) });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    const panel = screen.getByTestId("desk-move-panel");
+    fireEvent.submit(panel);
+    expect(moveTo).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Čas"), { target: { value: "14:15" } });
+    fireEvent.submit(panel);
+    await waitFor(() =>
+      expect(moveTo).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 101 }), at("14:15"), {
+        fieldCodes: ["in_past"],
+      })
+    );
+    expect(button("Potrdi prestavitev")).toHaveAttribute("type", "submit");
+    expect(within(panel).getByRole("button", { name: "Prekliči" })).toHaveAttribute("type", "button");
+    expect(button("ali izberite čas na koledarju")).toHaveAttribute("type", "button");
+  });
+
+  it("„Prekliči“ closes the panel, back to the details", () => {
+    renderDetails({ ...barvanje, ...all });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    fireEvent.click(within(screen.getByTestId("desk-move-panel")).getByRole("button", { name: "Prekliči" }));
+    expect(screen.queryByTestId("desk-move-panel")).toBeNull();
+    expect(button("Prestavi")).not.toBeNull();
+  });
+
+  // Flowko U28c (M3): the calendar route stays: the link starts today's tap mode and closes the sheet.
+  it("„ali izberite čas na koledarju“ starts move mode and closes the sheet", () => {
+    const { ctx, onClose } = renderDetails({ ...barvanje, ...all });
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    fireEvent.click(button("ali izberite čas na koledarju") as HTMLElement);
+    expect(ctx.moveMode.start).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 101 }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a WORKER's own booking: the panel works", async () => {
+    const moveTo = vi.fn().mockResolvedValue({ kind: "done", data: {} });
+    renderDetails(
+      { ...barvanje, ...all, mayReenter: false, mayNoShow: false },
+      { moveMode: moveModeState({ moveTo }) }
+    );
+    fireEvent.click(button("Prestavi") as HTMLElement);
+    fireEvent.change(screen.getByLabelText("Čas"), { target: { value: "15:30" } });
+    fireEvent.click(button("Potrdi prestavitev") as HTMLElement);
+    await waitFor(() =>
+      expect(moveTo).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 101 }), at("15:30"), {
+        fieldCodes: ["in_past"],
+      })
+    );
   });
 
   it("„Prestavi k drugemu delavcu“ opens the booking sheet pre-filled from this booking", () => {

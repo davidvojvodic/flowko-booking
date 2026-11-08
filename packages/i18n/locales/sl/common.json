@@ -5126,8 +5126,6 @@
   "flowko_desk_override_overlaps_booking": "prekrivanje s terminom",
   "flowko_desk_override_overlaps_external": "zasedeno v koledarju",
   "flowko_desk_move": "Prestavi",
-  "flowko_desk_move_to": "Prestavi na izbrani čas",
-  "flowko_desk_move_banner": "Izberite nov čas za termin: {{name}}",
   "flowko_desk_cancel_booking": "Odpovej termin",
   "flowko_desk_cancel_reason": "Razlog (neobvezno)",
   "flowko_desk_no_show_mark": "Neprihod",
@@ -5137,5 +5135,11 @@
   "flowko_desk_next_week": "Naslednji teden",
   "flowko_desk_week_phone_hint": "Tedenski pogled je na voljo na tablici ali računalniku.",
   "flowko_desk_no_show_mark_action": "Označi neprihod",
-  "flowko_desk_customer_change": "Zamenjaj"
+  "flowko_desk_customer_change": "Zamenjaj",
+  "flowko_desk_move_panel_title": "Prestavi termin",
+  "flowko_desk_move_confirm": "Potrdi prestavitev",
+  "flowko_desk_move_on_calendar": "ali izberite čas na koledarju",
+  "flowko_desk_move_banner_column": "Kliknite nov čas v stolpcu: {{name}}",
+  "flowko_desk_move_services_gone": "Ena od storitev tega termina ne obstaja več, zato prostih terminov ni mogoče prikazati. Vpišite čas.",
+  "flowko_desk_move_banner": "Izberite nov čas za termin: {{name}}"
 }
