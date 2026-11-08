@@ -4980,5 +4980,21 @@
   "flowko_desk_error_booking_not_started": "No-show can only be marked once the appointment has started.",
   "flowko_desk_nav": "Calendar",
   "flowko_desk_title": "Calendar",
-  "flowko_desk_subtitle": "Every worker's appointments, day by day"
+  "flowko_desk_subtitle": "Every worker's appointments, day by day",
+  "flowko_desk_actor_chip": "You are: {{name}}",
+  "flowko_desk_actor_choose": "Who are you?",
+  "flowko_desk_actor_hint": "The choice is kept on this device and recorded with every change you make.",
+  "flowko_desk_prev_day": "Previous day",
+  "flowko_desk_next_day": "Next day",
+  "flowko_desk_view_day": "Day",
+  "flowko_desk_view_week": "Week",
+  "flowko_desk_worker": "Worker",
+  "flowko_desk_locked_column": "{{name}} (locked)",
+  "flowko_desk_busy": "Busy",
+  "flowko_desk_time_off": "Time off",
+  "flowko_desk_google_unavailable": "Google Calendar not reachable",
+  "flowko_desk_holiday_closed": "{{name}} – closed",
+  "flowko_desk_holiday_open": "{{name}} – open",
+  "flowko_desk_no_columns": "No workers yet.",
+  "flowko_desk_load_error": "The calendar could not be loaded."
 }

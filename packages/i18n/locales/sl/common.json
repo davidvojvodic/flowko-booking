@@ -5042,5 +5042,21 @@
   "flowko_desk_error_booking_not_started": "Odsotnosti ni mogoče označiti pred začetkom termina.",
   "flowko_desk_nav": "Koledar",
   "flowko_desk_title": "Koledar",
-  "flowko_desk_subtitle": "Termini vseh delavcev po dnevih"
+  "flowko_desk_subtitle": "Termini vseh delavcev po dnevih",
+  "flowko_desk_actor_chip": "Ste: {{name}}",
+  "flowko_desk_actor_choose": "Kdo ste?",
+  "flowko_desk_actor_hint": "Izbira se shrani na tej napravi in se zapiše ob vsaki spremembi, ki jo naredite.",
+  "flowko_desk_prev_day": "Prejšnji dan",
+  "flowko_desk_next_day": "Naslednji dan",
+  "flowko_desk_view_day": "Dan",
+  "flowko_desk_view_week": "Teden",
+  "flowko_desk_worker": "Delavec",
+  "flowko_desk_locked_column": "{{name}} (zaklenjen)",
+  "flowko_desk_busy": "Zasedeno",
+  "flowko_desk_time_off": "Odsotnost",
+  "flowko_desk_google_unavailable": "Google koledar ni dosegljiv",
+  "flowko_desk_holiday_closed": "{{name}} – zaprto",
+  "flowko_desk_holiday_open": "{{name}} – odprto",
+  "flowko_desk_no_columns": "Ni še delavcev.",
+  "flowko_desk_load_error": "Koledarja ni bilo mogoče naložiti."
 }
