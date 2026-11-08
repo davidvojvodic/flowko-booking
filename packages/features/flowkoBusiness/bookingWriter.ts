@@ -6,6 +6,8 @@
 // (bookingMail.ts, through sendMailAfterCommit, which never throws). Prismock tests inject the lock; the lock, the
 // idempotency key and the rollback are proven on Postgres (bookingWriter.integration-test.ts). The cancel and move
 // writers (bookingChange.ts) reuse the worker rule, the sentinel and the mail helper. Server only.
+// Flowko U28: no start before `now` on the business grid (R6, in_past, never overridable), needs_confirm tells
+// whether Google could not be read (R7), and a WORKER may not name another member as the actor (R9).
 import getICalUID from "@calcom/emails/lib/getICalUID";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getTranslation } from "@calcom/i18n/server";
@@ -22,7 +24,12 @@ import {
 } from "@calcom/lib/flowkoSalon";
 import logger from "@calcom/lib/logger";
 import { Prisma } from "@calcom/prisma/client";
-import { BookingStatus, FlowkoBookingActionKind, FlowkoMemberStatus } from "@calcom/prisma/enums";
+import {
+  BookingStatus,
+  FlowkoBookingActionKind,
+  FlowkoBusinessRole, // Flowko U28: R9
+  FlowkoMemberStatus,
+} from "@calcom/prisma/enums";
 import short from "short-uuid";
 import { type BusinessAccess, mayBookFor, requireBusinessAccess } from "./access";
 import {
@@ -64,9 +71,18 @@ export type CreateBookingInput = ActorRef & {
 };
 /** U24 FitProblem; intervals in epoch ms. */
 export type FitProblemOut = FitProblem;
+/**
+ * Flowko U28 (R7): `googleUnavailable` = the worker's Google calendar could not be read, so the whole day counted
+ * as external busy time; the desk then says so instead of naming an overlap.
+ */
+export type NeedsConfirmResult = {
+  status: "needs_confirm";
+  problems: FitProblemOut[];
+  googleUnavailable: boolean;
+};
 export type WriteResult<S extends string> =
   | { status: S; bookingId: number; uid: string }
-  | { status: "needs_confirm"; problems: FitProblemOut[] };
+  | NeedsConfirmResult;
 export type WriterDeps = {
   lockWorker?: (tx: Prisma.TransactionClient, userId: number) => Promise<void>;
   googleBusy?: typeof googleBusyFor;
@@ -123,7 +139,8 @@ export async function sendMailAfterCommit(kind: BusinessMailKind, bookingId: num
 /**
  * W6: who acted. `actorMemberId` = any ACTIVE member of the actor's business (staff without login and desk-only
  * workers included); missing = the actor's own member. Unknown, foreign or LOCKED ids are forbidden. A label for
- * the action log, never a right.
+ * the action log, never a right. Flowko U28 (R9): a WORKER acts only as herself; naming another member is
+ * forbidden (OWNER and STAFF, the shared desk, may name any ACTIVE member).
  */
 export async function resolveActor(
   tx: FlowkoDb,
@@ -132,6 +149,10 @@ export async function resolveActor(
 ): Promise<{ memberId: number; name: string }> {
   const id = actorMemberId ?? access.memberId;
   if (!Number.isInteger(id)) throw new FlowkoBusinessError("forbidden");
+  // Flowko U28: R9, the history must not misstate who acted.
+  if (access.role === FlowkoBusinessRole.WORKER && id !== access.memberId) {
+    throw new FlowkoBusinessError("forbidden");
+  }
   const member = await tx.flowkoBusinessMember.findUnique({
     where: { id },
     select: { id: true, businessId: true, status: true, displayName: true },
@@ -213,32 +234,60 @@ export function problemKinds(problems: FitProblem[]): string[] {
 
 /** Thrown inside the transaction so a refused fit rolls back the lock-time writes (the lazy mirror). */
 export class NeedsConfirm extends Error {
-  constructor(readonly problems: FitProblem[]) {
+  // Flowko U28: googleUnavailable (R7) travels with the problems out of the transaction.
+  constructor(
+    readonly problems: FitProblem[],
+    readonly googleUnavailable: boolean
+  ) {
     super("needs_confirm");
     this.name = "NeedsConfirm";
   }
 }
 
+/** Flowko U28: the needs_confirm answer of create and move. */
+export function needsConfirmResult(error: NeedsConfirm): NeedsConfirmResult {
+  return { status: "needs_confirm", problems: error.problems, googleUnavailable: error.googleUnavailable };
+}
+
+/**
+ * Flowko U28 (R6): a start before `now` rounded down to the business grid (anchored at the visit day's start, as
+ * the fit rounds it) is in the past. The current slot stays bookable (walk-ins).
+ */
+export function startsInPast(start: number, now: Date, day: Interval, slotStepMinutes: number): boolean {
+  return start < roundDownToGrid(now, day, slotStepMinutes);
+}
+
 /**
  * The business-local day of a visit of `minutes` starting at `start`, and the worker's Google busy time of that
  * day (fetched here, outside any transaction). An invalid start, or a visit ending after the local day ends
- * (crossing midnight), is bad_booking. Shared by create and move.
+ * (crossing midnight), is bad_booking; Flowko U28: a start in the past (startsInPast) is in_past, before Google
+ * is asked and before any fit, so no override reaches it. `googleUnavailable` (R7) passes Google's flag on.
+ * Shared by create and move.
  */
 export async function placeVisitDay(
   timeZone: string,
   start: Date,
   minutes: number,
   workerUserId: number,
+  grid: { now: Date; slotStepMinutes: number }, // Flowko U28: R6
   googleBusy?: WriterDeps["googleBusy"]
-): Promise<{ start: number; end: number; date: string; day: Interval; googleBusy: Interval[] }> {
+): Promise<{
+  start: number;
+  end: number;
+  date: string;
+  day: Interval;
+  googleBusy: Interval[];
+  googleUnavailable: boolean;
+}> {
   const startMs = start instanceof Date ? start.getTime() : Number.NaN;
   if (!Number.isFinite(startMs)) throw new FlowkoBusinessError("bad_booking");
   const end = startMs + minutes * MINUTE_MS;
   const date = todayIn(timeZone, new Date(startMs));
   const day = dayBounds(date, timeZone);
   if (end > day.end) throw new FlowkoBusinessError("bad_booking");
+  if (startsInPast(startMs, grid.now, day, grid.slotStepMinutes)) throw new FlowkoBusinessError("in_past");
   const google = await (googleBusy ?? googleBusyFor)(workerUserId, day);
-  return { start: startMs, end, date, day, googleBusy: google.busy };
+  return { start: startMs, end, date, day, googleBusy: google.busy, googleUnavailable: google.unavailable };
 }
 
 export type FitUnderLockInput = {
@@ -249,6 +298,8 @@ export type FitUnderLockInput = {
   steps: ServiceStep[];
   start: number;
   googleBusy: Interval[];
+  /** Flowko U28: R7, reported with the problems. */
+  googleUnavailable: boolean;
   now: Date;
   /** A move leaves the booking itself out. */
   exceptBookingId?: number;
@@ -278,7 +329,8 @@ export async function fitUnderLock(tx: Tx, input: FitUnderLockInput): Promise<Fi
       day: loaded.rules.day,
     }
   );
-  if (problems.length > 0 && !input.confirmOverride) throw new NeedsConfirm(problems);
+  if (problems.length > 0 && !input.confirmOverride)
+    throw new NeedsConfirm(problems, input.googleUnavailable);
   return problems;
 }
 
@@ -294,6 +346,7 @@ type Visit = {
   location: string | null;
   title: string;
   googleBusy: Interval[];
+  googleUnavailable: boolean; // Flowko U28: R7
 };
 
 function stepRows(bookingId: number, placed: PlacedStep[], services: ServiceForBooking[]) {
@@ -335,6 +388,7 @@ async function writeInTx(
     steps,
     start: visit.start,
     googleBusy: visit.googleBusy,
+    googleUnavailable: visit.googleUnavailable,
     now,
     confirmOverride: input.confirmOverride,
   });
@@ -396,10 +450,10 @@ async function writeInTx(
 
 /**
  * Creates a business booking. Order: access → target worker (Ruling 1) → actor (W6) → customer (W4) → services
- * (W5) → the business-local day (a visit crossing midnight is bad_booking) → Google busy, outside the
- * transaction → transaction: worker lock → mirror → fit → needs_confirm (nothing written) or the writes. A
- * unique violation of the idempotency key (same worker, same start and end) is duplicate_time. Mails after the
- * commit unless `deps.sendMails === false`.
+ * (W5) → the business-local day (a visit crossing midnight is bad_booking; Flowko U28: a start before `now` on
+ * the grid is in_past) → Google busy, outside the transaction → transaction: worker lock → mirror → fit →
+ * needs_confirm (nothing written) or the writes. A unique violation of the idempotency key (same worker, same
+ * start and end) is duplicate_time. Mails after the commit unless `deps.sendMails === false`.
  */
 export async function createBusinessBooking(
   db: FlowkoDb,
@@ -416,11 +470,18 @@ export async function createBusinessBooking(
 
   const business = await db.flowkoBusiness.findUnique({
     where: { id: access.businessId },
-    select: { timeZone: true, address: true },
+    select: { timeZone: true, address: true, slotGridMinutes: true },
   });
   if (!business) throw new FlowkoBusinessError("forbidden");
   const minutes = totalMinutes(combinedSteps(services));
-  const placed = await placeVisitDay(business.timeZone, input.start, minutes, worker.userId, deps.googleBusy);
+  const placed = await placeVisitDay(
+    business.timeZone,
+    input.start,
+    minutes,
+    worker.userId,
+    { now, slotStepMinutes: business.slotGridMinutes },
+    deps.googleBusy
+  );
   const visit: Visit = {
     worker,
     actor,
@@ -433,6 +494,7 @@ export async function createBusinessBooking(
     location: business.address ?? null,
     title: await bookingTitle(worker, services, customer, minutes),
     googleBusy: placed.googleBusy,
+    googleUnavailable: placed.googleUnavailable,
   };
 
   let written: { bookingId: number; uid: string };
@@ -441,7 +503,7 @@ export async function createBusinessBooking(
       writeInTx(tx, access.businessId, actorUserId, visit, input, now, deps.lockWorker ?? lockWorkerAdvisory)
     );
   } catch (error) {
-    if (error instanceof NeedsConfirm) return { status: "needs_confirm", problems: error.problems };
+    if (error instanceof NeedsConfirm) return needsConfirmResult(error);
     // Caught here, outside the transaction: on Postgres the failed insert has aborted it.
     if (isIdempotencyKeyConflict(error)) throw new FlowkoBusinessError("duplicate_time");
     throw error;

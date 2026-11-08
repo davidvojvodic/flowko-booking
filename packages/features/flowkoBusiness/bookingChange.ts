@@ -6,6 +6,8 @@
 // rows and the U22 reminder claims in place. Cal's handleCancelBooking is not used (it refuses a Cal-locked
 // organizer and disableCancelling); nothing here loads a user with a top-level user query (the excludeLockedUsers
 // extension would hide a locked worker). Mails go out after the commit and never undo a write. Server only.
+// Flowko U28: a move never targets a start in the past (in_past) nor moves a booking that has ended
+// (booking_not_active); its needs_confirm carries googleUnavailable (R7).
 import { type Interval, placeSteps, type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
 import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKeyService";
 import type { Prisma } from "@calcom/prisma/client";
@@ -18,6 +20,7 @@ import {
   loadBookableWorker,
   lockWorkerAdvisory,
   NeedsConfirm,
+  needsConfirmResult,
   placeVisitDay,
   problemKinds,
   resolveActor,
@@ -200,13 +203,17 @@ function stepsFromCopy(rows: StepRow[]): ServiceStep[] {
   }));
 }
 
-/** The booking's status, start and step copy (index order); the move reads it again under the lock. */
-async function readMovable(db: FlowkoDb, bookingId: number) {
+/**
+ * The booking's status, start and step copy (index order); the move reads it again under the lock. Flowko U28:
+ * a booking that has ended (endTime ≤ now) is booking_not_active (R6), checked again under the lock.
+ */
+async function readMovable(db: FlowkoDb, bookingId: number, now: Date) {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
     select: {
       status: true,
       startTime: true,
+      endTime: true, // Flowko U28
       flowkoBookingSteps: {
         select: {
           index: true,
@@ -223,6 +230,7 @@ async function readMovable(db: FlowkoDb, bookingId: number) {
   if (!booking || booking.status !== BookingStatus.ACCEPTED) {
     throw new FlowkoBusinessError("booking_not_active");
   }
+  if (booking.endTime.getTime() <= now.getTime()) throw new FlowkoBusinessError("booking_not_active");
   // Every business booking is written with its step copy (W1).
   if (booking.flowkoBookingSteps.length === 0) throw new Error("Flowko U27: business booking without steps");
   return { fromStart: booking.startTime, rows: booking.flowkoBookingSteps };
@@ -235,6 +243,7 @@ type MoveTarget = {
   date: string;
   dayEnd: number;
   googleBusy: Interval[];
+  googleUnavailable: boolean; // Flowko U28: R7
   actor: { memberId: number; name: string };
 };
 
@@ -251,7 +260,7 @@ async function moveInTx(
 
   // Read again under the lock: a concurrent move or cancel of this booking has committed by now, so fromStart
   // and the step copy are the ones this move replaces.
-  const { fromStart, rows } = await readMovable(tx, ref.bookingId);
+  const { fromStart, rows } = await readMovable(tx, ref.bookingId, now);
   const steps = stepsFromCopy(rows);
   const end = target.start + totalMinutes(steps) * MINUTE_MS;
   if (end > target.dayEnd) throw new FlowkoBusinessError("bad_booking");
@@ -265,6 +274,7 @@ async function moveInTx(
     steps,
     start: target.start,
     googleBusy: target.googleBusy,
+    googleUnavailable: target.googleUnavailable,
     now,
     exceptBookingId: ref.bookingId,
     confirmOverride,
@@ -325,11 +335,12 @@ async function moveInTx(
 /**
  * W9: move a business booking to a new start, same worker, same services (its own step copy, re-placed). Order:
  * act access → business booking → the worker (Ruling 1: role rule, LOCKED → worker_locked) → actor (W6) →
- * ACCEPTED only (else booking_not_active) → the new business-local day (crossing midnight or an invalid start is
- * bad_booking) → Google busy, outside the transaction → transaction: worker lock → fit without the booking →
- * needs_confirm (nothing written) or the in-place writes. rescheduled, fromReschedule and rescheduledBy stay
- * untouched. A unique violation of the idempotency key (another booking of the worker at exactly these times) is
- * duplicate_time. Mails after the commit unless `deps.sendMails === false`.
+ * ACCEPTED only (else booking_not_active; Flowko U28: also once it has ended) → the new business-local day
+ * (crossing midnight or an invalid start is bad_booking; Flowko U28: a new start before `now` on the grid is
+ * in_past, never overridable) → Google busy, outside the transaction → transaction: worker lock → fit without
+ * the booking → needs_confirm (nothing written) or the in-place writes. rescheduled, fromReschedule and
+ * rescheduledBy stay untouched. A unique violation of the idempotency key (another booking of the worker at
+ * exactly these times) is duplicate_time. Mails after the commit unless `deps.sendMails === false`.
  */
 export async function moveBusinessBooking(
   db: FlowkoDb,
@@ -347,10 +358,10 @@ export async function moveBusinessBooking(
   const actor = await resolveActor(db, access, input.actorMemberId);
 
   // Early refusals and the visit's length; the transaction reads the booking again under the lock.
-  const { rows } = await readMovable(db, ref.bookingId);
+  const { rows } = await readMovable(db, ref.bookingId, now);
   const business = await db.flowkoBusiness.findUnique({
     where: { id: ref.businessId },
-    select: { timeZone: true },
+    select: { timeZone: true, slotGridMinutes: true },
   });
   if (!business) throw new FlowkoBusinessError("forbidden");
   const placed = await placeVisitDay(
@@ -358,6 +369,7 @@ export async function moveBusinessBooking(
     input.start,
     totalMinutes(stepsFromCopy(rows)),
     worker.userId,
+    { now, slotStepMinutes: business.slotGridMinutes },
     deps.googleBusy
   );
 
@@ -368,6 +380,7 @@ export async function moveBusinessBooking(
     date: placed.date,
     dayEnd: placed.day.end,
     googleBusy: placed.googleBusy,
+    googleUnavailable: placed.googleUnavailable,
     actor,
   };
   try {
@@ -375,7 +388,7 @@ export async function moveBusinessBooking(
       moveInTx(tx, actorUserId, target, input.confirmOverride, now, deps.lockWorker ?? lockWorkerAdvisory)
     );
   } catch (error) {
-    if (error instanceof NeedsConfirm) return { status: "needs_confirm", problems: error.problems };
+    if (error instanceof NeedsConfirm) return needsConfirmResult(error);
     // Outside the transaction: on Postgres the failed update has aborted it.
     if (isIdempotencyKeyConflict(error)) throw new FlowkoBusinessError("duplicate_time");
     throw error;

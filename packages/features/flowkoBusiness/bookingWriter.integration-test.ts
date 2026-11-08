@@ -8,6 +8,8 @@
 // moved booking gets its U22 reminder for the new time. Each scenario uses its own worker day of the week of Mon
 // 16 Nov 2026 (Ljubljana); `now` is pinned (NOW = Mon 9 Nov 07:00) wherever the code takes it. Google busy is an
 // empty stub. Runs only with VITEST_MODE=integration against the throwaway DB.
+// Flowko U28: the logged no-show writes the attendee flag and its NO_SHOW action in one transaction (a failed
+// action insert leaves the flag unchanged).
 
 import type { ShiftEntry, WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
@@ -21,6 +23,7 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cancelBusinessBooking, moveBusinessBooking } from "./bookingChange";
 import { getFreeStarts } from "./bookingDay";
+import { setBusinessNoShow } from "./bookingNoShow"; // Flowko U28
 import {
   type CreateBookingInput,
   createBusinessBooking,
@@ -271,6 +274,7 @@ describe("Review Focus 1: two desks, one worker (the real advisory lock)", () =>
           with: { start: at(MON, "09:00").getTime(), end: at(MON, "09:30").getTime() },
         },
       ],
+      googleUnavailable: false, // Flowko U28: R7
     });
     expect(events).toEqual(["A:locked", "B:locked"]);
     expect(await acceptedOn(fx.users.ana, MON)).toHaveLength(1);
@@ -615,5 +619,78 @@ describe("U22: a business booking's reminder, before and after a move", () => {
     const reminders = mails.filter((m) => m.to.includes(customer));
     expect(reminders).toHaveLength(1);
     expect(reminders[0].subject).toBe(`Opomnik: ${BUSINESS_NAME} – 09:15 - 09:45, sreda, 18. november 2026`);
+  });
+});
+
+// Flowko U28: D4 on Postgres.
+describe("U28: the no-show and its action are one transaction", () => {
+  it("a failing NO_SHOW action insert rolls the attendee flag back; without the failure both are written", async () => {
+    const booking = await created(
+      create({ workerMemberId: fx.members.bor, start: at(THU, "15:00"), confirmOverride: true })
+    );
+    const afterStart = at(THU, "15:10");
+    const flags = async () =>
+      (
+        await prisma.attendee.findMany({ where: { bookingId: booking.bookingId }, select: { noShow: true } })
+      ).map((a) => a.noShow);
+    const noShowActions = () =>
+      prisma.flowkoBookingAction.count({ where: { bookingId: booking.bookingId, action: "NO_SHOW" } });
+    expect(await flags()).toEqual([false]);
+
+    const bind = <T extends object>(target: T, prop: string | symbol) => {
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    };
+    const seen: string[] = [];
+    const failingTx = (tx: Prisma.TransactionClient) =>
+      new Proxy(tx, {
+        get(target, prop) {
+          if (prop === "attendee") {
+            return new Proxy(target.attendee, {
+              get(delegate, method) {
+                if (method !== "updateMany") return bind(delegate, method);
+                return async (args: Parameters<typeof delegate.updateMany>[0]) => {
+                  const result = await delegate.updateMany(args);
+                  seen.push(`attendee.updateMany:${result.count}`);
+                  return result;
+                };
+              },
+            });
+          }
+          if (prop === "flowkoBookingAction") {
+            return new Proxy(target.flowkoBookingAction, {
+              get(delegate, method) {
+                if (method !== "create") return bind(delegate, method);
+                return async () => {
+                  seen.push("flowkoBookingAction.create");
+                  throw new Error("forced action insert failure");
+                };
+              },
+            });
+          }
+          return bind(target, prop);
+        },
+      });
+    const failingDb = new Proxy(prisma, {
+      get(target, prop) {
+        if (prop !== "$transaction") return bind(target, prop);
+        return (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+          target.$transaction((tx) => fn(failingTx(tx)));
+      },
+    }) as unknown as FlowkoDb;
+
+    await expect(
+      setBusinessNoShow(failingDb, fx.olga, { bookingId: booking.bookingId, noShow: true }, afterStart)
+    ).rejects.toThrow("forced action insert failure");
+    // The flag was written inside the transaction, then rolled back with it.
+    expect(seen).toEqual(["attendee.updateMany:1", "flowkoBookingAction.create"]);
+    expect(await flags()).toEqual([false]);
+    expect(await noShowActions()).toBe(0);
+
+    expect(
+      await setBusinessNoShow(prisma, fx.olga, { bookingId: booking.bookingId, noShow: true }, afterStart)
+    ).toEqual({ status: "updated", noShow: true });
+    expect(await flags()).toEqual([true]);
+    expect(await noShowActions()).toBe(1);
   });
 });

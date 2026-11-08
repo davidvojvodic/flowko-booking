@@ -360,6 +360,7 @@ describe("createBusinessBooking: fit and override (W3)", () => {
           with: { start: at("10:10").getTime(), end: at("10:40").getTime() },
         },
       ],
+      googleUnavailable: false, // Flowko U28: R7
     });
     expect(await counts()).toEqual(before);
     expect(mailMock).toHaveBeenCalledTimes(1); // only the first booking's mail
@@ -610,5 +611,101 @@ describe("createBusinessBooking: duplicate time (D1)", () => {
     const other = p2002({ target: ["uid"] });
     vi.spyOn(prismock.booking, "create").mockRejectedValueOnce(other);
     await expect(create(f.users.olga)).rejects.toBe(other);
+  });
+});
+
+// Flowko U28: no booking in the past (R6), the Google-unavailable flag (R7) and the WORKER actor rule (R9).
+/** Mon 16 Nov 08:07 in Ljubljana: the 08:00 slot is the current one. */
+const DESK_NOW = new Date("2026-11-16T07:07:00Z");
+const createAt = (now: Date, actorUserId: number, over: Partial<CreateBookingInput> = {}) =>
+  createBusinessBooking(db, actorUserId, input(over), now, { lockWorker, googleBusy });
+/** What googleBusyFor answers on a failed or timed-out fetch: the whole day busy and unavailable. */
+const googleDown: NonNullable<WriterDeps["googleBusy"]> = async (_userId, day) => ({
+  busy: [day],
+  unavailable: true,
+});
+
+describe("createBusinessBooking: no booking in the past (R6, U28)", () => {
+  it("07:45 when it is 08:07 → in_past, even with confirmOverride; nothing written, no Google call, no lock", async () => {
+    await expectCode(createAt(DESK_NOW, f.users.olga, { start: at("07:45") }), "in_past");
+    await expectCode(
+      createAt(DESK_NOW, f.users.olga, { start: at("07:45"), confirmOverride: true }),
+      "in_past"
+    );
+    expect(await counts()).toEqual({ bookings: 0, steps: 0, actions: 0 });
+    expect(googleBusy).not.toHaveBeenCalled();
+    expect(lockWorker).not.toHaveBeenCalled();
+  });
+
+  it("08:00, the current slot, is still bookable (walk-ins)", async () => {
+    const { bookingId } = await created(createAt(DESK_NOW, f.users.olga, { start: at("08:00") }));
+    expect((await prismock.booking.findUnique({ where: { id: bookingId } }))?.startTime).toEqual(at("08:00"));
+  });
+
+  it("a start on an earlier day is in_past too", async () => {
+    await expectCode(
+      createAt(DESK_NOW, f.users.olga, { start: new Date("2026-11-13T09:00:00Z"), confirmOverride: true }),
+      "in_past"
+    );
+  });
+});
+
+describe("createBusinessBooking: Google unavailable (R7, U28)", () => {
+  it("a failing Google → needs_confirm overlaps_external with googleUnavailable true; nothing written", async () => {
+    googleBusy.mockImplementation(googleDown);
+    const result = await create(f.users.olga);
+    expect(result).toMatchObject({ status: "needs_confirm", googleUnavailable: true });
+    if (result.status !== "needs_confirm") return;
+    expect(result.problems.map((p) => p.kind)).toContain("overlaps_external");
+    expect(await counts()).toEqual({ bookings: 0, steps: 0, actions: 0 });
+  });
+
+  it("with the override it is created (uid included), the override logged", async () => {
+    googleBusy.mockImplementation(googleDown);
+    const result = await create(f.users.olga, { confirmOverride: true });
+    expect(result).toEqual({ status: "created", bookingId: expect.any(Number), uid: expect.any(String) });
+    if (result.status !== "created") return;
+    expect((await actionsOf(result.bookingId))[0].details).toEqual({ overrides: ["overlaps_external"] });
+  });
+
+  it("without Google trouble a problem answers googleUnavailable false", async () => {
+    const result = await create(f.users.olga, { start: at("16:00") });
+    expect(result).toMatchObject({ status: "needs_confirm", googleUnavailable: false });
+  });
+});
+
+describe("resolveActor: a WORKER may not label an action with another member (R9, U28)", () => {
+  it("Ana (WORKER) books herself with actorMemberId = Olga → forbidden, nothing written", async () => {
+    await expectCode(create(f.users.ana, { actorMemberId: f.members.olga }), "forbidden");
+    await expectCode(create(f.users.ana, { actorMemberId: f.members.cene }), "forbidden");
+    expect(await counts()).toEqual({ bookings: 0, steps: 0, actions: 0 });
+    expect(lockWorker).not.toHaveBeenCalled();
+  });
+
+  it("Ana with her own id or none → ok", async () => {
+    const own = await created(create(f.users.ana, { actorMemberId: f.members.ana }));
+    expect((await actionsOf(own.bookingId))[0]).toMatchObject({ actorMemberId: f.members.ana });
+    const none = await created(create(f.users.ana, { start: at("12:00"), actorMemberId: null }));
+    expect((await actionsOf(none.bookingId))[0]).toMatchObject({ actorMemberId: f.members.ana });
+  });
+
+  it("Olga (OWNER) and Rok (STAFF) naming Cene → ok (U27 W6 unchanged)", async () => {
+    const byOlga = await created(create(f.users.olga, { actorMemberId: f.members.cene }));
+    const byRok = await created(
+      create(f.users.rok, { workerMemberId: f.members.cene, actorMemberId: f.members.cene })
+    );
+    for (const { bookingId } of [byOlga, byRok]) {
+      expect((await actionsOf(bookingId))[0]).toMatchObject({
+        actorMemberId: f.members.cene,
+        actorName: "Cene",
+      });
+    }
+  });
+
+  it("resolveActor directly: a WORKER access naming another member → forbidden", async () => {
+    const access = { businessId: f.a, memberId: f.members.ana, userId: f.users.ana, role: "WORKER" as const };
+    await expectCode(resolveActor(db, access, f.members.olga), "forbidden");
+    expect(await resolveActor(db, access, f.members.ana)).toEqual({ memberId: f.members.ana, name: "Ana" });
+    expect(await resolveActor(db, access)).toEqual({ memberId: f.members.ana, name: "Ana" });
   });
 });
