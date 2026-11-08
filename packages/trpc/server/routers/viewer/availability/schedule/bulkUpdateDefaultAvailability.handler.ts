@@ -3,6 +3,7 @@ import { prisma } from "@calcom/prisma";
 import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
+import { assertNotMirrorEventTypeWrite, assertNotMirrorSchedule } from "../../flowko/calScreensGuard"; // Flowko U27
 import type { TBulkUpdateToDefaultAvailabilityInputSchema } from "./bulkUpdateDefaultAvailability.schema";
 
 type BulkUpdateToDefaultAvailabilityOptions = {
@@ -17,6 +18,10 @@ export const bulkUpdateToDefaultAvailabilityHandler = async ({
   input,
 }: BulkUpdateToDefaultAvailabilityOptions) => {
   const { eventTypeIds, selectedDefaultScheduleId } = input;
+  // Flowko U27: a worker mirror (its event type, or its schedule as the new default) is never written through
+  // Cal's routes, for anyone (the owner included). The whole call is refused before any write
+  await assertNotMirrorEventTypeWrite(eventTypeIds);
+  if (selectedDefaultScheduleId) await assertNotMirrorSchedule(selectedDefaultScheduleId);
   const defaultScheduleId = ctx.user.defaultScheduleId;
 
   if (!selectedDefaultScheduleId && !defaultScheduleId) {

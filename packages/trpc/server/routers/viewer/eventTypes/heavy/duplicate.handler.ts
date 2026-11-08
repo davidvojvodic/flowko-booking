@@ -8,6 +8,7 @@ import { Prisma } from "@calcom/prisma/client";
 import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../../types";
+import { assertNotMirrorEventTypeWrite } from "../../flowko/calScreensGuard"; // Flowko U27
 import { setDestinationCalendarHandler } from "../../../viewer/calendars/setDestinationCalendar.handler";
 import { ensureAppsEnabled } from "../ensureAppsEnabled";
 import { ensureNoSuccessRedirect, SUCCESS_REDIRECT_NOT_AVAILABLE } from "../ensureNoSuccessRedirect";
@@ -22,6 +23,8 @@ type DuplicateOptions = {
 };
 
 export const duplicateHandler = async ({ ctx, input }: DuplicateOptions) => {
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorEventTypeWrite(input.id);
   try {
     const {
       id: originalEventTypeId,

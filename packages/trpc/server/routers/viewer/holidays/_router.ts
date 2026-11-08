@@ -1,5 +1,6 @@
 import authedProcedure from "../../../procedures/authedProcedure";
 import { router } from "../../../trpc";
+import { flowkoCalScreensGuard } from "../flowko/calScreensGuard"; // Flowko U27
 import { ZGetUserSettingsSchema } from "./getUserSettings.schema";
 import { ZToggleHolidaySchema } from "./toggleHoliday.schema";
 import { ZUpdateSettingsSchema } from "./updateSettings.schema";
@@ -18,17 +19,23 @@ export const holidaysRouter = router({
     return getUserSettingsHandler({ ctx, input });
   }),
 
-  updateSettings: authedProcedure.input(ZUpdateSettingsSchema).mutation(async ({ ctx, input }) => {
-    const { updateSettingsHandler } = await import("./updateSettings.handler");
+  updateSettings: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
+    .input(ZUpdateSettingsSchema)
+    .mutation(async ({ ctx, input }) => {
+      const { updateSettingsHandler } = await import("./updateSettings.handler");
 
-    return updateSettingsHandler({ ctx, input });
-  }),
+      return updateSettingsHandler({ ctx, input });
+    }),
 
-  toggleHoliday: authedProcedure.input(ZToggleHolidaySchema).mutation(async ({ ctx, input }) => {
-    const { toggleHolidayHandler } = await import("./toggleHoliday.handler");
+  toggleHoliday: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
+    .input(ZToggleHolidaySchema)
+    .mutation(async ({ ctx, input }) => {
+      const { toggleHolidayHandler } = await import("./toggleHoliday.handler");
 
-    return toggleHolidayHandler({ ctx, input });
-  }),
+      return toggleHolidayHandler({ ctx, input });
+    }),
 
   checkConflicts: authedProcedure.input(ZCheckConflictsSchema).query(async ({ ctx, input }) => {
     const { checkConflictsHandler } = await import("./checkConflicts.handler");

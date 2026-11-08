@@ -5,6 +5,7 @@ import { MembershipRole } from "@calcom/prisma/enums";
 
 import authedProcedure from "../../../procedures/authedProcedure";
 import { router } from "../../../trpc";
+import { flowkoCalScreensGuard } from "../flowko/calScreensGuard"; // Flowko U27
 import { ZDeleteInputSchema } from "./delete.schema";
 import { ZGetActiveOnOptionsSchema } from "./getActiveOnOptions.schema";
 import { ZEventTypeInputSchema, ZGetEventTypesFromGroupSchema } from "./getByViewer.schema";
@@ -102,6 +103,7 @@ export const eventTypesRouter = router({
   get,
 
   delete: createEventPbacProcedure("eventType.delete", [MembershipRole.ADMIN, MembershipRole.OWNER])
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
     .input(ZDeleteInputSchema)
     .mutation(async ({ ctx, input }) => {
       const { deleteHandler } = await import("./delete.handler");
@@ -121,6 +123,7 @@ export const eventTypesRouter = router({
   }),
 
   bulkUpdateToDefaultLocation: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
     .input(
       z.object({
         eventTypeIds: z.array(z.number()),
@@ -227,6 +230,7 @@ export const eventTypesRouter = router({
     MembershipRole.ADMIN,
     MembershipRole.OWNER,
   ])
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
     .input(ZMassApplyHostLocationInputSchema)
     .mutation(async ({ ctx, input }) => {
       const { massApplyHostLocationHandler } = await import("./massApplyHostLocation.handler");

@@ -6,6 +6,7 @@ import type { PrismaClient } from "@calcom/prisma";
 import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../types";
+import { assertNotMirrorEventTypeWrite } from "../flowko/calScreensGuard"; // Flowko U27
 import type { TMassApplyHostLocationInputSchema } from "./massApplyHostLocation.schema";
 
 type MassApplyHostLocationInput = {
@@ -41,6 +42,8 @@ export const massApplyHostLocationHandler = async ({
   input,
 }: MassApplyHostLocationInput): Promise<MassApplyHostLocationResponse> => {
   const { eventTypeId, locationType, link, address, phoneNumber } = input;
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorEventTypeWrite(eventTypeId);
 
   const eventTypeRepo = new EventTypeRepository(ctx.prisma);
   const eventType = await eventTypeRepo.findByIdWithTeamId({ id: eventTypeId });

@@ -4,6 +4,7 @@ import { MembershipRole } from "@calcom/prisma/enums";
 import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../types";
+import { assertNotMirrorEventTypeWrite } from "../flowko/calScreensGuard"; // Flowko U27
 import type { TDeleteInputSchema } from "./delete.schema";
 
 type DeleteOptions = {
@@ -15,6 +16,8 @@ type DeleteOptions = {
 
 export const deleteHandler = async ({ ctx, input }: DeleteOptions) => {
   const { id } = input;
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorEventTypeWrite(id);
 
   // Flowko: authorize the id deleted here, not the key the procedure middleware checked (it reads
   // eventTypeId ?? id), so a request can't pass the check on its own event type and delete another tenant's

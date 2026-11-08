@@ -6,6 +6,7 @@ import { userMetadata } from "@calcom/prisma/zod-utils";
 import { TRPCError } from "@trpc/server";
 
 import type { TrpcSessionUser } from "../../../types";
+import { assertNotMirrorEventTypeWrite } from "../flowko/calScreensGuard"; // Flowko U27
 import type { TBulkUpdateToDefaultLocationInputSchema } from "./bulkUpdateToDefaultLocation.schema";
 import { ensureAppsEnabled } from "./ensureAppsEnabled";
 
@@ -21,6 +22,8 @@ export const bulkUpdateToDefaultLocationHandler = async ({
   input,
 }: BulkUpdateToDefaultLocationOptions) => {
   const { eventTypeIds } = input;
+  // Flowko U27: a worker mirror is never written through Cal's routes, for anyone (the owner included)
+  await assertNotMirrorEventTypeWrite(eventTypeIds);
   // Flowko: the event types may not get the location of a default conferencing app the admin switched off
   const defaultAppSlug = userMetadata.parse(ctx.user.metadata)?.defaultConferencingApp?.appSlug;
   const defaultLocationType = getAppFromSlug(defaultAppSlug)?.appData?.location?.type;

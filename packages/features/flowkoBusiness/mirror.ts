@@ -168,6 +168,11 @@ export async function mirrorOfEventType(
   return db.flowkoWorkerMirror.findUnique({ where: { eventTypeId }, select: mirrorSelect });
 }
 
+/** The mirror bound to this schedule (a mirror's schedule is its own and unique), or null. */
+export async function mirrorOfSchedule(db: FlowkoDb, scheduleId: number): Promise<WorkerMirror | null> {
+  return db.flowkoWorkerMirror.findUnique({ where: { scheduleId }, select: mirrorSelect });
+}
+
 /** M6: the booking with this uid when it is a business booking (its event type is a mirror), else null. */
 export async function businessBookingByUid(db: FlowkoDb, uid: string): Promise<BusinessBookingRef | null> {
   const booking = await db.booking.findUnique({ where: { uid }, select: bookingRefSelect });

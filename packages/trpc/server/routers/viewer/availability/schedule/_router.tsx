@@ -1,5 +1,6 @@
 import authedProcedure from "../../../../procedures/authedProcedure";
 import { router } from "../../../../trpc";
+import { flowkoCalScreensGuard } from "../../flowko/calScreensGuard"; // Flowko U27
 import { ZBulkUpdateToDefaultAvailabilityInputSchema } from "./bulkUpdateDefaultAvailability.schema";
 import { ZCreateInputSchema } from "./create.schema";
 import { ZDeleteInputSchema } from "./delete.schema";
@@ -32,41 +33,53 @@ export const scheduleRouter = router({
     });
   }),
 
-  create: authedProcedure.input(ZCreateInputSchema).mutation(async ({ input, ctx }) => {
-    const { createHandler } = await import("./create.handler");
+  create: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
+    .input(ZCreateInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const { createHandler } = await import("./create.handler");
 
-    return createHandler({
-      ctx,
-      input,
-    });
-  }),
+      return createHandler({
+        ctx,
+        input,
+      });
+    }),
 
-  delete: authedProcedure.input(ZDeleteInputSchema).mutation(async ({ input, ctx }) => {
-    const { deleteHandler } = await import("./delete.handler");
+  delete: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
+    .input(ZDeleteInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const { deleteHandler } = await import("./delete.handler");
 
-    return deleteHandler({
-      ctx,
-      input,
-    });
-  }),
+      return deleteHandler({
+        ctx,
+        input,
+      });
+    }),
 
-  update: authedProcedure.input(ZUpdateInputSchema).mutation(async ({ input, ctx }) => {
-    const { updateHandler } = await import("./update.handler");
+  update: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
+    .input(ZUpdateInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const { updateHandler } = await import("./update.handler");
 
-    return updateHandler({
-      ctx,
-      input,
-    });
-  }),
+      return updateHandler({
+        ctx,
+        input,
+      });
+    }),
 
-  duplicate: authedProcedure.input(ZScheduleDuplicateSchema).mutation(async ({ input, ctx }) => {
-    const { duplicateHandler } = await import("./duplicate.handler");
+  duplicate: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
+    .input(ZScheduleDuplicateSchema)
+    .mutation(async ({ input, ctx }) => {
+      const { duplicateHandler } = await import("./duplicate.handler");
 
-    return duplicateHandler({
-      ctx,
-      input,
-    });
-  }),
+      return duplicateHandler({
+        ctx,
+        input,
+      });
+    }),
 
   getScheduleByUserId: authedProcedure.input(ZGetByUserIdInputSchema).query(async ({ input, ctx }) => {
     const { getScheduleByUserIdHandler } = await import("./getScheduleByUserId.handler");
@@ -95,6 +108,7 @@ export const scheduleRouter = router({
     });
   }),
   bulkUpdateToDefaultAvailability: authedProcedure
+    .use(flowkoCalScreensGuard) // Flowko U27: non-owner business members get FORBIDDEN
     .input(ZBulkUpdateToDefaultAvailabilityInputSchema)
     .mutation(async ({ ctx, input }) => {
       const { bulkUpdateToDefaultAvailabilityHandler } = await import(
