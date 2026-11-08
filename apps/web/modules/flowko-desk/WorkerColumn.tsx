@@ -49,6 +49,8 @@ export function WorkerColumn(props: {
   onOpenDetails: (bookingId: number) => void;
   /** Flowko U28 (R12): move mode is on for another worker's booking: this column is dimmed. */
   dimmed?: boolean;
+  /** Flowko U28 (R12): move mode is on: taps on bookings go through to this column's tap handler. */
+  passThrough?: boolean;
   /** Flowko U28 (week view): the test-id key of this column; the week shows one worker seven times (default: the member id). */
   testKey?: string | number;
 }) {
@@ -171,6 +173,7 @@ export function WorkerColumn(props: {
             lanes={lane.lanes}
             zIndex={10 + index}
             onOpenDetails={props.onOpenDetails}
+            passThrough={props.passThrough}
           />
         );
       })}

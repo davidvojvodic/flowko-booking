@@ -116,6 +116,7 @@ export function DayGrid(props: {
                     pastUntil={pastUntil}
                     onBook={c.locked || (props.canBook && !props.canBook(c)) ? undefined : props.onBook}
                     onOpenDetails={props.onOpenDetails}
+                    passThrough={props.movingMemberId !== undefined && props.movingMemberId !== null}
                     dimmed={
                       props.movingMemberId !== undefined &&
                       props.movingMemberId !== null &&

@@ -9,9 +9,9 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({ useLocale: () => ({ t: localeT("
 
 const range = { from: at("08:00"), to: at("19:00") };
 
-function renderBlock(b = barvanje, onOpenDetails = vi.fn()) {
+function renderBlock(b = barvanje, onOpenDetails = vi.fn(), opts: { passThrough?: boolean; onParent?: () => void } = {}) {
   render(
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }} onClick={opts.onParent}>
       <BookingBlock
         booking={b}
         range={range}
@@ -21,6 +21,7 @@ function renderBlock(b = barvanje, onOpenDetails = vi.fn()) {
         lanes={1}
         zIndex={10}
         onOpenDetails={onOpenDetails}
+        passThrough={opts.passThrough}
       />
     </div>
   );
@@ -49,6 +50,27 @@ describe("BookingBlock (U28)", () => {
     const segments = screen.getByTestId("desk-booking-101").querySelectorAll<HTMLElement>('[data-kind="busy"]');
     fireEvent.click(segments[1]);
     expect(onOpen).toHaveBeenCalledWith(101);
+  });
+
+  it("a busy tap opens the details and stays inside the block (the column never sees it)", () => {
+    const onParent = vi.fn();
+    const onOpen = renderBlock(barvanje, vi.fn(), { onParent });
+    const busy = screen.getByTestId("desk-booking-101").querySelector<HTMLElement>('[data-kind="busy"]');
+    fireEvent.click(busy as HTMLElement);
+    expect(onOpen).toHaveBeenCalledWith(101);
+    expect(onParent).not.toHaveBeenCalled();
+  });
+
+  it("passThrough (move mode, R12): busy segments take no pointer events and hand the tap to the column", () => {
+    const onParent = vi.fn();
+    const onOpen = renderBlock(barvanje, vi.fn(), { passThrough: true, onParent });
+    const busy = Array.from(
+      screen.getByTestId("desk-booking-101").querySelectorAll<HTMLElement>('[data-kind="busy"]')
+    );
+    expect(busy.map((b) => b.style.pointerEvents)).toEqual(["none", "none"]);
+    fireEvent.click(busy[0]);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onParent).toHaveBeenCalledTimes(1);
   });
 
   it("shows time, customer and services, 24-hour", () => {

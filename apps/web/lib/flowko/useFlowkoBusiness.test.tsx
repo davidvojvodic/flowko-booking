@@ -41,6 +41,13 @@ describe("useFlowkoBusiness (U28)", () => {
     mockUseQuery.mockReturnValue({ data: undefined, error: new Error("x") });
     expect(renderHook(() => useFlowkoBusiness()).result.current).toEqual({ status: "none", me: null });
   });
+
+  it("stays member when a background refetch fails (react-query keeps the data and sets the error)", () => {
+    mockUseQuery.mockReturnValue({ data: ME, error: new Error("refetch failed") });
+    expect(renderHook(() => useFlowkoBusiness()).result.current).toEqual({ status: "member", me: ME });
+    mockUseQuery.mockReturnValue({ data: null, error: new Error("refetch failed") });
+    expect(renderHook(() => useFlowkoBusiness()).result.current).toEqual({ status: "none", me: null });
+  });
 });
 
 describe("useFlowkoHomeHref (U28)", () => {

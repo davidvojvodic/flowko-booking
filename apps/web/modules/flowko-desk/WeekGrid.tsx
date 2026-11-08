@@ -154,6 +154,7 @@ export function WeekGrid(props: {
                     pastUntil={pastUntil}
                     onBook={bookable ? props.onBook : undefined}
                     onOpenDetails={props.onOpenDetails}
+                    passThrough={props.movingMemberId !== undefined && props.movingMemberId !== null}
                     dimmed={
                       props.movingMemberId !== undefined &&
                       props.movingMemberId !== null &&

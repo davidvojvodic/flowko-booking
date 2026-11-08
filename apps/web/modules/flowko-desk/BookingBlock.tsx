@@ -1,7 +1,9 @@
 // Flowko U28: one business booking in a worker's column (R14). Drawn from its step copy: busy steps solid and
 // tappable (open the details), processing steps hatched, see-through and pass taps through to the column, so a
 // processing gap of a colouring looks and acts free (R10). An untrusted copy (steps null) is one solid block
-// (U24 E2). The wrapper itself takes no pointer events; its lane gives the left offset and width.
+// (U24 E2). The wrapper itself takes no pointer events; its lane gives the left offset and width. In move mode
+// (`passThrough`, R12) the busy steps let taps through too, so a spot under a booking (the moving one's own
+// included: „15 min later“) reaches the column's tap handler.
 import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
 import { formatHm, stepSegments, toPx } from "@calcom/lib/flowkoBusiness/desk";
 import type { Ms } from "@calcom/lib/flowkoSalon";
@@ -30,6 +32,8 @@ export function BookingBlock(props: {
   lanes: number;
   zIndex: number;
   onOpenDetails: (bookingId: number) => void;
+  /** Flowko U28 (R12): move mode: busy steps take no pointer events and a tap goes on to the column. */
+  passThrough?: boolean;
 }) {
   const { booking: b, range, pxPerMinute, timeZone } = props;
   const top = Math.max(ms(b.start), range.from);
@@ -80,6 +84,7 @@ export function BookingBlock(props: {
               aria-label={label}
               title={label}
               onClick={(e) => {
+                if (props.passThrough) return;
                 e.stopPropagation();
                 props.onOpenDetails(b.bookingId);
               }}
@@ -90,7 +95,7 @@ export function BookingBlock(props: {
               style={{
                 top: `${px(s.start) - px(top)}px`,
                 height: `${px(s.end) - px(s.start)}px`,
-                pointerEvents: "auto",
+                pointerEvents: props.passThrough ? "none" : "auto",
               }}>
               {i === firstBusy && (
                 <>

@@ -248,6 +248,47 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     );
   });
 
+  it("in move mode a tap on the moving booking's own busy segment moves it to that grid start (R12: „15 min later“)", async () => {
+    renderDesk();
+    openBarvanje();
+    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    const ownBusy = screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement;
+    expect(ownBusy.style.pointerEvents).toBe("none");
+    fireEvent.click(ownBusy, { clientY: yOf("09:15") + 1 });
+    await waitFor(() =>
+      expect(deskTrpc.move).toHaveBeenCalledWith({
+        bookingId: 101,
+        start: iso("09:15"),
+        confirmOverride: false,
+        actorMemberId: OLGA,
+      })
+    );
+    expect(screen.queryByRole("dialog", { name: "Barvanje" })).toBeNull();
+  });
+
+  it("outside move mode a busy segment takes the tap and opens the details, no booking sheet", () => {
+    renderDesk();
+    const busy = screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement;
+    expect(busy.style.pointerEvents).toBe("auto");
+    fireEvent.click(busy, { clientY: yOf("09:15") + 1 });
+    expect(screen.getByRole("dialog", { name: "Barvanje" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Nov termin" })).toBeNull();
+    expect(deskTrpc.move).not.toHaveBeenCalled();
+  });
+
+  it("on a phone in move mode the single column is the moving booking's worker (R12, R15)", () => {
+    isPhone.mockReturnValue(true);
+    renderDesk("?worker=2");
+    expect(headers()).toEqual(["Ana"]);
+    openBarvanje();
+    fireEvent.click(screen.getByRole("button", { name: "Prestavi" }));
+    fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(BOR) } });
+    expect(headers()).toEqual(["Ana"]);
+    expect((screen.getByLabelText("Delavec") as HTMLSelectElement).value).toBe(String(ANA));
+    fireEvent.click(screen.getByRole("button", { name: "Prekliči" }));
+    expect(headers()).toEqual(["Bor"]);
+  });
+
   it("„Prekliči“ and Esc leave move mode; a booking tap opens nothing while moving", () => {
     renderDesk();
     openBarvanje();

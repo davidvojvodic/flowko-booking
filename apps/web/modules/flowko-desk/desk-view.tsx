@@ -99,9 +99,12 @@ export default function DeskView() {
     params.setView("day");
     params.setDate(d === today ? null : d);
   };
+  // Flowko U28 (R12, R15): on a phone in move mode the one column shown is the moving booking's worker.
   const phoneMemberId = isPhone
-    ? ((columns.find((c) => c.memberId === params.state.worker) ?? columns.find((c) => c.isMe) ?? columns[0])
-        ?.memberId ?? null)
+    ? (moving?.memberId ??
+      (columns.find((c) => c.memberId === params.state.worker) ?? columns.find((c) => c.isMe) ?? columns[0])
+        ?.memberId ??
+      null)
     : null;
 
   const context: DeskContextValue = {
