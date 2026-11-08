@@ -5105,7 +5105,7 @@
   "flowko_desk_error_service_not_assigned": "Delavec ne opravlja ene od izbranih storitev.",
   "flowko_desk_error_bad_booking": "Tega termina ni mogoče spremeniti.",
   "flowko_desk_error_bad_customer": "Preverite podatke stranke: ime ter veljavna telefonska številka ali e-pošta.",
-  "flowko_desk_error_forbidden": "Za to nimate dovoljenja. Izberite, kdo ste.",
+  "flowko_desk_error_forbidden": "Za to nimate dovoljenja. Izbira osebe je ponastavljena; poskusite znova.",
   "flowko_desk_error_TOO_MANY_REQUESTS": "Preveč zahtev. Poskusite znova čez trenutek.",
   "flowko_desk_steps": "Koraki",
   "flowko_desk_step_busy": "Delo",
@@ -5136,5 +5136,6 @@
   "flowko_desk_prev_week": "Prejšnji teden",
   "flowko_desk_next_week": "Naslednji teden",
   "flowko_desk_week_phone_hint": "Tedenski pogled je na voljo na tablici ali računalniku.",
-  "flowko_desk_no_show_mark_action": "Označi neprihod"
+  "flowko_desk_no_show_mark_action": "Označi neprihod",
+  "flowko_desk_customer_change": "Zamenjaj"
 }

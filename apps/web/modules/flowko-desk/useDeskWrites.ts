@@ -1,10 +1,12 @@
 // Flowko U28: the desk's writes (R9, R13). Every write names the actor at the device (`actorMemberId`, a label,
-// never a right); with nobody chosen the picker opens first and nothing is sent. A `needs_confirm` answer and
-// every error refetch the shown day BEFORE the caller shows a dialog or a message, so a booking another tablet
-// just made is drawn under it. Each error code has its own text `flowko_desk_error_<code>`; codes the caller shows
-// at a field (`fieldCodes`) come back without a toast. `forbidden` clears the stored actor and reopens the picker
-// (a fixed WORKER gets `flowko_desk_error_forbidden_self` instead)
-// (the chosen member may have been locked meanwhile). Success invalidates every day and week view.
+// never a right). A `needs_confirm` answer and every error refetch the shown day BEFORE the caller shows a dialog
+// or a message, so a booking another tablet just made is drawn under it. Each error code has its own text
+// `flowko_desk_error_<code>`; codes the caller shows at a field (`fieldCodes`) come back without a toast.
+// `forbidden` clears the stored actor (the chosen member may have been locked meanwhile; a fixed WORKER gets
+// `flowko_desk_error_forbidden_self` instead). Success invalidates every day and week view.
+// Flowko U28b (B1, B3): no picker opens from a write: the actor defaults to the signed-in member, and `forbidden`
+// only clears the stored choice (back to herself) and shows its text. The refetch before a dialog or a message
+// refreshes the shown free starts too (the success path's `invalidate` covers them, useDeskData).
 import type { FitProblem } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
@@ -31,7 +33,7 @@ export type DeskWriteOutcome<R> =
   | { kind: "confirm"; problems: FitProblem[]; googleUnavailable: boolean }
   /** `message` is the i18n key of the code's text. */
   | { kind: "error"; code: DeskWriteCode | "unknown"; message: string }
-  /** Nobody is chosen at this device: the picker is open, nothing was sent. */
+  /** Flowko U28b (B1): the actor is not known yet (member list loading or failed): nothing was sent. */
   | { kind: "needs_actor" };
 
 export type DeskWriteOptions = {
@@ -89,6 +91,7 @@ const needsConfirm = (result: Written): result is NeedsConfirm => result.status 
 
 export function useDeskWrites(deps: DeskWriteDeps): DeskWrites {
   const { t } = useLocale();
+  const utils = trpc.useUtils();
   const { actor, refetch, invalidate } = deps;
   const createMutation = trpc.viewer.flowko.bookings.create.useMutation();
   const moveMutation = trpc.viewer.flowko.bookings.move.useMutation();
@@ -96,10 +99,16 @@ export function useDeskWrites(deps: DeskWriteDeps): DeskWrites {
   const noShowMutation = trpc.viewer.flowko.bookings.noShow.useMutation();
 
   // R13: the day is fresh before any dialog or message; a failed refetch must not hide the write's answer.
+  // Flowko U28b (B3): the shown free starts (an open booking sheet's chips) are refetched with the day.
   const refresh = () =>
-    Promise.resolve()
-      .then(() => refetch())
-      .catch(() => undefined);
+    Promise.all([
+      Promise.resolve()
+        .then(() => refetch())
+        .catch(() => undefined),
+      Promise.resolve()
+        .then(() => utils.viewer.flowko.bookings.freeStarts.refetch())
+        .catch(() => undefined),
+    ]);
 
   async function run(
     send: (actorMemberId: number) => Promise<Written>,
@@ -107,8 +116,9 @@ export function useDeskWrites(deps: DeskWriteDeps): DeskWrites {
     opts: DeskWriteOptions = {}
   ): Promise<DeskWriteOutcome<Written>> {
     const chosen = actor.actor;
-    if (actor.needsChoice || !chosen) {
-      actor.openPicker();
+    if (!chosen) {
+      // Flowko U28b (B1): never a forced picker; the desk is not ready to say who acts, so nothing is sent.
+      if (opts.toasts !== "none") showToast(t("flowko_desk_load_error"), "error");
       return { kind: "needs_actor" };
     }
     let result: Written;
@@ -117,10 +127,8 @@ export function useDeskWrites(deps: DeskWriteDeps): DeskWrites {
     } catch (error) {
       const code = deskErrorCode(error);
       await refresh();
-      if (code === "forbidden") {
-        actor.clear();
-        actor.openPicker();
-      }
+      // Flowko U28b (B1): forget the stored choice (back to the signed-in member), no picker.
+      if (code === "forbidden") actor.clear();
       // A WORKER is fixed to herself: no picker to offer, so her text does not ask her to choose.
       const message = code === "forbidden" && actor.fixed ? "flowko_desk_error_forbidden_self" : errorKey(code);
       const atField = code !== "unknown" && opts.fieldCodes?.includes(code);

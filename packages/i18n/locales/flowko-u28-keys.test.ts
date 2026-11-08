@@ -109,6 +109,8 @@ const U28_KEYS = [
   "flowko_desk_next_week",
   "flowko_desk_week_phone_hint",
   "flowko_desk_no_show_mark_action",
+  // Flowko U28b: the customer card's „Zamenjaj“ (B2).
+  "flowko_desk_customer_change",
 ];
 
 const placeholders = (text: string): string[] =>

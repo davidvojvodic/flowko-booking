@@ -24,6 +24,9 @@ export const deskTrpc = {
   noShow: vi.fn(),
   invalidateDay: vi.fn(),
   invalidateWeek: vi.fn(),
+  // Flowko U28b (B3): free starts are refreshed after every desk write and before a dialog.
+  invalidateFreeStarts: vi.fn(),
+  refetchFreeStarts: vi.fn(),
   refetchMe: vi.fn(),
 };
 
@@ -43,6 +46,8 @@ export function resetDeskTrpc() {
   deskTrpc.customersQuery.mockReturnValue({ data: undefined, isFetching: false });
   deskTrpc.invalidateDay.mockResolvedValue(undefined);
   deskTrpc.invalidateWeek.mockResolvedValue(undefined);
+  deskTrpc.invalidateFreeStarts.mockResolvedValue(undefined);
+  deskTrpc.refetchFreeStarts.mockResolvedValue(undefined);
   deskTrpc.refetchMe.mockResolvedValue(undefined);
 }
 
@@ -61,6 +66,7 @@ export const trpcModule = {
           bookings: {
             day: { invalidate: deskTrpc.invalidateDay },
             week: { invalidate: deskTrpc.invalidateWeek },
+            freeStarts: { invalidate: deskTrpc.invalidateFreeStarts, refetch: deskTrpc.refetchFreeStarts },
           },
           business: { me: { refetch: deskTrpc.refetchMe } },
         },
@@ -91,7 +97,6 @@ export function actorState(over: Partial<DeskActorState> = {}): DeskActorState {
   return {
     actor: { memberId: OLGA, displayName: "Olga" },
     fixed: false,
-    needsChoice: false,
     choices: members,
     choose: vi.fn(),
     clear: vi.fn(),

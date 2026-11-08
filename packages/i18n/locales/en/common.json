@@ -5043,7 +5043,7 @@
   "flowko_desk_error_service_not_assigned": "The worker does not do one of the chosen services.",
   "flowko_desk_error_bad_booking": "This booking cannot be changed.",
   "flowko_desk_error_bad_customer": "Check the customer: a name and a valid phone number or e-mail address.",
-  "flowko_desk_error_forbidden": "Not allowed. Choose who you are.",
+  "flowko_desk_error_forbidden": "You don't have permission for this. The person selection was reset; try again.",
   "flowko_desk_error_TOO_MANY_REQUESTS": "Too many requests. Try again in a moment.",
   "flowko_desk_steps": "Steps",
   "flowko_desk_step_busy": "Work",
@@ -5074,5 +5074,6 @@
   "flowko_desk_prev_week": "Previous week",
   "flowko_desk_next_week": "Next week",
   "flowko_desk_week_phone_hint": "The week view is available on a tablet or computer.",
-  "flowko_desk_no_show_mark_action": "Mark no-show"
+  "flowko_desk_no_show_mark_action": "Mark no-show",
+  "flowko_desk_customer_change": "Change"
 }

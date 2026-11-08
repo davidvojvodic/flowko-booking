@@ -1,6 +1,10 @@
 // Flowko U28: customer lookup (R11). One search field (name or phone); after 300 ms of quiet and from two
 // characters on, `bookings.customers` answers with this business's earlier customers (the server decides name vs
 // phone search and the minimum); a result hands over name/phone/e-mail, „Nova stranka“ asks for a blank customer.
+// Flowko U28b: „Nova stranka“ hands over the typed text (letters → name, only phone characters → phone) and empties
+// the search (B2); `CustomerCard` shows a picked customer compactly with „Zamenjaj“ (back to the search).
+// Flowko U28b review fixes: the search input and the card's „Zamenjaj“ take a ref, so the sheet can move focus.
+import type { Ref } from "react";
 import { useState } from "react";
 
 import type { DeskCustomer } from "@calcom/features/flowkoBusiness/desk";
@@ -14,7 +18,27 @@ export const LOOKUP_DEBOUNCE_MS = 300;
 /** R17: the route caps the query at 80 characters. */
 const MAX_QUERY = 80;
 
-export function CustomerField(props: { onPick: (customer: DeskCustomer) => void; onNew: () => void }) {
+// Flowko U28b: digits plus the usual phone separators (space, +, -, parentheses, slash, dot).
+const PHONE_CHARS = /^[\d\s+\-()/.]+$/;
+// Any letter of any script (č, š, ž …). The constructor form: the es5 tsconfig target refuses a `u` literal.
+const LETTER = new RegExp("\\p{L}", "u");
+
+export type CustomerPrefill = { name: string; phone: string };
+
+/** Flowko U28b (B2): what „Nova stranka“ pre-fills from the search text: any letter → the name; only phone
+ * characters with at least one digit → the phone; anything else → nothing. */
+export function prefillFromSearch(text: string): CustomerPrefill {
+  const value = text.trim();
+  if (LETTER.test(value)) return { name: value, phone: "" };
+  if (PHONE_CHARS.test(value) && /\d/.test(value)) return { name: "", phone: value };
+  return { name: "", phone: "" };
+}
+
+export function CustomerField(props: {
+  onPick: (customer: DeskCustomer) => void;
+  onNew: (prefill: CustomerPrefill) => void;
+  searchRef?: Ref<HTMLInputElement>;
+}) {
   const { t } = useLocale();
   const [text, setText] = useState("");
   const query = useDebounce(text, LOOKUP_DEBOUNCE_MS).trim();
@@ -26,6 +50,7 @@ export function CustomerField(props: { onPick: (customer: DeskCustomer) => void;
     <div className="flex flex-col gap-2">
       <div className="flex items-end gap-2">
         <TextField
+          ref={props.searchRef}
           name="flowko-desk-customer-search"
           containerClassName="flex-1"
           label={t("flowko_desk_customer_search")}
@@ -34,7 +59,13 @@ export function CustomerField(props: { onPick: (customer: DeskCustomer) => void;
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <Button color="secondary" StartIcon="user-plus" onClick={props.onNew}>
+        <Button
+          color="secondary"
+          StartIcon="user-plus"
+          onClick={() => {
+            props.onNew(prefillFromSearch(text));
+            setText("");
+          }}>
           {t("flowko_desk_customer_new")}
         </Button>
       </div>
@@ -59,6 +90,38 @@ export function CustomerField(props: { onPick: (customer: DeskCustomer) => void;
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** Flowko U28b (B2): the chosen customer, compact; „Zamenjaj“ goes back to the search. */
+export function CustomerCard(props: {
+  customer: DeskCustomer;
+  onChange: () => void;
+  changeRef?: Ref<HTMLAnchorElement | HTMLButtonElement>;
+}) {
+  const { t } = useLocale();
+  const { name, phone, email } = props.customer;
+  return (
+    <div
+      data-testid="desk-customer-card"
+      className="border-subtle bg-subtle flex items-center gap-3 rounded-md border px-3 py-2">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="text-emphasis truncate text-sm font-medium">{name}</span>
+        {phone && (
+          <span data-testid="desk-customer-card-phone" className="text-subtle truncate text-xs">
+            {phone}
+          </span>
+        )}
+        {email && (
+          <span data-testid="desk-customer-card-email" className="text-subtle truncate text-xs">
+            {email}
+          </span>
+        )}
+      </div>
+      <Button ref={props.changeRef} color="secondary" size="sm" onClick={props.onChange}>
+        {t("flowko_desk_customer_change")}
+      </Button>
     </div>
   );
 }

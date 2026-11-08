@@ -1,6 +1,9 @@
 // Flowko U28: the „who are you“ chip (R9), in the page body so it shows on a phone too (the shell hides the page
 // heading below md). A WORKER's chip is a plain label; on a shared device it opens the picker, a list of big
 // buttons (one per ACTIVE member) suited to a tablet.
+// Flowko U28b (B1): the chip always names the effective actor (the signed-in member unless this device chose someone
+// else); no „Kdo ste?“ prompt on it. The picker lists the signed-in member too: choosing her goes back to herself.
+// While the actor is not known yet (member list loading) no chip is shown.
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
 import { Button } from "@calcom/ui/components/button";
@@ -11,9 +14,8 @@ import type { DeskActorState } from "./useDeskActor";
 
 export function ActorChip({ actor }: { actor: DeskActorState }) {
   const { t } = useLocale();
-  const label = actor.actor
-    ? t("flowko_desk_actor_chip", { name: actor.actor.displayName })
-    : t("flowko_desk_actor_choose");
+  if (!actor.actor) return null;
+  const label = t("flowko_desk_actor_chip", { name: actor.actor.displayName });
 
   return (
     <>

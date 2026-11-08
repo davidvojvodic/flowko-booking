@@ -83,7 +83,11 @@ export function DayGrid(props: {
       {columns.length === 0 ? (
         <p className="text-subtle py-8 text-center text-sm">{t("flowko_desk_no_columns")}</p>
       ) : (
-        <div className="border-subtle bg-default max-h-[calc(100dvh-13rem)] overflow-auto rounded-md border">
+        // Flowko U28b (B4): `isolate` keeps the sticky header and hour column (z-40/z-50) in the grid's own stacking
+        // context, painted below the shell's fixed mobile bottom navigation (z-30).
+        <div
+          data-testid="desk-grid-scroll"
+          className="border-subtle bg-default isolate max-h-[calc(100dvh-13rem)] overflow-auto rounded-md border">
           <div className="grid min-w-full" style={{ gridTemplateColumns: template }}>
             <div className="bg-default border-subtle sticky left-0 top-0 z-50 border-b" />
             {columns.map((c) => (
