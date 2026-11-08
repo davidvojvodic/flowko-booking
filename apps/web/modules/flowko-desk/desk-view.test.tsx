@@ -129,6 +129,17 @@ describe("DeskView (U28)", () => {
     expect(headers()).toEqual(["Olga"]);
   });
 
+  it("when business.me says no business, shows the load error with a retry of business.me, no grid", () => {
+    me.mockReturnValue({ status: "none", me: null });
+    renderDesk();
+    expect(screen.getByText("Koledarja ni bilo mogoče naložiti.")).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^desk-column-header-/)).toHaveLength(0);
+    expect(screen.queryByTestId("desk-actor-chip")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Poskusi znova" }));
+    expect(deskTrpc.refetchMe).toHaveBeenCalled();
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
   it("shows a loading text and an error with a retry", () => {
     answer(undefined);
     renderDesk();

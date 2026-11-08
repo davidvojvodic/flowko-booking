@@ -184,6 +184,32 @@ describe("BookingSheet create (U28 R10, R13)", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it("while „Vseeno shrani“ resends, Save is disabled and a second Save sends nothing", async () => {
+    let finish: (v: unknown) => void = () => undefined;
+    deskTrpc.create
+      .mockResolvedValueOnce({
+        status: "needs_confirm",
+        problems: [{ kind: "outside_shift", step: 0 }],
+        googleUnavailable: false,
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const { onClose } = renderSheet(createAtBor());
+    fireEvent.click(chip("Fen"));
+    fillCustomer();
+    save();
+    const dialog = await screen.findByRole("dialog", { name: "Termin ni v skladu s pravili" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Vseeno shrani" }));
+    await waitFor(() => expect(deskTrpc.create).toHaveBeenCalledTimes(2));
+    expect(deskTrpc.create.mock.calls[1][0]).toMatchObject({ confirmOverride: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Shrani" })).toBeDisabled());
+    save();
+    await act(async () => undefined);
+    expect(deskTrpc.create).toHaveBeenCalledTimes(2);
+    await act(async () => finish({ status: "created", bookingId: 9, uid: "u" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(deskTrpc.create).toHaveBeenCalledTimes(2);
+  });
+
   it("googleUnavailable shows the Google line instead of the calendar overlap", async () => {
     deskTrpc.create.mockResolvedValue({
       status: "needs_confirm",

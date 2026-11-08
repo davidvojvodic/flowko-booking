@@ -116,6 +116,9 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
   const memberId = form.watch("memberId");
   const selected = form.watch("serviceIds");
   const [pending, setPending] = useState<Pending | null>(null);
+  // Flowko U28: the „Vseeno shrani“ resend runs outside handleSubmit; while it runs, Save and the dialog's confirm
+  // are off, so a second tap cannot resend without the override.
+  const [busy, setBusy] = useState(false);
 
   const workerName = (id: number) =>
     columns.find((c) => c.memberId === id)?.displayName ??
@@ -176,7 +179,18 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
     onClose();
   }
 
+  async function resendWithOverride(p: Pending) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await save({ ...p.payload, confirmOverride: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const onSubmit = form.handleSubmit(async (values) => {
+    if (busy) return;
     let start: Ms;
     try {
       start = wallClockToMs(values.date, values.time, timeZone);
@@ -336,7 +350,7 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
             <Button color="secondary" onClick={onClose}>
               {t("cancel")}
             </Button>
-            <Button type="submit" loading={isSubmitting}>
+            <Button type="submit" loading={isSubmitting || busy} disabled={busy}>
               {t("save")}
             </Button>
           </SheetFooter>
@@ -347,8 +361,9 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
           googleUnavailable={pending?.googleUnavailable ?? false}
           stepNames={stepNamesOf(pendingServices)}
           timeZone={timeZone}
+          busy={busy}
           onConfirm={() => {
-            if (pending) void save({ ...pending.payload, confirmOverride: true });
+            if (pending) void resendWithOverride(pending);
           }}
           onClose={() => setPending(null)}
         />

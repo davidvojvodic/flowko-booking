@@ -42,6 +42,8 @@ export function ConfirmProblemsDialog(props: {
   stepNames: string[];
   timeZone: string;
   fallbackName?: string;
+  /** Flowko U28: a resend is running: „Vseeno shrani“ is off. */
+  busy?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -61,6 +63,7 @@ export function ConfirmProblemsDialog(props: {
         title={t("flowko_desk_confirm_title")}
         confirmBtnText={t("flowko_desk_confirm_save")}
         cancelBtnText={t("cancel")}
+        isPending={props.busy}
         onConfirm={props.onConfirm}>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           {lines.map((line) => (

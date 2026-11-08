@@ -108,6 +108,7 @@ const U28_KEYS = [
   "flowko_desk_prev_week",
   "flowko_desk_next_week",
   "flowko_desk_week_phone_hint",
+  "flowko_desk_no_show_mark_action",
 ];
 
 const placeholders = (text: string): string[] =>

@@ -118,7 +118,7 @@ describe("BookingDetailsSheet (U28)", () => {
 
   it("buttons follow the flags", () => {
     renderDetails({ ...barvanje, ...all });
-    for (const name of ["Prestavi", "Prestavi k drugemu delavcu", "Ni prišla/prišel", "Odpovej termin"]) {
+    for (const name of ["Prestavi", "Prestavi k drugemu delavcu", "Označi neprihod", "Odpovej termin"]) {
       expect(button(name)).not.toBeNull();
     }
   });
@@ -127,12 +127,12 @@ describe("BookingDetailsSheet (U28)", () => {
     renderDetails({ ...barvanje, ...all, mayReenter: false, mayNoShow: false });
     expect(button("Prestavi")).not.toBeNull();
     expect(button("Prestavi k drugemu delavcu")).toBeNull();
-    expect(button("Ni prišla/prišel")).toBeNull();
+    expect(button("Označi neprihod")).toBeNull();
   });
 
   it("a colleague's booking for a worker offers no action", () => {
     renderDetails({ ...barvanje, ...none });
-    expect(screen.queryAllByRole("button", { name: /Prestavi|Odpovej|prišla/ })).toEqual([]);
+    expect(screen.queryAllByRole("button", { name: /Prestavi|Odpovej|prišla|neprihod/i })).toEqual([]);
     expect(screen.queryByLabelText("Čas")).toBeNull();
   });
 
@@ -175,7 +175,7 @@ describe("BookingDetailsSheet (U28)", () => {
   it("no-show marks and undoes with the actor", async () => {
     deskTrpc.noShow.mockResolvedValue({ status: "updated", noShow: true });
     renderDetails({ ...barvanje, ...all });
-    fireEvent.click(button("Ni prišla/prišel") as HTMLElement);
+    fireEvent.click(button("Označi neprihod") as HTMLElement);
     await waitFor(() =>
       expect(deskTrpc.noShow).toHaveBeenCalledWith({ bookingId: 101, noShow: true, actorMemberId: OLGA })
     );
@@ -184,7 +184,9 @@ describe("BookingDetailsSheet (U28)", () => {
   it("a marked no-show offers the undo", async () => {
     deskTrpc.noShow.mockResolvedValue({ status: "updated", noShow: false });
     renderDetails({ ...barvanje, ...all, noShow: true });
-    expect(button("Ni prišla/prišel")).toBeNull();
+    expect(button("Označi neprihod")).toBeNull();
+    // the badge keeps the noun key (flowko_desk_no_show_mark); the button has its own action key
+    expect(screen.getByText("Ni prišla/prišel")).toBeInTheDocument();
     fireEvent.click(button("Prekliči »ni prišla/prišel«") as HTMLElement);
     await waitFor(() =>
       expect(deskTrpc.noShow).toHaveBeenCalledWith({ bookingId: 101, noShow: false, actorMemberId: OLGA })

@@ -12,6 +12,7 @@ import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
 import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import useMediaQuery from "@calcom/lib/hooks/useMediaQuery";
+import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
 import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness";
 
@@ -37,6 +38,7 @@ const PHONE_QUERY = "(max-width: 767px)";
 export default function DeskView() {
   const { t } = useLocale();
   const business = useFlowkoBusiness();
+  const utils = trpc.useUtils();
   const params = useDeskParams();
   const isPhone = useMediaQuery(PHONE_QUERY);
 
@@ -121,6 +123,19 @@ export default function DeskView() {
     reenterFrom,
     setReenterFrom,
   };
+
+  // Flowko U28: the layout lets only members in, so „no business“ here is a failed or stale answer: no grid that
+  // cannot write (no actor), the load error with a retry of business.me instead.
+  if (business.status === "none") {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12">
+        <p className="text-default text-sm">{t("flowko_desk_load_error")}</p>
+        <Button color="secondary" onClick={() => void utils.viewer.flowko.business.me.refetch()}>
+          {t("try_again")}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <DeskContext.Provider value={context}>

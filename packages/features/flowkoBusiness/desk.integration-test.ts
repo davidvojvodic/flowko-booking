@@ -275,9 +275,18 @@ describe("findCustomers on Postgres (ILIKE, Unicode, NULL phones)", () => {
     expect(await find("ČUK")).toEqual([{ name: "Ivan Čuk", phone: null, email: "ivan@example.com" }]);
   });
 
-  it("wildcards in the query are literal", async () => {
-    expect(await find("%%")).toEqual([]);
-    expect(await find("__")).toEqual([]);
+  it("wildcards in the query act as SQL wildcards, but only inside the caller's business", async () => {
+    // Flowko U28 (final review): Prisma's `contains` does not escape % and _ on Postgres, so „ma%k“ and „m_rija“
+    // find „Marija Novak“. Recorded as found (no production change in U28); the lookup stays scoped to the
+    // caller's business: „m_ra“ finds business B's „Mara Bistra“ only for B, and A's „Marija“ never for B.
+    const marija = [{ name: "Marija Novak", phone: "+38641123456", email: "marija@example.com" }];
+    expect(await find("ma%k")).toEqual(marija);
+    expect(await find("m_rija")).toEqual(marija);
+    expect(await find("m_ra")).toEqual([]);
+    expect(await find("m_ra", fx.users.zala)).toEqual([
+      { name: "Mara Bistra", phone: "+38640111222", email: null },
+    ]);
+    expect(await find("m_rija", fx.users.zala)).toEqual([]);
   });
 
   it("phone digits skip attendees without a phone; a phone-only e-mail is null", async () => {

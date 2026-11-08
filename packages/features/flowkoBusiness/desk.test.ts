@@ -449,6 +449,53 @@ describe("getDeskDay: columns and rows (R2, R4)", () => {
     expect(row.actions[1].details).toEqual({ fromStart: "x", toStart: "y" });
   });
 
+  it("action details keep only fromStart, toStart, overrides and noShow (a stored uid never comes back)", async () => {
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.ana,
+        businessId: f.a,
+        action: "RESCHEDULED",
+        actorName: "Rok",
+        createdAt: new Date(Date.now() + 60_000),
+        details: {
+          fromStart: "x",
+          toStart: "y",
+          overrides: ["time_off"],
+          uid: "secret-uid",
+          email: "ana@example.com",
+        },
+      },
+    });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.ana,
+        businessId: f.a,
+        action: "NO_SHOW",
+        actorName: "Olga",
+        createdAt: new Date(Date.now() + 120_000),
+        details: { noShow: true, userId: 7, fromStart: 5, overrides: "time_off" },
+      },
+    });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.ana,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        createdAt: new Date(Date.now() + 180_000),
+        details: { uid: "secret-uid" },
+      },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.ana);
+    expect(row.actions.map((a) => a.details)).toEqual([
+      null,
+      { fromStart: "x", toStart: "y", overrides: ["time_off"] },
+      { noShow: true },
+      null,
+    ]);
+    expect(JSON.stringify(row)).not.toContain("secret-uid");
+  });
+
   it("a copy that no longer spans the booking → steps null (drawn solid)", async () => {
     await prismock.booking.update({ where: { id: f.bookings.ana }, data: { endTime: at("10:50") } });
     const row = rowOf(await day(f.users.olga), f.bookings.ana);
@@ -861,7 +908,9 @@ describe("RF1: no uid, userId, worker e-mail or placeholder in any response", ()
       await expectNoPrivateData(await listDeskServices(db, userId));
       await expectNoPrivateData(await listDeskMembers(db, userId));
       await expectNoPrivateData(await findCustomers(db, userId, { query: "mar" }));
-      await expectNoPrivateData(await findCustomers(db, userId, { query: "031" }));
+      const byPhone = await findCustomers(db, userId, { query: "0315" });
+      expect(byPhone).not.toHaveLength(0);
+      await expectNoPrivateData(byPhone);
     }
   });
 

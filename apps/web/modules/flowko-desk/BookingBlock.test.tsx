@@ -9,7 +9,11 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({ useLocale: () => ({ t: localeT("
 
 const range = { from: at("08:00"), to: at("19:00") };
 
-function renderBlock(b = barvanje, onOpenDetails = vi.fn(), opts: { passThrough?: boolean; onParent?: () => void } = {}) {
+function renderBlock(
+  b = barvanje,
+  onOpenDetails = vi.fn(),
+  opts: { passThrough?: boolean; onParent?: () => void } = {}
+) {
   render(
     <div style={{ position: "relative" }} onClick={opts.onParent}>
       <BookingBlock

@@ -5073,5 +5073,6 @@
   "flowko_desk_error_forbidden_self": "Not allowed. You can change only your own bookings.",
   "flowko_desk_prev_week": "Previous week",
   "flowko_desk_next_week": "Next week",
-  "flowko_desk_week_phone_hint": "The week view is available on a tablet or computer."
+  "flowko_desk_week_phone_hint": "The week view is available on a tablet or computer.",
+  "flowko_desk_no_show_mark_action": "Mark no-show"
 }

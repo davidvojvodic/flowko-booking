@@ -191,7 +191,7 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
                     StartIcon={booking.noShow ? "rotate-ccw" : "user-x"}
                     disabled={busy}
                     onClick={() => void toggleNoShow()}>
-                    {t(booking.noShow ? "flowko_desk_no_show_undo" : "flowko_desk_no_show_mark")}
+                    {t(booking.noShow ? "flowko_desk_no_show_undo" : "flowko_desk_no_show_mark_action")}
                   </Button>
                 )}
                 {booking.mayCancel && (

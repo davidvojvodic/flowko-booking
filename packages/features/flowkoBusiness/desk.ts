@@ -63,8 +63,15 @@ export type DeskBooking = {
   mayMove: boolean;
   mayNoShow: boolean;
   mayReenter: boolean;
-  actions: Array<{ kind: FlowkoBookingActionKind; actorName: string | null; at: string; details: unknown }>;
+  actions: Array<{
+    kind: FlowkoBookingActionKind;
+    actorName: string | null;
+    at: string;
+    details: DeskActionDetails | null;
+  }>;
 };
+/** Flowko U28: the only action details a desk read returns (whatever else a writer stored stays on the server). */
+export type DeskActionDetails = { fromStart?: string; toStart?: string; overrides?: string[]; noShow?: boolean };
 export type DeskColumn = {
   memberId: number;
   displayName: string;
@@ -200,6 +207,24 @@ type BookingRow = {
   }>;
 };
 
+/**
+ * Flowko U28: a whitelist of the stored action details: `fromStart`/`toStart` (strings), `overrides` (string[]),
+ * `noShow` (boolean); any other key or a wrong type is dropped; nothing left → null. Keeps a uid, an e-mail or a
+ * user id a writer might store out of the read (RF1).
+ */
+function deskActionDetails(details: unknown): DeskActionDetails | null {
+  if (typeof details !== "object" || details === null || Array.isArray(details)) return null;
+  const d = details as Record<string, unknown>;
+  const out: DeskActionDetails = {};
+  if (typeof d.fromStart === "string") out.fromStart = d.fromStart;
+  if (typeof d.toStart === "string") out.toStart = d.toStart;
+  if (Array.isArray(d.overrides) && d.overrides.every((o) => typeof o === "string")) {
+    out.overrides = d.overrides as string[];
+  }
+  if (typeof d.noShow === "boolean") out.noShow = d.noShow;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** R5: the per-row flags; the server routes re-check every one of them. */
 function rowFlags(
   access: BusinessAccess,
@@ -269,7 +294,7 @@ function toDeskBooking(
       kind: a.action,
       actorName: a.actorName,
       at: a.createdAt.toISOString(),
-      details: a.details ?? null,
+      details: deskActionDetails(a.details),
     })),
   };
 }
