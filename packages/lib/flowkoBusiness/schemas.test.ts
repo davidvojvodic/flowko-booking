@@ -4,9 +4,15 @@ import { describe, expect, it } from "vitest";
 import {
   brandColorSchema,
   businessProfileSchema,
+  // Flowko U29a: the settings and service editor schemas.
+  businessSettingsSchema,
+  DEFAULT_REMINDER_OFFSETS,
   type OpeningHours,
   openingHoursSchema,
   openingIntervalsFor,
+  REMINDER_CHOICES,
+  SERVICE_LIMITS,
+  serviceInputSchema,
   serviceStepsSchema,
 } from "./schemas";
 import { FLOWKO_TEMPLATES } from "./templates";
@@ -215,5 +221,209 @@ describe("businessProfileSchema", () => {
     ["bad opening hours", { openingHours: withMonday([{ from: "01:00", to: "12:00" }]) }],
   ])("rejects %s", (_label, patch) => {
     expect(businessProfileSchema.safeParse({ ...valid, ...patch }).success).toBe(false);
+  });
+});
+
+// Flowko U29a: the owner's settings form (S1, S2, S5) and the service editor (S8, S9).
+describe("businessSettingsSchema", () => {
+  const flowkoTest = {
+    name: "Flowko Test",
+    phone: "+386 40 123 456",
+    address: "Testna ulica 1, Ljubljana",
+    email: "salon@example.si",
+    openingHours: template.openingHours,
+    slotGridMinutes: 15,
+    holidaysClosed: true,
+    reminderOffsets: [1440],
+    sharedDevice: false,
+  };
+
+  function codes(patch: Record<string, unknown>): string[] {
+    return issueMessages(businessSettingsSchema.safeParse({ ...flowkoTest, ...patch }));
+  }
+
+  it("accepts the Flowko Test values", () => {
+    expect(businessSettingsSchema.parse(flowkoTest)).toEqual(flowkoTest);
+  });
+
+  it("accepts no address and no e-mail (null)", () => {
+    const parsed = businessSettingsSchema.parse({ ...flowkoTest, address: null, email: null });
+    expect(parsed.address).toBeNull();
+    expect(parsed.email).toBeNull();
+  });
+
+  it("trims and lowercases the e-mail", () => {
+    expect(businessSettingsSchema.parse({ ...flowkoTest, email: "  Salon@Example.SI " }).email).toBe(
+      "salon@example.si"
+    );
+  });
+
+  it.each([[[]], [[1440]], [[120]], [[1440, 120]]])("accepts the reminder choice %j", (offsets) => {
+    expect(businessSettingsSchema.parse({ ...flowkoTest, reminderOffsets: offsets }).reminderOffsets).toEqual(
+      offsets
+    );
+  });
+
+  it("offers exactly the four U22 reminder choices, 24 hours first", () => {
+    expect(REMINDER_CHOICES.map((choice) => choice.offsets)).toEqual([[], [1440], [120], [1440, 120]]);
+    expect(DEFAULT_REMINDER_OFFSETS).toEqual([1440]);
+  });
+
+  it.each([
+    ["a desk placeholder e-mail", { email: "x@flowko.invalid" }, "email_placeholder"],
+    ["a desk placeholder e-mail in capitals", { email: "X@FLOWKO.INVALID" }, "email_placeholder"],
+    ["a phone placeholder e-mail", { email: "0401234@sms.cal.com" }, "email_placeholder"],
+    ["a 255-character e-mail", { email: `${"a".repeat(64)}@${"b".repeat(187)}.si` }, "email_length"],
+    ["an e-mail without @", { email: "salon.example.si" }, "email_format"],
+    ["reminder offsets [60]", { reminderOffsets: [60] }, "reminder_offsets"],
+    ["reminder offsets [1440, 1440]", { reminderOffsets: [1440, 1440] }, "reminder_offsets"],
+    [
+      "reminder offsets [120, 1440] (not the canonical order)",
+      { reminderOffsets: [120, 1440] },
+      "reminder_offsets",
+    ],
+    ["a name with a line break", { name: "Flowko\nTest" }, "control_character"],
+    ["a name with a NUL", { name: "Flowko\u0000Test" }, "control_character"],
+    ["an empty name", { name: "  " }, "name_length"],
+    ["an address with a carriage return", { address: "Testna ulica 1\r, Ljubljana" }, "control_character"],
+    ["an address with DEL", { address: "Testna ulica 1\u007f" }, "control_character"],
+    ["a missing phone (null)", { phone: null }, "phone_required"],
+    ["a missing phone (undefined)", { phone: undefined }, "phone_required"],
+    ["an empty phone", { phone: "   " }, "phone_required"],
+    ["a phone with letters", { phone: "041 abc 123" }, "phone_format"],
+    ["slot grid 25", { slotGridMinutes: 25 }, "slot_grid"],
+    [
+      "a week with no open day",
+      { openingHours: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] } },
+      "no_open_day",
+    ],
+    ["bad opening hours", { openingHours: withMonday([{ from: "01:00", to: "12:00" }]) }, "before_03_00"],
+  ])("refuses %s with its code", (_label, patch, code) => {
+    expect(codes(patch)).toContain(code);
+  });
+
+  it("checks the e-mail length on the trimmed address (254 characters pass)", () => {
+    const email = `${"a".repeat(64)}@${"b".repeat(186)}.si`;
+    expect(email).toHaveLength(254);
+    expect(codes({ email: ` ${email} ` })).not.toContain("email_length");
+  });
+
+  it("refuses a missing switch or holiday flag", () => {
+    expect(businessSettingsSchema.safeParse({ ...flowkoTest, sharedDevice: undefined }).success).toBe(false);
+    expect(businessSettingsSchema.safeParse({ ...flowkoTest, holidaysClosed: "yes" }).success).toBe(false);
+  });
+
+  it("reports codes, never the submitted values", () => {
+    const messages = codes({ email: "x@flowko.invalid", name: "Flowko\nTest", address: "Ulica\r1" });
+    expect(messages.length).toBeGreaterThan(0);
+    for (const m of messages) {
+      expect(m).not.toContain("flowko.invalid");
+      expect(m).not.toContain("Flowko");
+      expect(m).not.toContain("Ulica");
+    }
+  });
+});
+
+describe("serviceInputSchema", () => {
+  const barvanje = {
+    name: "Barvanje",
+    category: "Barvanje",
+    steps: [
+      { kind: "busy", minutes: 30 },
+      { kind: "processing", minutes: 40 },
+      { kind: "busy", minutes: 30 },
+    ],
+    workerMemberIds: [1, 2],
+  };
+
+  function codes(patch: Record<string, unknown>): string[] {
+    return issueMessages(serviceInputSchema.safeParse({ ...barvanje, ...patch }));
+  }
+
+  function busySteps(count: number, minutes: number): { kind: "busy"; minutes: number }[] {
+    return Array.from({ length: count }, () => ({ kind: "busy" as const, minutes }));
+  }
+
+  it("accepts Barvanje (30 busy, 40 processing, 30 busy)", () => {
+    expect(serviceInputSchema.parse(barvanje)).toEqual(barvanje);
+  });
+
+  it("accepts an id for an edit, trims the name and turns an empty category into null", () => {
+    const parsed = serviceInputSchema.parse({ ...barvanje, id: 7, name: "  Barvanje  ", category: "  " });
+    expect(parsed).toMatchObject({ id: 7, name: "Barvanje", category: null });
+    expect(serviceInputSchema.parse({ ...barvanje, category: null }).category).toBeNull();
+  });
+
+  it("accepts the limits themselves: 8 steps, a 480-minute step, 720 minutes in total", () => {
+    expect(serviceInputSchema.safeParse({ ...barvanje, steps: busySteps(8, 90) }).success).toBe(true);
+    expect(
+      serviceInputSchema.safeParse({
+        ...barvanje,
+        steps: [
+          { kind: "busy", minutes: 480 },
+          { kind: "busy", minutes: 240 },
+        ],
+      }).success
+    ).toBe(true);
+    expect(serviceInputSchema.safeParse({ ...barvanje, name: "a".repeat(60) }).success).toBe(true);
+    expect(serviceInputSchema.safeParse({ ...barvanje, category: "a".repeat(40) }).success).toBe(true);
+    expect(serviceInputSchema.safeParse({ ...barvanje, workerMemberIds: [] }).success).toBe(true);
+  });
+
+  it("states the limits once", () => {
+    expect(SERVICE_LIMITS).toEqual({
+      nameMax: 60,
+      categoryMax: 40,
+      stepsMax: 8,
+      stepMinutesMin: 5,
+      stepMinutesMax: 480,
+      stepMinutesMultiple: 5,
+      totalMinutesMax: 720,
+    });
+  });
+
+  it.each([
+    ["9 steps", { steps: busySteps(9, 30) }, "too_many_steps"],
+    [
+      "a 485-minute step",
+      {
+        steps: [
+          { kind: "busy", minutes: 30 },
+          { kind: "busy", minutes: 485 },
+        ],
+      },
+      "step_too_long:1",
+    ],
+    [
+      "725 minutes in total",
+      {
+        steps: [
+          { kind: "busy", minutes: 480 },
+          { kind: "busy", minutes: 245 },
+        ],
+      },
+      "total_too_long",
+    ],
+    [
+      "a processing first step",
+      {
+        steps: [
+          { kind: "processing", minutes: 30 },
+          { kind: "busy", minutes: 30 },
+        ],
+      },
+      "starts_with_processing",
+    ],
+    ["a 7-minute step", { steps: [{ kind: "busy", minutes: 7 }] }, "bad_minutes:0"],
+    ["no steps", { steps: [] }, "empty"],
+    ["a 61-character name", { name: "a".repeat(61) }, "name_length"],
+    ["an empty name", { name: "   " }, "name_length"],
+    ["a 41-character category", { category: "a".repeat(41) }, "category_length"],
+    ["a name with a line break", { name: "Barva\nnje" }, "control_character"],
+    ["a category with a tab", { category: "Barva\tnje" }, "control_character"],
+    ["a worker id that is not a positive integer", { workerMemberIds: [0] }, "bad_member"],
+    ["a worker named twice", { workerMemberIds: [1, 1] }, "bad_member"],
+  ])("refuses %s with its code", (_label, patch, code) => {
+    expect(codes(patch)).toContain(code);
   });
 });

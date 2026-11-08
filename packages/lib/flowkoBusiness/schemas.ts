@@ -4,8 +4,10 @@
 // Custom refinements report codes, never the submitted values; zod's default messages for enum/strict may name
 // the submitted value or key, so callers map any failure to bad_profile.
 import type { Interval, LocalDate, ServiceStep } from "@calcom/lib/flowkoSalon";
-import { localInterval, validateSteps, wallClockToMs } from "@calcom/lib/flowkoSalon";
+import { localInterval, totalMinutes, validateSteps, wallClockToMs } from "@calcom/lib/flowkoSalon";
 import { z } from "zod";
+// Flowko U29a: the placeholder-address check (client-safe, no module reference beyond ./flowkoBusiness/deskEmail).
+import isSmsCalEmail from "../isSmsCalEmail";
 import { isFlowkoSlugShape } from "./name";
 
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -160,3 +162,124 @@ export function openingIntervalsFor(hours: OpeningHours, date: LocalDate, timeZo
   const weekday = WEEKDAY_BY_UTC_DAY[new Date(`${date}T00:00:00Z`).getUTCDay()];
   return hours[weekday].map((entry) => localInterval(date, entry.from, entry.to, timeZone));
 }
+
+// Flowko U29a: the owner's settings form (S1, S2, S5) and the service editor (S8, S9). Messages are codes, never
+// the submitted values; callers map any failure to bad_profile (settings) or bad_service (services).
+
+/** Control characters; refused in names and addresses (they reach the From name, titles, subjects and the ICS). */
+const CONTROL_CHARACTER_RE = /[\x00-\x1f\x7f]/;
+
+function hasNoControlCharacter(value: string): boolean {
+  return !CONTROL_CHARACTER_RE.test(value);
+}
+
+/**
+ * The reminder e-mail choices (U22): minutes before the booking, in the one canonical order the database CHECK
+ * allows. [] = no reminder. Each reminder is one e-mail per booking.
+ */
+export const REMINDER_CHOICES = [
+  { id: "none", offsets: [] },
+  { id: "day_before", offsets: [1440] },
+  { id: "two_hours_before", offsets: [120] },
+  { id: "day_and_two_hours_before", offsets: [1440, 120] },
+] as const satisfies readonly { id: string; offsets: readonly number[] }[];
+export type ReminderChoiceId = (typeof REMINDER_CHOICES)[number]["id"];
+
+/** Today's behaviour and the column default: one reminder 24 hours before. */
+export const DEFAULT_REMINDER_OFFSETS: readonly number[] = [1440];
+
+function isReminderChoice(offsets: number[]): boolean {
+  return REMINDER_CHOICES.some(
+    (choice) =>
+      choice.offsets.length === offsets.length &&
+      choice.offsets.every((offset, index) => offset === offsets[index])
+  );
+}
+
+const profileShape = businessProfileSchema.shape;
+
+/**
+ * The business settings the owner edits (S2). Slug and time zone are not editable. Phone is required (since U27 a
+ * customer reschedules by calling); the e-mail is optional and never a placeholder address; at least one weekday
+ * must be open.
+ */
+export const businessSettingsSchema = z.object({
+  name: profileShape.name.refine(hasNoControlCharacter, { message: "control_character" }),
+  phone: z
+    .string({ required_error: "phone_required", invalid_type_error: "phone_required" })
+    .trim()
+    .min(1, { message: "phone_required" })
+    .pipe(profileShape.phone.unwrap()),
+  address: profileShape.address
+    .unwrap()
+    .refine(hasNoControlCharacter, { message: "control_character" })
+    .nullable(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(254, { message: "email_length" })
+    .email({ message: "email_format" })
+    .refine((email) => !isSmsCalEmail(email), { message: "email_placeholder" })
+    .nullable(),
+  openingHours: openingHoursSchema.superRefine((hours, ctx) => {
+    if (WEEKDAYS.every((day) => hours[day].length === 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "no_open_day" });
+    }
+  }),
+  slotGridMinutes: profileShape.slotGridMinutes,
+  holidaysClosed: z.boolean(),
+  reminderOffsets: z.array(z.number().int()).refine(isReminderChoice, { message: "reminder_offsets" }),
+  sharedDevice: z.boolean(),
+});
+export type BusinessSettings = z.infer<typeof businessSettingsSchema>;
+
+/** Caps on a service a save may store (S9); stored services are never re-validated against them. */
+export const SERVICE_LIMITS = {
+  nameMax: 60,
+  categoryMax: 40,
+  stepsMax: 8,
+  stepMinutesMin: 5,
+  stepMinutesMax: 480,
+  stepMinutesMultiple: 5,
+  totalMinutesMax: 720,
+} as const;
+
+/**
+ * A service as the editor saves it (S8, S9, S14): the U24 step rules plus the caps (step count, minutes per step,
+ * total). category: trimmed, empty → null. workerMemberIds: who does it (positive ids, each once; the server
+ * checks they are ACTIVE column members of the business).
+ */
+export const serviceInputSchema = z.object({
+  id: z.number().int().positive().optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, { message: "name_length" })
+    .max(SERVICE_LIMITS.nameMax, { message: "name_length" })
+    .refine(hasNoControlCharacter, { message: "control_character" }),
+  category: z
+    .string()
+    .trim()
+    .max(SERVICE_LIMITS.categoryMax, { message: "category_length" })
+    .refine(hasNoControlCharacter, { message: "control_character" })
+    .transform((category) => (category === "" ? null : category))
+    .nullable(),
+  steps: serviceStepsSchema.superRefine((steps, ctx) => {
+    if (steps.length > SERVICE_LIMITS.stepsMax) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "too_many_steps" });
+    }
+    steps.forEach((step, index) => {
+      if (step.minutes > SERVICE_LIMITS.stepMinutesMax) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `step_too_long:${index}`, path: [index] });
+      }
+    });
+    if (totalMinutes(steps) > SERVICE_LIMITS.totalMinutesMax) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "total_too_long" });
+    }
+  }),
+  workerMemberIds: z
+    .array(z.number().int().positive({ message: "bad_member" }))
+    .refine((ids) => new Set(ids).size === ids.length, { message: "bad_member" }),
+});
+export type ServiceInput = z.infer<typeof serviceInputSchema>;

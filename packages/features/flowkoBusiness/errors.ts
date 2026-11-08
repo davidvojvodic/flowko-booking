@@ -29,7 +29,12 @@ export type FlowkoBusinessErrorCode =
   | "bad_booking"
   // Flowko U28: the desk (R6 no booking in the past, D4 no-show only once the booking has started).
   | "in_past"
-  | "booking_not_started";
+  | "booking_not_started"
+  // Flowko U29a: owner settings and services (settings.ts, services.ts): a service name already used in the
+  // business (case-insensitive), a service the editor rules refuse, settings changed since the form loaded them.
+  | "service_name_taken"
+  | "bad_service"
+  | "settings_changed";
 
 export class FlowkoBusinessError extends Error {
   constructor(readonly code: FlowkoBusinessErrorCode) {

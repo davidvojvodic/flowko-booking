@@ -7,6 +7,8 @@
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 import {
   businessProfileSchema,
+  // Flowko U29a: the default reminder choice written into a new business.
+  DEFAULT_REMINDER_OFFSETS,
   type OpeningHours,
   serviceStepsSchema,
 } from "@calcom/lib/flowkoBusiness/schemas";
@@ -148,6 +150,9 @@ export async function createBusiness(
         showPrices: profile.showPrices,
         selfCancelHours: profile.selfCancelHours,
         templateId: template?.id ?? null,
+        // Flowko U29a (S1): written explicitly, not left to the column defaults (prismock ignores list defaults).
+        reminderOffsets: Array.from(DEFAULT_REMINDER_OFFSETS),
+        sharedDevice: false,
       },
       select: { id: true },
     });
