@@ -1,11 +1,13 @@
 // Flowko U28: the desk (/koledar), client-only (desk-view-client.tsx). Day view: one column per worker, the date
 // in the URL (?date=, default today in the business time zone from the server's clock), polling every 30 s
-// (R13), the „who are you“ chip (R9), and on a phone one column at a time with a worker select (R15). Taps set
-// the booking/details targets in DeskContext; the sheets that open from them come with Task 7.
+// (R13), the „who are you“ chip (R9), and on a phone one column at a time with a worker select (R15). Taps open
+// the booking sheet (empty spot) or the details sheet (a booking); in move mode (R12) a tap moves the booking
+// instead, and the mode survives a date change because its state lives here.
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
 import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import useMediaQuery from "@calcom/lib/hooks/useMediaQuery";
@@ -13,6 +15,9 @@ import { Button } from "@calcom/ui/components/button";
 import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness";
 
 import { ActorChip } from "./ActorChip";
+import { BookingDetailsSheet } from "./BookingDetailsSheet";
+import { BookingSheet } from "./BookingSheet";
+import { ConfirmProblemsDialog } from "./ConfirmProblemsDialog";
 import { DateBar, useDeskParams } from "./DateBar";
 import { DayGrid } from "./DayGrid";
 import type { DeskContextValue } from "./DeskContext";
@@ -20,6 +25,8 @@ import { DeskContext } from "./DeskContext";
 import type { DeskBookTarget } from "./WorkerColumn";
 import { useDeskActor } from "./useDeskActor";
 import { useDeskDay, useDeskMembers } from "./useDeskData";
+import { useDeskWrites } from "./useDeskWrites";
+import { useMoveMode } from "./useMoveMode";
 
 /** Below Tailwind's md (768 px). */
 const PHONE_QUERY = "(max-width: 767px)";
@@ -54,6 +61,20 @@ export default function DeskView() {
 
   const [bookTarget, setBookTarget] = useState<DeskBookTarget | null>(null);
   const [detailsBookingId, setDetailsBookingId] = useState<number | null>(null);
+  const [reenterFrom, setReenterFrom] = useState<DeskBooking | null>(null);
+
+  const writes = useDeskWrites({ actor, refetch: day.refetch, invalidate: day.invalidate });
+  const closeDetails = useCallback(() => setDetailsBookingId(null), []);
+  const moveMode = useMoveMode(writes, { onMoved: closeDetails });
+  const moving = moveMode.moving;
+  const onBook = (target: DeskBookTarget) => (moving ? moveMode.tap(target) : setBookTarget(target));
+  const onOpenDetails = (bookingId: number) => {
+    if (!moving) setDetailsBookingId(bookingId);
+  };
+  const detailsBooking =
+    detailsBookingId === null
+      ? undefined
+      : view?.days.flatMap((d) => d.bookings).find((b) => b.bookingId === detailsBookingId);
 
   const columns = view?.days[0]?.columns ?? [];
   const phoneMemberId = isPhone
@@ -72,6 +93,9 @@ export default function DeskView() {
     setBookTarget,
     detailsBookingId,
     setDetailsBookingId,
+    moveMode,
+    reenterFrom,
+    setReenterFrom,
   };
 
   return (
@@ -88,6 +112,17 @@ export default function DeskView() {
           />
           <ActorChip actor={actor} />
         </div>
+        {moving && (
+          <div
+            data-testid="desk-move-banner"
+            role="status"
+            className="bg-semantic-info-subtle text-emphasis flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-medium">
+            <span>{t("flowko_desk_move_banner", { name: moving.customer.name })}</span>
+            <Button color="secondary" size="sm" onClick={moveMode.stop}>
+              {t("cancel")}
+            </Button>
+          </div>
+        )}
         {isPhone && columns.length > 0 && (
           <label className="text-default flex items-center gap-2 text-sm">
             <span>{t("flowko_desk_worker")}</span>
@@ -109,8 +144,9 @@ export default function DeskView() {
             date={date}
             receivedAt={day.receivedAt}
             onlyMemberId={phoneMemberId}
-            onBook={setBookTarget}
-            onOpenDetails={setDetailsBookingId}
+            onBook={onBook}
+            onOpenDetails={onOpenDetails}
+            movingMemberId={moving?.memberId ?? null}
           />
         )}
         {!view && day.error && (
@@ -123,6 +159,35 @@ export default function DeskView() {
         )}
         {!view && !day.error && <p className="text-subtle py-12 text-center text-sm">{t("loading")}</p>}
       </div>
+      {view && bookTarget && (
+        <BookingSheet
+          key={`${bookTarget.memberId}-${bookTarget.start}`}
+          target={{ kind: "create", memberId: bookTarget.memberId, start: bookTarget.start }}
+          onClose={() => setBookTarget(null)}
+        />
+      )}
+      {view && reenterFrom && (
+        <BookingSheet
+          key={`reenter-${reenterFrom.bookingId}`}
+          target={{ kind: "reenter", booking: reenterFrom }}
+          onClose={() => setReenterFrom(null)}
+        />
+      )}
+      {detailsBooking && (
+        <BookingDetailsSheet key={detailsBooking.bookingId} booking={detailsBooking} onClose={closeDetails} />
+      )}
+      {view && (
+        <ConfirmProblemsDialog
+          open={moveMode.confirm !== null}
+          problems={moveMode.confirm?.problems ?? []}
+          googleUnavailable={moveMode.confirm?.googleUnavailable ?? false}
+          stepNames={moveMode.confirm?.booking.steps?.map((s) => s.serviceName) ?? []}
+          fallbackName={moveMode.confirm?.booking.serviceNames.join(", ")}
+          timeZone={view.timeZone}
+          onConfirm={() => void moveMode.confirmOverride()}
+          onClose={moveMode.dismissConfirm}
+        />
+      )}
     </DeskContext.Provider>
   );
 }

@@ -30,6 +30,8 @@ export function DayGrid(props: {
   onlyMemberId?: number | null;
   onBook: (target: DeskBookTarget) => void;
   onOpenDetails: (bookingId: number) => void;
+  /** Flowko U28 (R12): move mode for this worker's booking: every other column is dimmed. */
+  movingMemberId?: number | null;
 }) {
   const { t } = useLocale();
   const { view, date } = props;
@@ -112,6 +114,11 @@ export function DayGrid(props: {
                     pastUntil={pastUntil}
                     onBook={c.locked ? undefined : props.onBook}
                     onOpenDetails={props.onOpenDetails}
+                    dimmed={
+                      props.movingMemberId !== undefined &&
+                      props.movingMemberId !== null &&
+                      c.memberId !== props.movingMemberId
+                    }
                   />
                 ))}
               </div>

@@ -47,6 +47,8 @@ export function WorkerColumn(props: {
   pastUntil: Ms;
   onBook?: (target: DeskBookTarget) => void;
   onOpenDetails: (bookingId: number) => void;
+  /** Flowko U28 (R12): move mode is on for another worker's booking: this column is dimmed. */
+  dimmed?: boolean;
 }) {
   const { t } = useLocale();
   const { column, bookings, range, pxPerMinute } = props;
@@ -110,10 +112,12 @@ export function WorkerColumn(props: {
     <div
       data-testid={`desk-column-${column.memberId}`}
       data-tap={tappable ? "book" : undefined}
+      data-dimmed={props.dimmed ? "true" : undefined}
       onClick={tappable ? onClick : undefined}
       className={classNames(
         "border-subtle relative overflow-hidden border-l",
-        tappable ? "cursor-pointer" : "cursor-default"
+        tappable ? "cursor-pointer" : "cursor-default",
+        props.dimmed && "opacity-40"
       )}
       style={{ height: `${px(range.to)}px` }}>
       {bands.map((b) => (

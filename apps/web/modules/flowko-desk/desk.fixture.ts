@@ -3,7 +3,7 @@
 // locked Dan with one booking. Ana's Barvanje: busy 09:00-09:30, processing 09:30-10:10, busy 10:10-10:40.
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
-import type { DeskBooking, DeskMember, DeskView } from "@calcom/features/flowkoBusiness/desk";
+import type { DeskBooking, DeskMember, DeskService, DeskView } from "@calcom/features/flowkoBusiness/desk";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 
 export const TZ = "Europe/Ljubljana";
@@ -140,6 +140,38 @@ export const members: DeskMember[] = [
   { memberId: BOR, displayName: "Bor", role: "WORKER", hasColumn: true, deskOnly: false },
   { memberId: CENE, displayName: "Cene", role: "WORKER", hasColumn: true, deskOnly: true },
   { memberId: 5, displayName: "Rok", role: "STAFF", hasColumn: false, deskOnly: false },
+];
+
+/** Barvanje (Ana, Olga), Moško striženje (Olga, Ana, Bor), Fen (Ana, Bor). */
+export const services: DeskService[] = [
+  {
+    id: 1,
+    name: "Barvanje",
+    category: "Barvanje",
+    steps: [
+      { kind: "busy", minutes: 30 },
+      { kind: "processing", minutes: 40 },
+      { kind: "busy", minutes: 30 },
+    ],
+    totalMinutes: 100,
+    workerMemberIds: [OLGA, ANA],
+  },
+  {
+    id: 2,
+    name: "Moško striženje",
+    category: "Striženje",
+    steps: [{ kind: "busy", minutes: 30 }],
+    totalMinutes: 30,
+    workerMemberIds: [OLGA, ANA, BOR],
+  },
+  {
+    id: 3,
+    name: "Fen",
+    category: null,
+    steps: [{ kind: "busy", minutes: 20 }],
+    totalMinutes: 20,
+    workerMemberIds: [ANA, BOR],
+  },
 ];
 
 /** A `t` backed by the real locale files, with {{placeholder}} interpolation (BookingSuccessCard.test precedent). */
