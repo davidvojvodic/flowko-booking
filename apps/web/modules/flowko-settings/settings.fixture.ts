@@ -1,7 +1,13 @@
 // Flowko U29a: test fixture for the settings views (not a test file): Flowko Test's settings as
-// viewer.flowko.business.settings returns them, and a `t` backed by the real locale files that resolves i18next
-// plurals (sl _one/_two/_few/_other, en _one/_other) the way i18next does when `count` is given.
+// viewer.flowko.business.settings returns them, its service catalogue as viewer.flowko.services.list returns it
+// (Task 8), and a `t` backed by the real locale files that resolves i18next plurals (sl _one/_two/_few/_other,
+// en _one/_other) the way i18next does when `count` is given.
 
+import type {
+  OwnerService,
+  OwnerServicesView,
+  ServiceColumnMember,
+} from "@calcom/features/flowkoBusiness/services";
 import type { BusinessSettingsView } from "@calcom/features/flowkoBusiness/settings";
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
@@ -52,3 +58,64 @@ export function localeT(lang: "sl" | "en" = "sl") {
     );
   };
 }
+
+// Flowko U29a (Task 8): Flowko Test's catalogue as viewer.flowko.services.list returns it, deliberately out of
+// position order. Column members in roster order: Ana (OWNER), Bor (WORKER), Dan (WORKER, LOCKED).
+export const ANA = 11;
+export const BOR = 12;
+export const DAN = 13;
+
+export const MEMBERS: ServiceColumnMember[] = [
+  { memberId: ANA, displayName: "Ana", role: "OWNER", status: "ACTIVE", deskOnly: false },
+  { memberId: BOR, displayName: "Bor", role: "WORKER", status: "ACTIVE", deskOnly: true },
+  { memberId: DAN, displayName: "Dan", role: "WORKER", status: "LOCKED", deskOnly: false },
+];
+
+const workers = (assigned: number[]) =>
+  MEMBERS.map((m) => ({
+    memberId: m.memberId,
+    displayName: m.displayName,
+    status: m.status,
+    deskOnly: m.deskOnly,
+    assigned: assigned.includes(m.memberId),
+  }));
+
+export const STRIZENJE: OwnerService = {
+  id: 1,
+  name: "Striženje",
+  category: null,
+  steps: [{ kind: "busy", minutes: 45 }],
+  totalMinutes: 45,
+  position: 0,
+  workers: workers([ANA, BOR]),
+  futureBookings: 0,
+};
+
+export const BARVANJE: OwnerService = {
+  id: 2,
+  name: "Barvanje",
+  category: "Barve",
+  steps: [
+    { kind: "busy", minutes: 30 },
+    { kind: "processing", minutes: 30 },
+    { kind: "busy", minutes: 15 },
+  ],
+  totalMinutes: 75,
+  position: 1,
+  workers: workers([ANA, DAN]),
+  futureBookings: 3,
+};
+
+export const FEN: OwnerService = {
+  id: 3,
+  name: "Fen",
+  category: null,
+  steps: [{ kind: "busy", minutes: 20 }],
+  totalMinutes: 20,
+  position: 2,
+  workers: workers([]),
+  futureBookings: 1,
+};
+
+/** Out of position order on purpose: the page sorts by position. */
+export const SERVICES_VIEW: OwnerServicesView = { services: [BARVANJE, FEN, STRIZENJE], members: MEMBERS };
