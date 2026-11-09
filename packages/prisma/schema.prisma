@@ -1019,6 +1019,12 @@ model FlowkoBusiness {
   // openHolidays ("YYYY-MM-DD" dates, validated in code).
   holidaysClosed  Boolean                @default(true)
   openHolidays    String[]               @default([])
+  // Flowko U29a: owner settings. email = Reply-To of customer mails (NULL = none, CHECK ≤ 254 chars);
+  // sharedDevice = the desk's „Ste: …“ chip (off by default); reminderOffsets = minutes before a booking
+  // ('{}' = reminders off; CHECK: one of '{}', '{1440}', '{120}', '{1440,120}', never NULL).
+  email           String?
+  sharedDevice    Boolean                @default(false)
+  reminderOffsets Int[]                  @default([1440])
   members         FlowkoBusinessMember[]
   invites         FlowkoBusinessInvite[]
   services        FlowkoService[]

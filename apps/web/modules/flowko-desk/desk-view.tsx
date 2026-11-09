@@ -4,6 +4,9 @@
 // the booking sheet (empty spot) or the details sheet (a booking); in move mode (R12) a tap moves the booking
 // instead, and the mode survives a date change because its state lives here. From md up the week view (D2,
 // ?view=week&worker=) shows one worker x seven days; a phone always gets the day view.
+// Flowko U29a (S7): the chip only when the owner's „shared device“ switch is on (business.me.sharedDevice); off, the
+// signed-in member acts and no role sees a chip. Rights (canBook) stay with the role. `me` polls with the desk
+// (useDeskBusinessMePoll), so a tablet left open follows a switch saved on another device.
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -28,7 +31,7 @@ import { WeekGrid, mondayOf } from "./WeekGrid";
 import type { DeskBookTarget } from "./WorkerColumn";
 import { WorkerPicker } from "./WorkerPicker";
 import { useDeskActor } from "./useDeskActor";
-import { useDeskDay, useDeskMembers, useDeskWeek } from "./useDeskData";
+import { useDeskBusinessMePoll, useDeskDay, useDeskMembers, useDeskWeek } from "./useDeskData";
 import { useDeskWrites } from "./useDeskWrites";
 import { useMoveMode } from "./useMoveMode";
 
@@ -38,6 +41,8 @@ const PHONE_QUERY = "(max-width: 767px)";
 export default function DeskView() {
   const { t } = useLocale();
   const business = useFlowkoBusiness();
+  // Flowko U29a (S7): `me` (the shared device switch) polls with the desk, so the chip follows another device's save.
+  useDeskBusinessMePoll();
   const utils = trpc.useUtils();
   const params = useDeskParams();
   const isPhone = useMediaQuery(PHONE_QUERY);
@@ -72,7 +77,10 @@ export default function DeskView() {
 
   const me = business.status === "member" ? business.me : null;
   const session = useMemo(
-    () => (me ? { businessId: me.businessId, memberId: me.memberId, role: me.role } : null),
+    () =>
+      me
+        ? { businessId: me.businessId, memberId: me.memberId, role: me.role, sharedDevice: me.sharedDevice }
+        : null,
     [me]
   );
   const actor = useDeskActor(session, members.data);
@@ -160,7 +168,7 @@ export default function DeskView() {
               params.setView(next);
             }}
           />
-          <ActorChip actor={actor} />
+          {me?.sharedDevice === true && <ActorChip actor={actor} />}
         </div>
         {weekMode && workers.length > 0 && (
           <WorkerPicker workers={workers} value={weekWorker} onChange={params.setWorker} />

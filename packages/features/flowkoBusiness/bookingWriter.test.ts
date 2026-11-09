@@ -102,7 +102,8 @@ async function setUp(): Promise<Fixture> {
     address: "Glavna ulica 1, Ljubljana",
   });
   const a = created.businessId;
-  await prismock.flowkoBusiness.update({ where: { id: a }, data: { openHolidays: [] } });
+  // Flowko U29a: S7, the U27/U28 actor tests assume the shared device switch on (U28b behaviour).
+  await prismock.flowkoBusiness.update({ where: { id: a }, data: { openHolidays: [], sharedDevice: true } });
   const ana = await makeUser("Ana");
   const bor = await makeUser("Bor");
   const rok = await makeUser("Rok");
@@ -707,5 +708,101 @@ describe("resolveActor: a WORKER may not label an action with another member (R9
     await expectCode(resolveActor(db, access, f.members.olga), "forbidden");
     expect(await resolveActor(db, access, f.members.ana)).toEqual({ memberId: f.members.ana, name: "Ana" });
     expect(await resolveActor(db, access)).toEqual({ memberId: f.members.ana, name: "Ana" });
+  });
+});
+
+// Flowko U29a: S7, with the shared device switch off an OWNER/STAFF session always acts as itself.
+describe("sharedDevice off (U29a S7)", () => {
+  beforeEach(async () => {
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { sharedDevice: false } });
+  });
+
+  const sharedDeviceReads = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter((call) => {
+      const select = (call[0] as { select?: Record<string, unknown> } | undefined)?.select;
+      return select?.sharedDevice === true;
+    }).length;
+
+  it("Olga (OWNER) naming Cene (ACTIVE), Dan (LOCKED), Zala (foreign) or an unknown id → Olga is recorded, no error", async () => {
+    const cases: [number, CreateBookingInput["workerMemberId"], string][] = [
+      [f.members.cene, f.members.ana, "09:00"],
+      [f.members.dan, f.members.ana, "11:00"],
+      [f.members.zala, f.members.ana, "13:00"],
+      [999_999, f.members.cene, "09:00"],
+    ];
+    for (const [actorMemberId, workerMemberId, time] of cases) {
+      const { bookingId } = await created(
+        create(f.users.olga, { actorMemberId, workerMemberId, start: at(time) })
+      );
+      expect(await actionsOf(bookingId)).toEqual([
+        expect.objectContaining({ actorMemberId: f.members.olga, actorName: "Olga", userId: f.users.olga }),
+      ]);
+    }
+    expect(await prismock.booking.count()).toBe(4);
+  });
+
+  it("Rok (STAFF) naming Recepcija → Rok is recorded; resolveActor ignores every other id for him", async () => {
+    const recepcija = await prismock.flowkoBusinessMember.findFirst({ where: { displayName: "Recepcija" } });
+    expect(recepcija?.id).toBeDefined();
+    const { bookingId } = await created(
+      create(f.users.rok, {
+        workerMemberId: f.members.cene,
+        start: at("11:00"),
+        actorMemberId: recepcija?.id,
+      })
+    );
+    expect((await actionsOf(bookingId))[0]).toMatchObject({
+      actorMemberId: f.members.rok,
+      actorName: "Rok",
+      userId: f.users.rok,
+    });
+    const access = { businessId: f.a, memberId: f.members.rok, userId: f.users.rok, role: "STAFF" as const };
+    for (const id of [f.members.cene, f.members.dan, f.members.zala, 999_999]) {
+      expect(await resolveActor(db, access, id)).toEqual({ memberId: f.members.rok, name: "Rok" });
+    }
+  });
+
+  it("Ana (WORKER) naming Olga or Cene → forbidden, nothing written", async () => {
+    await expectCode(create(f.users.ana, { actorMemberId: f.members.olga }), "forbidden");
+    await expectCode(create(f.users.ana, { actorMemberId: f.members.cene }), "forbidden");
+    expect(await counts()).toEqual({ bookings: 0, steps: 0, actions: 0 });
+    expect(lockWorker).not.toHaveBeenCalled();
+  });
+
+  it("no business read when actorMemberId is absent or the own member; one read when it names another", async () => {
+    const findUnique = vi.spyOn(prismock.flowkoBusiness, "findUnique");
+    const findFirst = vi.spyOn(prismock.flowkoBusiness, "findFirst");
+    const access = {
+      businessId: f.a,
+      memberId: f.members.olga,
+      userId: f.users.olga,
+      role: "OWNER" as const,
+    };
+    expect(await resolveActor(db, access)).toEqual({ memberId: f.members.olga, name: "Olga" });
+    expect(await resolveActor(db, access, null)).toEqual({ memberId: f.members.olga, name: "Olga" });
+    expect(await resolveActor(db, access, f.members.olga)).toEqual({
+      memberId: f.members.olga,
+      name: "Olga",
+    });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+
+    await created(create(f.users.olga, { actorMemberId: f.members.olga }));
+    expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(0);
+
+    expect(await resolveActor(db, access, f.members.cene)).toEqual({
+      memberId: f.members.olga,
+      name: "Olga",
+    });
+    expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(1);
+  });
+
+  it("switched back on: Olga naming Cene records Cene again (U28b)", async () => {
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { sharedDevice: true } });
+    const { bookingId } = await created(create(f.users.olga, { actorMemberId: f.members.cene }));
+    expect((await actionsOf(bookingId))[0]).toMatchObject({
+      actorMemberId: f.members.cene,
+      actorName: "Cene",
+    });
   });
 });

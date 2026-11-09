@@ -8,7 +8,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeskView as DeskViewData } from "@calcom/features/flowkoBusiness/desk";
 
 import DeskView from "./desk-view";
-import { ANA, BOR, CENE, NOW, OLGA, at, deskView, iso, localeT, weekViewOf } from "./desk.fixture";
+import {
+  ANA,
+  BOR,
+  CENE,
+  NOW,
+  OLGA,
+  at,
+  businessMe,
+  deskView,
+  iso,
+  localeT,
+  weekViewOf,
+} from "./desk.fixture";
 import { deskTrpc, resetDeskTrpc } from "./desk.testDoubles";
 
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
@@ -39,14 +51,18 @@ function answer(view: DeskViewData | undefined, extra: Record<string, unknown> =
   });
 }
 
-function renderDesk(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void) {
-  render(
+function deskTree(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void) {
+  return (
     <NuqsTestingAdapter searchParams={searchParams} onUrlUpdate={onUrlUpdate} hasMemory>
       <TooltipProvider>
         <DeskView />
       </TooltipProvider>
     </NuqsTestingAdapter>
   );
+}
+
+function renderDesk(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void) {
+  return render(deskTree(searchParams, onUrlUpdate));
 }
 
 const headers = () => screen.getAllByTestId(/^desk-column-header-/).map((h) => h.textContent);
@@ -65,7 +81,7 @@ describe("DeskView (U28)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     isPhone.mockReturnValue(false);
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: OLGA, role: "OWNER" } });
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
     answer(deskView());
   });
   afterEach(() => {
@@ -113,7 +129,7 @@ describe("DeskView (U28)", () => {
 
   it("on a phone shows one column with a worker select, defaulting to the user's own column", () => {
     isPhone.mockReturnValue(true);
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    me.mockReturnValue(businessMe(ANA, "WORKER", true));
     const view = deskView();
     view.me = { memberId: ANA, role: "WORKER" };
     view.days[0].columns = view.days[0].columns.map((c) => ({ ...c, isMe: c.memberId === ANA }));
@@ -129,7 +145,7 @@ describe("DeskView (U28)", () => {
 
   it("on a phone, a user without a column starts on the first column", () => {
     isPhone.mockReturnValue(true);
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: 5, role: "STAFF" } });
+    me.mockReturnValue(businessMe(5, "STAFF", true));
     const view = deskView();
     view.days[0].columns = view.days[0].columns.map((c) => ({ ...c, isMe: false }));
     answer(view);
@@ -176,7 +192,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     isPhone.mockReturnValue(false);
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: OLGA, role: "OWNER" } });
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
     dayQuery.mockImplementation((input: { date: string }) => ({
       data: deskView({}, input.date),
       dataUpdatedAt: NOW.getTime(),
@@ -207,7 +223,7 @@ describe("DeskView sheets and move mode (U28 R10, R12)", () => {
   });
 
   it("a WORKER's tap on a colleague's column opens no sheet; her own column does (R5)", () => {
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    me.mockReturnValue(businessMe(ANA, "WORKER", true));
     dayQuery.mockImplementation((input: { date: string }) => {
       const view = deskView({}, input.date);
       view.me = { memberId: ANA, role: "WORKER" };
@@ -463,7 +479,7 @@ describe("DeskView week view (U28 D2)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     isPhone.mockReturnValue(false);
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: OLGA, role: "OWNER" } });
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
     answer(deskView());
     answerWeek();
     deskTrpc.move.mockResolvedValue({ status: "moved", bookingId: 101, uid: "u" });
@@ -513,12 +529,12 @@ describe("DeskView week view (U28 D2)", () => {
     expect(screen.getByRole("radio", { name: "Olga" })).toHaveAttribute("aria-checked", "true");
     cleanup();
     weekQuery.mockClear();
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: 5, role: "STAFF" } });
+    me.mockReturnValue(businessMe(5, "STAFF", true));
     renderDesk("?view=week");
     expect(Array.from(new Set(weekMembers()))).toEqual([OLGA]);
     cleanup();
     weekQuery.mockClear();
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    me.mockReturnValue(businessMe(ANA, "WORKER", true));
     renderDesk("?view=week");
     expect(Array.from(new Set(weekMembers()))).toEqual([ANA]);
   });
@@ -573,7 +589,7 @@ describe("DeskView week view (U28 D2)", () => {
   });
 
   it("a WORKER viewing a colleague's week cannot tap; her own week she can (R5)", () => {
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    me.mockReturnValue(businessMe(ANA, "WORKER", true));
     answerWeek();
     weekQuery.mockImplementation((input: { weekStart: string; memberId: number }) => {
       const view = weekViewOf(input.memberId, input.weekStart);
@@ -742,7 +758,7 @@ describe("DeskView who acts, free starts (U28b B1, B3)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     isPhone.mockReturnValue(false);
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: OLGA, role: "OWNER" } });
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
     answer(deskView());
     deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 7, uid: "u" });
   });
@@ -805,10 +821,130 @@ describe("DeskView who acts, free starts (U28b B1, B3)", () => {
   });
 
   it("a WORKER's chip is fixed to herself and not a button", () => {
-    me.mockReturnValue({ status: "member", me: { businessId: 9, memberId: ANA, role: "WORKER" } });
+    me.mockReturnValue(businessMe(ANA, "WORKER", true));
     window.localStorage.setItem("flowko-desk-actor:9", String(BOR));
     renderDesk();
     expect(chipButton().textContent).toBe("Ste: Ana");
     expect(chipButton().tagName).toBe("SPAN");
+  });
+});
+
+// Flowko U29a (S7, Review Focus 4): with the owner's „shared device“ switch off the desk shows no chip for any role,
+// removes a stored choice in an effect, every write names the signed-in member, and OWNER/STAFF still book every
+// column (rights come from the role, not the chip).
+describe("DeskView with the shared device switch off (U29a S7)", () => {
+  const yOf = (hm: string) => ((at(hm) - at("08:00")) / 60_000) * 2;
+  const column = (memberId: number) => screen.getByTestId(`desk-column-${memberId}`);
+  const columnIds = [OLGA, ANA, BOR, CENE];
+
+  async function bookFenAt(memberId: number) {
+    fireEvent.click(column(memberId), { clientY: yOf("13:30") });
+    const sheet = screen.getByRole("dialog", { name: "Nov termin" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Fen" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Nova stranka" }));
+    fireEvent.change(within(sheet).getByLabelText("Ime in priimek"), { target: { value: "Marija Novak" } });
+    fireEvent.change(within(sheet).getByLabelText("Telefon"), { target: { value: "041 123 456" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Shrani" }));
+    await waitFor(() => expect(deskTrpc.create).toHaveBeenCalled());
+  }
+
+  function answerAs(memberId: number, role: "OWNER" | "STAFF" | "WORKER") {
+    const view = deskView();
+    view.me = { memberId, role };
+    view.days[0].columns = view.days[0].columns.map((c) => ({ ...c, isMe: c.memberId === memberId }));
+    answer(view);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDeskTrpc();
+    toast.mockReset();
+    window.localStorage.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    isPhone.mockReturnValue(false);
+    me.mockReturnValue(businessMe(OLGA, "OWNER", false));
+    answer(deskView());
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 7, uid: "u" });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it.each([
+    ["OWNER", OLGA],
+    ["STAFF", 5],
+    ["WORKER", ANA],
+  ] as const)("a %s session sees no actor chip and no picker", (role, memberId) => {
+    me.mockReturnValue(businessMe(memberId, role, false));
+    answerAs(memberId, role);
+    renderDesk();
+    expect(screen.getAllByTestId(/^desk-column-header-/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("desk-actor-chip")).toBeNull();
+    expect(screen.queryByText(/^Ste: /)).toBeNull();
+    expect(screen.queryAllByTestId(/^desk-actor-option-/)).toHaveLength(0);
+  });
+
+  // Flowko U29a (final review): a tablet left open on /koledar follows a switch saved on another device: `me` polls
+  // with the desk (useDeskBusinessMePoll; the polling itself is proven in useDeskData.test.tsx), and a refetched
+  // answer with the switch off removes the chip in the same mount.
+  it("polls business.me with the desk and drops the chip when a refetch turns the switch off", async () => {
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
+    const { rerender } = renderDesk();
+    expect(deskTrpc.meQuery).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ refetchInterval: 30000, refetchOnWindowFocus: true })
+    );
+    expect(screen.getByTestId("desk-actor-chip").textContent).toBe("Ste: Olga");
+    me.mockReturnValue(businessMe(OLGA, "OWNER", false));
+    rerender(deskTree());
+    await waitFor(() => expect(screen.queryByTestId("desk-actor-chip")).toBeNull());
+    expect(screen.getAllByTestId(/^desk-column-header-/).length).toBeGreaterThan(0);
+  });
+
+  it("removes a stored choice of this business (in an effect) and keeps another business's", async () => {
+    window.localStorage.setItem("flowko-desk-actor:9", String(CENE));
+    window.localStorage.setItem("flowko-desk-actor:8", String(BOR));
+    renderDesk();
+    await waitFor(() => expect(window.localStorage.getItem("flowko-desk-actor:9")).toBeNull());
+    expect(window.localStorage.getItem("flowko-desk-actor:8")).toBe(String(BOR));
+  });
+
+  it("an OWNER with a stale stored choice writes as herself", async () => {
+    window.localStorage.setItem("flowko-desk-actor:9", String(CENE));
+    renderDesk();
+    await bookFenAt(BOR);
+    expect(deskTrpc.create).toHaveBeenCalledWith(expect.objectContaining({ actorMemberId: OLGA }));
+  });
+
+  it("a STAFF session writes as herself (Rok)", async () => {
+    me.mockReturnValue(businessMe(5, "STAFF", false));
+    answerAs(5, "STAFF");
+    window.localStorage.setItem("flowko-desk-actor:9", String(OLGA));
+    renderDesk();
+    await bookFenAt(ANA);
+    expect(deskTrpc.create).toHaveBeenCalledWith(expect.objectContaining({ actorMemberId: 5 }));
+  });
+
+  it.each([
+    ["OWNER", OLGA],
+    ["STAFF", 5],
+  ] as const)("an %s session still books every column (Review Focus 4)", (role, memberId) => {
+    me.mockReturnValue(businessMe(memberId, role, false));
+    answerAs(memberId, role);
+    renderDesk();
+    for (const id of columnIds) expect(column(id)).toHaveAttribute("data-tap", "book");
+    fireEvent.click(column(BOR), { clientY: yOf("13:30") });
+    expect(screen.getByRole("dialog", { name: "Nov termin" })).toBeInTheDocument();
+    expect(screen.getByTestId("desk-sheet-worker").textContent).toContain("Bor");
+  });
+
+  it("a WORKER still books only her own column", () => {
+    me.mockReturnValue(businessMe(ANA, "WORKER", false));
+    answerAs(ANA, "WORKER");
+    renderDesk();
+    expect(column(ANA)).toHaveAttribute("data-tap", "book");
+    expect(column(BOR)).not.toHaveAttribute("data-tap");
   });
 });

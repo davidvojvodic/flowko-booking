@@ -390,7 +390,8 @@ describe("desk input schemas (Flowko U28)", () => {
 });
 
 describe("flowko router wiring (Flowko U27)", () => {
-  it("flowkoRouter serves the eight roster.* procedures plus the five U27 ones and six U28 ones", () => {
+  // Flowko U29a: plus six U29a ones (25 keys).
+  it("flowkoRouter serves the eight roster.* procedures plus the five U27 ones, six U28 ones and six U29a ones", () => {
     expect(Object.keys(flowkoRouter._def.procedures).sort()).toEqual(
       [
         "roster.week",
@@ -413,6 +414,13 @@ describe("flowko router wiring (Flowko U27)", () => {
         "bookings.noShow",
         "business.services",
         "business.members",
+        // Flowko U29a (S14): the owner's settings and services (25 keys)
+        "business.settings",
+        "business.updateSettings",
+        "services.list",
+        "services.save",
+        "services.remove",
+        "services.reorder",
       ].sort()
     );
   });

@@ -88,6 +88,9 @@ describe("createBusiness", () => {
       selfCancelHours: 24,
       brandColor: null,
       darkBrandColor: null,
+      // Flowko U29a (S1): written explicitly (prismock ignores list defaults): reminders 24 h before, chip off.
+      reminderOffsets: [1440],
+      sharedDevice: false,
     });
     expect(businesses[0].openingHours).toEqual(template.openingHours);
 

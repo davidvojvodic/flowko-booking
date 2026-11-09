@@ -1,9 +1,15 @@
 // Flowko U28: the day query polls every 30 s and on window focus (R13); invalidate covers day and week.
 // Flowko U28b (B3): and the free starts, so a sheet never offers a start a desk write just took.
-import { renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// Flowko U29a (S7): business.me polls with the desk; proven on a real QueryClient (business.me's useQuery is a thin
+// react-query wrapper here), so the shell's own observer (useFlowkoBusiness, 5 minutes, no focus) sees the new answer.
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { act, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useDeskDay, useDeskMembers, useDeskWeek } from "./useDeskData";
+import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness";
+
+import { useDeskBusinessMePoll, useDeskDay, useDeskMembers, useDeskWeek } from "./useDeskData";
 
 const dayQuery = vi.fn();
 const weekQuery = vi.fn();
@@ -11,6 +17,7 @@ const membersQuery = vi.fn();
 const invalidateDay = vi.fn();
 const invalidateWeek = vi.fn();
 const invalidateFreeStarts = vi.fn();
+const meFetch = vi.fn();
 vi.mock("@calcom/trpc/react", () => ({
   trpc: {
     useUtils: () => ({
@@ -30,7 +37,13 @@ vi.mock("@calcom/trpc/react", () => ({
           day: { useQuery: (...args: unknown[]) => dayQuery(...args) },
           week: { useQuery: (...args: unknown[]) => weekQuery(...args) },
         },
-        business: { members: { useQuery: (...args: unknown[]) => membersQuery(...args) } },
+        business: {
+          members: { useQuery: (...args: unknown[]) => membersQuery(...args) },
+          me: {
+            useQuery: (_input: undefined, options: Record<string, unknown>) =>
+              useQuery({ queryKey: ["flowko", "business", "me"], queryFn: () => meFetch(), ...options }),
+          },
+        },
       },
     },
   },
@@ -101,5 +114,63 @@ describe("useDeskData (U28 R13)", () => {
     membersQuery.mockReturnValue({ data: [] });
     renderHook(() => useDeskMembers());
     expect(membersQuery).toHaveBeenCalled();
+  });
+});
+
+describe("useDeskBusinessMePoll (U29a S7)", () => {
+  const me = (sharedDevice: boolean) => ({
+    businessId: 9,
+    businessName: "Salon",
+    businessSlug: "salon",
+    memberId: 1,
+    role: "OWNER",
+    hidesCalScreens: false,
+    sharedDevice,
+  });
+  let client: QueryClient;
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  /** Advances the fake clock and lets react-query's notifications (setTimeout) and React's render run. */
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // another device turns the switch off after the first answer
+    meFetch.mockResolvedValueOnce(me(true)).mockResolvedValue(me(false));
+  });
+  afterEach(() => {
+    client.clear();
+    vi.useRealTimers();
+  });
+
+  it("refetches business.me every 30 s, and the desk's useFlowkoBusiness sees the switch turned off", async () => {
+    const { result } = renderHook(
+      () => {
+        useDeskBusinessMePoll();
+        return useFlowkoBusiness();
+      },
+      { wrapper }
+    );
+    await advance(0);
+    expect(result.current.me?.sharedDevice).toBe(true);
+    expect(meFetch).toHaveBeenCalledTimes(1);
+    await advance(30_000);
+    expect(meFetch).toHaveBeenCalledTimes(2);
+    expect(result.current.me?.sharedDevice).toBe(false);
+  });
+
+  it("without it (the shell's 5-minute, no-focus options) the answer stays stale for the 30 s", async () => {
+    const { result } = renderHook(() => useFlowkoBusiness(), { wrapper });
+    await advance(0);
+    await advance(30_000);
+    expect(meFetch).toHaveBeenCalledTimes(1);
+    expect(result.current.me?.sharedDevice).toBe(true);
   });
 });

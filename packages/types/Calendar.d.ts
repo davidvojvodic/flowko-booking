@@ -228,7 +228,8 @@ export interface CalendarEvent {
   // U17a (Flowko): this booking was moved from another one, whose time is already released
   flowkoPreviousTimeReleased?: boolean;
   // Flowko U27: set for business bookings (M6): the business the booking's mirror event type belongs to
-  flowkoBusiness?: { name: string; phone: string | null } | null;
+  // Flowko U29a: + email, the Reply-To of the customer's mails (S6); optional so older fixtures type-check
+  flowkoBusiness?: { name: string; phone: string | null; email?: string | null } | null;
   organizationId?: number | null;
   hasOrganizerChanged?: boolean;
   assignmentReason?: {

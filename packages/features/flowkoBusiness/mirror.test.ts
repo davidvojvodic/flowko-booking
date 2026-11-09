@@ -19,7 +19,9 @@ import {
   ensureWorkerMirror,
   mirrorIdsOfUser,
   mirrorOfEventType,
+  mirrorReminders,
   nonOwnerMemberOf,
+  updateBusinessMirrors,
 } from "./mirror";
 
 const db = prismock as unknown as FlowkoDb;
@@ -284,6 +286,164 @@ describe("ensureWorkerMirror (M2, M4)", () => {
     expect(await prismock.host.count()).toBe(0);
     expect(await prismock.hostGroup.count()).toBe(0);
     expect(await prismock.profile.count()).toBe(0);
+  });
+});
+
+// Flowko U29a (S4): the create path reads the business's current name, time zone and reminder choice under a
+// FOR SHARE row lock ($queryRaw; prismock answers [] there, so the prisma read fallback runs in these tests).
+describe("ensureWorkerMirror takes the business's current settings (U29a S4)", () => {
+  it("reads name, time zone and reminder choice with FOR SHARE on the create path only", async () => {
+    const queryRaw = vi.spyOn(prismock, "$queryRaw");
+    await ensureWorkerMirror(tx, f.members.ana);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    const sql = (queryRaw.mock.calls[0][0] as unknown as TemplateStringsArray).join("?");
+    expect(sql).toMatch(/FROM "FlowkoBusiness" WHERE "id" = \? FOR SHARE/);
+    expect(queryRaw.mock.calls[0][1]).toBe(f.a);
+
+    await ensureWorkerMirror(tx, f.members.ana); // existing mirror: no lock, no read
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("a renamed business: the new mirror's title is the current name", async () => {
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { name: "Salon Nova" } });
+    const mirror = await ensureWorkerMirror(tx, f.members.ana);
+    const eventType = await prismock.eventType.findUnique({ where: { id: mirror.eventTypeId } });
+    expect(eventType?.title).toBe("Salon Nova");
+  });
+
+  it.each([
+    [[120], { enabled: true, offsets: [120] }],
+    [[1440, 120], { enabled: true, offsets: [1440, 120] }],
+    [[], { enabled: false, offsets: [1440] }],
+  ])("reminderOffsets %j → flowkoReminders %j", async (reminderOffsets, flowkoReminders) => {
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { reminderOffsets } });
+    const mirror = await ensureWorkerMirror(tx, f.members.bor);
+    const eventType = await prismock.eventType.findUnique({ where: { id: mirror.eventTypeId } });
+    expect(eventType?.metadata).toStrictEqual({ flowkoMirror: true, flowkoReminders });
+  });
+
+  it("a business without a stored list (prismock ignores list defaults) gets the 24-hour reminder", async () => {
+    const zala = await makeUser("Zala");
+    const created = await prismock.flowkoBusiness.create({
+      data: { name: "Salon C", slug: `salon-c-${seq}`, openingHours: {} },
+      select: { id: true },
+    });
+    const member = await prismock.flowkoBusinessMember.create({
+      data: { businessId: created.id, userId: zala, role: FlowkoBusinessRole.OWNER, displayName: "Zala" },
+      select: { id: true },
+    });
+    const mirror = await ensureWorkerMirror(tx, member.id);
+    const eventType = await prismock.eventType.findUnique({ where: { id: mirror.eventTypeId } });
+    expect(eventType?.metadata).toStrictEqual({
+      flowkoMirror: true,
+      flowkoReminders: { enabled: true, offsets: [1440] },
+    });
+  });
+});
+
+describe("mirrorReminders (U29a S4)", () => {
+  it("[] switches reminders off and keeps a valid offsets list; otherwise the offsets as given", () => {
+    expect(mirrorReminders([])).toStrictEqual({ enabled: false, offsets: [1440] });
+    expect(mirrorReminders([1440])).toStrictEqual({ enabled: true, offsets: [1440] });
+    expect(mirrorReminders([120])).toStrictEqual({ enabled: true, offsets: [120] });
+    expect(mirrorReminders([1440, 120])).toStrictEqual({ enabled: true, offsets: [1440, 120] });
+  });
+
+  it("the stored list is copied, never shared", () => {
+    const stored = [120];
+    const reminders = mirrorReminders(stored);
+    stored.push(1440);
+    expect(reminders.offsets).toEqual([120]);
+  });
+});
+
+describe("updateBusinessMirrors (U29a S4)", () => {
+  async function metadataOf(eventTypeId: number): Promise<unknown> {
+    const eventType = await prismock.eventType.findUnique({ where: { id: eventTypeId } });
+    return eventType?.metadata;
+  }
+  async function titleOf(eventTypeId: number): Promise<string | undefined> {
+    const eventType = await prismock.eventType.findUnique({ where: { id: eventTypeId } });
+    return eventType?.title;
+  }
+
+  it("a new title reaches every mirror of the business and no other event type", async () => {
+    const ana = await ensureWorkerMirror(tx, f.members.ana);
+    const olga = await ensureWorkerMirror(tx, f.members.olga);
+    const bea = await ensureWorkerMirror(tx, f.members.bea);
+    const own = await prismock.eventType.create({
+      data: { title: "Posvet", slug: "posvet-u29a", length: 30, userId: f.users.olga },
+      select: { id: true },
+    });
+    await updateBusinessMirrors(tx, f.a, { title: "Salon Nova" });
+    expect(await titleOf(ana.eventTypeId)).toBe("Salon Nova");
+    expect(await titleOf(olga.eventTypeId)).toBe("Salon Nova");
+    expect(await titleOf(bea.eventTypeId)).toBe("Salon B");
+    expect(await titleOf(own.id)).toBe("Posvet");
+    // Reminders untouched by a rename.
+    expect(await metadataOf(ana.eventTypeId)).toStrictEqual({
+      flowkoMirror: true,
+      flowkoReminders: { enabled: true, offsets: [1440] },
+    });
+  });
+
+  it("a new reminder choice reaches every mirror of the business; [] switches them off", async () => {
+    const ana = await ensureWorkerMirror(tx, f.members.ana);
+    const dan = await ensureWorkerMirror(tx, f.members.dan);
+    const bea = await ensureWorkerMirror(tx, f.members.bea);
+    await updateBusinessMirrors(tx, f.a, { reminderOffsets: [120] });
+    for (const id of [ana.eventTypeId, dan.eventTypeId]) {
+      expect(await metadataOf(id)).toStrictEqual({
+        flowkoMirror: true,
+        flowkoReminders: { enabled: true, offsets: [120] },
+      });
+    }
+    await updateBusinessMirrors(tx, f.a, { reminderOffsets: [] });
+    expect(await metadataOf(ana.eventTypeId)).toStrictEqual({
+      flowkoMirror: true,
+      flowkoReminders: { enabled: false, offsets: [1440] },
+    });
+    expect(await metadataOf(bea.eventTypeId)).toStrictEqual({
+      flowkoMirror: true,
+      flowkoReminders: { enabled: true, offsets: [1440] },
+    });
+    expect(await titleOf(ana.eventTypeId)).toBe("Salon A");
+  });
+
+  it("a mirror whose metadata holds another key keeps it after a reminder change (no schema parse)", async () => {
+    const ana = await ensureWorkerMirror(tx, f.members.ana);
+    await prismock.eventType.update({
+      where: { id: ana.eventTypeId },
+      data: {
+        metadata: { flowkoMirror: true, flowkoReminders: { enabled: true, offsets: [1440] }, other: 7 },
+      },
+    });
+    await updateBusinessMirrors(tx, f.a, { reminderOffsets: [1440, 120] });
+    expect(await metadataOf(ana.eventTypeId)).toStrictEqual({
+      flowkoMirror: true,
+      flowkoReminders: { enabled: true, offsets: [1440, 120] },
+      other: 7,
+    });
+  });
+
+  it("a mirror with non-object metadata gets a fresh mirror metadata", async () => {
+    const ana = await ensureWorkerMirror(tx, f.members.ana);
+    await prismock.eventType.update({ where: { id: ana.eventTypeId }, data: { metadata: [1, 2] } });
+    await updateBusinessMirrors(tx, f.a, { reminderOffsets: [120] });
+    expect(await metadataOf(ana.eventTypeId)).toStrictEqual({
+      flowkoMirror: true,
+      flowkoReminders: { enabled: true, offsets: [120] },
+    });
+  });
+
+  it("nothing to change, or a business without mirrors: no event type write", async () => {
+    const updateMany = vi.spyOn(prismock.eventType, "updateMany");
+    const update = vi.spyOn(prismock.eventType, "update");
+    await updateBusinessMirrors(tx, f.a, { title: "Salon Nova", reminderOffsets: [120] });
+    await ensureWorkerMirror(tx, f.members.ana);
+    await updateBusinessMirrors(tx, f.a, {});
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 });
 

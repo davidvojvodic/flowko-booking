@@ -531,8 +531,16 @@ describe("U27 business on the built calendar event (E1)", () => {
       return (await CalendarEventBuilder.fromBooking(booking)).build();
     };
 
-    expect((await build(onMirror.id)).flowkoBusiness).toEqual(BUSINESS);
+    // Flowko U29a: the payload carries the business e-mail too (S6); none set yet
+    expect((await build(onMirror.id)).flowkoBusiness).toEqual({ ...BUSINESS, email: null });
     expect((await build(onPlain.id)).flowkoBusiness).toBeNull();
+
+    // Flowko U29a: with the e-mail set, the built event carries it (the customer mails' Reply-To)
+    await prismock.flowkoBusiness.update({
+      where: { id: created.businessId },
+      data: { email: "salon@example.si" },
+    });
+    expect((await build(onMirror.id)).flowkoBusiness).toEqual({ ...BUSINESS, email: "salon@example.si" });
   });
 });
 

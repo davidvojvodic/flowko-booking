@@ -28,6 +28,8 @@ export const deskTrpc = {
   invalidateFreeStarts: vi.fn(),
   refetchFreeStarts: vi.fn(),
   refetchMe: vi.fn(),
+  // Flowko U29a (S7): the desk's business.me poll (useDeskBusinessMePoll); the desk reads `me` via useFlowkoBusiness.
+  meQuery: vi.fn(),
 };
 
 /** Defaults: members + services answered, no free starts, no customers, every write rejects until a test says. */
@@ -49,6 +51,7 @@ export function resetDeskTrpc() {
   deskTrpc.invalidateFreeStarts.mockResolvedValue(undefined);
   deskTrpc.refetchFreeStarts.mockResolvedValue(undefined);
   deskTrpc.refetchMe.mockResolvedValue(undefined);
+  deskTrpc.meQuery.mockReturnValue({ data: undefined });
 }
 
 /** A TRPCClientError as the desk sees it: `message` is the Flowko code, `data.code` the tRPC code. */
@@ -87,6 +90,7 @@ export const trpcModule = {
         business: {
           members: { useQuery: (...args: unknown[]) => deskTrpc.membersQuery(...args) },
           services: { useQuery: (...args: unknown[]) => deskTrpc.servicesQuery(...args) },
+          me: { useQuery: (...args: unknown[]) => deskTrpc.meQuery(...args) },
         },
       },
     },

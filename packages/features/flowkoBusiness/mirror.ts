@@ -4,6 +4,8 @@
 // writes on it. A business booking is exactly a booking whose event type is a mirror (M6). Written with plain
 // eventType / schedule creates (never Cal's create handler); a mirror never sets teamId, parentId, profileId,
 // hosts or a profile connect (Teams guard P2/P5). Server only.
+// Flowko U29a (S4): a new mirror takes the business's current name and reminder choice under a FOR SHARE row
+// lock, and updateBusinessMirrors carries a rename or a new reminder choice to every mirror of the business.
 import type { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole } from "@calcom/prisma/enums";
 import type { FlowkoDb } from "./db";
@@ -17,8 +19,50 @@ const MIRROR_LENGTH_MINUTES = 30;
 const MIRROR_SCHEDULE_NAME = "Flowko termini";
 /** M2: Cal's event-name template; renders the title (= business name) instead of "<title> between A and B". */
 const MIRROR_EVENT_NAME = "{Event type title}";
-/** M2: the reminder the customer gets one day ahead (U22 sweep reads metadata.flowkoReminders). */
-const MIRROR_REMINDER_OFFSETS_MINUTES = [1440];
+/**
+ * M2: the reminder the customer gets one day ahead (U22 sweep reads metadata.flowkoReminders).
+ * Flowko U29a (S1, S4): the fallback for a business without a stored list, and the offsets kept (switched off)
+ * when the business chose no reminder, so the stored value stays valid for flowkoRemindersSchema (1–2 offsets).
+ */
+const MIRROR_REMINDER_OFFSETS_MINUTES: readonly number[] = [1440];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Flowko U29a (S4): a mirror's metadata.flowkoReminders for the business's reminder choice ([] = off).
+ * A null list (prismock ignores list defaults; Postgres never stores NULL, CHECK) is the 24-hour default.
+ */
+export function mirrorReminders(reminderOffsets: readonly number[] | null | undefined): {
+  enabled: boolean;
+  offsets: number[];
+} {
+  const offsets = reminderOffsets ?? MIRROR_REMINDER_OFFSETS_MINUTES;
+  return offsets.length > 0
+    ? { enabled: true, offsets: Array.from(offsets) }
+    : { enabled: false, offsets: Array.from(MIRROR_REMINDER_OFFSETS_MINUTES) };
+}
+
+type MirrorBusiness = { name: string; timeZone: string; reminderOffsets: number[] | null };
+
+/**
+ * Flowko U29a (S4): the business's name, time zone and reminder choice under a FOR SHARE row lock. A settings save
+ * holds the row FOR UPDATE, so a first booking racing it waits and then reads the committed values; a save that
+ * starts later waits for this transaction and then finds the new mirror. On Postgres the row always exists (the
+ * member's foreign key); prismock answers every $queryRaw with [], so the plain read below runs only in tests.
+ */
+async function businessForNewMirror(tx: Tx, businessId: number): Promise<MirrorBusiness> {
+  const rows = await tx.$queryRaw<MirrorBusiness[]>`
+    SELECT "name", "timeZone", "reminderOffsets" FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR SHARE`;
+  const business =
+    rows[0] ??
+    (await tx.flowkoBusiness.findUnique({
+      where: { id: businessId },
+      select: { name: true, timeZone: true, reminderOffsets: true },
+    }));
+  if (!business) throw new FlowkoBusinessError("bad_member");
+  return business;
+}
 
 const mirrorSelect = {
   eventTypeId: true,
@@ -99,7 +143,6 @@ export async function ensureWorkerMirror(tx: Tx, memberId: number): Promise<Work
       role: true,
       userId: true,
       businessId: true,
-      business: { select: { name: true, timeZone: true } },
     },
   });
   if (!member || member.role === FlowkoBusinessRole.STAFF || member.userId === null) {
@@ -110,6 +153,8 @@ export async function ensureWorkerMirror(tx: Tx, memberId: number): Promise<Work
   if (existing) return existing;
 
   const userId = member.userId;
+  // Flowko U29a (S4): current values, read under the business row lock (create path only, once per worker).
+  const business = await businessForNewMirror(tx, member.businessId);
   await keepUsualDefaultSchedule(tx, userId);
 
   // M4: zero Availability rows. Its userId equals the event type's userId, so Cal keeps it as the event type's
@@ -118,14 +163,14 @@ export async function ensureWorkerMirror(tx: Tx, memberId: number): Promise<Work
     data: {
       user: { connect: { id: userId } },
       name: MIRROR_SCHEDULE_NAME,
-      timeZone: member.business.timeZone,
+      timeZone: business.timeZone,
     },
     select: { id: true },
   });
 
   const eventType = await tx.eventType.create({
     data: {
-      title: member.business.name,
+      title: business.name,
       slug: mirrorSlug(member.id),
       length: MIRROR_LENGTH_MINUTES,
       hidden: true,
@@ -142,7 +187,7 @@ export async function ensureWorkerMirror(tx: Tx, memberId: number): Promise<Work
       locations: [],
       metadata: {
         flowkoMirror: true,
-        flowkoReminders: { enabled: true, offsets: MIRROR_REMINDER_OFFSETS_MINUTES },
+        flowkoReminders: mirrorReminders(business.reminderOffsets),
       },
     },
     select: { id: true },
@@ -157,6 +202,44 @@ export async function ensureWorkerMirror(tx: Tx, memberId: number): Promise<Work
     },
     select: mirrorSelect,
   });
+}
+
+/**
+ * Flowko U29a (S4): carries a rename (`title`) and a new reminder choice (`reminderOffsets`, [] = off) to every
+ * mirror of the business. Runs inside the settings save's transaction, after it locked the business row. Plain
+ * event type writes by mirror id (no Cal route): the title in one updateMany; the reminders per mirror, merged
+ * into its stored metadata without a schema parse, so no other key is stripped (the U22 sweep reads only
+ * flowkoReminders). A field left out is not touched; reminders already claimed are not recalled.
+ */
+export async function updateBusinessMirrors(
+  tx: Tx,
+  businessId: number,
+  change: { title?: string; reminderOffsets?: readonly number[] }
+): Promise<void> {
+  if (change.title === undefined && change.reminderOffsets === undefined) return;
+  const mirrors = await tx.flowkoWorkerMirror.findMany({
+    where: { businessId },
+    select: { eventTypeId: true },
+    orderBy: { eventTypeId: "asc" },
+  });
+  if (mirrors.length === 0) return;
+  const ids = mirrors.map((m) => m.eventTypeId);
+
+  if (change.title !== undefined) {
+    await tx.eventType.updateMany({ where: { id: { in: ids } }, data: { title: change.title } });
+  }
+  if (change.reminderOffsets !== undefined) {
+    const flowkoReminders = mirrorReminders(change.reminderOffsets);
+    for (const id of ids) {
+      const eventType = await tx.eventType.findUnique({ where: { id }, select: { metadata: true } });
+      if (!eventType) continue;
+      const metadata = isRecord(eventType.metadata) ? eventType.metadata : {};
+      await tx.eventType.update({
+        where: { id },
+        data: { metadata: { ...metadata, flowkoMirror: true, flowkoReminders } },
+      });
+    }
+  }
 }
 
 /** The mirror whose event type this is, or null (not a mirror, or no event type). */
