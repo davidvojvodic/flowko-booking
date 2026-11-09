@@ -1,5 +1,5 @@
 // Flowko U29a: the service steps (S9). StepsBar draws a service's steps as a small bar (busy solid, processing
-// hatched, widths by minutes, as on the desk); StepsEditor edits them: kind „Z delom“/„Učinkovanje“ and minutes per
+// hatched, widths by minutes, as on the desk); StepsEditor edits them: kind „Delo“/„Čakanje“ and minutes per
 // row, add/remove/reorder, the live total and bar, the rules always shown, each row's and the list's error text.
 // Controlled: every edit is one onChange with the whole list.
 import { fireEvent, render, screen, within } from "@testing-library/react";
@@ -44,7 +44,7 @@ describe("StepsBar (U29a S9)", () => {
     expect(segments.map((s) => s.dataset.pattern)).toEqual([undefined, "hatched", undefined]);
     expect(segments.map((s) => s.style.flexGrow)).toEqual(["30", "30", "15"]);
     expect(segments[1]).toHaveClass("border-dashed");
-    expect(bar).toHaveAttribute("aria-label", "Delo 30 min, Učinkovanje 30 min, Delo 15 min");
+    expect(bar).toHaveAttribute("aria-label", "Delo 30 min, Čakanje 30 min, Delo 15 min");
   });
 });
 
@@ -55,13 +55,13 @@ describe("StepsEditor (U29a S9)", () => {
     expect((screen.getByLabelText("2. korak: vrsta") as HTMLSelectElement).value).toBe("processing");
     expect((screen.getByLabelText("3. korak: minute") as HTMLInputElement).value).toBe("15");
     const kindOptions = within(screen.getByLabelText("2. korak: vrsta")).getAllByRole("option");
-    expect(kindOptions.map((o) => o.textContent)).toEqual(["Delo", "Učinkovanje"]);
+    expect(kindOptions.map((o) => o.textContent)).toEqual(["Delo", "Čakanje"]);
     expect(screen.getByTestId("flowko-service-total")).toHaveTextContent("Skupaj: 75 min");
     expect(screen.getByTestId("flowko-steps-bar").children).toHaveLength(3);
     expect(
       screen.getByText("Največ 8 korakov, vsak od 5 do 480 minut (5, 10, 15 … minut), skupaj največ 12 ur.")
     ).toBeInTheDocument();
-    expect(screen.getByText(/Učinkovanje: stranka čaka, delavec je medtem prost/)).toBeInTheDocument();
+    expect(screen.getByText(/Čakanje: stranka čaka, delavec je medtem prost/)).toBeInTheDocument();
   });
 
   it("the minutes input carries the S9 bounds", () => {

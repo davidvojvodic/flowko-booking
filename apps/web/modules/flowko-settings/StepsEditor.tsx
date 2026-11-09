@@ -1,7 +1,7 @@
 // Flowko U29a: a service's steps (S9). StepsBar draws them as a small horizontal bar sized by minutes: busy steps
 // solid, processing steps hatched with a dashed edge (the desk's BookingBlock look; that drawing is a vertical
 // time-positioned block, so the bar is its own small component). StepsEditor edits the steps: per row the kind
-// („Z delom“ / „Učinkovanje“) and minutes, move up/down, remove (not the only step); „Dodaj korak“ up to 8 steps;
+// („Delo“ / „Čakanje“) and minutes, move up/down, remove (not the only step); „Dodaj korak“ up to 8 steps;
 // the live total and bar; the S9 rules always shown. Controlled and rule-free: the caller validates
 // (serviceInputSchema) and passes each row's and the list's translated error. Minutes are kept as typed text, so a
 // cleared field stays empty instead of jumping to 0.
