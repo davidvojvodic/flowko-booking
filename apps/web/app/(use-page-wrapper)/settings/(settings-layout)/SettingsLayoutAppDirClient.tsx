@@ -9,7 +9,7 @@ import { useIsStandalone } from "@calcom/lib/hooks/useIsStandalone";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { IdentityProvider, UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
-import { useFlowkoHomeHref } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
+import { useFlowkoBusiness, useFlowkoHomeHref } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28, U29a
 import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import classNames from "@calcom/ui/classNames";
 import { Badge } from "@calcom/ui/components/badge";
@@ -28,6 +28,9 @@ import type { ComponentProps } from "react";
 import React, { useEffect, useMemo, useState } from "react";
 import Shell from "~/shell/Shell";
 
+// Flowko U29a: the name (i18n key) of the business settings tab
+const FLOWKO_SETTINGS_SECTION = "flowko_settings_section";
+
 const getTabs = (
   orgBranding: {
     id?: number;
@@ -38,6 +41,16 @@ const getTabs = (
   } | null
 ) => {
   const tabs: VerticalTabItemProps[] = [
+    // Flowko U29a: the business section (S15), first for the owner; useTabs drops it for everyone else
+    {
+      name: FLOWKO_SETTINGS_SECTION,
+      href: "/settings/podjetje",
+      icon: "building",
+      children: [
+        { name: "flowko_settings_profile", href: "/settings/podjetje/profil" },
+        { name: "flowko_settings_services", href: "/settings/podjetje/storitve" },
+      ],
+    },
     {
       name: "my_account",
       href: "/settings/my-account",
@@ -284,6 +297,9 @@ export const useTabs = ({
   const orgBranding = null as { id?: number; slug?: string; name?: string; logoUrl?: string | null } | null;
   const isAdmin = session.data?.user.role === UserPermissionRole.ADMIN;
   const hidesCalScreens = useFlowkoHidesCalScreens(); // Flowko U27
+  // Flowko U29a: the business section is the owner's; hidden while the answer loads, for WORKER/STAFF and in no business
+  const flowkoBusiness = useFlowkoBusiness();
+  const isBusinessOwner = flowkoBusiness.status === "member" && flowkoBusiness.me.role === "OWNER";
 
   const processTabsMemod = useMemo(() => {
     const processedTabs = getTabs(orgBranding).map((tab) => {
@@ -376,6 +392,7 @@ export const useTabs = ({
 
     // check if name is in adminRequiredKeys
     return processedTabs.filter((tab) => {
+      if (tab.name === FLOWKO_SETTINGS_SECTION) return isBusinessOwner; // Flowko U29a
       if (organizationRequiredKeys.includes(tab.name)) return !!orgBranding;
       if (tab.name === "other_teams" && !permissions?.canUpdateOrganization) return false;
 
@@ -390,6 +407,7 @@ export const useTabs = ({
     isPbacEnabled,
     permissions,
     hidesCalScreens, // Flowko U27
+    isBusinessOwner, // Flowko U29a
   ]);
 
   return processTabsMemod;

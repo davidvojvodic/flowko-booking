@@ -5079,5 +5079,10 @@
   "flowko_desk_move_on_calendar": "or pick a time on the calendar",
   "flowko_desk_move_banner_column": "Click the new time in the column: {{name}}",
   "flowko_desk_move_services_gone": "One of this booking's services no longer exists, so free times cannot be shown. Enter the time.",
-  "flowko_desk_move_banner": "Choose a new time for {{name}}"
+  "flowko_desk_move_banner": "Choose a new time for {{name}}",
+  "flowko_settings_section": "Business",
+  "flowko_settings_profile": "Business profile",
+  "flowko_settings_profile_description": "Name, contact details, opening hours and other business settings.",
+  "flowko_settings_services": "Services",
+  "flowko_settings_services_description": "The services you offer, their steps and who does them."
 }

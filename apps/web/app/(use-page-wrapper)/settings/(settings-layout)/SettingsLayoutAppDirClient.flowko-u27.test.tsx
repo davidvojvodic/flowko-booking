@@ -12,8 +12,14 @@ vi.mock("@calcom/web/lib/flowko/useFlowkoHidesCalScreens", () => ({
 vi.mock("next-auth/react", () => ({
   useSession: () => ({ data: { user: { id: 2, role: "USER" } } }),
 }));
+// Flowko U29a: useTabs also reads viewer.flowko.business.me (the owner's business tab); here: no business
 vi.mock("@calcom/trpc/react", () => ({
-  trpc: { viewer: { me: { get: { useQuery: () => ({ data: { name: "Ana", avatarUrl: null } }) } } } },
+  trpc: {
+    viewer: {
+      me: { get: { useQuery: () => ({ data: { name: "Ana", avatarUrl: null } }) } },
+      flowko: { business: { me: { useQuery: () => ({ data: null }) } } },
+    },
+  },
 }));
 vi.mock("~/shell/Shell", () => ({ default: () => null }));
 
