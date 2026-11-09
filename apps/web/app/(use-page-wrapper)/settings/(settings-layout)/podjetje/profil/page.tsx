@@ -1,5 +1,5 @@
-// Flowko U29a: /settings/podjetje/profil (S15), owner only (the guard runs here, per page). The form comes in a later
-// task; until then the page shows its header only.
+// Flowko U29a: /settings/podjetje/profil (S15), owner only (the guard runs here, per page). The form is the client
+// view BusinessProfileView (Task 7a), which reads viewer.flowko.business.settings itself (no server initial data).
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
@@ -7,6 +7,7 @@ import { requireBusinessOwnerPage } from "@lib/flowko/settingsPage";
 import { _generateMetadata, getTranslate } from "app/_utils";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import BusinessProfileView from "~/flowko-settings/business-profile-view";
 
 export const generateMetadata = async () =>
   await _generateMetadata(
@@ -30,7 +31,7 @@ const Page = async () => {
       title={t("flowko_settings_profile")}
       description={t("flowko_settings_profile_description")}
       borderInShellHeader={true}>
-      <div className="border-subtle rounded-b-xl border border-t-0 px-4 py-8 sm:px-6" />
+      <BusinessProfileView />
     </SettingsHeader>
   );
 };
