@@ -230,6 +230,14 @@ function isNameClash(e: unknown): boolean {
 }
 
 /**
+ * Flowko U29a: P2025 (record to update or delete not found): another device removed the service between this
+ * transaction's read and its write. The caller answers as for an unknown service.
+ */
+function isServiceGone(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025";
+}
+
+/**
  * S8, S9, S13: creates (no `id`; placed last, max(position) + 1) or edits (`id`) a service of the owner's business:
  * name, category, steps and who does it. Price, online flag, grid and position are never written by an edit.
  * Existing bookings keep their step copies.
@@ -285,6 +293,7 @@ export async function saveService(
     });
   } catch (e) {
     if (isNameClash(e)) throw new FlowkoBusinessError("service_name_taken");
+    if (isServiceGone(e)) throw new FlowkoBusinessError("forbidden");
     throw e;
   }
 }
@@ -296,14 +305,19 @@ export async function saveService(
 export async function removeService(db: FlowkoDb, actorUserId: number, serviceId: number): Promise<void> {
   const businessId = await requireOwner(db, actorUserId);
   if (!isDbId(serviceId)) throw new FlowkoBusinessError("forbidden");
-  await withFlowkoTx(db, async (tx) => {
-    const service = await tx.flowkoService.findUnique({
-      where: { id: serviceId },
-      select: { businessId: true },
+  try {
+    await withFlowkoTx(db, async (tx) => {
+      const service = await tx.flowkoService.findUnique({
+        where: { id: serviceId },
+        select: { businessId: true },
+      });
+      if (!service || service.businessId !== businessId) throw new FlowkoBusinessError("forbidden");
+      await tx.flowkoService.delete({ where: { id: serviceId } });
     });
-    if (!service || service.businessId !== businessId) throw new FlowkoBusinessError("forbidden");
-    await tx.flowkoService.delete({ where: { id: serviceId } });
-  });
+  } catch (e) {
+    if (isServiceGone(e)) throw new FlowkoBusinessError("forbidden");
+    throw e;
+  }
 }
 
 /**
@@ -317,16 +331,22 @@ export async function reorderServices(
 ): Promise<void> {
   const businessId = await requireOwner(db, actorUserId);
   if (!Array.isArray(serviceIds) || !serviceIds.every(isDbId)) throw new FlowkoBusinessError("bad_service");
-  await withFlowkoTx(db, async (tx) => {
-    const stored = await tx.flowkoService.findMany({ where: { businessId }, select: { id: true } });
-    const storedIds = stored.map((s) => s.id);
-    const exact =
-      serviceIds.length === storedIds.length &&
-      new Set(serviceIds).size === serviceIds.length &&
-      serviceIds.every((id) => storedIds.includes(id));
-    if (!exact) throw new FlowkoBusinessError("bad_service");
-    for (let position = 0; position < serviceIds.length; position += 1) {
-      await tx.flowkoService.update({ where: { id: serviceIds[position] }, data: { position } });
-    }
-  });
+  try {
+    await withFlowkoTx(db, async (tx) => {
+      const stored = await tx.flowkoService.findMany({ where: { businessId }, select: { id: true } });
+      const storedIds = stored.map((s) => s.id);
+      const exact =
+        serviceIds.length === storedIds.length &&
+        new Set(serviceIds).size === serviceIds.length &&
+        serviceIds.every((id) => storedIds.includes(id));
+      if (!exact) throw new FlowkoBusinessError("bad_service");
+      for (let position = 0; position < serviceIds.length; position += 1) {
+        await tx.flowkoService.update({ where: { id: serviceIds[position] }, data: { position } });
+      }
+    });
+  } catch (e) {
+    // Flowko U29a: a service removed meanwhile on another device is a stale list, as above.
+    if (isServiceGone(e)) throw new FlowkoBusinessError("bad_service");
+    throw e;
+  }
 }

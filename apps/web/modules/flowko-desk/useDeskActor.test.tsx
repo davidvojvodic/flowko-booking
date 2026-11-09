@@ -131,4 +131,16 @@ describe("useDeskActor with the shared device switch off (U29a S7)", () => {
     rerender({ session: owner });
     expect(result.current.actor?.memberId).toBe(OLGA);
   });
+
+  it("an open picker closes when the switch turns off and does not reopen when it is on again", async () => {
+    const { result, rerender } = renderHook(({ session }) => useDeskActor(session, members), {
+      initialProps: { session: owner },
+    });
+    act(() => result.current.openPicker());
+    expect(result.current.pickerOpen).toBe(true);
+    rerender({ session: off(owner) });
+    await waitFor(() => expect(result.current.pickerOpen).toBe(false));
+    rerender({ session: owner });
+    expect(result.current.pickerOpen).toBe(false);
+  });
 });

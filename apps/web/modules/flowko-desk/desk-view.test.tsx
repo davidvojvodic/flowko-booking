@@ -51,14 +51,18 @@ function answer(view: DeskViewData | undefined, extra: Record<string, unknown> =
   });
 }
 
-function renderDesk(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void) {
-  render(
+function deskTree(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void) {
+  return (
     <NuqsTestingAdapter searchParams={searchParams} onUrlUpdate={onUrlUpdate} hasMemory>
       <TooltipProvider>
         <DeskView />
       </TooltipProvider>
     </NuqsTestingAdapter>
   );
+}
+
+function renderDesk(searchParams = "", onUrlUpdate?: (e: UrlUpdateEvent) => void) {
+  return render(deskTree(searchParams, onUrlUpdate));
 }
 
 const headers = () => screen.getAllByTestId(/^desk-column-header-/).map((h) => h.textContent);
@@ -880,6 +884,23 @@ describe("DeskView with the shared device switch off (U29a S7)", () => {
     expect(screen.queryByTestId("desk-actor-chip")).toBeNull();
     expect(screen.queryByText(/^Ste: /)).toBeNull();
     expect(screen.queryAllByTestId(/^desk-actor-option-/)).toHaveLength(0);
+  });
+
+  // Flowko U29a (final review): a tablet left open on /koledar follows a switch saved on another device: `me` polls
+  // with the desk (useDeskBusinessMePoll; the polling itself is proven in useDeskData.test.tsx), and a refetched
+  // answer with the switch off removes the chip in the same mount.
+  it("polls business.me with the desk and drops the chip when a refetch turns the switch off", async () => {
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
+    const { rerender } = renderDesk();
+    expect(deskTrpc.meQuery).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ refetchInterval: 30000, refetchOnWindowFocus: true })
+    );
+    expect(screen.getByTestId("desk-actor-chip").textContent).toBe("Ste: Olga");
+    me.mockReturnValue(businessMe(OLGA, "OWNER", false));
+    rerender(deskTree());
+    await waitFor(() => expect(screen.queryByTestId("desk-actor-chip")).toBeNull());
+    expect(screen.getAllByTestId(/^desk-column-header-/).length).toBeGreaterThan(0);
   });
 
   it("removes a stored choice of this business (in an effect) and keeps another business's", async () => {

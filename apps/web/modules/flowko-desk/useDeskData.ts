@@ -42,6 +42,20 @@ export function useDeskDay(date: string, options: { enabled?: boolean } = {}) {
   };
 }
 
+/**
+ * Flowko U29a (S7): keeps viewer.flowko.business.me fresh at the desk with the day's polling (R13), so a tablet
+ * left open on /koledar follows the owner's „shared device“ switch from another device within 30 s. Same query key
+ * as useFlowkoBusiness (one cache entry): the desk keeps reading `me` through useFlowkoBusiness, this observer only
+ * refetches it (the shell's 5-minute, no-focus options elsewhere are unchanged).
+ */
+export function useDeskBusinessMePoll(): void {
+  trpc.viewer.flowko.business.me.useQuery(undefined, {
+    refetchInterval: DESK_POLL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: DESK_POLL_MS,
+  });
+}
+
 /** ACTIVE members of the business (staff and desk-only included): the „who are you“ list (R9). */
 export function useDeskMembers() {
   return trpc.viewer.flowko.business.members.useQuery(undefined, { staleTime: 60_000 });

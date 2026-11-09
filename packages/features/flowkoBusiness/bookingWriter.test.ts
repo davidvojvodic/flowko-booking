@@ -743,6 +743,7 @@ describe("sharedDevice off (U29a S7)", () => {
 
   it("Rok (STAFF) naming Recepcija → Rok is recorded; resolveActor ignores every other id for him", async () => {
     const recepcija = await prismock.flowkoBusinessMember.findFirst({ where: { displayName: "Recepcija" } });
+    expect(recepcija?.id).toBeDefined();
     const { bookingId } = await created(
       create(f.users.rok, {
         workerMemberId: f.members.cene,

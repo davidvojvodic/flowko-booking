@@ -73,6 +73,10 @@ export function useDeskActor(
     localStorage.removeItem(key);
     notify();
   }, [key, shared, stored]);
+  // Flowko U29a (S7): switch off → close an open picker, so it never comes back by itself when the switch is on again.
+  useEffect(() => {
+    if (!shared) setPickerOpen(false);
+  }, [shared]);
 
   const actor = useMemo<DeskActor | null>(() => {
     if (!me || !members) return null;

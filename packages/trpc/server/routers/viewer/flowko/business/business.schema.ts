@@ -3,7 +3,7 @@
 // slot grid) live in businessSettingsSchema, which settings.ts applies, so a refused value answers bad_profile
 // rather than a zod message. Slug and time zone are not editable, so they are not keys here. The actor is always
 // ctx.user.id.
-import { REMINDER_CHOICES } from "@calcom/lib/flowkoBusiness";
+import { isReminderChoice } from "@calcom/lib/flowkoBusiness";
 import { z } from "zod";
 
 /** Early 400 for an oversized payload; generous so an untrimmed value still reaches the service's rule. */
@@ -24,14 +24,6 @@ const openingHoursShape = z
     sun: openingDaySchema,
   })
   .strict();
-
-function isReminderChoice(offsets: number[]): boolean {
-  return REMINDER_CHOICES.some(
-    (choice) =>
-      choice.offsets.length === offsets.length &&
-      choice.offsets.every((offset, index) => offset === offsets[index])
-  );
-}
 
 export const ZUpdateSettingsInput = z
   .object({

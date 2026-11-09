@@ -368,6 +368,7 @@ describe("sharedDevice off (U29a S7)", () => {
 
   it("Rok (STAFF) naming Recepcija → Rok", async () => {
     const recepcija = await prismock.flowkoBusinessMember.findFirst({ where: { displayName: "Recepcija" } });
+    expect(recepcija?.id).toBeDefined();
     await noShow(f.users.rok, f.ana, true, STARTED, recepcija?.id);
     expect((await noShowActions(f.ana))[0]).toMatchObject({
       actorMemberId: f.members.rok,

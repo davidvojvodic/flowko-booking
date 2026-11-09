@@ -10,9 +10,9 @@ import prismock from "@calcom/testing/lib/__mocks__/prisma";
 // The prismock factory runs when @calcom/prisma is first imported; services.ts takes `db` and never imports it.
 import "@calcom/prisma";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
-import type { Prisma } from "@calcom/prisma/client";
+import { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
@@ -150,6 +150,17 @@ let f: Fixture;
 beforeEach(async () => {
   f = await setUp();
 });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+/** What Prisma throws when another device removed the row between the transaction's read and its write. */
+const recordGone = () =>
+  new Prisma.PrismaClientKnownRequestError("Record to update not found.", {
+    code: "P2025",
+    clientVersion: "test",
+  });
 
 const barvanje = (over: Partial<SaveServiceInput> = {}): SaveServiceInput => ({
   id: f.services.Barvanje,
@@ -473,6 +484,11 @@ describe("saveService (S8, S9, S13 position)", () => {
     expect((await serviceRow(f.bServices.Barvanje))?.name).toBe("Barvanje");
   });
 
+  it("an edit of a service another device removed after the read (P2025) → forbidden, not a 500", async () => {
+    vi.spyOn(prismock.flowkoService, "update").mockRejectedValueOnce(recordGone());
+    expect(await outcome(saveService(db, f.users.olga, barvanje({ name: "Barvanje 2" })))).toBe("forbidden");
+  });
+
   it("who does it: STAFF, another business's member, a LOCKED or an unknown member → bad_member", async () => {
     for (const memberId of [f.members.rok, f.members.bea, f.members.dan, 999_999, 2_147_483_648]) {
       expect(
@@ -561,12 +577,20 @@ describe("reorderServices (S13)", () => {
     expect(view.services.map((s) => s.name)).toEqual(TEMPLATE_NAMES);
   });
 
-  it("only the owner", async () => {
-    for (const userId of [f.users.ana, f.users.rok, f.users.zala]) {
-      expect(await outcome(reorderServices(db, userId, Object.values(f.services)))).toBe(
+  it("only the owner: a worker, staff, a locked member and a stranger are forbidden; B's owner bad_service", async () => {
+    const reversed = Array.from(Object.values(f.services)).reverse();
+    for (const userId of [f.users.ana, f.users.rok, f.users.dan, await makeUser("Tujec"), f.users.zala]) {
+      expect(await outcome(reorderServices(db, userId, reversed)), String(userId)).toBe(
         userId === f.users.zala ? "bad_service" : "forbidden"
       );
     }
+    const view = await listServicesForOwner(db, f.users.olga, NOW);
+    expect(view.services.map((s) => s.name)).toEqual(TEMPLATE_NAMES);
+  });
+
+  it("a service removed by another device during the reorder (P2025) → bad_service", async () => {
+    vi.spyOn(prismock.flowkoService, "update").mockRejectedValueOnce(recordGone());
+    expect(await outcome(reorderServices(db, f.users.olga, Object.values(f.services)))).toBe("bad_service");
   });
 });
 
@@ -580,7 +604,7 @@ describe("removeService (S12)", () => {
   });
 
   it("only the owner; another business's or an unknown service is forbidden", async () => {
-    for (const userId of [f.users.ana, f.users.rok, f.users.dan]) {
+    for (const userId of [f.users.ana, f.users.rok, f.users.dan, await makeUser("Tujec")]) {
       expect(await outcome(removeService(db, userId, f.services.Barvanje))).toBe("forbidden");
     }
     for (const serviceId of [f.bServices.Barvanje, 999_999, 2_147_483_648, 0, 1.5]) {
@@ -588,5 +612,19 @@ describe("removeService (S12)", () => {
     }
     expect(await serviceRow(f.bServices.Barvanje)).not.toBeNull();
     expect(await serviceRow(f.services.Barvanje)).not.toBeNull();
+  });
+
+  it("a service another device removed after the read (P2025) → forbidden, not a 500", async () => {
+    vi.spyOn(prismock.flowkoService, "delete").mockRejectedValueOnce(recordGone());
+    expect(await outcome(removeService(db, f.users.olga, f.services.Barvanje))).toBe("forbidden");
+  });
+
+  it("any other Prisma error is not mapped", async () => {
+    const other = new Prisma.PrismaClientKnownRequestError("Foreign key constraint failed.", {
+      code: "P2003",
+      clientVersion: "test",
+    });
+    vi.spyOn(prismock.flowkoService, "delete").mockRejectedValueOnce(other);
+    await expect(removeService(db, f.users.olga, f.services.Barvanje)).rejects.toBe(other);
   });
 });

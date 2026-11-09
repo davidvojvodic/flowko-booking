@@ -1,7 +1,8 @@
 // Flowko U29a: requireBusinessOwnerPage and the three /settings/podjetje pages (S15). Business A: Olga (OWNER), Ana
 // (WORKER), Rok (STAFF), Dan (locked WORKER); a stranger in no business. Real helper on prismock through the global
-// client; redirect is mocked. The pages are pinned by source assertions (as deskRoute.test.ts pins /koledar): each
-// reads the session, sends a missing one to the login, then calls the guard once, outside any try block.
+// client; redirect is mocked. The section layout and the pages are pinned by source assertions (as deskRoute.test.ts
+// pins /koledar): each reads the session, sends a missing one to the login, then calls the guard once, outside any
+// try block.
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
 import "@calcom/prisma";
 import { readFileSync } from "node:fs";
@@ -109,9 +110,11 @@ const ROOT = resolve(__dirname, "../../../..");
 const DIR = "apps/web/app/(use-page-wrapper)/settings/(settings-layout)/podjetje";
 const read = (file: string): string => readFileSync(resolve(ROOT, file), "utf8");
 const PAGES = [`${DIR}/page.tsx`, `${DIR}/profil/page.tsx`, `${DIR}/storitve/page.tsx`];
+// Flowko U29a: the section layout guards too (above the loading boundaries); the pages keep their guards.
+const GUARDED = [`${DIR}/layout.tsx`, ...PAGES];
 
-describe("the /settings/podjetje pages call the guard after their session read", () => {
-  it.each(PAGES)("%s", (file) => {
+describe("the /settings/podjetje layout and pages call the guard after their session read", () => {
+  it.each(GUARDED)("%s", (file) => {
     const source = read(file);
     expect(source.trimStart().startsWith("// Flowko U29a:")).toBe(true);
     expect(source).toContain('import { requireBusinessOwnerPage } from "@lib/flowko/settingsPage";');
@@ -124,6 +127,12 @@ describe("the /settings/podjetje pages call the guard after their session read",
     // exactly one call, and no try block anywhere in the page (Next's redirect throws)
     expect(source.match(/requireBusinessOwnerPage\(/g)).toHaveLength(1);
     expect(source).not.toMatch(/\btry\s*\{/);
+  });
+
+  it("the layout renders its children only after the guard", () => {
+    const source = read(`${DIR}/layout.tsx`);
+    const guard = source.indexOf("await requireBusinessOwnerPage(session.user.id);");
+    expect(source.indexOf("<>{children}</>")).toBeGreaterThan(guard);
   });
 
   it("/settings/podjetje sends the owner on to the profile, after the guard", () => {

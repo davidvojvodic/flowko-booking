@@ -167,6 +167,7 @@ export function openingIntervalsFor(hours: OpeningHours, date: LocalDate, timeZo
 // the submitted values; callers map any failure to bad_profile (settings) or bad_service (services).
 
 /** Control characters; refused in names and addresses (they reach the From name, titles, subjects and the ICS). */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
 const CONTROL_CHARACTER_RE = /[\x00-\x1f\x7f]/;
 
 function hasNoControlCharacter(value: string): boolean {
@@ -188,7 +189,8 @@ export type ReminderChoiceId = (typeof REMINDER_CHOICES)[number]["id"];
 /** Today's behaviour and the column default: one reminder 24 hours before. */
 export const DEFAULT_REMINDER_OFFSETS: readonly number[] = [1440];
 
-function isReminderChoice(offsets: number[]): boolean {
+/** Flowko U29a: true when the offsets are exactly one of REMINDER_CHOICES (the API edge and the service share it). */
+export function isReminderChoice(offsets: readonly number[]): boolean {
   return REMINDER_CHOICES.some(
     (choice) =>
       choice.offsets.length === offsets.length &&

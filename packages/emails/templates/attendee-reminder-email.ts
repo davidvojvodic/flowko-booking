@@ -6,7 +6,8 @@ import { attendeeFromName, flowkoReplyToHeader } from "../lib/flowkoSender";
 
 /**
  * Flowko U22: the reminder before an accepted booking, to the booker only. No .ics: the confirmation's is
- * METHOD:REQUEST and would read as an updated invitation. Replies go to the organiser, never to the guests.
+ * METHOD:REQUEST and would read as an updated invitation. Replies go to the organiser, never to the guests;
+ * Flowko U29a: for a business booking they go to the business e-mail when one is set (S6).
  */
 export default class AttendeeReminderEmail extends AttendeeScheduledEmail {
   name = "SEND_ATTENDEE_REMINDER";

@@ -7,8 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTabs } from "./SettingsLayoutAppDirClient";
 
 const mockBusinessMe = vi.fn();
+const session = vi.hoisted(() => ({ role: "USER" as "USER" | "ADMIN" }));
 vi.mock("next-auth/react", () => ({
-  useSession: () => ({ data: { user: { id: 2, role: "USER" } } }),
+  useSession: () => ({ data: { user: { id: 2, role: session.role } } }),
 }));
 vi.mock("@calcom/trpc/react", () => ({
   trpc: {
@@ -45,7 +46,10 @@ const myAccountChildren = (tabs: Tab[]): string[] =>
 const BEFORE = ["Olga", "security", "developer"];
 
 describe("settings tabs (U29a)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    session.role = "USER";
+  });
 
   it("the owner gets „Podjetje“ first, with the profile and the services", () => {
     mockBusinessMe.mockReturnValue(me("OWNER"));
@@ -79,5 +83,19 @@ describe("settings tabs (U29a)", () => {
     expect(names(tabs)).toEqual(BEFORE);
     expect(tabs.some((tab) => tab.href.startsWith("/settings/podjetje"))).toBe(false);
     expect(myAccountChildren(tabs)).not.toContain("out_of_office");
+  });
+
+  // Flowko U29a: the owner check runs before the isAdmin shortcut; an instance admin who does not own the business
+  // gets the admin menu without „Podjetje“ (the server guard redirects either way).
+  it.each([
+    ["in no business", { data: null, error: null }],
+    ["who is a WORKER", me("WORKER")],
+  ])("an instance ADMIN %s has no „Podjetje“", (_name, answer) => {
+    session.role = "ADMIN";
+    mockBusinessMe.mockReturnValue(answer);
+    const tabs = render();
+    expect(names(tabs)).toContain("admin");
+    expect(names(tabs)).not.toContain("flowko_settings_section");
+    expect(tabs.some((tab) => tab.href.startsWith("/settings/podjetje"))).toBe(false);
   });
 });
