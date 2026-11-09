@@ -7,8 +7,8 @@ import { default as cloneDeep } from "lodash/cloneDeep";
 import generateIcsFile, { GenerateIcsRole } from "../lib/generateIcsFile";
 import renderEmail from "../src/renderEmail";
 import BaseEmail from "./_base-email";
-// Flowko U27: the sender name of attendee mails
-import { attendeeFromName } from "../lib/flowkoSender";
+// Flowko U27: the sender name of attendee mails; Flowko U29a: + the business Reply-To (S6)
+import { attendeeFromName, flowkoReplyToHeader } from "../lib/flowkoSender";
 
 export default class AttendeeScheduledEmail extends BaseEmail {
   calEvent: CalendarEvent;
@@ -58,6 +58,8 @@ export default class AttendeeScheduledEmail extends BaseEmail {
         this.calEvent,
         this.calEvent.attendees.filter(({ email }) => email !== this.attendee.email).map(({ email }) => email)
       ),
+      // Flowko U29a: a business booking's customer mail answers to the business e-mail when set (S6)
+      ...flowkoReplyToHeader(this.calEvent),
       subject: `${this.calEvent.title}`,
       html: await this.getHtml(clonedCalEvent, this.attendee),
       text: this.getTextBody(),

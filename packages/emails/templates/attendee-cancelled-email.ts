@@ -4,8 +4,8 @@ import type { CalendarEvent, Person } from "@calcom/types/Calendar";
 import generateIcsFile, { GenerateIcsRole } from "../lib/generateIcsFile";
 import renderEmail from "../src/renderEmail";
 import AttendeeScheduledEmail from "./attendee-scheduled-email";
-// Flowko U27: the sender name of attendee mails
-import { attendeeFromName } from "../lib/flowkoSender";
+// Flowko U27: the sender name of attendee mails; Flowko U29a: + the business Reply-To (S6)
+import { attendeeFromName, flowkoReplyToHeader } from "../lib/flowkoSender";
 
 export default class AttendeeCancelledEmail extends AttendeeScheduledEmail {
   // Flowko U27: the booking no longer stands (E2)
@@ -23,6 +23,8 @@ export default class AttendeeCancelledEmail extends AttendeeScheduledEmail {
       // Flowko U27: a business booking's mail comes from the business (E1)
       from: `${attendeeFromName(this.calEvent)} <${this.getMailerOptions().from}>`,
       ...getReplyToHeader(this.calEvent),
+      // Flowko U29a: a business booking's customer mail answers to the business e-mail when set (S6)
+      ...flowkoReplyToHeader(this.calEvent),
       subject: `${this.t("event_cancelled_subject", {
         title: this.calEvent.title,
         date: this.getFormattedDate(),

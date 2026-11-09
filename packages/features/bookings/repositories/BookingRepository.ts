@@ -251,7 +251,8 @@ const selectStatementToGetBookingForCalEventBuilder = {
       metadata: true,
       eventName: true,
       // Flowko U27: a business booking's business, through the mirror event type (M6, E1)
-      flowkoWorkerMirror: { select: { business: { select: { name: true, phone: true } } } },
+      // Flowko U29a: + email, the Reply-To of the customer's mails (S6)
+      flowkoWorkerMirror: { select: { business: { select: { name: true, phone: true, email: true } } } },
       team: {
         select: {
           id: true,

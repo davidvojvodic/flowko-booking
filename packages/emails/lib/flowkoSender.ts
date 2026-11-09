@@ -11,3 +11,12 @@ export function attendeeFromName(calEvent: Pick<CalendarEvent, "organizer" | "fl
   if (!businessName) return calEvent.organizer.name;
   return NEEDS_QUOTING.test(businessName) ? `"${businessName.replace(/(["\\])/g, "\\$1")}"` : businessName;
 }
+
+/**
+ * Flowko U29a: the Reply-To of a business booking's customer mails (S6): the business e-mail when set, else none.
+ * Spread after getReplyToHeader(...) in the four customer templates only; the worker's mails never use it.
+ */
+export function flowkoReplyToHeader(calEvent: Pick<CalendarEvent, "flowkoBusiness">): { replyTo?: string } {
+  const email = calEvent.flowkoBusiness?.email;
+  return email ? { replyTo: email } : {};
+}
