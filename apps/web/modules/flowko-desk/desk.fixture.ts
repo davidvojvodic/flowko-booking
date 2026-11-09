@@ -173,6 +173,11 @@ export const members: DeskMember[] = [
   { memberId: 5, displayName: "Rok", role: "STAFF", hasColumn: false, deskOnly: false },
 ];
 
+/** Flowko U29a (S7): a `useFlowkoBusiness()` answer for a member of business 9; `sharedDevice` = the owner's switch. */
+export function businessMe(memberId: number, role: DeskMember["role"], sharedDevice: boolean) {
+  return { status: "member" as const, me: { businessId: 9, memberId, role, sharedDevice } };
+}
+
 /** Barvanje (Ana, Olga), Moško striženje (Olga, Ana, Bor), Fen (Ana, Bor). */
 export const services: DeskService[] = [
   {

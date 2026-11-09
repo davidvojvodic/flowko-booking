@@ -4,6 +4,8 @@
 // the booking sheet (empty spot) or the details sheet (a booking); in move mode (R12) a tap moves the booking
 // instead, and the mode survives a date change because its state lives here. From md up the week view (D2,
 // ?view=week&worker=) shows one worker x seven days; a phone always gets the day view.
+// Flowko U29a (S7): the chip only when the owner's „shared device“ switch is on (business.me.sharedDevice); off, the
+// signed-in member acts and no role sees a chip. Rights (canBook) stay with the role.
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -72,7 +74,10 @@ export default function DeskView() {
 
   const me = business.status === "member" ? business.me : null;
   const session = useMemo(
-    () => (me ? { businessId: me.businessId, memberId: me.memberId, role: me.role } : null),
+    () =>
+      me
+        ? { businessId: me.businessId, memberId: me.memberId, role: me.role, sharedDevice: me.sharedDevice }
+        : null,
     [me]
   );
   const actor = useDeskActor(session, members.data);
@@ -160,7 +165,7 @@ export default function DeskView() {
               params.setView(next);
             }}
           />
-          <ActorChip actor={actor} />
+          {me?.sharedDevice === true && <ActorChip actor={actor} />}
         </div>
         {weekMode && workers.length > 0 && (
           <WorkerPicker workers={workers} value={weekWorker} onChange={params.setWorker} />

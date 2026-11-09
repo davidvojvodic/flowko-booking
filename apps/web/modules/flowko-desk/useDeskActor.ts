@@ -6,12 +6,21 @@
 // Flowko U28b (B1): the choice is optional. With no valid stored choice the actor is the signed-in member; no
 // picker ever opens by itself (only the chip opens it). Choosing the signed-in member forgets the stored choice,
 // and a `forbidden` answer calls `clear()` (the chosen member may have been locked meanwhile): back to herself.
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+// Flowko U29a (S7): all of the above only when the owner's „shared device“ switch is on (`sharedDevice`). Off: the
+// actor is always the signed-in member, the picker never opens, and a stored choice is ignored and removed in an
+// effect (never during render). `fixed` (WORKER) is unchanged, so the desk's canBook is unchanged.
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import type { DeskMember } from "@calcom/features/flowkoBusiness/desk";
 import { localStorage } from "@calcom/lib/webstorage";
 
-export type DeskSessionMember = { businessId: number; memberId: number; role: DeskMember["role"] };
+// Flowko U29a (S7): + sharedDevice (business.me).
+export type DeskSessionMember = {
+  businessId: number;
+  memberId: number;
+  role: DeskMember["role"];
+  sharedDevice: boolean;
+};
 export type DeskActor = { memberId: number; displayName: string };
 export type DeskActorState = {
   /** Who acts at this device now: the stored choice, else the signed-in member; null while the member list loads. */
@@ -55,26 +64,37 @@ export function useDeskActor(
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const fixed = me?.role === "WORKER";
+  // Flowko U29a (S7): a choice of another person exists only on a shared device.
+  const shared = me?.sharedDevice === true;
+
+  // Flowko U29a (S7): switch off → forget this business's stored choice (an effect, not during render).
+  useEffect(() => {
+    if (!key || shared || stored === null) return;
+    localStorage.removeItem(key);
+    notify();
+  }, [key, shared, stored]);
 
   const actor = useMemo<DeskActor | null>(() => {
     if (!me || !members) return null;
     // Flowko U28b (B1): a stored choice only on a shared device and only while that member is ACTIVE, else herself.
-    const chosen = fixed || stored === null ? undefined : members.find((m) => m.memberId === Number(stored));
+    // Flowko U29a (S7): and only while the shared device switch is on.
+    const chosen =
+      fixed || !shared || stored === null ? undefined : members.find((m) => m.memberId === Number(stored));
     const member = chosen ?? members.find((m) => m.memberId === me.memberId);
     if (member) return { memberId: member.memberId, displayName: member.displayName };
     return { memberId: me.memberId, displayName: "" };
-  }, [me, members, fixed, stored]);
+  }, [me, members, fixed, shared, stored]);
 
   const choose = useCallback(
     (memberId: number) => {
-      if (!key || !me || fixed) return;
+      if (!key || !me || fixed || !shared) return; // Flowko U29a (S7): + !shared
       // Flowko U28b (B1): the signed-in member is the default, so choosing her forgets the stored choice.
       if (memberId === me.memberId) localStorage.removeItem(key);
       else localStorage.setItem(key, String(memberId));
       notify();
       setPickerOpen(false);
     },
-    [key, me, fixed]
+    [key, me, fixed, shared]
   );
   const clear = useCallback(() => {
     if (!key || fixed) return;
@@ -82,8 +102,8 @@ export function useDeskActor(
     notify();
   }, [key, fixed]);
   const openPicker = useCallback(() => {
-    if (!fixed) setPickerOpen(true);
-  }, [fixed]);
+    if (!fixed && shared) setPickerOpen(true); // Flowko U29a (S7): + shared
+  }, [fixed, shared]);
   const closePicker = useCallback(() => setPickerOpen(false), []);
 
   return {
