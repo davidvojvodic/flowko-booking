@@ -72,13 +72,13 @@ describe("DayRangesEditor (U29a S16)", () => {
     expect(onChange).toHaveBeenCalledWith({ ...OPENING, sat: [] });
   });
 
-  it("„Kopiraj na vse dni“ copies Monday to every other day", () => {
+  it("„Kopiraj v vse dni“ copies Monday to every other day", () => {
     const monday = [
       { from: "07:00", to: "12:00" },
       { from: "13:00", to: "19:00" },
     ];
     const onChange = setup({ ...OPENING, mon: monday });
-    fireEvent.click(screen.getByText("Kopiraj na vse dni"));
+    fireEvent.click(screen.getByText("Kopiraj v vse dni"));
     expect(onChange).toHaveBeenCalledWith({
       mon: monday,
       tue: monday,
@@ -101,9 +101,9 @@ describe("DayRangesEditor (U29a S16)", () => {
   });
 
   it("shows a day's error under its row", () => {
-    setup(OPENING, { tue: "Konec mora biti za začetkom." });
+    setup(OPENING, { tue: "Konec mora biti pozneje kot začetek." });
     expect(screen.getByTestId("flowko-day-ranges-tue-error")).toHaveTextContent(
-      "Konec mora biti za začetkom."
+      "Konec mora biti pozneje kot začetek."
     );
     expect(screen.queryByTestId("flowko-day-ranges-mon-error")).toBeNull();
   });

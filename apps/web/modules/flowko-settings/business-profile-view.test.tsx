@@ -140,12 +140,12 @@ describe("BusinessProfileView: the form shows business.settings", () => {
     expect(input("Telefon").value).toBe("+386 40 123 456");
     expect(input("Naslov").value).toBe("Slovenska cesta 1, Ljubljana");
     expect(input("E-pošta podjetja").value).toBe("salon@example.si");
-    expect(screen.getByText(/Ko stranka odgovori na e-pošto o svojem terminu/)).toBeInTheDocument();
+    expect(screen.getByText(/Ko stranka odgovori na e-poštno sporočilo o svojem terminu/)).toBeInTheDocument();
     expect((screen.getByTestId("flowko-day-ranges-mon-0-from") as HTMLSelectElement).value).toBe("08:00");
     expect((screen.getByTestId("flowko-day-ranges-sat-0-to") as HTMLSelectElement).value).toBe("13:00");
     expect(screen.getByTestId("flowko-day-ranges-sun-closed")).toBeInTheDocument();
     expect((screen.getByLabelText("Razmik med termini") as HTMLSelectElement).value).toBe("15");
-    expect(screen.getByRole("radio", { name: "24 ur prej" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "24 ur pred terminom" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("flowko-settings-holidays-closed")).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("flowko-settings-shared-device")).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText("Več oseb uporablja isto napravo")).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe("BusinessProfileView: saving", () => {
   it("the reminder choice and the holiday switch are saved", async () => {
     mocks.update.mockResolvedValue({ status: "saved" });
     render(<BusinessProfileView />);
-    fireEvent.click(screen.getByRole("radio", { name: "2 uri prej" }));
+    fireEvent.click(screen.getByRole("radio", { name: "2 uri pred terminom" }));
     fireEvent.click(screen.getByTestId("flowko-settings-holidays-closed"));
     await save();
     await waitFor(() =>
@@ -358,7 +358,7 @@ describe("BusinessProfileView: field rules (businessSettingsSchema)", () => {
   it.each([
     ["Ime podjetja", "", "Vnesite ime podjetja (največ 80 znakov)."],
     ["Ime podjetja", "Salon\tAna", "Odstranite prelome vrstic, tabulatorje in druge nevidne znake."],
-    ["Telefon", "  ", "Vnesite telefonsko številko. Stranke vas pokličejo, ko želijo termin prestaviti."],
+    ["Telefon", "  ", "Vnesite telefonsko številko. Na to številko vas stranke pokličejo, ko želijo termin prestaviti."],
     [
       "Telefon",
       "nič",
@@ -367,8 +367,8 @@ describe("BusinessProfileView: field rules (businessSettingsSchema)", () => {
     ["Naslov", "x".repeat(201), "Naslov je predolg (največ 200 znakov)."],
     ["E-pošta podjetja", "salon", "Vnesite veljaven e-poštni naslov."],
     ["E-pošta podjetja", `${"a".repeat(250)}@x.si`, "E-poštni naslov je predolg (največ 254 znakov)."],
-    ["E-pošta podjetja", "x@flowko.invalid", "To ni pravi e-poštni naslov. Vnesite naslov, ki ga berete."],
-    ["E-pošta podjetja", "0401234@sms.cal.com", "To ni pravi e-poštni naslov. Vnesite naslov, ki ga berete."],
+    ["E-pošta podjetja", "x@flowko.invalid", "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete."],
+    ["E-pošta podjetja", "0401234@sms.cal.com", "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete."],
   ])("%s = %j → its text, nothing sent", async (label, value, text) => {
     render(<BusinessProfileView />);
     type(label, value);
@@ -383,7 +383,7 @@ describe("BusinessProfileView: field rules (businessSettingsSchema)", () => {
     await save();
     await waitFor(() =>
       expect(screen.getByTestId("flowko-day-ranges-tue-error")).toHaveTextContent(
-        "Konec mora biti za začetkom."
+        "Konec mora biti pozneje kot začetek."
       )
     );
     expect(mocks.update).not.toHaveBeenCalled();

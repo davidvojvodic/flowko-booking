@@ -44,7 +44,7 @@ describe("StepsBar (U29a S9)", () => {
     expect(segments.map((s) => s.dataset.pattern)).toEqual([undefined, "hatched", undefined]);
     expect(segments.map((s) => s.style.flexGrow)).toEqual(["30", "30", "15"]);
     expect(segments[1]).toHaveClass("border-dashed");
-    expect(bar).toHaveAttribute("aria-label", "Z delom 30 min, Učinkovanje 30 min, Z delom 15 min");
+    expect(bar).toHaveAttribute("aria-label", "Delo 30 min, Učinkovanje 30 min, Delo 15 min");
   });
 });
 
@@ -55,11 +55,11 @@ describe("StepsEditor (U29a S9)", () => {
     expect((screen.getByLabelText("2. korak: vrsta") as HTMLSelectElement).value).toBe("processing");
     expect((screen.getByLabelText("3. korak: minute") as HTMLInputElement).value).toBe("15");
     const kindOptions = within(screen.getByLabelText("2. korak: vrsta")).getAllByRole("option");
-    expect(kindOptions.map((o) => o.textContent)).toEqual(["Z delom", "Učinkovanje"]);
+    expect(kindOptions.map((o) => o.textContent)).toEqual(["Delo", "Učinkovanje"]);
     expect(screen.getByTestId("flowko-service-total")).toHaveTextContent("Skupaj: 75 min");
     expect(screen.getByTestId("flowko-steps-bar").children).toHaveLength(3);
     expect(
-      screen.getByText("Največ 8 korakov, vsak od 5 do 480 minut (po 5 minut), skupaj največ 12 ur.")
+      screen.getByText("Največ 8 korakov, vsak od 5 do 480 minut (5, 10, 15 … minut), skupaj največ 12 ur.")
     ).toBeInTheDocument();
     expect(screen.getByText(/Učinkovanje: stranka čaka, delavec je medtem prost/)).toBeInTheDocument();
   });
@@ -121,15 +121,15 @@ describe("StepsEditor (U29a S9)", () => {
 
   it("shows a step's error under its row and the list's error under the steps", () => {
     setup(COLOURING, {
-      step: { 1: "Vnesite najmanj 5 minut, v korakih po 5." },
-      list: "Zadnji korak mora biti z delom.",
+      step: { 1: "Vnesite število minut, deljivo s 5 (najmanj 5)." },
+      list: "Zadnji korak mora biti delo s stranko.",
     });
     expect(screen.getByTestId("flowko-service-step-1-error")).toHaveTextContent(
-      "Vnesite najmanj 5 minut, v korakih po 5."
+      "Vnesite število minut, deljivo s 5 (najmanj 5)."
     );
     expect(screen.queryByTestId("flowko-service-step-0-error")).toBeNull();
     expect(screen.getByTestId("flowko-service-steps-error")).toHaveTextContent(
-      "Zadnji korak mora biti z delom."
+      "Zadnji korak mora biti delo s stranko."
     );
   });
 

@@ -164,10 +164,10 @@ describe("ServiceSheet: editing a service", () => {
   });
 
   it.each([
-    [1, "To storitev ima 1 prihodnji termin. Spremembe ga ne spremenijo: obdrži svoje korake in čas."],
-    [2, "To storitev imata 2 prihodnja termina. Spremembe ju ne spremenijo: obdržita svoje korake in čas."],
-    [3, "To storitev imajo 3 prihodnji termini. Spremembe jih ne spremenijo: obdržijo svoje korake in čas."],
-    [5, "To storitev ima 5 prihodnjih terminov. Spremembe jih ne spremenijo: obdržijo svoje korake in čas."],
+    [1, "To storitev ima 1 prihodnji termin. Spremembe nanj ne vplivajo: ohrani svoje korake in čas."],
+    [2, "To storitev imata 2 prihodnja termina. Spremembe nanju ne vplivajo: ohranita svoje korake in čas."],
+    [3, "To storitev imajo 3 prihodnji termini. Spremembe nanje ne vplivajo: ohranijo svoje korake in čas."],
+    [5, "To storitev ima 5 prihodnjih terminov. Spremembe nanje ne vplivajo: ohranijo svoje korake in čas."],
   ])("S11: %i future bookings → the note says they keep their steps", (count, text) => {
     open(edit({ ...BARVANJE, futureBookings: count }));
     expect(screen.getByTestId("flowko-service-future-bookings")).toHaveTextContent(text);
@@ -215,8 +215,8 @@ describe("ServiceSheet: field rules (S8, S9)", () => {
   });
 
   it.each([
-    ["7 minutes", "2", "7", 1, "Vnesite najmanj 5 minut, v korakih po 5."],
-    ["a blank minutes field", "1", "", 0, "Vnesite najmanj 5 minut, v korakih po 5."],
+    ["7 minutes", "2", "7", 1, "Vnesite število minut, deljivo s 5 (najmanj 5)."],
+    ["a blank minutes field", "1", "", 0, "Vnesite število minut, deljivo s 5 (najmanj 5)."],
     ["485 minutes", "3", "485", 2, "Korak je lahko dolg največ 480 minut (8 ur)."],
   ])("a step of %s → the text under that step", async (_, step, minutes, index, text) => {
     open(edit());
@@ -227,8 +227,8 @@ describe("ServiceSheet: field rules (S8, S9)", () => {
   });
 
   it.each([
-    ["the last step processing", "3", "Zadnji korak mora biti z delom."],
-    ["the first step processing", "1", "Prvi korak mora biti z delom."],
+    ["the last step processing", "3", "Zadnji korak mora biti delo s stranko."],
+    ["the first step processing", "1", "Prvi korak mora biti delo s stranko."],
   ])("%s → the list's text, shown at once", (_, step, text) => {
     open(edit());
     fireEvent.change(screen.getByLabelText(`${step}. korak: vrsta`), { target: { value: "processing" } });
@@ -240,7 +240,7 @@ describe("ServiceSheet: field rules (S8, S9)", () => {
     fireEvent.change(screen.getByLabelText("1. korak: vrsta"), { target: { value: "processing" } });
     await save();
     expect(screen.getByTestId("flowko-service-steps-error")).toHaveTextContent(
-      "Vsaj en korak mora biti z delom."
+      "Vsaj en korak mora biti delo s stranko."
     );
     expect(mocks.save).not.toHaveBeenCalled();
   });

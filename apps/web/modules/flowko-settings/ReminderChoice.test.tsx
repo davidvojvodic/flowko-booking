@@ -22,9 +22,9 @@ describe("ReminderChoice (U29a S5)", () => {
   it("shows the four choices with the stored one checked, and the e-mail volume note", () => {
     render(<ReminderChoice value={[1440]} onChange={vi.fn()} />);
     expect(radio("Brez opomnika")).toHaveAttribute("aria-checked", "false");
-    expect(radio("24 ur prej")).toHaveAttribute("aria-checked", "true");
-    expect(radio("2 uri prej")).toHaveAttribute("aria-checked", "false");
-    expect(radio("24 ur in 2 uri prej")).toHaveAttribute("aria-checked", "false");
+    expect(radio("24 ur pred terminom")).toHaveAttribute("aria-checked", "true");
+    expect(radio("2 uri pred terminom")).toHaveAttribute("aria-checked", "false");
+    expect(radio("24 ur in 2 uri pred terminom")).toHaveAttribute("aria-checked", "false");
     expect(screen.getByTestId("flowko-settings-reminders-hint")).toHaveTextContent(
       "Vsak opomnik je eno e-poštno sporočilo na termin."
     );
@@ -32,8 +32,8 @@ describe("ReminderChoice (U29a S5)", () => {
 
   it.each([
     ["Brez opomnika", []],
-    ["2 uri prej", [120]],
-    ["24 ur in 2 uri prej", [1440, 120]],
+    ["2 uri pred terminom", [120]],
+    ["24 ur in 2 uri pred terminom", [1440, 120]],
   ])("picking „%s“ sends its offsets", (name, offsets) => {
     const onChange = vi.fn();
     render(<ReminderChoice value={[1440]} onChange={onChange} />);
