@@ -51,6 +51,18 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
     expect(label().textContent).toBe("Božič – odprto");
   });
 
+  it("never truncates the label: the state word stays in the DOM, the full text is the title", () => {
+    const { unmount } = renderMenu({ holiday: { name: "Dan reformacije in zelo dolgo ime", open: false } });
+    expect(label().className).not.toContain("truncate");
+    expect(label().className).toContain("break-words");
+    expect(label().textContent).toBe("Dan reformacije in zelo dolgo ime – zaprto");
+    expect(label().getAttribute("title")).toBe("Dan reformacije in zelo dolgo ime – zaprto");
+    unmount();
+    renderMenu({ canManage: false, holiday: { name: "Božič", open: true } });
+    expect(label().className).not.toContain("truncate");
+    expect(label().getAttribute("title")).toBe("Božič – odprto");
+  });
+
   it("is a plain label (no button, no menu) for someone who may not manage the business", () => {
     renderMenu({ canManage: false });
     expect(label().tagName).not.toBe("BUTTON");

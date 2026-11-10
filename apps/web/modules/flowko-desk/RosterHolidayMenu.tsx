@@ -14,7 +14,8 @@ import { showToast } from "@calcom/ui/components/toast";
 
 import { useInvalidateRoster } from "./useRosterData";
 
-const LABEL_CLASS = "text-attention max-w-full truncate text-xs font-normal";
+// The label wraps (never truncates): its last word („zaprto“ / „odprto“) is the only place that shows the state.
+const LABEL_CLASS = "text-attention max-w-full break-words text-xs font-normal";
 
 export function RosterHolidayMenu(props: {
   date: string;
@@ -37,7 +38,7 @@ export function RosterHolidayMenu(props: {
 
   if (!props.canManage) {
     return (
-      <span data-testid={`roster-holiday-${date}`} className={LABEL_CLASS}>
+      <span data-testid={`roster-holiday-${date}`} title={label} className={LABEL_CLASS}>
         {label}
       </span>
     );
@@ -64,6 +65,7 @@ export function RosterHolidayMenu(props: {
         <button
           type="button"
           data-testid={`roster-holiday-${date}`}
+          title={label}
           className={`${LABEL_CLASS} hover:bg-subtle rounded text-left underline decoration-dotted`}>
           {label}
         </button>

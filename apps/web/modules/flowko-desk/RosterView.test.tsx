@@ -336,6 +336,19 @@ describe("RosterView: „Običajni teden“ (S1, S11)", () => {
     expect(spies.onOpenDay).not.toHaveBeenCalled();
   });
 
+  it("phone: switching from „Ta teden“ starts at the weekday of the date, not a stale one", () => {
+    const view = rosterWeek();
+    const { rerender } = renderRoster({ isPhone: true, date: "2026-11-17", view });
+    rerender(<Harness isPhone date="2026-11-19" view={view} />);
+    rerender(<Harness isPhone date="2026-11-19" mode="usual" view={view} />);
+    expect(screen.getByTestId("roster-weekday-label").textContent).toBe("četrtek");
+    fireEvent.click(screen.getByRole("button", { name: "Prejšnji dan v tednu" }));
+    expect(screen.getByTestId("roster-weekday-label").textContent).toBe("sreda");
+    // inside the usual week the arrows own the index: a changed date does not move it
+    rerender(<Harness isPhone date="2026-11-21" mode="usual" view={view} />);
+    expect(screen.getByTestId("roster-weekday-label").textContent).toBe("sreda");
+  });
+
   it("phone: starts on the weekday of the date", () => {
     renderRoster({ mode: "usual", isPhone: true, date: "2026-11-19" });
     expect(screen.getByTestId("roster-weekday-label").textContent).toBe("četrtek");

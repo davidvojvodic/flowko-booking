@@ -24,7 +24,15 @@ export function RosterDayList(props: {
 }) {
   const { t } = useLocale();
   const { layout } = props;
-  const [weekdayIndex, setWeekdayIndex] = useState(() => WEEKDAYS.indexOf(weekdayOf(props.date)));
+  const dateIndex = WEEKDAYS.indexOf(weekdayOf(props.date));
+  const [weekdayIndex, setWeekdayIndex] = useState(dateIndex);
+  // S1: „Običajni teden“ starts at the weekday of `date`. Switching the mode, or moving the date while the week is
+  // shown, resets the index (state from props, set during render); in the usual week the arrows own it.
+  const [seen, setSeen] = useState({ mode: layout.mode, date: props.date });
+  if (seen.mode !== layout.mode || (layout.mode !== "usual" && seen.date !== props.date)) {
+    setSeen({ mode: layout.mode, date: props.date });
+    setWeekdayIndex(dateIndex);
+  }
   const usual = layout.mode === "usual";
   const key = usual ? WEEKDAYS[weekdayIndex] : (layout.keys.find((k) => k === props.date) ?? layout.keys[0]);
 
