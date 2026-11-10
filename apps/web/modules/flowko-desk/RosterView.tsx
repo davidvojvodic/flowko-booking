@@ -8,6 +8,13 @@
 // `onOpenDay` (a day header's date → Dan) and `onModeChange` already run through DeskView's guard; they are not
 // wrapped again here (a second guard would ask twice). A phone day arrow inside the week is DeskView's, unguarded.
 // Absences (Task 9, S7) are the cell sheet's `children`: AbsenceSection, saved at once, off while the draft is dirty.
+// Flowko U29c (P1, P8): every save (week/usual saved, absence add/remove, holiday open/close) shows „Shranjeno“; the
+// refresh after it is checked (useInvalidateRoster answers whether roster.week was read again). A failed one raises
+// the notice here („Poskusi znova“ runs the refresh again); „Shrani“ waits while it is up (the versions are stale).
+// Flowko U29c (Ruling R8): while the notice is up no new edit starts either (cell taps, so also absences, and
+// „Kopiraj prejšnji teden“ are off): an edit would start from the stale answer. Flowko U29c (Ruling R11): the notice
+// also goes on any later successful read of roster.week (a later save's probe, the 30 s poll or a refetch:
+// `receivedAt` advanced) and on another week or mode.
 import { useRef, useState } from "react";
 
 import type { RosterWeekView } from "@calcom/features/flowkoBusiness/roster";
@@ -28,6 +35,8 @@ import { RosterDayList } from "./RosterDayList";
 import { RosterGrid } from "./RosterGrid";
 import { RosterSaveBar } from "./RosterSaveBar";
 import { RosterWarningsDialog } from "./RosterWarningsDialog";
+// Flowko U29c (R11): the week the refresh-failed notice belongs to.
+import { mondayOf } from "./WeekGrid";
 import { buildRosterLayout, cellDayText } from "./rosterModel";
 import { rosterErrorCode, rosterErrorKey } from "./rosterErrors";
 import { storedCell, type useRosterDraft } from "./useRosterDraft";
@@ -38,6 +47,8 @@ export type { RosterCellModel } from "./RosterCell";
 export function RosterView(props: {
   view: RosterWeekView | undefined;
   isPending: boolean;
+  /** Flowko U29c (R11): when the shown roster.week answer arrived (the query's dataUpdatedAt; 0 = none yet). */
+  receivedAt: number;
   mode: "week" | "usual";
   date: string;
   today: string;
@@ -66,6 +77,28 @@ export function RosterView(props: {
 
   // Flowko U29b (Task 8 fix 1, D7): the week + mode shown now, for a save or copy that finishes after the user moved on.
   const scopeRef = useRef("");
+  // Flowko U29c (P1): a save stood but roster.week could not be read again; „Poskusi znova“ is running.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  // Flowko U29c (R11): every checked refresh reports its answer; a working one clears the notice again.
+  const onRefreshed = (ok: boolean) => setRefreshFailed(!ok);
+  // Flowko U29c (R11): a newer roster.week answer (poll, refetch, another save's refresh) or another week or mode
+  // clears the notice (React's „state from props“ pattern, as useRosterDraft). A failed refetch never moves
+  // dataUpdatedAt, so it never clears it.
+  const noticeKey = `${mondayOf(props.date)}|${props.mode}`;
+  const [seen, setSeen] = useState({ key: noticeKey, receivedAt: props.receivedAt });
+  if (seen.key !== noticeKey || seen.receivedAt !== props.receivedAt) {
+    if (seen.key !== noticeKey || props.receivedAt > seen.receivedAt) setRefreshFailed(false);
+    setSeen({ key: noticeKey, receivedAt: props.receivedAt });
+  }
+  async function retryRefresh() {
+    setRetrying(true);
+    try {
+      setRefreshFailed(!(await invalidate()));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   if (!view) {
     return (
@@ -81,6 +114,8 @@ export function RosterView(props: {
   scopeRef.current = scope;
   // A save or a copy is running: no new edit starts, and „Shrani“ waits (S14).
   const locked = saving || copying;
+  // Flowko U29c (R8): no new edit (cell tap, copy) while a save runs or the refresh-failed notice is up.
+  const editable = !locked && !refreshFailed;
   // S9: a WORKER's own row is pinned first; the owner's and STAFF's rows stay in position order.
   const me = business.status === "member" ? business.me : null;
   const layout = buildRosterLayout({
@@ -89,6 +124,8 @@ export function RosterView(props: {
     draft,
     today: props.today,
     ownId: me?.role === "WORKER" ? me.memberId : null,
+    // Flowko U29c (P1, R11): the holiday menu in the day headers reports its refresh answer here.
+    onRefreshed,
   });
 
   // S15: the rows „Kopiraj prejšnji teden“ fills: editable, visible; none on a read-only week or in the usual week.
@@ -139,8 +176,12 @@ export function RosterView(props: {
       }
       setWarnings(null);
       // S16: the edit stays on screen until the fresh answer is in; a failed refresh does not undo the save.
-      await invalidate().catch(() => undefined);
+      // Flowko U29c (P1, P8, R11): the refresh answers; the draft goes either way, „Shranjeno“, and the answer
+      // raises (failed) or clears (worked) the notice.
+      const refreshed = await invalidate();
       draft.discard();
+      showToast(t("saved"), "success");
+      setRefreshFailed(!refreshed);
     } catch (error) {
       setWarnings(null);
       const code = rosterErrorCode(error);
@@ -148,7 +189,8 @@ export function RosterView(props: {
         // D8: nothing was saved; the draft goes, the current roster is read again and the alert says why.
         draft.discard();
         setStaleScope(scope);
-        await invalidate().catch(() => undefined);
+        // Flowko U29c (P1): nothing was saved, so no notice; useInvalidateRoster never rejects.
+        await invalidate();
       } else {
         showToast(t(rosterErrorKey(code)), "error");
       }
@@ -191,11 +233,30 @@ export function RosterView(props: {
               StartIcon="copy"
               data-testid="roster-copy-previous"
               loading={copying}
-              disabled={copying || saving}
+              // Flowko U29c (R8): also off while the refresh-failed notice is up.
+              disabled={copying || saving || refreshFailed}
               onClick={() => void copyPrevious()}>
               {t("flowko_roster_copy_previous")}
             </Button>
           )}
+        </div>
+      )}
+      {refreshFailed && (
+        <div role="alert" data-testid="roster-refresh-failed">
+          <Alert
+            severity="warning"
+            title={t("flowko_roster_refresh_failed")}
+            actions={
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                loading={retrying}
+                onClick={() => void retryRefresh()}>
+                {t("try_again")}
+              </Button>
+            }
+          />
         </div>
       )}
       {staleScope === scope && !draft.dirty && (
@@ -210,19 +271,21 @@ export function RosterView(props: {
           layout={layout}
           date={props.date}
           onOpenDay={props.onOpenDay}
-          onSelect={locked ? undefined : (cell) => setSelected({ memberId: cell.memberId, key: cell.key })}
+          onSelect={editable ? (cell) => setSelected({ memberId: cell.memberId, key: cell.key }) : undefined}
         />
       ) : (
         <RosterGrid
           layout={layout}
           onOpenDay={props.onOpenDay}
-          onSelect={locked ? undefined : (cell) => setSelected({ memberId: cell.memberId, key: cell.key })}
+          onSelect={editable ? (cell) => setSelected({ memberId: cell.memberId, key: cell.key }) : undefined}
         />
       )}
       {draft.dirty && (
         <RosterSaveBar
           count={draft.changedCount}
           busy={locked}
+          // Flowko U29c (P1): the versions are stale until „Poskusi znova“ worked.
+          saveBlocked={refreshFailed}
           usualNote={mode === "usual"}
           onSave={() => void send(false)}
           onDiscard={draft.discard}
@@ -259,6 +322,7 @@ export function RosterView(props: {
             absences={sheetMember.absences}
             dirty={draft.dirty}
             onDone={() => setSelected(null)}
+            onRefreshed={onRefreshed}
           />
         </RosterCellSheet>
       )}

@@ -5,9 +5,13 @@
 // router. Modifier, middle-button, `target` (other than _self) and `download` clicks pass; other origins are left to
 // `beforeunload`. (3) `guard(action)`: in-page switches (week, view, mode) run at once when clean, else ask first.
 // Browser Back is not intercepted (nuqs `replace`; accepted in the plan, S13). Clean: no listener at all.
+// Flowko U29c (P5): while dirty, `guard` is also the app's registered leave guard (`lib/flowko/leaveGuard`), so the
+// Cmd+K palette's navigations ask through the same dialog.
 import { useRouter } from "next/navigation";
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+
+import { registerLeaveGuard } from "@calcom/web/lib/flowko/leaveGuard"; // Flowko U29c
 
 import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
@@ -67,6 +71,12 @@ export function useUnsavedGuard(
     },
     [dirty]
   );
+
+  // Flowko U29c (P5): registered while dirty only; unregistered on clean and on unmount
+  useEffect(() => {
+    if (!dirty) return;
+    return registerLeaveGuard(guard);
+  }, [dirty, guard]);
 
   const dialog = createElement(UnsavedChangesDialog, {
     open: pending !== null,

@@ -109,14 +109,21 @@ describe("requireBusinessOwnerPage", () => {
 const ROOT = resolve(__dirname, "../../../..");
 const DIR = "apps/web/app/(use-page-wrapper)/settings/(settings-layout)/podjetje";
 const read = (file: string): string => readFileSync(resolve(ROOT, file), "utf8");
-const PAGES = [`${DIR}/page.tsx`, `${DIR}/profil/page.tsx`, `${DIR}/storitve/page.tsx`];
+// Flowko U29c: the Delavci page joins the list.
+const PAGES = [
+  `${DIR}/page.tsx`,
+  `${DIR}/profil/page.tsx`,
+  `${DIR}/storitve/page.tsx`,
+  `${DIR}/delavci/page.tsx`,
+];
 // Flowko U29a: the section layout guards too (above the loading boundaries); the pages keep their guards.
 const GUARDED = [`${DIR}/layout.tsx`, ...PAGES];
 
 describe("the /settings/podjetje layout and pages call the guard after their session read", () => {
   it.each(GUARDED)("%s", (file) => {
     const source = read(file);
-    expect(source.trimStart().startsWith("// Flowko U29a:")).toBe(true);
+    // Flowko U29c: the first-line rule is the prefix "// Flowko U29" (U29a pages, U29c Delavci)
+    expect(source.trimStart().startsWith("// Flowko U29")).toBe(true);
     expect(source).toContain('import { requireBusinessOwnerPage } from "@lib/flowko/settingsPage";');
     const sessionRead = source.indexOf("await getServerSession(");
     const loginRedirect = source.indexOf('redirect("/auth/login")');
@@ -145,6 +152,7 @@ describe("the /settings/podjetje layout and pages call the guard after their ses
   it.each([
     [`${DIR}/profil/page.tsx`, "flowko_settings_profile", "/settings/podjetje/profil"],
     [`${DIR}/storitve/page.tsx`, "flowko_settings_services", "/settings/podjetje/storitve"],
+    [`${DIR}/delavci/page.tsx`, "flowko_workers_title", "/settings/podjetje/delavci"],
   ])("%s has its title, description and path", (file, key, path) => {
     const source = read(file);
     expect(source).toContain(`t("${key}")`);
@@ -152,7 +160,15 @@ describe("the /settings/podjetje layout and pages call the guard after their ses
     expect(source).toContain(`"${path}"`);
   });
 
-  it.each([`${DIR}/profil/loading.tsx`, `${DIR}/storitve/loading.tsx`])("%s is a Flowko file", (file) => {
-    expect(read(file).trimStart().startsWith("// Flowko U29a:")).toBe(true);
+  it.each([`${DIR}/profil/loading.tsx`, `${DIR}/storitve/loading.tsx`, `${DIR}/delavci/loading.tsx`])(
+    "%s is a Flowko file",
+    (file) => {
+      expect(read(file).trimStart().startsWith("// Flowko U29")).toBe(true);
+    }
+  );
+
+  it("the Delavci page and its loading file are U29c files", () => {
+    expect(read(`${DIR}/delavci/page.tsx`).trimStart().startsWith("// Flowko U29c:")).toBe(true);
+    expect(read(`${DIR}/delavci/loading.tsx`).trimStart().startsWith("// Flowko U29c:")).toBe(true);
   });
 });

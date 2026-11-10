@@ -390,7 +390,8 @@ describe("desk input schemas (Flowko U28)", () => {
 });
 
 describe("flowko router wiring (Flowko U27)", () => {
-  // Flowko U29a: plus six U29a ones (25 keys); Flowko U29b: plus roster.saveWeek and roster.saveUsualWeeks (27 keys).
+  // Flowko U29a: plus six U29a ones (25 keys); Flowko U29b: plus roster.saveWeek and roster.saveUsualWeeks (27 keys);
+  // Flowko U29c added the five workers.* ones (32 keys).
   it("flowkoRouter serves the eight roster.* procedures plus the five U27 ones, six U28 ones and six U29a ones", () => {
     expect(Object.keys(flowkoRouter._def.procedures).sort()).toEqual(
       [
@@ -424,6 +425,12 @@ describe("flowko router wiring (Flowko U27)", () => {
         // Flowko U29b (S17): the roster editor's saves (27 keys)
         "roster.saveWeek",
         "roster.saveUsualWeeks",
+        // Flowko U29c (W11): the Delavci page (32 keys)
+        "workers.list",
+        "workers.lock",
+        "workers.unlock",
+        "workers.addDeskOnly",
+        "workers.reorder",
       ].sort()
     );
   });

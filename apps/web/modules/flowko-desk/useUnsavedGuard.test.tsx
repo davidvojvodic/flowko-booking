@@ -4,6 +4,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { guardedPush } from "@calcom/web/lib/flowko/leaveGuard"; // U29c (P5)
+
 import { localeT } from "./desk.fixture";
 import { useUnsavedGuard } from "./useUnsavedGuard";
 
@@ -28,6 +30,7 @@ function Harness({ dirty }: { dirty: boolean }) {
       <button type="button" onClick={() => guard(action)}>
         Teden
       </button>
+      <button type="button">Paleta</button>
       {dialog}
     </div>
   );
@@ -134,5 +137,63 @@ describe("useUnsavedGuard (U29b S13)", () => {
     expect(passed).toEqual([true, true]); // the button's click bubbles too
     expect(dialogNamed()).toBeNull();
     expect(onDiscard).not.toHaveBeenCalled();
+  });
+});
+
+// Flowko U29c (P5): the Cmd+K palette leaves through `guardedPush`; while dirty the hook's guard is registered, so the
+// same dialog asks. kbar closes its palette and restores the focus to the opener AFTER perform(), which is why the
+// guard opens one tick later and still ends with „Ostani“ focused.
+describe("useUnsavedGuard leave guard (U29c P5)", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => cleanup());
+
+  it("dirty: guardedPush from outside asks; „Ostani“ ends focused after kbar's focus restore", async () => {
+    render(<Harness dirty />);
+    guardedPush(navigation.push, "/event-types");
+    expect(navigation.push).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Paleta" }).focus(); // kbar's own restore, right after perform()
+    const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Ostani" })).toHaveFocus());
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("„Zavrzi in nadaljuj“ discards, then pushes", async () => {
+    render(<Harness dirty />);
+    guardedPush(navigation.push, "/event-types");
+    const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zavrzi in nadaljuj" }));
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    expect(navigation.push).toHaveBeenCalledTimes(1);
+    expect(navigation.push).toHaveBeenCalledWith("/event-types");
+    expect(onDiscard.mock.invocationCallOrder[0]).toBeLessThan(navigation.push.mock.invocationCallOrder[0]);
+  });
+
+  it("„Ostani“ keeps the draft and does not push", async () => {
+    render(<Harness dirty />);
+    guardedPush(navigation.push, "/event-types");
+    const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ostani" }));
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("clean: a plain, synchronous push and no dialog", () => {
+    render(<Harness dirty={false} />);
+    guardedPush(navigation.push, "/event-types");
+    expect(navigation.push).toHaveBeenCalledWith("/event-types");
+    expect(dialogNamed()).toBeNull();
+  });
+
+  it("the guard is unregistered when the draft turns clean and when the page unmounts", () => {
+    const { rerender, unmount } = render(<Harness dirty />);
+    rerender(<Harness dirty={false} />);
+    guardedPush(navigation.push, "/a");
+    expect(navigation.push).toHaveBeenCalledWith("/a");
+    rerender(<Harness dirty />);
+    unmount();
+    guardedPush(navigation.push, "/b");
+    expect(navigation.push).toHaveBeenLastCalledWith("/b");
   });
 });

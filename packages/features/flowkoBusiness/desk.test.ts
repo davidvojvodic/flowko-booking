@@ -9,6 +9,7 @@ import prismock from "@calcom/testing/lib/__mocks__/prisma";
 import "@calcom/prisma";
 import type { ShiftEntry, WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
+import logger from "@calcom/lib/logger";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
@@ -795,6 +796,22 @@ describe("listDeskServices and listDeskMembers", () => {
     expect(ofB.length).toBeGreaterThan(0);
     expect(ofB.some((s) => stored.some((a) => a.id === s.id))).toBe(false);
     expect(ofB.every((s) => s.workerMemberIds.every((id) => id === f.members.zala))).toBe(true);
+  });
+
+  // Flowko U29c: P4 — a corrupt row is skipped and logged once with the service id only, never a throw.
+  it("a service with corrupt steps is omitted and logged once with its id only; the others are intact", async () => {
+    const logError = vi
+      .spyOn(Object.getPrototypeOf(logger) as { error: (...args: unknown[]) => unknown }, "error")
+      .mockImplementation(() => undefined);
+    const before = await listDeskServices(db, f.users.ana);
+    await prismock.flowkoService.update({ where: { id: f.services.colouring }, data: { steps: { x: 1 } } });
+    const services = await listDeskServices(db, f.users.ana);
+    const expected = before.filter((s) => s.id !== f.services.colouring);
+    expect(services).toEqual(expected);
+    expect(services.length).toBeGreaterThan(0);
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(logError.mock.calls[0])).toContain(String(f.services.colouring));
+    expect(JSON.stringify(logError.mock.calls[0])).not.toContain("Barvanje");
   });
 
   it("members: ACTIVE only (Rok, Cene and Recepcija included, Dan not), position order, no userId", async () => {

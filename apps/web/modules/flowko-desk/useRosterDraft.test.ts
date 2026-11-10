@@ -217,6 +217,41 @@ describe("useRosterDraft: callbacks of an older week (Task 8 fix 1, D7)", () => 
     expect(result.current.isChanged(BOR, "2026-11-25")).toBe(false);
   });
 
+  // Flowko U29c (P7): the scope is a value; leaving Urnik and coming back to the same week gives the same scope, so
+  // only the generation tells "the week A the save started in" from "the week A the user came back to".
+  it("discard() and copyPreviousWeek() taken before A → (Dan) → A do nothing to the new draft of A", () => {
+    const base = rosterWeek();
+    const { result, rerender } = weekDraft();
+    act(() => result.current.set(base, ANA, "2026-11-17", []));
+    const old = result.current; // the callbacks the in-flight save or copy still holds
+    rerender({ weekStart: "", mode: "week" }); // Dan: DeskView scopes the draft to no week
+    expect(result.current.dirty).toBe(false);
+    rerender({ weekStart: "2026-11-16", mode: "week" });
+    act(() => result.current.set(base, BOR, "2026-11-20", []));
+    expect(result.current.changedCount).toBe(1);
+    act(() => old.discard());
+    expect(result.current.changedCount).toBe(1);
+    act(() => old.copyPreviousWeek(base, rosterWeek({ weekStart: "2026-11-09" }), [ANA]));
+    expect(result.current.changedCount).toBe(1);
+    expect(result.current.isChanged(BOR, "2026-11-20")).toBe(true);
+    act(() => old.set(base, OLGA, "2026-11-18", []));
+    expect(result.current.isChanged(OLGA, "2026-11-18")).toBe(false);
+  });
+
+  it("a callback taken before a discard is a no-op after it; the current ones keep working (P7)", () => {
+    const base = rosterWeek();
+    const { result } = weekDraft();
+    act(() => result.current.set(base, ANA, "2026-11-17", []));
+    const beforeDiscard = result.current;
+    act(() => result.current.discard());
+    expect(result.current.dirty).toBe(false);
+    act(() => beforeDiscard.set(base, BOR, "2026-11-20", []));
+    expect(result.current.dirty).toBe(false);
+    act(() => result.current.set(base, BOR, "2026-11-20", []));
+    act(() => result.current.set(base, ANA, "2026-11-17", []));
+    expect(result.current.changedCount).toBe(2);
+  });
+
   it("the current callbacks still work after a week change", () => {
     const nextBase = rosterWeek({ weekStart: "2026-11-23" });
     const { result, rerender } = weekDraft();

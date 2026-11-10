@@ -25,6 +25,7 @@ import { Button } from "@calcom/ui/components/button";
 import { SettingsToggle, TextField } from "@calcom/ui/components/form";
 import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
+import { refreshAfterSave } from "@calcom/web/lib/flowko/refreshAfterSave";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -162,14 +163,30 @@ function ProfileForm(props: {
   const errorId = (field: string) => `${idBase}-${field}-error`;
 
   // S17: everything that shows the business settings: the shell and the desk chip (me), this page, the desk.
+  // Flowko U29c (P1): business.settings carries the version (updatedAt), so it is the probe: invalidated with
+  // throwOnError it rejects when its refetch fails. The rest only run alongside. The probe alone runs again for
+  // „Osveži“.
+  const probeSettings = () =>
+    utils.viewer.flowko.business.settings.invalidate(undefined, undefined, { throwOnError: true });
   const invalidateAfterSave = () =>
-    Promise.all([
-      utils.viewer.flowko.business.me.invalidate(),
-      utils.viewer.flowko.business.settings.invalidate(),
-      utils.viewer.flowko.bookings.day.invalidate(),
-      utils.viewer.flowko.bookings.week.invalidate(),
-      utils.viewer.flowko.bookings.freeStarts.invalidate(),
-    ]).catch(() => undefined);
+    refreshAfterSave(probeSettings, [
+      () => utils.viewer.flowko.business.me.invalidate(),
+      () => utils.viewer.flowko.bookings.day.invalidate(),
+      () => utils.viewer.flowko.bookings.week.invalidate(),
+      () => utils.viewer.flowko.bookings.freeStarts.invalidate(),
+    ]);
+  // Flowko U29c: the save went through but the stored version could not be re-read: the form's updatedAt is stale,
+  // so „Shrani“ stays off until a refresh succeeds (a save would answer settings_changed about the owner's own save).
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  async function retryRefresh() {
+    setRetrying(true);
+    try {
+      setRefreshFailed(!(await refreshAfterSave(probeSettings, [])));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function send(values: BusinessSettings, confirmed: boolean) {
     setSaving(true);
@@ -196,7 +213,7 @@ function ProfileForm(props: {
       }
       showToast(t("flowko_settings_saved"), "success");
       props.onSaved();
-      await invalidateAfterSave();
+      setRefreshFailed(!(await invalidateAfterSave()));
     } finally {
       setSaving(false);
     }
@@ -233,6 +250,22 @@ function ProfileForm(props: {
 
   return (
     <form noValidate onSubmit={onSubmit}>
+      {refreshFailed && (
+        <div
+          data-testid="flowko-settings-refresh-failed"
+          role="alert"
+          className="border-subtle border-x px-4 pt-6 sm:px-6">
+          <Alert
+            severity="warning"
+            title={t("flowko_settings_refresh_failed")}
+            actions={
+              <Button type="button" color="secondary" loading={retrying} onClick={() => void retryRefresh()}>
+                {t("flowko_settings_refresh")}
+              </Button>
+            }
+          />
+        </div>
+      )}
       <div className="border-subtle flex flex-col gap-6 border-x px-4 py-8 sm:px-6">
         <div>
           <TextField
@@ -384,7 +417,7 @@ function ProfileForm(props: {
           type="submit"
           color="primary"
           loading={saving}
-          disabled={!isDirty || saving || props.refreshing}>
+          disabled={!isDirty || saving || props.refreshing || refreshFailed}>
           {t("save")}
         </Button>
       </div>

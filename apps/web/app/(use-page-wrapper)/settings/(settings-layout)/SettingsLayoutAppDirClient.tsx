@@ -49,6 +49,8 @@ const getTabs = (
       children: [
         { name: "flowko_settings_profile", href: "/settings/podjetje/profil" },
         { name: "flowko_settings_services", href: "/settings/podjetje/storitve" },
+        // Flowko U29c: the staff page (Delavci), after the services
+        { name: "flowko_workers_title", href: "/settings/podjetje/delavci" },
       ],
     },
     {

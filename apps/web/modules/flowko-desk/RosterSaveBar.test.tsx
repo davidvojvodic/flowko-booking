@@ -54,6 +54,17 @@ describe("RosterSaveBar (S13, S14)", () => {
     expect(save.compareDocumentPosition(discard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // Flowko U29c (P1): Urnik's refresh-failed notice holds „Shrani“ back without a spinner; „Zavrzi“ stays.
+  it("saveBlocked: „Shrani“ is off with no spinner, „Zavrzi“ stays usable", () => {
+    bar({ saveBlocked: true });
+    const save = screen.getByRole("button", { name: "Shrani" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(save.querySelector(".animate-spin")).toBeNull();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Zavrzi" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("while saving „Shrani“ is off and „Zavrzi“ too", () => {
     bar({ busy: true });
     expect((screen.getByRole("button", { name: "Shrani" }) as HTMLButtonElement).disabled).toBe(true);

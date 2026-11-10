@@ -65,7 +65,8 @@ export function RosterDayList(props: {
             />
           </>
         ) : (
-          key && <RosterDayHeading layout={layout} date={key} onOpenDay={props.onOpenDay} />
+          // Flowko U29c (P6): the phone list keeps the one-line header.
+          key && <RosterDayHeading layout={layout} date={key} onOpenDay={props.onOpenDay} variant="list" />
         )}
       </div>
       {key &&

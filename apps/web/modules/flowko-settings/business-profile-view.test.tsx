@@ -140,12 +140,17 @@ describe("BusinessProfileView: the form shows business.settings", () => {
     expect(input("Telefon").value).toBe("+386 40 123 456");
     expect(input("Naslov").value).toBe("Slovenska cesta 1, Ljubljana");
     expect(input("E-pošta podjetja").value).toBe("salon@example.si");
-    expect(screen.getByText(/Ko stranka odgovori na e-poštno sporočilo o svojem terminu/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Ko stranka odgovori na e-poštno sporočilo o svojem terminu/)
+    ).toBeInTheDocument();
     expect((screen.getByTestId("flowko-day-ranges-mon-0-from") as HTMLSelectElement).value).toBe("08:00");
     expect((screen.getByTestId("flowko-day-ranges-sat-0-to") as HTMLSelectElement).value).toBe("13:00");
     expect(screen.getByTestId("flowko-day-ranges-sun-closed")).toBeInTheDocument();
     expect((screen.getByLabelText("Razmik med termini") as HTMLSelectElement).value).toBe("15");
-    expect(screen.getByRole("radio", { name: "24 ur pred terminom" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "24 ur pred terminom" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
     expect(screen.getByTestId("flowko-settings-holidays-closed")).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("flowko-settings-shared-device")).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText("Več oseb uporablja isto napravo")).toBeInTheDocument();
@@ -336,6 +341,70 @@ describe("BusinessProfileView: settings_changed", () => {
   });
 });
 
+// Flowko U29c (P1): the refresh after a save is checked. The probe is business.settings, invalidated with
+// { throwOnError: true } (plain invalidate() resolves even when the refetch failed). When it rejects the save stays
+// saved: a notice with „Osveži“ shows, „Shrani“ is off (its updatedAt is stale) and „someone else changed it“
+// is never said about the owner's own save.
+describe("BusinessProfileView: the refresh after a save (P1)", () => {
+  const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
+  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.";
+
+  async function saveWithFailingRefresh() {
+    mocks.update.mockResolvedValue({ status: "saved" });
+    mocks.invalidateSettings.mockRejectedValue(new Error("offline"));
+    render(<BusinessProfileView />);
+    fireEvent.change(screen.getByLabelText("Razmik med termini"), { target: { value: "30" } });
+    await save();
+    await waitFor(() => expect(notice()).toBeInTheDocument());
+  }
+
+  it("probes business.settings with throwOnError; the other S17 queries use a plain invalidate", async () => {
+    mocks.update.mockResolvedValue({ status: "saved" });
+    render(<BusinessProfileView />);
+    fireEvent.change(screen.getByLabelText("Razmik med termini"), { target: { value: "30" } });
+    await save();
+    await waitFor(() => expect(mocks.invalidateSettings).toHaveBeenCalled());
+    expect(mocks.invalidateSettings).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+    expect(mocks.invalidateMe).toHaveBeenCalledWith();
+    expect(mocks.invalidateDay).toHaveBeenCalledWith();
+    expect(mocks.invalidateWeek).toHaveBeenCalledWith();
+    expect(mocks.invalidateFreeStarts).toHaveBeenCalledWith();
+    expect(notice()).toBeNull();
+  });
+
+  it("a failed refresh → the notice with „Osveži“, „Shrani“ off, the saved toast kept, no „changed“ warning", async () => {
+    await saveWithFailingRefresh();
+    expect(notice()).toHaveTextContent(NOTICE_TEXT);
+    expect(notice()).toHaveAttribute("role", "alert");
+    expect(screen.getByRole("button", { name: "Osveži" })).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+    expect(mocks.toast).toHaveBeenCalledWith("Nastavitve so shranjene.", "success");
+    expect(screen.queryByTestId("flowko-settings-changed")).toBeNull();
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("„Osveži“ runs the probe again; when it answers the notice is gone", async () => {
+    await saveWithFailingRefresh();
+    mocks.invalidateSettings.mockReset();
+    mocks.invalidateSettings.mockResolvedValue(undefined);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Osveži" }));
+    });
+    expect(mocks.invalidateSettings).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+    await waitFor(() => expect(notice()).toBeNull());
+    expect(screen.queryByTestId("flowko-settings-changed")).toBeNull();
+  });
+
+  it("„Osveži“ failing again keeps the notice and „Shrani“ off", async () => {
+    await saveWithFailingRefresh();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Osveži" }));
+    });
+    expect(notice()).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+  });
+});
+
 describe("BusinessProfileView: server error codes", () => {
   it.each([
     [trpcError("forbidden", "FORBIDDEN"), "Za to nimate dovoljenja."],
@@ -358,7 +427,11 @@ describe("BusinessProfileView: field rules (businessSettingsSchema)", () => {
   it.each([
     ["Ime podjetja", "", "Vnesite ime podjetja (največ 80 znakov)."],
     ["Ime podjetja", "Salon\tAna", "Odstranite prelome vrstic, tabulatorje in druge nevidne znake."],
-    ["Telefon", "  ", "Vnesite telefonsko številko. Na to številko vas stranke pokličejo, ko želijo termin prestaviti."],
+    [
+      "Telefon",
+      "  ",
+      "Vnesite telefonsko številko. Na to številko vas stranke pokličejo, ko želijo termin prestaviti.",
+    ],
     [
       "Telefon",
       "nič",
@@ -367,8 +440,16 @@ describe("BusinessProfileView: field rules (businessSettingsSchema)", () => {
     ["Naslov", "x".repeat(201), "Naslov je predolg (največ 200 znakov)."],
     ["E-pošta podjetja", "salon", "Vnesite veljaven e-poštni naslov."],
     ["E-pošta podjetja", `${"a".repeat(250)}@x.si`, "E-poštni naslov je predolg (največ 254 znakov)."],
-    ["E-pošta podjetja", "x@flowko.invalid", "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete."],
-    ["E-pošta podjetja", "0401234@sms.cal.com", "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete."],
+    [
+      "E-pošta podjetja",
+      "x@flowko.invalid",
+      "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete.",
+    ],
+    [
+      "E-pošta podjetja",
+      "0401234@sms.cal.com",
+      "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete.",
+    ],
   ])("%s = %j → its text, nothing sent", async (label, value, text) => {
     render(<BusinessProfileView />);
     type(label, value);

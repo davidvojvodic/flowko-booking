@@ -2,7 +2,8 @@
 // date, editable) → addAbsence with confirm false; needs_confirm → a plural booking count, „Vseeno dodaj“ resends
 // with confirm true, „Prekliči“ saves nothing; saved → refresh, then the sheet closes. The stored absence a cell shows
 // is listed with its range and removed whole (removeAbsence). Both actions are off while the draft is dirty (hint).
-// No reason field. Errors are toasts from rosterErrors.
+// No reason field. Errors are toasts from rosterErrors. Flowko U29c (P1, P8, R11): a saved add or removal shows
+// „Shranjeno“ and hands the refresh's answer to onRefreshed (false = RosterView's notice); the sheet still closes.
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +20,7 @@ const toast = vi.hoisted(() => vi.fn());
 vi.mock("@calcom/ui/components/toast", () => ({ showToast: (...args: unknown[]) => toast(...args) }));
 
 const onDone = vi.fn();
+const onRefreshed = vi.fn();
 const TUE = "2026-11-17";
 
 function section(over: Partial<Parameters<typeof AbsenceSection>[0]> = {}) {
@@ -30,6 +32,7 @@ function section(over: Partial<Parameters<typeof AbsenceSection>[0]> = {}) {
       absences={[]}
       dirty={false}
       onDone={onDone}
+      onRefreshed={onRefreshed}
       {...over}
     />
   );
@@ -40,6 +43,7 @@ const removeButton = () => screen.getByRole("button", { name: "Odstrani odsotnos
 
 beforeEach(() => {
   onDone.mockReset();
+  onRefreshed.mockReset();
   toast.mockReset();
   resetDeskTrpc();
   deskTrpc.addAbsence.mockResolvedValue({ status: "saved", absenceId: 80 });
@@ -253,5 +257,55 @@ describe("AbsenceSection: unsaved edits (S7)", () => {
   it("clean: no hint", () => {
     section();
     expect(screen.queryByText("Najprej shranite ali zavrzite spremembe urnika.")).toBeNull();
+  });
+});
+
+describe("AbsenceSection: „Shranjeno“ and the checked refresh (U29c P1, P8)", () => {
+  const stored = [{ id: 71, startDate: "2026-11-16", endDate: "2026-11-18" }];
+
+  it("a saved add shows „Shranjeno“ and reports the working refresh (true)", async () => {
+    section();
+    fireEvent.click(addButton());
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
+    expect(onRefreshed).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it("a saved removal shows „Shranjeno“", async () => {
+    section({ absences: stored });
+    fireEvent.click(removeButton());
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
+  });
+
+  it("needs_confirm is no save: no „Shranjeno“", async () => {
+    deskTrpc.addAbsence.mockResolvedValueOnce({ status: "needs_confirm", bookings: 1 });
+    section();
+    fireEvent.click(addButton());
+    await screen.findByRole("dialog");
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("a rejected add shows no „Shranjeno“ and no refresh-failed call", async () => {
+    deskTrpc.addAbsence.mockRejectedValueOnce(trpcError("bad_absence"));
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    section();
+    fireEvent.click(addButton());
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(1));
+    expect(toast).not.toHaveBeenCalledWith("Shranjeno", "success");
+    expect(onRefreshed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["add", false],
+    ["remove", true],
+  ])("a failed roster.week refresh after a saved %s: „Shranjeno“, onRefreshed(false), the sheet still closes", async (_, removing) => {
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    section(removing ? { absences: stored } : {});
+    fireEvent.click(removing ? removeButton() : addButton());
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(onRefreshed).toHaveBeenCalledExactlyOnceWith(false);
+    expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
+    expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
   });
 });

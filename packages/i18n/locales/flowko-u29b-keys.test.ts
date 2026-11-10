@@ -69,6 +69,8 @@ const U29B_KEYS = [
   "flowko_roster_cell_changed",
   // Slovene read (10 Nov): own body for the discard confirm.
   "flowko_roster_discard_body",
+  // Flowko U29c Task 1c-ii (P1): the Urnik notice after a save whose refresh failed.
+  "flowko_roster_refresh_failed",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.

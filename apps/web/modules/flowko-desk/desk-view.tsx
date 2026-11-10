@@ -225,6 +225,8 @@ export default function DeskView() {
           <RosterView
             view={roster.view}
             isPending={roster.isPending}
+            // Flowko U29c (R11): a newer roster.week answer clears Urnik's refresh-failed notice.
+            receivedAt={roster.receivedAt}
             mode={rosterKind}
             date={date}
             today={today}

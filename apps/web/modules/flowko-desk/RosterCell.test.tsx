@@ -75,6 +75,8 @@ describe("RosterCell (U29b Task 7)", () => {
     expect(screen.getByTestId("roster-differs").getAttribute("aria-label")).toBe(
       "Drugače kot v običajnem tednu"
     );
+    // UI-2: the dot sits in the corner, clear of a two-shift cell's last digit.
+    expect(screen.getByTestId("roster-differs").className).toContain("right-0.5 top-0.5");
   });
 
   it("highlights a changed cell and drops it again", () => {
@@ -123,7 +125,9 @@ describe("RosterCell (U29b Task 7)", () => {
 
     it("a changed cell says it is unsaved", () => {
       named({ changed: true, source: "draft" });
-      expect(screen.getByRole("button", { name: "Ana, torek, 17. 11.: 08:00–16:00, Neshranjeno" })).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Ana, torek, 17. 11.: 08:00–16:00, Neshranjeno" })
+      ).toBeTruthy();
     });
 
     it("a day that differs from the usual week says so", () => {

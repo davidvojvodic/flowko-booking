@@ -4,6 +4,8 @@
 // refresh of the roster, the desk and the business settings. With the business's closing switch off every holiday is
 // open and closing has no effect, so the menu says so and links to the settings instead. While the week has unsaved
 // edits the action is disabled with a hint (the refresh would drop them).
+// Flowko U29c (P1, P8, R11): a saved change shows „Shranjeno“; the refresh's answer goes to `onRefreshed` (false
+// raises RosterView's notice, true clears it); the menu closes anyway: the change stands.
 import { useState } from "react";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -25,6 +27,8 @@ export function RosterHolidayMenu(props: {
   canManage: boolean;
   /** The draft holds unsaved edits. */
   dirty: boolean;
+  /** Flowko U29c (P1, R11): a change stood; ok = roster.week was read again (false: RosterView's notice). */
+  onRefreshed: (ok: boolean) => void;
 }) {
   const { t } = useLocale();
   const { date, holiday } = props;
@@ -48,12 +52,22 @@ export function RosterHolidayMenu(props: {
     if (busy || props.dirty) return;
     setBusy(true);
     try {
-      await setHolidayOpen.mutateAsync({ date, open: !holiday.open });
-      await invalidate({ settings: true });
-      setMenuOpen(false);
-    } catch {
-      showToast(t("flowko_roster_holiday_error"), "error");
-      await Promise.resolve(invalidate({ settings: true })).catch(() => undefined);
+      // Flowko U29c (P1, P8): the write and the refresh are separate steps now (useInvalidateRoster never rejects;
+      // its answer says whether roster.week was read again). A saved change shows „Shranjeno“ and, when the refresh
+      // failed, raises RosterView's notice; a failed write is the error toast and a read again, as before.
+      let saved = false;
+      try {
+        await setHolidayOpen.mutateAsync({ date, open: !holiday.open });
+        saved = true;
+      } catch {
+        showToast(t("flowko_roster_holiday_error"), "error");
+      }
+      const refreshed = await invalidate({ settings: true });
+      if (saved) {
+        showToast(t("saved"), "success");
+        props.onRefreshed(refreshed);
+        setMenuOpen(false);
+      }
     } finally {
       setBusy(false);
     }

@@ -262,9 +262,28 @@ describe("listServicesForOwner (S14 services.list)", () => {
         },
       ],
       futureBookings: 0,
+      broken: false, // Flowko U29c: P4
     });
     // Rok (STAFF) has no column: never a candidate.
     expect(view.members.some((m) => m.memberId === f.members.rok)).toBe(false);
+  });
+
+  // Flowko U29c: P4 — corrupt stored steps must not lock the owner out of the whole catalogue.
+  it("a row with corrupt steps is returned with steps [] and broken: true; the others are intact", async () => {
+    await prismock.flowkoService.update({ where: { id: f.services.Barvanje }, data: { steps: { x: 1 } } });
+    const view = await listServicesForOwner(db, f.users.olga, NOW);
+    expect(view.services.map((s) => s.name)).toEqual(TEMPLATE_NAMES);
+    const broken = view.services.find((s) => s.id === f.services.Barvanje);
+    expect(broken).toMatchObject({ name: "Barvanje", steps: [], totalMinutes: 0, broken: true });
+    expect(broken?.workers.filter((w) => w.assigned).map((w) => w.memberId)).toEqual([
+      f.members.olga,
+      f.members.ana,
+      f.members.bor,
+      f.members.dan,
+    ]);
+    const others = view.services.filter((s) => s.id !== f.services.Barvanje);
+    expect(others).toHaveLength(TEMPLATE_NAMES.length - 1);
+    expect(others.every((s) => s.broken === false && s.steps.length > 0)).toBe(true);
   });
 
   it("futureBookings counts holding business bookings ending after now, once per booking", async () => {

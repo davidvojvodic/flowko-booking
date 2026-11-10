@@ -7,6 +7,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { isMac } from "@calcom/lib/isMac";
 import { UserPermissionRole } from "@calcom/prisma/enums";
 import { trpc } from "@calcom/trpc/react";
+import { guardedPush } from "@calcom/web/lib/flowko/leaveGuard"; // Flowko U29c
 import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness"; // Flowko U28
 import { useFlowkoHidesCalScreens } from "@calcom/web/lib/flowko/useFlowkoHidesCalScreens"; // Flowko U27
 import { Tooltip } from "@calcom/ui/components/tooltip";
@@ -25,7 +26,7 @@ import {
 } from "kbar";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react"; // Flowko U29c: useCallback
 
 type ShortcutArrayType = {
   shortcuts?: string[];
@@ -240,8 +241,15 @@ function buildKbarActions(push: (href: string) => void): Action[] {
   return [...staticActions, ...appStoreActions];
 }
 
-function useEventTypesAction(): void {
+// Flowko U29c (P5): every palette navigation goes through the leave guard (Urnik asks before unsaved changes are
+// lost). No guard: a plain, synchronous router.push. Works outside the KBarProvider (KBarRoot); never touches the palette.
+function useGuardedPush(): (href: string) => void {
   const router = useRouter();
+  return useCallback((href: string) => guardedPush(router.push, href), [router.push]);
+}
+
+function useEventTypesAction(): void {
+  const push = useGuardedPush(); // Flowko U29c
   // Flowko U28 (R16 f): the per-event-type shortcuts are Cal's Event types screen; only a user in no business or
   // the business owner has it (loading counts as not yet: no query, no shortcuts).
   const { status, me } = useFlowkoBusiness();
@@ -269,7 +277,7 @@ function useEventTypesAction(): void {
           name: item.title,
           section: "event_types_page_title",
           keywords: "event types",
-          perform: () => router.push(`/event-types/${item.id}`),
+          perform: () => push(`/event-types/${item.id}`), // Flowko U29c: guarded
         })) ?? []
       );
     }) ?? [];
@@ -283,7 +291,7 @@ function useEventTypesAction(): void {
 }
 
 function useUpcomingBookingsAction(): void {
-  const router = useRouter();
+  const push = useGuardedPush(); // Flowko U29c
   const { i18n } = useLocale();
   const session = useSession();
   const userId = session.data?.user.id;
@@ -318,23 +326,23 @@ function useUpcomingBookingsAction(): void {
         name: `${booking.title} - ${formattedDate} ${formattedTime}`,
         section: { name: "upcoming", priority: 1 },
         keywords: `booking ${booking.title} ${attendeeNames}`,
-        perform: () => router.push(`/booking/${booking.uid}`),
+        perform: () => push(`/booking/${booking.uid}`), // Flowko U29c: guarded
       };
     });
-  }, [data?.bookings, router, i18n.language]);
+  }, [data?.bookings, push, i18n.language]);
 
   useRegisterActions(bookingActions, [bookingActions]);
 }
 
 function useAdminActions(): void {
-  const router = useRouter();
+  const push = useGuardedPush(); // Flowko U29c
   const session = useSession();
   // Flowko: the same check as SettingsLayoutAppDirClient; the session may still be loading, so it registers late
   const isAdmin = session.data?.user.role === UserPermissionRole.ADMIN;
 
   const adminActions: Action[] = useMemo(
-    () => (isAdmin ? ADMIN_KBAR_ACTION_CONFIGS.map((config) => configToAction(config, router.push)) : []),
-    [isAdmin, router.push]
+    () => (isAdmin ? ADMIN_KBAR_ACTION_CONFIGS.map((config) => configToAction(config, push)) : []), // Flowko U29c: guarded
+    [isAdmin, push]
   );
 
   useRegisterActions(adminActions, [adminActions]);
@@ -342,21 +350,21 @@ function useAdminActions(): void {
 
 // Flowko U27: see CAL_SCREEN_KBAR_ACTION_CONFIGS
 function useCalScreenActions(): void {
-  const router = useRouter();
+  const push = useGuardedPush(); // Flowko U29c
   const hidesCalScreens = useFlowkoHidesCalScreens();
 
   const calScreenActions: Action[] = useMemo(
     () =>
-      hidesCalScreens ? [] : CAL_SCREEN_KBAR_ACTION_CONFIGS.map((config) => configToAction(config, router.push)),
-    [hidesCalScreens, router.push]
+      hidesCalScreens ? [] : CAL_SCREEN_KBAR_ACTION_CONFIGS.map((config) => configToAction(config, push)), // Flowko U29c: guarded
+    [hidesCalScreens, push]
   );
 
   useRegisterActions(calScreenActions, [calScreenActions]);
 }
 
 const KBarRoot = ({ children }: { children: ReactNode }): JSX.Element => {
-  const router = useRouter();
-  const actions = useMemo(() => buildKbarActions(router.push), [router.push]);
+  const push = useGuardedPush(); // Flowko U29c: guarded
+  const actions = useMemo(() => buildKbarActions(push), [push]);
 
   return <KBarProvider actions={actions}>{children}</KBarProvider>;
 };
