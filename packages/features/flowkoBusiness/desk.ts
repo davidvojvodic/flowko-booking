@@ -22,6 +22,7 @@ import {
 } from "@calcom/lib/flowkoSalon";
 import { phoneDigitsForSearch } from "@calcom/lib/flowkoBusiness/desk";
 import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
+import logger from "@calcom/lib/logger"; // Flowko U29c: P4 (listDeskServices logs a skipped row)
 import {
   BookingStatus,
   type FlowkoBookingActionKind,
@@ -33,6 +34,9 @@ import { type GoogleBusy, googleBusyFor, HOLDING_STATUSES, toExistingBooking } f
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { type LoadedBusinessDay, loadBusinessDay } from "./roster";
+
+// Flowko U29c: P4
+const log = logger.getSubLogger({ prefix: ["flowko-business-desk"] });
 
 /** R3: how long the desk waits for one column user's Google busy time. */
 const GOOGLE_TIMEOUT_MS = 3_000;
@@ -570,11 +574,16 @@ export async function listDeskServices(db: FlowkoDb, actorUserId: number): Promi
     where: { service: { businessId: access.businessId } },
     select: { serviceId: true, memberId: true },
   });
-  return services.map((s) => {
+  const listed: DeskService[] = [];
+  for (const s of services) {
     const steps = serviceStepsSchema.safeParse(s.steps);
-    // Stored steps are validated on write; a failure here is corrupt data.
-    if (!steps.success) throw new Error("Flowko U28: stored service steps invalid");
-    return {
+    // Flowko U29c: P4 — stored steps are validated on write; a corrupt row is skipped (the owner sees it as broken in
+    // Storitve) and logged once with its id only, so one bad row does not take every service from the desk.
+    if (!steps.success) {
+      log.error("stored service steps invalid, service skipped", { serviceId: s.id });
+      continue;
+    }
+    listed.push({
       id: s.id,
       name: s.name,
       category: s.category,
@@ -584,8 +593,9 @@ export async function listDeskServices(db: FlowkoDb, actorUserId: number): Promi
         .filter((a) => a.serviceId === s.id)
         .map((a) => a.memberId)
         .sort((x, y) => x - y),
-    };
-  });
+    });
+  }
+  return listed;
 }
 
 /** The ACTIVE members of the business in roster order (staff and desk-only included), without user ids. */

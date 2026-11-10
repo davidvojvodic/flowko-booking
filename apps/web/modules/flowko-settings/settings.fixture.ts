@@ -89,6 +89,7 @@ export const STRIZENJE: OwnerService = {
   position: 0,
   workers: workers([ANA, BOR]),
   futureBookings: 0,
+  broken: false, // Flowko U29c: P4
 };
 
 export const BARVANJE: OwnerService = {
@@ -104,6 +105,7 @@ export const BARVANJE: OwnerService = {
   position: 1,
   workers: workers([ANA, DAN]),
   futureBookings: 3,
+  broken: false, // Flowko U29c: P4
 };
 
 export const FEN: OwnerService = {
@@ -115,6 +117,7 @@ export const FEN: OwnerService = {
   position: 2,
   workers: workers([]),
   futureBookings: 1,
+  broken: false, // Flowko U29c: P4
 };
 
 /** Out of position order on purpose: the page sorts by position. */

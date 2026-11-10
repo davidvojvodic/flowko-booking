@@ -51,6 +51,8 @@ export type OwnerService = {
   workers: OwnerServiceWorker[];
   /** Business bookings in a holding status ending after now with a step of this service. */
   futureBookings: number;
+  /** Flowko U29c: P4 — the stored steps are corrupt (steps is []): the owner edits the service again or removes it. */
+  broken: boolean;
 };
 export type OwnerServicesView = { services: OwnerService[]; members: ServiceColumnMember[] };
 
@@ -105,9 +107,10 @@ export async function listServicesForOwner(
     services: services.map((s) => {
       // U24 rules only: the S9 caps apply to a save, never to a stored service.
       const steps = serviceStepsSchema.safeParse(s.steps);
-      // Stored steps are validated on write; a failure here is corrupt data (as listDeskServices).
-      if (!steps.success) throw new Error("Flowko U29a: stored service steps invalid");
-      const parsed = steps.data;
+      // Flowko U29c: P4 — stored steps are validated on write; a failure here is corrupt data. The row stays in the
+      // list with no steps and `broken`, so one manual DB edit cannot lock the owner out of the catalogue.
+      const broken = !steps.success;
+      const parsed: ServiceStep[] = steps.success ? steps.data : [];
       const assigned = new Set(assignments.filter((a) => a.serviceId === s.id).map((a) => a.memberId));
       return {
         id: s.id,
@@ -124,6 +127,7 @@ export async function listServicesForOwner(
           assigned: assigned.has(m.memberId),
         })),
         futureBookings: futureBookings.get(s.id) ?? 0,
+        broken,
       };
     }),
     members,
@@ -253,6 +257,9 @@ export async function saveService(
 
   try {
     return await withFlowkoTx(db, async (tx) => {
+      // Flowko U29c: P2 — the business row lock first, as settings.ts: parallel saves, reorders and removals of one
+      // business run one after the other (a case-variant name clash and a duplicate position cannot slip through).
+      await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
       const others = await tx.flowkoService.findMany({
         where: { businessId },
         select: { id: true, name: true, position: true },
@@ -307,6 +314,9 @@ export async function removeService(db: FlowkoDb, actorUserId: number, serviceId
   if (!isDbId(serviceId)) throw new FlowkoBusinessError("forbidden");
   try {
     await withFlowkoTx(db, async (tx) => {
+      // Flowko U29c: P2 — the business row lock first, as settings.ts: parallel saves, reorders and removals of one
+      // business run one after the other (a case-variant name clash and a duplicate position cannot slip through).
+      await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
       const service = await tx.flowkoService.findUnique({
         where: { id: serviceId },
         select: { businessId: true },
@@ -333,6 +343,9 @@ export async function reorderServices(
   if (!Array.isArray(serviceIds) || !serviceIds.every(isDbId)) throw new FlowkoBusinessError("bad_service");
   try {
     await withFlowkoTx(db, async (tx) => {
+      // Flowko U29c: P2 — the business row lock first, as settings.ts: parallel saves, reorders and removals of one
+      // business run one after the other (a case-variant name clash and a duplicate position cannot slip through).
+      await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
       const stored = await tx.flowkoService.findMany({ where: { businessId }, select: { id: true } });
       const storedIds = stored.map((s) => s.id);
       const exact =

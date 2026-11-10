@@ -19,7 +19,13 @@ import { getDeskDay } from "./desk";
 import { FlowkoBusinessError } from "./errors";
 import { setMemberLock } from "./lock";
 import { setUsualWeek } from "./roster";
-import { listServicesForOwner, removeService, type SaveServiceInput, saveService } from "./services";
+import {
+  listServicesForOwner,
+  removeService,
+  reorderServices,
+  type SaveServiceInput,
+  saveService,
+} from "./services";
 
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const TZ = "Europe/Ljubljana";
@@ -300,5 +306,93 @@ describe("U29a services on a real database", () => {
       select: { id: true },
     });
     expect(masaze).toHaveLength(1);
+  });
+});
+
+// Flowko U29c: P2 — the business row FOR UPDATE first in saveService, reorderServices and removeService. A fresh
+// business (template services only), so the rounds cannot touch the fixture above.
+describe("U29c services: the business row lock", () => {
+  async function freshBusiness(label: string): Promise<{ businessId: number; owner: number }> {
+    const owner = await realUser(`Own${label}`);
+    const { businessId } = await createBusiness(prisma, {
+      ownerUserId: owner,
+      name: `Salon ${label} ${RUN}`,
+      slug: `salon-${label.toLowerCase()}-${RUN}`,
+      templateId: "hair-salon",
+      phone: "01 234 56 78",
+      address: "Glavna ulica 1, Ljubljana",
+    });
+    return { businessId, owner };
+  }
+  const plain = (name: string): SaveServiceInput => ({
+    name,
+    category: null,
+    steps: [{ kind: "busy", minutes: 30 }],
+    workerMemberIds: [],
+  });
+  const positionsOf = async (businessId: number) =>
+    (
+      await prisma.flowkoService.findMany({
+        where: { businessId },
+        select: { position: true },
+        orderBy: { id: "asc" },
+      })
+    ).map((r) => r.position);
+
+  it("20 rounds of Barvanje-style case variants: exactly one saved, one service_name_taken", async () => {
+    const { businessId, owner } = await freshBusiness("Case");
+    for (let round = 0; round < 20; round += 1) {
+      const results = await Promise.all([
+        codeOf(saveService(prisma, owner, plain(`Okras ${round}`))),
+        codeOf(saveService(prisma, owner, plain(`okras ${round}`))),
+      ]);
+      expect(results.sort(), `round ${round}`).toEqual(["ok", "service_name_taken"]);
+      const same = await prisma.flowkoService.findMany({
+        where: { businessId, name: { in: [`Okras ${round}`, `okras ${round}`] } },
+        select: { id: true },
+      });
+      expect(same, `round ${round}`).toHaveLength(1);
+    }
+  });
+
+  it("parallel new saves and reorders never leave two services on one position", async () => {
+    const { businessId, owner } = await freshBusiness("Pos");
+    for (let round = 0; round < 10; round += 1) {
+      const before = (
+        await prisma.flowkoService.findMany({
+          where: { businessId },
+          select: { id: true },
+          orderBy: { position: "asc" },
+        })
+      ).map((r) => r.id);
+      const results = await Promise.all([
+        codeOf(saveService(prisma, owner, plain(`Nova ${round} a`))),
+        codeOf(saveService(prisma, owner, plain(`Nova ${round} b`))),
+        codeOf(reorderServices(prisma, owner, [...before].reverse())),
+      ]);
+      // The reorder is "ok" when it ran first, bad_service when a save had already changed the set.
+      expect(["ok", "bad_service"]).toContain(results[2]);
+      expect(results[0]).toBe("ok");
+      expect(results[1]).toBe("ok");
+      const positions = await positionsOf(businessId);
+      expect(new Set(positions).size, `round ${round}: ${positions.join(",")}`).toBe(positions.length);
+    }
+  });
+
+  it("a remove and a save in parallel leave the business consistent (no 500, distinct positions)", async () => {
+    const { businessId, owner } = await freshBusiness("Rem");
+    const first = await prisma.flowkoService.findFirst({
+      where: { businessId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    if (!first) throw new Error("fixture: no service");
+    const results = await Promise.all([
+      codeOf(removeService(prisma, owner, first.id)),
+      codeOf(saveService(prisma, owner, plain("Po odstranitvi"))),
+    ]);
+    expect(results).toEqual(["ok", "ok"]);
+    const positions = await positionsOf(businessId);
+    expect(new Set(positions).size).toBe(positions.length);
   });
 });
