@@ -28,6 +28,7 @@ import {
   type CreateBookingInput,
   createBusinessBooking,
   isIdempotencyKeyConflict,
+  isServiceForeignKeyRace, // Flowko U29b
   lockWorkerAdvisory,
   type WriterDeps,
 } from "./bookingWriter";
@@ -412,6 +413,87 @@ describe("Postgres proofs of the writer (Task 5 carry-overs)", () => {
     });
     const again = await created(create({ start: at(THU, "12:00") }));
     expect(again.bookingId).not.toBe(x.bookingId);
+  });
+});
+
+// Flowko U29b (D1 e): a service removed after the desk read it and before the step insert.
+describe("U29b: a service removed during the write → service_not_assigned (real foreign key)", () => {
+  it("create: the service is deleted through another connection after the lock → service_not_assigned, nothing written", async () => {
+    const race = await prisma.flowkoService.create({
+      data: { businessId: fx.businessId, name: `Wettlauf ${RUN}`, steps: [{ kind: "busy", minutes: 30 }] },
+    });
+    await prisma.flowkoServiceWorker.create({ data: { serviceId: race.id, memberId: fx.members.ana } });
+    const start = at(FRI, "13:00");
+    const deleteAfterLock: NonNullable<WriterDeps["lockWorker"]> = async (tx, userId) => {
+      await lockWorkerAdvisory(tx, userId);
+      // The outer client is a separate connection: this commits while the writer's transaction is open.
+      await prisma.flowkoService.delete({ where: { id: race.id } });
+    };
+    await expectCode(
+      create({ serviceIds: [race.id], start }, { ...quiet, lockWorker: deleteAfterLock }),
+      "service_not_assigned"
+    );
+    expect(await prisma.flowkoService.count({ where: { id: race.id } })).toBe(0);
+    const key = IdempotencyKeyService.generate({
+      startTime: start,
+      endTime: at(FRI, "13:30"),
+      userId: fx.users.ana,
+    });
+    expect(await prisma.booking.count({ where: { idempotencyKey: key } })).toBe(0);
+    expect(
+      await acceptedOn(fx.users.ana, FRI).then((rows) => rows.filter((r) => +r.startTime === +start))
+    ).toEqual([]);
+  });
+
+  it("pins the real error: a step insert naming a missing service is a P2003 the matcher accepts; another FK is not", async () => {
+    const booking = await created(create({ start: at(FRI, "14:00") }));
+    const raw = await prisma.flowkoBookingStep
+      .create({
+        data: {
+          bookingId: booking.bookingId,
+          index: 99,
+          kind: "busy",
+          startTime: at(FRI, "14:00"),
+          endTime: at(FRI, "14:30"),
+          serviceId: 2_000_000_000,
+          serviceName: "x",
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect(raw).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+    expect((raw as Prisma.PrismaClientKnownRequestError).code).toBe("P2003");
+    // The shape PrismaPg gives (read from this run): the constraint name sits in driverAdapterError.cause.
+    expect((raw as Prisma.PrismaClientKnownRequestError).meta).toMatchObject({
+      modelName: "FlowkoBookingStep",
+      driverAdapterError: {
+        cause: {
+          kind: "ForeignKeyConstraintViolation",
+          constraint: { index: "FlowkoBookingStep_serviceId_fkey" },
+        },
+      },
+    });
+    expect(isServiceForeignKeyRace(raw)).toBe(true);
+
+    const otherFk = await prisma.flowkoBookingStep
+      .create({
+        data: {
+          bookingId: 2_000_000_000,
+          index: 99,
+          kind: "busy",
+          startTime: at(FRI, "14:00"),
+          endTime: at(FRI, "14:30"),
+          serviceName: "x",
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+    expect((otherFk as Prisma.PrismaClientKnownRequestError).code).toBe("P2003");
+    expect(isServiceForeignKeyRace(otherFk)).toBe(false);
   });
 });
 
