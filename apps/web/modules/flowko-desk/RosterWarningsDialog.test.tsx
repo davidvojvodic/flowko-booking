@@ -1,5 +1,5 @@
 // Flowko U29b (Task 8, S14, D10): the combined warnings dialog before a save: per worker (row order) the days with
-// shifts outside the opening hours and the bookings that end up outside; „Termini se ne premaknejo.“; in „Običajni
+// shifts outside the opening hours and the bookings that end up outside; „Termini ne bodo prestavljeni.“; in „Običajni
 // teden“ the planned-weeks note; „Vseeno shrani“ / „Prekliči“.
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,15 +47,15 @@ describe("RosterWarningsDialog (S14)", () => {
     expect(within(group).getByText("Ana")).toBeTruthy();
     expect(group.textContent).toContain("17. 11.");
     expect(group.textContent).toContain("1 termin");
-    expect(screen.getByText("Termini se ne premaknejo.")).toBeTruthy();
+    expect(screen.getByText("Termini ne bodo prestavljeni.")).toBeTruthy();
     expect(screen.queryByTestId("roster-warning-usual-note")).toBeNull();
   });
 
   it.each([
-    [1, "1 termin ostane"],
-    [2, "2 termina ostaneta"],
-    [3, "3 termini ostanejo"],
-    [5, "5 terminov ostane"],
+    [1, "1 termin bo zunaj izmen"],
+    [2, "2 termina bosta zunaj izmen"],
+    [3, "3 termini bodo zunaj izmen"],
+    [5, "5 terminov bo zunaj izmen"],
   ])("counts %i bookings in the plural form", (count, text) => {
     dialog({ warnings: [{ memberId: 2, outsideOpening: [], bookingsNewlyOutside: count }] });
     expect(screen.getByTestId("roster-warning-group-2").textContent).toContain(text);

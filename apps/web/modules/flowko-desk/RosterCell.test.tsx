@@ -73,7 +73,7 @@ describe("RosterCell (U29b Task 7)", () => {
     expect(screen.queryByTestId("roster-differs")).toBeNull();
     rerender(<RosterCell model={model({ differsFromUsual: true })} closed={false} />);
     expect(screen.getByTestId("roster-differs").getAttribute("aria-label")).toBe(
-      "Drugače kot običajni teden"
+      "Drugače kot v običajnem tednu"
     );
   });
 
@@ -130,7 +130,7 @@ describe("RosterCell (U29b Task 7)", () => {
       named({ differsFromUsual: true });
       expect(
         screen.getByRole("button", {
-          name: "Ana, torek, 17. 11.: 08:00–16:00, Drugače kot običajni teden",
+          name: "Ana, torek, 17. 11.: 08:00–16:00, Drugače kot v običajnem tednu",
         })
       ).toBeTruthy();
     });
@@ -139,7 +139,7 @@ describe("RosterCell (U29b Task 7)", () => {
       named({ changed: true, differsFromUsual: true, source: "draft" });
       expect(
         screen.getByRole("button", {
-          name: "Ana, torek, 17. 11.: 08:00–16:00, Neshranjeno, Drugače kot običajni teden",
+          name: "Ana, torek, 17. 11.: 08:00–16:00, Neshranjeno, Drugače kot v običajnem tednu",
         })
       ).toBeTruthy();
     });

@@ -90,7 +90,7 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
   it("with the closing switch off shows a hint and a link to the business settings, and never saves", () => {
     renderMenu({ holidaysClosed: false, holiday: { name: "Božič", open: true } });
     fireEvent.click(label());
-    expect(screen.getByText(/zapiranje ob praznikih v nastavitvah podjetja izklopljeno/)).toBeTruthy();
+    expect(screen.getByText(/v nastavitvah podjetja možnost „Ob praznikih zaprto“ izklopljena/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Odpri nastavitve podjetja" }).getAttribute("href")).toBe(
       "/settings/podjetje/profil"
     );

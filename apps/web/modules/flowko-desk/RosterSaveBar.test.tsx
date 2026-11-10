@@ -65,7 +65,7 @@ describe("RosterSaveBar (S13, S14)", () => {
   it("„Zavrzi“ asks once, with „Prekliči“ focused; confirming discards", () => {
     bar();
     fireEvent.click(screen.getByRole("button", { name: "Zavrzi" }));
-    const dialog = screen.getByRole("dialog", { name: "Zavrzi spremembe?" });
+    const dialog = screen.getByRole("dialog", { name: "Želite zavreči spremembe?" });
     expect(onDiscard).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Prekliči" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Zavrzi" }));
@@ -75,7 +75,7 @@ describe("RosterSaveBar (S13, S14)", () => {
   it("„Prekliči“ in the question keeps the changes", () => {
     bar();
     fireEvent.click(screen.getByRole("button", { name: "Zavrzi" }));
-    const dialog = screen.getByRole("dialog", { name: "Zavrzi spremembe?" });
+    const dialog = screen.getByRole("dialog", { name: "Želite zavreči spremembe?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Prekliči" }));
     expect(onDiscard).not.toHaveBeenCalled();
   });

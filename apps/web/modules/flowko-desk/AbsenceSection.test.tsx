@@ -89,10 +89,10 @@ describe("AbsenceSection: add (S7, D12)", () => {
   });
 
   it.each([
-    [1, "1 termin v tem času ostane"],
-    [2, "2 termina v tem času ostaneta"],
-    [3, "3 termini v tem času ostanejo"],
-    [5, "5 terminov v tem času ostane"],
+    [1, "1 termin v tem času ostane v koledarju"],
+    [2, "2 termina v tem času ostaneta v koledarju"],
+    [3, "3 termini v tem času ostanejo v koledarju"],
+    [5, "5 terminov v tem času ostane v koledarju"],
   ])("needs_confirm with %i bookings asks in the plural form", async (bookings, text) => {
     deskTrpc.addAbsence.mockResolvedValueOnce({ status: "needs_confirm", bookings });
     section();
@@ -166,7 +166,7 @@ describe("AbsenceSection: add (S7, D12)", () => {
     section();
     fireEvent.click(addButton());
     await waitFor(() =>
-      expect(toast).toHaveBeenCalledWith("Odsotnosti ni mogoče shraniti. Preverite datume.", "error")
+      expect(toast).toHaveBeenCalledWith("Odsotnosti ni bilo mogoče shraniti. Preverite datume.", "error")
     );
     expect(onDone).not.toHaveBeenCalled();
     expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(1);

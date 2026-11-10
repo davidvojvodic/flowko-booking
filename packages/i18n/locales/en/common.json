@@ -5212,7 +5212,7 @@
   "flowko_roster_off": "Off",
   "flowko_roster_open_day": "Open this day",
   "flowko_roster_close_day": "Close this day",
-  "flowko_roster_holiday_off_hint": "Holidays stay open because closing on public holidays is switched off in the business settings.",
+  "flowko_roster_holiday_off_hint": "The business is open on public holidays because „Closed on public holidays“ is switched off in the business settings.",
   "flowko_roster_holiday_off_link": "Open business settings",
   "flowko_roster_holiday_dirty_hint": "Save or discard your roster changes first.",
   "flowko_roster_differs_usual": "Differs from the usual week",
@@ -5251,8 +5251,9 @@
   "flowko_roster_absence_remove": "Remove absence",
   "flowko_roster_absence_dirty_hint": "Save or discard the roster changes first.",
   "flowko_roster_absence_confirm_title": "Bookings during the absence",
-  "flowko_roster_absence_bookings_one": "{{count}} booking in this period stays",
-  "flowko_roster_absence_bookings_other": "{{count}} bookings in this period stay",
+  "flowko_roster_absence_bookings_one": "{{count}} booking in this period stays on the calendar",
+  "flowko_roster_absence_bookings_other": "{{count}} bookings in this period stay on the calendar",
   "flowko_roster_absence_confirm_add": "Add anyway",
-  "flowko_roster_cell_changed": "Unsaved"
+  "flowko_roster_cell_changed": "Unsaved",
+  "flowko_roster_discard_body": "Your unsaved changes will be lost. The roster stays as it was last saved."
 }

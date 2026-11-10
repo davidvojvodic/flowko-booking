@@ -203,7 +203,7 @@ describe("RosterView editing: the save bar (S13, Review Focus 6)", () => {
     renderRoster();
     await applyChoice(ANA, TUE, "Prosto");
     fireEvent.click(within(bar()).getByRole("button", { name: "Zavrzi" }));
-    const dialog = screen.getByRole("dialog", { name: "Zavrzi spremembe?" });
+    const dialog = screen.getByRole("dialog", { name: "Želite zavreči spremembe?" });
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Prekliči" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Zavrzi" }));
     await waitFor(() => expect(screen.queryByTestId("roster-save-bar")).toBeNull());
@@ -665,14 +665,14 @@ describe("RosterView editing: absences from a cell (Task 9, S7, D12)", () => {
     expect(captured.draft?.dirty).toBe(false);
   });
 
-  it("needs_confirm 2 → „2 termina v tem času ostaneta“ → „Vseeno dodaj“ resends with confirm true", async () => {
+  it("needs_confirm 2 → „2 termina v tem času ostaneta v koledarju“ → „Vseeno dodaj“ resends with confirm true", async () => {
     deskTrpc.addAbsence
       .mockResolvedValueOnce({ status: "needs_confirm", bookings: 2 })
       .mockResolvedValueOnce({ status: "saved", absenceId: 91 });
     renderRoster();
     fireEvent.click(cell(ANA, TUE));
     fireEvent.click(within(await sheet()).getByRole("button", { name: "Dodaj odsotnost" }));
-    const confirm = await screen.findByText("2 termina v tem času ostaneta");
+    const confirm = await screen.findByText("2 termina v tem času ostaneta v koledarju");
     expect(deskTrpc.invalidateRosterWeek).not.toHaveBeenCalled();
     fireEvent.click(
       within(confirm.closest('[role="dialog"]') as HTMLElement).getByRole("button", {

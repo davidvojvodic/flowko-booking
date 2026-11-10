@@ -111,14 +111,14 @@ describe("DayRangesEditor (U29a S16)", () => {
   // Flowko U29b (D1 a): seven „Dodaj“ buttons need seven names; a day's error is tied to that day's selects.
   it("names each „Dodaj“ button by its weekday (seven distinct names)", () => {
     setup();
-    expect(screen.getByRole("button", { name: "Dodaj čas: nedelja" })).toBe(
+    expect(screen.getByRole("button", { name: "nedelja: dodaj čas" })).toBe(
       screen.getByTestId("flowko-day-ranges-sun-add")
     );
     const names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map(
       (day) => screen.getByTestId(`flowko-day-ranges-${day}-add`).getAttribute("aria-label") ?? ""
     );
     expect(new Set(names).size).toBe(7);
-    expect(names[0]).toBe("Dodaj čas: ponedeljek");
+    expect(names[0]).toBe("ponedeljek: dodaj čas");
   });
 
   it("a day's error is the accessible description of that day's selects only", () => {

@@ -75,7 +75,7 @@ export function RosterSaveBar(props: {
                 setAsking(false);
                 props.onDiscard();
               }}>
-              <p className="mt-2">{t("flowko_roster_unsaved_body")}</p>
+              <p className="mt-2">{t("flowko_roster_discard_body")}</p>
             </ConfirmationContent>
           </DialogContent>
         </Dialog>

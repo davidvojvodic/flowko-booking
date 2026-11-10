@@ -1278,7 +1278,7 @@ describe("U29b Urnik routing", () => {
     );
     fireEvent.click(within(screen.getByTestId("roster-save-bar")).getByRole("button", { name: "Zavrzi" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Zavrzi spremembe?" })).getByRole("button", {
+      within(screen.getByRole("dialog", { name: "Želite zavreči spremembe?" })).getByRole("button", {
         name: "Zavrzi",
       })
     );

@@ -67,6 +67,8 @@ const U29B_KEYS = [
   "flowko_roster_absence_bookings",
   "flowko_roster_absence_confirm_add",
   "flowko_roster_cell_changed",
+  // Slovene read (10 Nov): own body for the discard confirm.
+  "flowko_roster_discard_body",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.
