@@ -31,6 +31,24 @@ export function formatDayLabelLong(date: string, language: string): string {
   }).format(new Date(`${date}T12:00:00Z`));
 }
 
+/**
+ * Flowko U29c (P6): Urnik's grid header in two parts: the weekday (short, and long for `xl`) and the date („17. 11.“).
+ * Roster-only: `formatDayLabel` (WeekGrid, absences, warnings) stays as it is.
+ */
+export function formatRosterHeader(
+  date: string,
+  language: string
+): { weekdayShort: string; weekdayLong: string; date: string } {
+  const at = new Date(`${date}T12:00:00Z`);
+  const format = (options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat(language, { ...options, timeZone: "UTC" }).format(at);
+  return {
+    weekdayShort: format({ weekday: "short" }),
+    weekdayLong: format({ weekday: "long" }),
+    date: format({ day: "numeric", month: "numeric" }),
+  };
+}
+
 /** The day half of a cell's name: the long date (week mode) or the weekday's name („ponedeljek“, usual mode). */
 export function cellDayText(input: {
   mode: RosterMode;

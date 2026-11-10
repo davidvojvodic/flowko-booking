@@ -45,8 +45,9 @@ export function RosterCell(props: {
     "data-source": model.source,
     "data-pattern": model.absent ? "hatched" : undefined,
     style: model.absent ? { backgroundImage: HATCH } : undefined,
+    // Flowko U29c (P6): px-1.5 (was px-2) gives the shift text room; clipping is not the fix.
     className: classNames(
-      "border-subtle relative flex min-h-12 w-full min-w-0 flex-col justify-center gap-0.5 border-b border-l px-2 py-1.5 text-left text-sm",
+      "border-subtle relative flex min-h-12 w-full min-w-0 flex-col justify-center gap-0.5 border-b border-l px-1.5 py-1.5 text-left text-sm",
       props.closed ? "bg-muted" : model.absent ? "bg-subtle" : "bg-default",
       model.changed && "ring-brand-default ring-2 ring-inset",
       tappable && "hover:bg-subtle focus-visible:ring-brand-default cursor-pointer focus-visible:ring-2"
@@ -84,7 +85,11 @@ export function RosterCell(props: {
           <span
             key={`${entry.from}-${entry.to}`}
             data-testid="roster-cell-shift"
-            className={classNames("whitespace-nowrap", derived ? "text-subtle" : "text-emphasis")}>
+            // Flowko U29c (P6): text-xs + tabular digits so „07:00–15:00“ fits the 5.5rem column without clipping.
+            className={classNames(
+              "text-xs tabular-nums whitespace-nowrap",
+              derived ? "text-subtle" : "text-emphasis"
+            )}>
             {`${entry.from}–${entry.to}`}
           </span>
         ))
@@ -94,7 +99,8 @@ export function RosterCell(props: {
           role="img"
           data-testid="roster-differs"
           aria-label={t("flowko_roster_differs_usual")}
-          className="bg-attention absolute right-1 top-1 h-2 w-2 rounded-full"
+          // Flowko U29c (P6): the pale `bg-attention` was nearly invisible on white.
+          className="bg-semantic-attention-emphasis absolute right-1 top-1 h-2.5 w-2.5 rounded-full ring-1 ring-[var(--cal-bg)]"
         />
       )}
     </>

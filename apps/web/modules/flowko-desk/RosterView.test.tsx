@@ -155,7 +155,7 @@ describe("RosterView: the grid on tablet and desktop (S10)", () => {
     expect(scroll.className).toContain("overflow-auto");
     expect(scroll.className).toContain("rounded-md");
     expect(screen.getByTestId("roster-grid-corner").className).toContain("sticky left-0 top-0 z-50");
-    expect(screen.getAllByTestId(/^roster-header-/)).toHaveLength(7);
+    expect(screen.getAllByTestId(/^roster-header-\d/)).toHaveLength(7);
     const columns = screen.getAllByTestId(/^roster-col-/);
     expect(columns).toHaveLength(7);
     for (const column of columns) expect(column.className).toContain("sticky top-0 z-40");
@@ -235,7 +235,7 @@ describe("RosterView: the phone day list (S10, D4)", () => {
     });
     expect(screen.getByTestId("roster-day-list")).toBeTruthy();
     expect(screen.queryByTestId("roster-grid")).toBeNull();
-    expect(screen.getAllByTestId(/^roster-header-/)).toHaveLength(1);
+    expect(screen.getAllByTestId(/^roster-header-\d/)).toHaveLength(1);
     const cards = screen.getAllByTestId(/^roster-card-/).map((c) => c.getAttribute("data-testid"));
     expect(cards).toEqual([
       `roster-card-${ANA}`,
@@ -295,7 +295,7 @@ describe("RosterView: „Običajni teden“ (S1, S11)", () => {
       "sobota",
       "nedelja",
     ]);
-    expect(screen.queryAllByTestId(/^roster-header-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^roster-header-\d/)).toHaveLength(0);
     expect(screen.queryByText(/Božič/)).toBeNull();
     expect(cell(ANA, "sat").textContent).toBe("08:00–13:00");
     expect(cell(BOR, "mon").textContent).toBe("Prosto");
@@ -331,7 +331,7 @@ describe("RosterView: „Običajni teden“ (S1, S11)", () => {
     expect(label()).toBe("nedelja");
     fireEvent.click(prev);
     expect(label()).toBe("sobota");
-    expect(screen.queryAllByTestId(/^roster-header-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^roster-header-\d/)).toHaveLength(0);
     expect(spies.guard).not.toHaveBeenCalled();
     expect(spies.onOpenDay).not.toHaveBeenCalled();
   });
@@ -428,5 +428,84 @@ describe("RosterView: the day header (S1, S8)", () => {
     expect((screen.getByRole("button", { name: "Odpri ta dan" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Najprej shranite ali zavrzite spremembe urnika.")).toBeTruthy();
     expect(deskTrpc.setHolidayOpen).not.toHaveBeenCalled();
+  });
+});
+
+// Flowko U29c (Task 1c-i, P6): Urnik's text at tablet and desktop width: a two-line day header, no truncation, names
+// that wrap to two lines, a name-track variable, smaller shift text and a stronger „differs“ dot.
+describe("RosterView: Urnik text (U29c P6)", () => {
+  it("the grid header is two lines inside the date button: short weekday (long from xl) and „17. 11.“", () => {
+    renderRoster();
+    const button = screen.getByTestId("roster-header-2026-11-17");
+    expect(button.className).not.toContain("truncate");
+    const weekday = within(button).getByTestId("roster-header-weekday");
+    const date = within(button).getByTestId("roster-header-date");
+    expect(date.textContent).toBe("17. 11.");
+    expect(weekday.querySelector("[data-form='short']")?.textContent).toBe("tor.");
+    expect(weekday.querySelector("[data-form='short']")?.className).toContain("xl:hidden");
+    expect(weekday.querySelector("[data-form='long']")?.textContent).toBe("torek");
+    expect(weekday.querySelector("[data-form='long']")?.className).toContain("hidden xl:inline");
+    expect(weekday.className).toContain("block");
+    expect(date.className).toContain("block");
+    // 7 headers, each with its own weekday and date line.
+    expect(screen.getAllByTestId("roster-header-weekday")).toHaveLength(7);
+    expect(screen.getAllByTestId("roster-header-date")).toHaveLength(7);
+  });
+
+  it("a holiday day keeps its separate label below the two-line date button", () => {
+    renderRoster({ view: withHoliday(false) });
+    const label = screen.getByTestId("roster-holiday-2026-11-19");
+    const button = screen.getByTestId("roster-header-2026-11-19");
+    expect(button.contains(label)).toBe(false);
+    expect(within(button).getByTestId("roster-header-date").textContent).toBe("19. 11.");
+    expect(label.textContent).toBe("Božič – zaprto");
+  });
+
+  it("the phone list keeps its one-line header (variant list)", () => {
+    renderRoster({ isPhone: true, date: "2026-11-18" });
+    const button = screen.getByTestId("roster-header-2026-11-18");
+    expect(button.textContent).toBe("sre., 18. 11.");
+    expect(within(button).queryByTestId("roster-header-weekday")).toBeNull();
+    expect(within(button).queryByTestId("roster-header-date")).toBeNull();
+  });
+
+  it("the name track is the CSS variable --roster-name (7rem, 10rem from xl)", () => {
+    renderRoster();
+    const inner = screen.getByTestId("roster-grid").firstElementChild as HTMLElement;
+    expect(inner.className).toContain("[--roster-name:7rem]");
+    expect(inner.className).toContain("xl:[--roster-name:10rem]");
+    expect(inner.style.gridTemplateColumns).toMatch(/^var\(--roster-name\) /);
+  });
+
+  it("a name wraps to two lines with a title (no truncate)", () => {
+    renderRoster();
+    const name = within(screen.getByTestId(`roster-name-${ANA}`)).getByText("Ana");
+    expect(name.className).toContain("line-clamp-2");
+    expect(name.className).toContain("break-words");
+    expect(name.className).not.toContain("truncate");
+    expect(name.getAttribute("title")).toBe("Ana");
+  });
+
+  it("a shift line is text-xs, tabular and nowrap in a px-1.5 cell", () => {
+    renderRoster();
+    const shift = within(cell(OLGA, "2026-11-16")).getByTestId("roster-cell-shift");
+    expect(shift.className).toContain("text-xs tabular-nums whitespace-nowrap");
+    expect(cell(OLGA, "2026-11-16").className).toContain("px-1.5");
+  });
+
+  it("the differs dot is the strong attention colour in the grid and on the phone list", () => {
+    const { unmount } = renderRoster();
+    const dots = screen.getAllByTestId("roster-differs");
+    expect(dots.length).toBeGreaterThan(0);
+    for (const dot of dots) {
+      expect(dot.className).toContain("bg-semantic-attention-emphasis");
+      expect(dot.className).toContain("h-2.5 w-2.5");
+      expect(dot.className).not.toContain("bg-attention ");
+    }
+    unmount();
+    renderRoster({ isPhone: true, date: "2026-11-19" });
+    const phoneDot = within(cell(BOR, "2026-11-19")).getByTestId("roster-differs");
+    expect(phoneDot.className).toContain("bg-semantic-attention-emphasis");
+    expect(phoneDot.className).toContain("ring-1");
   });
 });

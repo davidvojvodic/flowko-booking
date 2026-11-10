@@ -6,17 +6,21 @@ import classNames from "@calcom/ui/classNames";
 
 import { RosterHolidayMenu } from "./RosterHolidayMenu";
 import { formatDayLabel } from "./WeekGrid";
-import type { RosterLayout } from "./rosterModel";
+import { type RosterLayout, formatRosterHeader } from "./rosterModel";
 
 export function RosterDayHeading(props: {
   layout: RosterLayout;
   date: string;
   onOpenDay: (date: string) => void;
+  // Flowko U29c (P6): the grid's header is two lines (weekday, date); the phone list keeps today's one line.
+  variant: "grid" | "list";
 }) {
   const { i18n } = useLocale();
   const { layout, date } = props;
   const holiday = layout.view.days.find((d) => d.date === date)?.holiday ?? null;
   const isToday = date === layout.today;
+  const language = i18n?.language ?? "sl";
+  const header = formatRosterHeader(date, language);
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       <button
@@ -25,10 +29,28 @@ export function RosterDayHeading(props: {
         data-today={isToday ? "true" : undefined}
         onClick={() => props.onOpenDay(date)}
         className={classNames(
-          "hover:bg-subtle max-w-full truncate rounded text-left text-sm font-semibold",
+          // Flowko U29c (P6): the grid's two lines never truncate; the list's one line does as before.
+          "hover:bg-subtle max-w-full rounded text-left text-sm font-semibold",
+          props.variant === "list" && "truncate",
           isToday ? "text-brand-default" : "text-emphasis"
         )}>
-        {formatDayLabel(date, i18n?.language ?? "sl")}
+        {props.variant === "grid" ? (
+          <>
+            <span data-testid="roster-header-weekday" className="block">
+              <span data-form="short" className="xl:hidden">
+                {header.weekdayShort}
+              </span>
+              <span data-form="long" className="hidden xl:inline">
+                {header.weekdayLong}
+              </span>
+            </span>
+            <span data-testid="roster-header-date" className="block">
+              {header.date}
+            </span>
+          </>
+        ) : (
+          formatDayLabel(date, language)
+        )}
       </button>
       {holiday && (
         <RosterHolidayMenu
