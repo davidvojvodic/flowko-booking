@@ -1,5 +1,5 @@
 // Flowko U29a: the opening-hours editor (S16): per weekday from–to rows with 24-hour selects in 15-minute steps
-// from 03:00 to 24:00, „Dodaj“ / remove per row, „Zaprto“ when a day is empty, „Kopiraj na vse dni“ from Monday,
+// from 03:00 to 24:00, „Dodaj“ / remove per row, „Zaprto“ when a day is empty, „Kopiraj v vse dni“ from Monday,
 // the day's error text under its row. Controlled: every edit is one onChange with the whole week.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -106,6 +106,31 @@ describe("DayRangesEditor (U29a S16)", () => {
       "Konec mora biti pozneje kot začetek."
     );
     expect(screen.queryByTestId("flowko-day-ranges-mon-error")).toBeNull();
+  });
+
+  // Flowko U29b (D1 a): seven „Dodaj“ buttons need seven names; a day's error is tied to that day's selects.
+  it("names each „Dodaj“ button by its weekday (seven distinct names)", () => {
+    setup();
+    expect(screen.getByRole("button", { name: "Dodaj čas: nedelja" })).toBe(
+      screen.getByTestId("flowko-day-ranges-sun-add")
+    );
+    const names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map(
+      (day) => screen.getByTestId(`flowko-day-ranges-${day}-add`).getAttribute("aria-label") ?? ""
+    );
+    expect(new Set(names).size).toBe(7);
+    expect(names[0]).toBe("Dodaj čas: ponedeljek");
+  });
+
+  it("a day's error is the accessible description of that day's selects only", () => {
+    setup(OPENING, { tue: "Konec mora biti pozneje kot začetek." });
+    for (const edge of ["from", "to"]) {
+      const tue = select(`flowko-day-ranges-tue-0-${edge}`);
+      expect(tue).toHaveAttribute("aria-invalid", "true");
+      expect(tue).toHaveAccessibleDescription("Konec mora biti pozneje kot začetek.");
+    }
+    const mon = select("flowko-day-ranges-mon-0-from");
+    expect(mon).not.toHaveAttribute("aria-invalid");
+    expect(mon).not.toHaveAttribute("aria-describedby");
   });
 
   it("names each select for screen readers by its weekday", () => {

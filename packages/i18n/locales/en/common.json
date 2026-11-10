@@ -5199,5 +5199,7 @@
   "flowko_settings_service_field_bad_minutes": "Enter at least 5 minutes, in steps of 5.",
   "flowko_settings_service_field_step_too_long": "A step can be at most 480 minutes (8 hours) long.",
   "flowko_settings_service_field_too_many_steps": "A service can have at most 8 steps.",
-  "flowko_settings_service_field_total_too_long": "A service can be at most 12 hours (720 minutes) long."
+  "flowko_settings_service_field_total_too_long": "A service can be at most 12 hours (720 minutes) long.",
+  "flowko_settings_add_range_day": "Add a time: {{day}}",
+  "flowko_settings_service_error_gone": "This service no longer exists; someone else removed it. The list is refreshed."
 }

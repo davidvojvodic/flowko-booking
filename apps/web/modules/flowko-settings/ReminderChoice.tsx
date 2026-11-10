@@ -17,6 +17,8 @@ export function ReminderChoice(props: {
   value: readonly number[];
   onChange: (offsets: number[]) => void;
   disabled?: boolean;
+  /** Flowko U29b: the id of the visible heading that names the radio group (D1 a). */
+  labelledBy: string;
 }) {
   const { t } = useLocale();
   return (
@@ -24,6 +26,7 @@ export function ReminderChoice(props: {
       <RadioGroup
         value={reminderChoiceOf(props.value) ?? ""}
         disabled={props.disabled}
+        aria-labelledby={props.labelledBy}
         onValueChange={(id) => {
           const choice = REMINDER_CHOICES.find((c) => c.id === id);
           if (choice) props.onChange(Array.from(choice.offsets));

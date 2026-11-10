@@ -5269,5 +5269,7 @@
   "flowko_settings_service_field_bad_minutes": "Vnesite število minut, deljivo s 5 (najmanj 5).",
   "flowko_settings_service_field_step_too_long": "Korak je lahko dolg največ 480 minut (8 ur).",
   "flowko_settings_service_field_too_many_steps": "Storitev ima lahko največ 8 korakov.",
-  "flowko_settings_service_field_total_too_long": "Storitev je lahko dolga največ 12 ur (720 minut)."
+  "flowko_settings_service_field_total_too_long": "Storitev je lahko dolga največ 12 ur (720 minut).",
+  "flowko_settings_add_range_day": "Dodaj čas: {{day}}",
+  "flowko_settings_service_error_gone": "Te storitve ni več, odstranil jo je nekdo drug. Seznam je osvežen."
 }

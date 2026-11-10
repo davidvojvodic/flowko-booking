@@ -22,11 +22,11 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
-import { Label, SettingsToggle, TextField } from "@calcom/ui/components/form";
+import { SettingsToggle, TextField } from "@calcom/ui/components/form";
 import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { DayRangesEditor } from "./DayRangesEditor";
@@ -126,9 +126,10 @@ function toFormValues(settings: BusinessSettingsView): FormValues {
   };
 }
 
-const fieldError = (text: string | undefined, testId?: string) =>
+// Flowko U29b: the error carries an id, so its control can point at it with aria-describedby (D1 a).
+const fieldError = (text: string | undefined, errorId: string, testId?: string) =>
   text ? (
-    <p role="alert" data-testid={testId} className="text-error mt-1 text-sm">
+    <p id={errorId} role="alert" data-testid={testId} className="text-error mt-1 text-sm">
       {text}
     </p>
   ) : null;
@@ -155,6 +156,10 @@ function ProfileForm(props: {
     defaultValues: toFormValues(settings),
   });
   const { errors, isDirty } = form.formState;
+  // Flowko U29b: ids for the field errors and the reminders heading. Never passed as `id` to TextField
+  // (it would break the label's htmlFor).
+  const idBase = useId();
+  const errorId = (field: string) => `${idBase}-${field}-error`;
 
   // S17: everything that shows the business settings: the shell and the desk chip (me), this page, the desk.
   const invalidateAfterSave = () =>
@@ -215,6 +220,17 @@ function ProfileForm(props: {
     if (message) dayErrors[day] = message;
   }
 
+  const nameText = text(errors.name?.message);
+  const phoneText = text(errors.phone?.message);
+  const addressText = text(errors.address?.message);
+  const emailText = text(errors.email?.message);
+  const slotGridText = text(errors.slotGridMinutes?.message);
+  // Flowko U29b: aria-invalid + aria-describedby while a field shows an error (D1 a).
+  const aria = (field: string, errorText: string | undefined) => ({
+    "aria-invalid": errorText ? (true as const) : undefined,
+    "aria-describedby": errorText ? errorId(field) : undefined,
+  });
+
   return (
     <form noValidate onSubmit={onSubmit}>
       <div className="border-subtle flex flex-col gap-6 border-x px-4 py-8 sm:px-6">
@@ -223,9 +239,10 @@ function ProfileForm(props: {
             label={t("flowko_settings_name")}
             hint={t("flowko_settings_name_hint")}
             maxLength={200}
+            {...aria("name", nameText)}
             {...form.register("name")}
           />
-          {fieldError(text(errors.name?.message))}
+          {fieldError(nameText, errorId("name"))}
         </div>
         <div>
           <TextField
@@ -233,13 +250,19 @@ function ProfileForm(props: {
             label={t("flowko_settings_phone")}
             hint={t("flowko_settings_phone_hint")}
             maxLength={200}
+            {...aria("phone", phoneText)}
             {...form.register("phone")}
           />
-          {fieldError(text(errors.phone?.message))}
+          {fieldError(phoneText, errorId("phone"))}
         </div>
         <div>
-          <TextField label={t("flowko_settings_address")} maxLength={300} {...form.register("address")} />
-          {fieldError(text(errors.address?.message))}
+          <TextField
+            label={t("flowko_settings_address")}
+            maxLength={300}
+            {...aria("address", addressText)}
+            {...form.register("address")}
+          />
+          {fieldError(addressText, errorId("address"))}
         </div>
         <div>
           <TextField
@@ -247,12 +270,14 @@ function ProfileForm(props: {
             label={t("flowko_settings_email")}
             hint={t("flowko_settings_email_hint")}
             maxLength={300}
+            {...aria("email", emailText)}
             {...form.register("email")}
           />
-          {fieldError(text(errors.email?.message))}
+          {fieldError(emailText, errorId("email"))}
         </div>
         <div>
-          <Label>{t("flowko_settings_call_page")}</Label>
+          {/* Flowko U29b: plain text, not a <label> bound to nothing (the value is a link). */}
+          <p className="text-emphasis mb-2 text-sm font-medium">{t("flowko_settings_call_page")}</p>
           <a
             data-testid="flowko-settings-call-page"
             href={settings.callPagePath}
@@ -264,7 +289,7 @@ function ProfileForm(props: {
           <p className="text-subtle mt-1 text-sm">{t("flowko_settings_call_page_hint")}</p>
         </div>
         <div>
-          <Label>{t("timezone")}</Label>
+          <p className="text-emphasis mb-2 text-sm font-medium">{t("timezone")}</p>
           <p data-testid="flowko-settings-time-zone" className="text-emphasis text-sm">
             {settings.timeZone}
           </p>
@@ -285,6 +310,7 @@ function ProfileForm(props: {
         />
         {fieldError(
           typeof openingErrors?.message === "string" ? text(openingErrors.message) : undefined,
+          errorId("opening"),
           "flowko-settings-opening-error"
         )}
         <div>
@@ -294,6 +320,7 @@ function ProfileForm(props: {
           <select
             id="flowko-settings-slot-grid"
             className="border-default bg-default text-emphasis h-9 rounded-md border px-2 text-sm"
+            {...aria("slotGrid", slotGridText)}
             {...form.register("slotGridMinutes", { valueAsNumber: true })}>
             {SLOT_GRIDS.map((minutes) => (
               <option key={minutes} value={minutes}>
@@ -302,7 +329,7 @@ function ProfileForm(props: {
             ))}
           </select>
           <p className="text-subtle mt-1 text-sm">{t("flowko_settings_slot_grid_hint")}</p>
-          {fieldError(text(errors.slotGridMinutes?.message))}
+          {fieldError(slotGridText, errorId("slotGrid"))}
         </div>
         <Controller
           name="holidaysClosed"
@@ -321,13 +348,21 @@ function ProfileForm(props: {
       </div>
 
       <div className="border-subtle flex flex-col gap-4 border-x border-t px-4 py-8 sm:px-6">
-        <h3 className="text-emphasis text-base font-semibold">{t("flowko_settings_reminders")}</h3>
+        <h3 id={`${idBase}-reminders-title`} className="text-emphasis text-base font-semibold">
+          {t("flowko_settings_reminders")}
+        </h3>
         <Controller
           name="reminderOffsets"
           control={form.control}
-          render={({ field }) => <ReminderChoice value={field.value} onChange={field.onChange} />}
+          render={({ field }) => (
+            <ReminderChoice
+              value={field.value}
+              onChange={field.onChange}
+              labelledBy={`${idBase}-reminders-title`}
+            />
+          )}
         />
-        {fieldError(text(errors.reminderOffsets?.message))}
+        {fieldError(text(errors.reminderOffsets?.message), errorId("reminders"))}
         <Controller
           name="sharedDevice"
           control={form.control}

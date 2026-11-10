@@ -50,6 +50,15 @@ beforeEach(() => {
   mocks.onChanged.mockResolvedValue(undefined);
 });
 
+/** Flowko U29b: a promise the test settles by hand (the S17 refresh that is still running). */
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function open(target: ServiceSheetTarget) {
   render(
     <ServiceSheet target={target} members={MEMBERS} onClose={mocks.onClose} onChanged={mocks.onChanged} />
@@ -125,6 +134,34 @@ describe("ServiceSheet: a new service", () => {
     await waitFor(() =>
       expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ workerMemberIds: [] }))
     );
+  });
+});
+
+// Flowko U29b (D1 c): „Shrani“ stays off until the S17 refresh has finished, so a double click sends one write.
+describe("ServiceSheet: busy until the refresh is done", () => {
+  it("while onChanged is pending „Shrani“ is disabled and a second click does not save again", async () => {
+    const refresh = deferred();
+    mocks.onChanged.mockReturnValue(refresh.promise);
+    open({ kind: "new" });
+    type("Ime storitve", "Pramenki");
+    await save();
+    await waitFor(() => expect(mocks.onChanged).toHaveBeenCalledTimes(1));
+    expect(mocks.onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Shrani" })).toBeDisabled();
+    await save();
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      refresh.resolve();
+    });
+    await waitFor(() => expect(mocks.onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("after a failed save „Shrani“ is live again", async () => {
+    mocks.save.mockRejectedValueOnce(trpcError("service_name_taken"));
+    open({ kind: "new" });
+    type("Ime storitve", "striženje");
+    await save();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Shrani" })).not.toBeDisabled());
   });
 });
 
@@ -267,6 +304,25 @@ describe("ServiceSheet: field rules (S8, S9)", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
+  // Flowko U29b (D1 a): the field error is the accessible description of its input.
+  it("an empty name → the name input is aria-invalid and described by the error; the category is not", async () => {
+    open({ kind: "new" });
+    await save();
+    const name = input("Ime storitve");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription("Vnesite ime storitve (največ 60 znakov).");
+    expect(input("Kategorija")).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("a too long category → the category input is aria-invalid and described by the error", async () => {
+    open(edit());
+    type("Kategorija", "x".repeat(41));
+    await save();
+    const category = input("Kategorija");
+    expect(category).toHaveAttribute("aria-invalid", "true");
+    expect(category).toHaveAccessibleDescription(/Kategorija je predolga \(največ 40 znakov\)\./);
+  });
+
   it("a name error is not shown before the first save", () => {
     open({ kind: "new" });
     expect(screen.queryByTestId("flowko-service-name-error")).toBeNull();
@@ -305,7 +361,6 @@ describe("ServiceSheet: server answers", () => {
 
   it.each([
     ["bad_service", "BAD_REQUEST", "Storitve ni bilo mogoče shraniti. Preverite polja in poskusite znova."],
-    ["forbidden", "FORBIDDEN", "Za to nimate dovoljenja."],
     ["Rate limit exceeded", "TOO_MANY_REQUESTS", "Preveč zahtev. Poskusite znova čez trenutek."],
     ["boom", "INTERNAL_SERVER_ERROR", "Nekaj je šlo narobe."],
   ])("%s → its toast", async (message, code, text) => {
@@ -316,9 +371,38 @@ describe("ServiceSheet: server answers", () => {
     expect(mocks.onClose).not.toHaveBeenCalled();
   });
 
+  // Flowko U29b (D1 d): the server answers forbidden for an unknown id too, so on an edit it means "gone".
+  it("forbidden on an EDIT (another device removed it) → the gone text, the list refreshed, the sheet closed", async () => {
+    mocks.save.mockRejectedValue(trpcError("forbidden", "FORBIDDEN"));
+    open(edit());
+    await save();
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Te storitve ni več, odstranil jo je nekdo drug. Seznam je osvežen.",
+        "error"
+      )
+    );
+    expect(mocks.toast).not.toHaveBeenCalledWith("Za to nimate dovoljenja.", "error");
+    expect(mocks.onChanged).toHaveBeenCalledTimes(1);
+    expect(mocks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("forbidden on a NEW service keeps „Za to nimate dovoljenja.“ and the sheet", async () => {
+    mocks.save.mockRejectedValue(trpcError("forbidden", "FORBIDDEN"));
+    open({ kind: "new" });
+    type("Ime storitve", "Pramenki");
+    await save();
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Za to nimate dovoljenja.", "error"));
+    expect(mocks.onChanged).not.toHaveBeenCalled();
+    expect(mocks.onClose).not.toHaveBeenCalled();
+  });
+
   it("every server code has its text in both languages", () => {
     const sl = localeT("sl");
     const en = localeT("en");
+    expect(en("flowko_settings_service_error_gone")).toBe(
+      "This service no longer exists; someone else removed it. The list is refreshed."
+    );
     for (const code of SERVICE_ERROR_CODES) {
       const key =
         code === "forbidden" || code === "TOO_MANY_REQUESTS"
@@ -385,7 +469,7 @@ describe("ServiceSheet: remove (S12)", () => {
     expect(mocks.onClose).not.toHaveBeenCalled();
   });
 
-  it("a refused remove (another device removed it) → its toast, the sheet stays", async () => {
+  it("a refused remove (another device removed it) → the gone text, the list refreshed, the sheet closed", async () => {
     mocks.remove.mockRejectedValue(trpcError("forbidden", "FORBIDDEN"));
     open(edit());
     fireEvent.click(removeButton());
@@ -393,7 +477,46 @@ describe("ServiceSheet: remove (S12)", () => {
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Odstrani" }));
     });
-    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Za to nimate dovoljenja.", "error"));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Te storitve ni več, odstranil jo je nekdo drug. Seznam je osvežen.",
+        "error"
+      )
+    );
+    expect(mocks.toast).not.toHaveBeenCalledWith("Za to nimate dovoljenja.", "error");
+    expect(mocks.onChanged).toHaveBeenCalledTimes(1);
+    expect(mocks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Flowko U29b (D1 b): Radix would focus the first tabbable control, the destructive „Odstrani“.
+  it("opening the dialog focuses „Prekliči“, not the destructive „Odstrani“", async () => {
+    open(edit());
+    fireEvent.click(removeButton());
+    const dialog = screen.getByRole("dialog", { name: "Odstrani storitev: Barvanje" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Prekliči" })).toHaveFocus());
+    expect(within(dialog).getByRole("button", { name: "Odstrani" })).not.toHaveFocus();
+  });
+
+  // Flowko U29b (D1 c): the buttons stay off until the S17 refresh has finished.
+  it("while the refresh after a remove is pending the sheet buttons are off; a second confirm removes nothing more", async () => {
+    const refresh = deferred();
+    mocks.onChanged.mockReturnValue(refresh.promise);
+    open(edit());
+    fireEvent.click(removeButton());
+    const dialog = screen.getByRole("dialog", { name: "Odstrani storitev: Barvanje" });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Odstrani" }));
+    });
+    await waitFor(() => expect(mocks.onChanged).toHaveBeenCalledTimes(1));
     expect(mocks.onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Odstrani" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Prekliči" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Shrani" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Odstrani" }));
+    expect(mocks.remove).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      refresh.resolve();
+    });
+    await waitFor(() => expect(mocks.onClose).toHaveBeenCalledTimes(1));
   });
 });

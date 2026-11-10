@@ -1,11 +1,12 @@
 // Flowko U29a: the per-weekday time-ranges editor (S16): the business opening hours now, the roster's shifts in
 // U29b. Per weekday a list of from–to rows with 24-hour selects in 15-minute steps from 03:00 to 24:00 (the floor
-// of openingHoursSchema), „Dodaj“ / remove per row, „Zaprto“ when a day is empty, „Kopiraj na vse dni“ from Monday.
+// of openingHoursSchema), „Dodaj“ / remove per row, „Zaprto“ when a day is empty, „Kopiraj v vse dni“ from Monday.
 // Controlled and rule-free: the caller validates (openingHoursSchema / shiftDaySchema) and passes each day's
 // translated error. A stored time off the 15-minute grid stays selectable, so loading never changes a value.
 import { WEEKDAYS, type Weekday } from "@calcom/lib/flowkoBusiness/schemas";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button } from "@calcom/ui/components/button";
+import { useId } from "react";
 
 export type DayRange = { from: string; to: string };
 export type DayRanges = Record<Weekday, DayRange[]>;
@@ -68,6 +69,8 @@ export function DayRangesEditor(props: {
   const { t } = useLocale();
   const { value, onChange, dayErrors, disabled } = props;
   const prefix = props.testIdPrefix ?? "flowko-day-ranges";
+  // Flowko U29b: a day's error gets an id so that day's selects can point at it (aria-describedby, D1 a).
+  const idBase = useId();
 
   const setDay = (day: Weekday, ranges: DayRange[]) => onChange({ ...value, [day]: ranges });
   const setTime = (day: Weekday, index: number, edge: keyof DayRange, time: string) =>
@@ -87,6 +90,7 @@ export function DayRangesEditor(props: {
         const dayName = t(DAY_KEYS[day]);
         const ranges = value[day];
         const error = dayErrors?.[day];
+        const errorId = `${idBase}-${day}-error`;
         return (
           <div key={day} className="flex flex-col gap-2 sm:flex-row sm:items-start">
             <span className="text-emphasis w-32 shrink-0 pt-2 text-sm font-medium capitalize">{dayName}</span>
@@ -109,6 +113,8 @@ export function DayRangesEditor(props: {
                           day: dayName,
                         }
                       )}
+                      aria-invalid={error ? true : undefined}
+                      aria-describedby={error ? errorId : undefined}
                       className={SELECT_CLASS}
                       disabled={disabled}
                       value={range[edge]}
@@ -138,7 +144,11 @@ export function DayRangesEditor(props: {
                 </div>
               ))}
               {error && (
-                <p role="alert" data-testid={`${prefix}-${day}-error`} className="text-error text-sm">
+                <p
+                  id={errorId}
+                  role="alert"
+                  data-testid={`${prefix}-${day}-error`}
+                  className="text-error text-sm">
                   {error}
                 </p>
               )}
@@ -149,6 +159,7 @@ export function DayRangesEditor(props: {
                   size="sm"
                   StartIcon="plus"
                   data-testid={`${prefix}-${day}-add`}
+                  aria-label={t("flowko_settings_add_range_day", { day: dayName })}
                   disabled={disabled || ranges[ranges.length - 1]?.to === "24:00"}
                   onClick={() => setDay(day, [...ranges, nextRange(ranges)])}>
                   {t("flowko_settings_add_range")}

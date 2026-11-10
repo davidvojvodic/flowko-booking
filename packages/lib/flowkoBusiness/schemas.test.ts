@@ -258,6 +258,13 @@ describe("businessSettingsSchema", () => {
     );
   });
 
+  // Flowko U29b: only the domain decides; a real domain that merely contains "invalid" stays valid.
+  it("accepts a real domain that only starts with invalid", () => {
+    expect(businessSettingsSchema.parse({ ...flowkoTest, email: "ana@invalid-salon.si" }).email).toBe(
+      "ana@invalid-salon.si"
+    );
+  });
+
   it.each([[[]], [[1440]], [[120]], [[1440, 120]]])("accepts the reminder choice %j", (offsets) => {
     expect(businessSettingsSchema.parse({ ...flowkoTest, reminderOffsets: offsets }).reminderOffsets).toEqual(
       offsets
@@ -273,6 +280,11 @@ describe("businessSettingsSchema", () => {
     ["a desk placeholder e-mail", { email: "x@flowko.invalid" }, "email_placeholder"],
     ["a desk placeholder e-mail in capitals", { email: "X@FLOWKO.INVALID" }, "email_placeholder"],
     ["a phone placeholder e-mail", { email: "0401234@sms.cal.com" }, "email_placeholder"],
+    // Flowko U29b: every .invalid and sms.cal.com subdomain is a placeholder too (D1 f).
+    ["a flowko.invalid subdomain e-mail", { email: "x@salon.flowko.invalid" }, "email_placeholder"],
+    ["any .invalid e-mail", { email: "x@foo.invalid" }, "email_placeholder"],
+    ["an sms.cal.com subdomain e-mail", { email: "0401234@a.sms.cal.com" }, "email_placeholder"],
+    ["a subdomain placeholder in capitals", { email: "X@SUB.FLOWKO.INVALID" }, "email_placeholder"],
     ["a 255-character e-mail", { email: `${"a".repeat(64)}@${"b".repeat(187)}.si` }, "email_length"],
     ["an e-mail without @", { email: "salon.example.si" }, "email_format"],
     ["reminder offsets [60]", { reminderOffsets: [60] }, "reminder_offsets"],
