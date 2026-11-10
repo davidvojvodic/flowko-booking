@@ -259,8 +259,8 @@ export async function saveService(
     return await withFlowkoTx(db, async (tx) => {
       // Flowko U29c: P2 — the business row lock first: parallel saves, reorders and removals of one business run one
       // after the other (a case-variant name clash and a duplicate position cannot slip through). FOR NO KEY UPDATE,
-      // not FOR UPDATE: a booking's step/action insert takes FOR KEY SHARE on this row (FK check) and must not wait
-      // behind it (that wait plus this delete's wait on the service row was a deadlock).
+      // not FOR UPDATE: the booking writer's action insert takes FOR KEY SHARE on this row (FK check) and must not
+      // wait behind it; its step insert takes FOR KEY SHARE on the SERVICE row (FK check), not on this one.
       await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR NO KEY UPDATE`;
       const others = await tx.flowkoService.findMany({
         where: { businessId },
@@ -318,8 +318,9 @@ export async function removeService(db: FlowkoDb, actorUserId: number, serviceId
     await withFlowkoTx(db, async (tx) => {
       // Flowko U29c: P2 — the business row lock first: parallel saves, reorders and removals of one business run one
       // after the other (a case-variant name clash and a duplicate position cannot slip through). FOR NO KEY UPDATE,
-      // not FOR UPDATE: a booking's step/action insert takes FOR KEY SHARE on this row (FK check) and must not wait
-      // behind it (that wait plus this delete's wait on the service row was a deadlock).
+      // not FOR UPDATE: the booking writer's action insert takes FOR KEY SHARE on this row (FK check) and must not
+      // wait behind it; its step insert takes FOR KEY SHARE on the SERVICE row (FK check), so this delete's wait on
+      // the service row, plus a FOR UPDATE here blocking the action insert, was a deadlock.
       await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR NO KEY UPDATE`;
       const service = await tx.flowkoService.findUnique({
         where: { id: serviceId },
@@ -349,8 +350,8 @@ export async function reorderServices(
     await withFlowkoTx(db, async (tx) => {
       // Flowko U29c: P2 — the business row lock first: parallel saves, reorders and removals of one business run one
       // after the other (a case-variant name clash and a duplicate position cannot slip through). FOR NO KEY UPDATE,
-      // not FOR UPDATE: a booking's step/action insert takes FOR KEY SHARE on this row (FK check) and must not wait
-      // behind it (that wait plus this delete's wait on the service row was a deadlock).
+      // not FOR UPDATE: the booking writer's action insert takes FOR KEY SHARE on this row (FK check) and must not
+      // wait behind it; its step insert takes FOR KEY SHARE on the SERVICE row (FK check), not on this one.
       await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR NO KEY UPDATE`;
       const stored = await tx.flowkoService.findMany({ where: { businessId }, select: { id: true } });
       const storedIds = stored.map((s) => s.id);
