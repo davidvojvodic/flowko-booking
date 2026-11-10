@@ -8,7 +8,7 @@ import classNames from "@calcom/ui/classNames";
 
 import { RosterCell, type RosterCellModel } from "./RosterCell";
 import { RosterDayHeading } from "./RosterDayHeading";
-import { WEEKDAY_TEXT_KEYS, type RosterLayout } from "./rosterModel";
+import { WEEKDAY_TEXT_KEYS, type RosterLayout, cellDayText } from "./rosterModel";
 
 const NAME_WIDTH = "7rem";
 
@@ -17,8 +17,9 @@ export function RosterGrid(props: {
   onOpenDay: (date: string) => void;
   onSelect?: (cell: RosterCellModel) => void;
 }) {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const { layout } = props;
+  const language = i18n?.language ?? "sl";
   const template = `${NAME_WIDTH} repeat(${layout.keys.length}, minmax(5.5rem, 1fr))`;
   return (
     <div
@@ -74,6 +75,7 @@ export function RosterGrid(props: {
                   model={layout.cellOf(member.memberId, key)}
                   closed={layout.isClosed(key)}
                   onSelect={props.onSelect}
+                  label={`${member.displayName}, ${cellDayText({ mode: layout.mode, key, t, language })}`}
                 />
               ))}
             </div>

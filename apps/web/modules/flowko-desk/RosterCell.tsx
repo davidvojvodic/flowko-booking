@@ -2,7 +2,7 @@
 // Shifts one per line („08:00–16:00“), „Prosto“ for no shift, „Odsotnost“ with the desk's hatch for an absence,
 // entries that come from the usual week in muted text, a dot for a day that differs from the usual week, the ring
 // of a changed (draft) cell, `bg-muted` in the column of a closed holiday. A button only when the cell is editable
-// and the caller handles the tap (the cell editor, Task 8); the cell never decides what is editable.
+// and the caller handles the tap (the cell editor, Task 8; `label` names it: worker, day, value); the cell never decides what is editable.
 import type { ShiftEntry } from "@calcom/lib/flowkoBusiness/roster";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
@@ -29,6 +29,8 @@ export function RosterCell(props: {
   closed: boolean;
   /** Tap on an editable cell. */
   onSelect?: (model: RosterCellModel) => void;
+  /** Who and which day („Ana, torek, 17. 11.“): a tappable cell's accessible name is this plus its value. */
+  label?: string;
 }) {
   const { t } = useLocale();
   const { model } = props;
@@ -50,6 +52,11 @@ export function RosterCell(props: {
       tappable && "hover:bg-subtle focus-visible:ring-brand-default cursor-pointer focus-visible:ring-2"
     ),
   };
+  const summary = model.absent
+    ? t("flowko_desk_time_off")
+    : model.entries.length === 0
+      ? t("flowko_roster_off")
+      : model.entries.map((entry) => `${entry.from}–${entry.to}`).join(", ");
   const content = (
     <>
       {model.absent ? (
@@ -79,7 +86,12 @@ export function RosterCell(props: {
     </>
   );
   return tappable ? (
-    <button type="button" {...common} onClick={() => props.onSelect?.(model)}>
+    <button
+      type="button"
+      {...common}
+      // Flowko U29b (Task 8): the visible value alone does not say whose day it is.
+      aria-label={props.label ? `${props.label}: ${summary}` : undefined}
+      onClick={() => props.onSelect?.(model)}>
       {content}
     </button>
   ) : (

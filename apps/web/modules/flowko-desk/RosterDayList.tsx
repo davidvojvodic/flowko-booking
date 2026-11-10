@@ -13,7 +13,7 @@ import { Button } from "@calcom/ui/components/button";
 
 import { RosterCell, type RosterCellModel } from "./RosterCell";
 import { RosterDayHeading } from "./RosterDayHeading";
-import { WEEKDAY_TEXT_KEYS, type RosterLayout } from "./rosterModel";
+import { WEEKDAY_TEXT_KEYS, type RosterLayout, cellDayText } from "./rosterModel";
 
 export function RosterDayList(props: {
   layout: RosterLayout;
@@ -22,8 +22,9 @@ export function RosterDayList(props: {
   onOpenDay: (date: string) => void;
   onSelect?: (cell: RosterCellModel) => void;
 }) {
-  const { t } = useLocale();
+  const { t, i18n } = useLocale();
   const { layout } = props;
+  const language = i18n?.language ?? "sl";
   const dateIndex = WEEKDAYS.indexOf(weekdayOf(props.date));
   const [weekdayIndex, setWeekdayIndex] = useState(dateIndex);
   // S1: „Običajni teden“ starts at the weekday of `date`. Switching the mode, or moving the date while the week is
@@ -90,6 +91,7 @@ export function RosterDayList(props: {
                 model={layout.cellOf(member.memberId, key)}
                 closed={layout.isClosed(key)}
                 onSelect={props.onSelect}
+                label={`${member.displayName}, ${cellDayText({ mode: layout.mode, key, t, language })}`}
               />
             </div>
           );

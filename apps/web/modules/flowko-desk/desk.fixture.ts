@@ -221,8 +221,15 @@ export const services: DeskService[] = [
 /** A `t` backed by the real locale files, with {{placeholder}} interpolation (BookingSuccessCard.test precedent). */
 export function localeT(lang: "sl" | "en" = "sl") {
   const strings = (lang === "sl" ? sl : en) as unknown as Record<string, string>;
-  return (key: string, opts?: Record<string, unknown>) =>
-    (strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(opts?.[k] ?? ""));
+  // Flowko U29b: `count` picks the plural form first (_one/_two/_few/_other), as i18next does.
+  const rules = new Intl.PluralRules(lang);
+  return (key: string, opts?: Record<string, unknown>) => {
+    const count = opts?.count;
+    const plural = typeof count === "number" ? strings[`${key}_${rules.select(count)}`] : undefined;
+    return (plural ?? strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) =>
+      String(opts?.[k] ?? "")
+    );
+  };
 }
 
 // Flowko U29b: the Urnik answer (viewer.flowko.roster.week) for the same people and week. Opening Mon–Fri

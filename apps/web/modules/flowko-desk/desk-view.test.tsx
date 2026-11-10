@@ -54,7 +54,9 @@ vi.mock("./RosterView", async (importOriginal) => {
             </span>
             <button
               type="button"
-              onClick={() => props.view && props.draft.set(props.view, 2, `${props.view.weekStart.slice(0, 8)}17`, [])}>
+              onClick={() =>
+                props.view && props.draft.set(props.view, 2, `${props.view.weekStart.slice(0, 8)}17`, [])
+              }>
               probe-edit
             </button>
             <button type="button" onClick={() => props.onOpenDay("2026-11-18")}>
@@ -1080,7 +1082,10 @@ describe("U29b Urnik routing", () => {
   it("outside Urnik roster.week stays off", () => {
     renderDesk();
     expect(rosterQuery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enabled: false }));
-    expect(rosterQuery).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enabled: true }));
+    expect(rosterQuery).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: true })
+    );
   });
 
   it("hides the actor chip (roster writes record the signed-in user)", () => {
@@ -1248,6 +1253,57 @@ describe("U29b Urnik routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
     expect(await screen.findByRole("dialog", { name: "Neshranjene spremembe" })).toBeInTheDocument();
     expect(probe()).toMatchObject({ date: "2026-11-22", changed: 1 });
+  });
+
+  // Flowko U29b (Task 8): the same promises with a real edit through the cell sheet, not the probe's shortcut.
+  async function editCellThroughTheSheet(memberId: number, date: string) {
+    fireEvent.click(screen.getByTestId(`roster-cell-${memberId}-${date}`));
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Prosto" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Uporabi" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  }
+
+  it("a real edit through the cell sheet pauses the roster poll; discarding it starts the poll again", async () => {
+    renderDesk("?view=roster");
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: 30000, refetchOnWindowFocus: true })
+    );
+    await editCellThroughTheSheet(ANA, "2026-11-17");
+    expect(screen.getByTestId("roster-save-bar")).toBeInTheDocument();
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: false, refetchOnWindowFocus: false })
+    );
+    fireEvent.click(within(screen.getByTestId("roster-save-bar")).getByRole("button", { name: "Zavrzi" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Zavrzi spremembe?" })).getByRole("button", {
+        name: "Zavrzi",
+      })
+    );
+    await waitFor(() => expect(screen.queryByTestId("roster-save-bar")).toBeNull());
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: 30000 })
+    );
+  });
+
+  it("phone, a real edit: a day arrow inside the week keeps it without asking, the crossing asks", async () => {
+    isPhone.mockReturnValue(true);
+    renderDesk("?view=roster&date=2026-11-21");
+    await editCellThroughTheSheet(ANA, "2026-11-21");
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("roster-card-2").querySelector("[data-testid^='roster-cell-2-2026-11-22']")
+      ).toBeTruthy()
+    );
+    expect(unsaved()).toBeNull();
+    expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
+    expect(await screen.findByRole("dialog", { name: "Neshranjene spremembe" })).toBeInTheDocument();
+    expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
   });
 
   it("a load error offers a retry of roster.week", () => {

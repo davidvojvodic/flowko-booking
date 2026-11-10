@@ -21,6 +21,28 @@ export const WEEKDAY_TEXT_KEYS: Record<Weekday, string> = {
   sun: "sunday",
 };
 
+/** „torek, 17. 11.“: a date with the full weekday name (the cell sheet's title, a cell's accessible name). */
+export function formatDayLabelLong(date: string, language: string): string {
+  return new Intl.DateTimeFormat(language, {
+    weekday: "long",
+    day: "numeric",
+    month: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T12:00:00Z`));
+}
+
+/** The day half of a cell's name: the long date (week mode) or the weekday's name („ponedeljek“, usual mode). */
+export function cellDayText(input: {
+  mode: RosterMode;
+  key: string;
+  t: (key: string) => string;
+  language: string;
+}): string {
+  return input.mode === "usual"
+    ? input.t(WEEKDAY_TEXT_KEYS[input.key as Weekday])
+    : formatDayLabelLong(input.key, input.language);
+}
+
 /** G7: the last writable date is today + 371 (the owner's holiday menu follows the same window). */
 const HORIZON_DAYS = 371;
 
