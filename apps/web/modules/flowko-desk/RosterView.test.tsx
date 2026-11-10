@@ -35,6 +35,7 @@ function Harness(props: Partial<Props>) {
       <RosterView
         view={view}
         isPending={false}
+        receivedAt={0}
         mode={mode}
         date={DATE}
         today={DATE}

@@ -18,7 +18,13 @@ describe("useRosterWeek / useInvalidateRoster (U29b)", () => {
 
   it("asks roster.week for the week, polling every 30 s and on focus while clean", () => {
     const view = rosterWeek();
-    deskTrpc.rosterWeekQuery.mockReturnValue({ data: view, isPending: false, error: null, refetch: vi.fn() });
+    deskTrpc.rosterWeekQuery.mockReturnValue({
+      data: view,
+      isPending: false,
+      error: null,
+      refetch: vi.fn(),
+      dataUpdatedAt: 1234,
+    });
     const { result } = renderHook(() => useRosterWeek("2026-11-16", { enabled: true, paused: false }));
     expect(deskTrpc.rosterWeekQuery).toHaveBeenCalledWith(
       { weekStart: "2026-11-16" },
@@ -26,6 +32,8 @@ describe("useRosterWeek / useInvalidateRoster (U29b)", () => {
     );
     expect(result.current.view).toBe(view);
     expect(result.current.isPending).toBe(false);
+    // Flowko U29c (R11): when the answer arrived; a newer one clears Urnik's refresh-failed notice.
+    expect(result.current.receivedAt).toBe(1234);
   });
 
   it("paused (dirty draft): no interval and no focus refetch; disabled passes through", () => {

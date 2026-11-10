@@ -1,7 +1,7 @@
 // Flowko U29b (Task 7, S8, Ruling R3): the holiday label in a day header and the owner's menu „Odpri ta dan“ /
 // „Zapri ta dan“ (saved at once, refresh with the settings), the hint + link while the closing switch is off, the
-// disabled action while the draft is dirty, and the label-only view for everyone else. Flowko U29c (P1, P8): a saved
-// change shows „Shranjeno“; a failed roster.week refresh after it calls onRefreshFailed (RosterView's notice).
+// disabled action while the draft is dirty, and the label-only view for everyone else. Flowko U29c (P1, P8, R11): a
+// saved change shows „Shranjeno“ and hands the refresh's answer to onRefreshed (false = RosterView's notice).
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,7 +20,7 @@ const invalidate = vi.hoisted(() => vi.fn());
 vi.mock("./useRosterData", () => ({ useInvalidateRoster: () => invalidate }));
 
 const DATE = "2026-11-19";
-const onRefreshFailed = vi.fn();
+const onRefreshed = vi.fn();
 
 function renderMenu(over: Partial<Parameters<typeof RosterHolidayMenu>[0]> = {}) {
   return render(
@@ -30,7 +30,7 @@ function renderMenu(over: Partial<Parameters<typeof RosterHolidayMenu>[0]> = {})
       holidaysClosed
       canManage
       dirty={false}
-      onRefreshFailed={onRefreshFailed}
+      onRefreshed={onRefreshed}
       {...over}
     />
   );
@@ -135,15 +135,15 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
     fireEvent.click(label());
     fireEvent.click(screen.getByRole("button", { name: action }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
-    expect(onRefreshFailed).not.toHaveBeenCalled();
+    expect(onRefreshed).toHaveBeenCalledExactlyOnceWith(true);
   });
 
-  it("a failed refresh after a saved change: „Shranjeno“, onRefreshFailed, the menu closes (U29c P1)", async () => {
+  it("a failed refresh after a saved change: „Shranjeno“, onRefreshed(false), the menu closes (U29c P1)", async () => {
     invalidate.mockResolvedValue(false);
     renderMenu();
     fireEvent.click(label());
     fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
-    await waitFor(() => expect(onRefreshFailed).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onRefreshed).toHaveBeenCalledExactlyOnceWith(false));
     expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
     expect(toast).not.toHaveBeenCalledWith(expect.anything(), "error");
     await waitFor(() => expect(screen.queryByText("Odpri ta dan")).toBeNull());
@@ -157,6 +157,6 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
     await waitFor(() => expect(toast).toHaveBeenCalledTimes(1));
     expect(toast).not.toHaveBeenCalledWith("Shranjeno", "success");
-    expect(onRefreshFailed).not.toHaveBeenCalled();
+    expect(onRefreshed).not.toHaveBeenCalled();
   });
 });

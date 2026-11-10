@@ -4,8 +4,8 @@
 // refresh of the roster, the desk and the business settings. With the business's closing switch off every holiday is
 // open and closing has no effect, so the menu says so and links to the settings instead. While the week has unsaved
 // edits the action is disabled with a hint (the refresh would drop them).
-// Flowko U29c (P1, P8): a saved change shows „Shranjeno“; when the roster could not be read again after it,
-// `onRefreshFailed` raises RosterView's notice (the menu closes anyway: the change stands).
+// Flowko U29c (P1, P8, R11): a saved change shows „Shranjeno“; the refresh's answer goes to `onRefreshed` (false
+// raises RosterView's notice, true clears it); the menu closes anyway: the change stands.
 import { useState } from "react";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -27,8 +27,8 @@ export function RosterHolidayMenu(props: {
   canManage: boolean;
   /** The draft holds unsaved edits. */
   dirty: boolean;
-  /** Flowko U29c (P1): a change stood but roster.week could not be read again: RosterView shows its notice. */
-  onRefreshFailed: () => void;
+  /** Flowko U29c (P1, R11): a change stood; ok = roster.week was read again (false: RosterView's notice). */
+  onRefreshed: (ok: boolean) => void;
 }) {
   const { t } = useLocale();
   const { date, holiday } = props;
@@ -65,7 +65,7 @@ export function RosterHolidayMenu(props: {
       const refreshed = await invalidate({ settings: true });
       if (saved) {
         showToast(t("saved"), "success");
-        if (!refreshed) props.onRefreshFailed();
+        props.onRefreshed(refreshed);
         setMenuOpen(false);
       }
     } finally {

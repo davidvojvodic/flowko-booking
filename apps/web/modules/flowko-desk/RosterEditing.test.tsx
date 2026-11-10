@@ -51,6 +51,7 @@ function Harness(props: Partial<Props>) {
       <RosterView
         view={view}
         isPending={false}
+        receivedAt={0}
         mode={mode}
         date={DATE}
         today={DATE}
@@ -791,6 +792,7 @@ function DeskHarness(props: { inRoster: boolean }) {
         <RosterView
           view={view}
           isPending={false}
+          receivedAt={0}
           mode="week"
           date={DATE}
           today={DATE}
@@ -833,15 +835,12 @@ describe("RosterView editing: A → Dan → A while a save or copy runs (U29c P7
     await act(async () => {
       save.resolve({ status: "saved" });
     });
-    await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalled());
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // The old save reached its discard(): its „Shranjeno“ comes right after it (the global toast outlives the
+    // RosterView it started in). Only then the new draft is checked.
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
     expect(captured.draft?.changedCount).toBe(1);
     expect(cell(BOR, FRI).getAttribute("data-changed")).toBe("true");
     expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
-    // The first save stood: „Shranjeno“ (the global toast outlives the RosterView it started in).
-    await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
   });
 
   it("a copy that finishes after the user came back to the same week fills nothing", async () => {
@@ -913,54 +912,117 @@ describe("RosterView editing: „Shranjeno“ (U29c P8)", () => {
     deskTrpc.fetchRosterWeek.mockResolvedValue(rosterWeek({ weekStart: "2026-11-09" }));
     renderRoster();
     fireEvent.click(screen.getByRole("button", { name: "Kopiraj prejšnji teden" }));
-    await waitFor(() => expect(deskTrpc.fetchRosterWeek).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Kopiraj prejšnji teden" })).toBeTruthy());
+    // The copy has filled the draft (Bor's planned Wednesday goes back to the usual week).
+    await waitFor(() => expect(cell(BOR, WED).getAttribute("data-changed")).toBe("true"));
     expect(toast).not.toHaveBeenCalled();
   });
 });
 
-describe("RosterView editing: the refresh-failed notice (U29c P1)", () => {
+describe("RosterView editing: the refresh-failed notice (U29c P1, Rulings R8 and R11)", () => {
   const FRI = "2026-11-20";
+  const NEXT = "2026-11-23";
   const NOTICE =
     "Shranjeno, Urnika pa ni bilo mogoče osvežiti. Pred novim shranjevanjem kliknite Poskusi znova.";
   const notice = () => screen.findByTestId("roster-refresh-failed");
+  const noNotice = () => expect(screen.queryByTestId("roster-refresh-failed")).toBeNull();
   const retryButton = () =>
-    within(screen.getByTestId("roster-refresh-failed")).getByRole("button", { name: "Poskusi znova" });
-
-  it("a saved week whose refresh failed: the save stands, the notice shows, „Shrani“ waits for a retry", async () => {
+    within(screen.getByTestId("roster-refresh-failed")).getByRole("button", {
+      name: "Poskusi znova",
+    }) as HTMLButtonElement;
+  const copyButton = () =>
+    screen.getByRole("button", { name: "Kopiraj prejšnji teden" }) as HTMLButtonElement;
+  const withHoliday = () => {
+    const base = rosterWeek();
+    return {
+      ...base,
+      days: base.days.map((d) =>
+        d.date === "2026-11-19" ? { ...d, holiday: { name: "Božič", open: false } } : d
+      ),
+    };
+  };
+  /** A saved week whose refresh failed: the notice is up, the draft is gone. */
+  async function raiseNotice() {
     deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
-    renderRoster();
     await applyChoice(ANA, TUE, "Prosto");
     fireEvent.click(saveButton());
     expect((await notice()).textContent).toContain(NOTICE);
+  }
+
+  it("a saved week whose refresh failed: the save stands, the notice shows, no new edit or copy until a retry worked", async () => {
+    renderRoster();
+    await raiseNotice();
     expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
     // The save stands: the draft is gone.
     expect(captured.draft?.dirty).toBe(false);
     expect(screen.queryByTestId("roster-save-bar")).toBeNull();
-    // A new edit is possible, but „Shrani“ is held back (the versions are stale); „Zavrzi“ still works.
-    await applyChoice(BOR, FRI, "Prosto");
-    expect(saveButton().disabled).toBe(true);
-    expect((within(bar()).getByRole("button", { name: "Zavrzi" }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(saveButton());
-    expect(deskTrpc.saveWeek).toHaveBeenCalledTimes(1);
-    // A retry that fails again keeps the notice.
+    // R8: no edit starts from the stale answer: no cell is a button (so no sheet, no absence), copy is off.
+    expect(cell(ANA, TUE).tagName).toBe("DIV");
+    expect(cell(BOR, FRI).tagName).toBe("DIV");
+    fireEvent.click(cell(BOR, FRI));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(copyButton().disabled).toBe(true);
+    fireEvent.click(copyButton());
+    expect(deskTrpc.fetchRosterWeek).not.toHaveBeenCalled();
+    // A retry that fails again keeps the notice and the block.
     fireEvent.click(retryButton());
     await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect((retryButton() as HTMLButtonElement).disabled).toBe(false));
-    expect(screen.getByTestId("roster-refresh-failed")).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
-    // A retry that works removes it and frees „Shrani“.
+    await waitFor(() => expect(retryButton().disabled).toBe(false));
+    expect(cell(BOR, FRI).tagName).toBe("DIV");
+    expect(copyButton().disabled).toBe(true);
+    // A retry that works removes it and frees the cells and the copy.
     deskTrpc.invalidateRosterWeek.mockResolvedValue(undefined);
     fireEvent.click(retryButton());
-    await waitFor(() => expect(screen.queryByTestId("roster-refresh-failed")).toBeNull());
+    await waitFor(noNotice);
     expect(deskTrpc.invalidateRosterWeek).toHaveBeenLastCalledWith(undefined, undefined, {
       throwOnError: true,
     });
     expect(deskTrpc.invalidateDay).toHaveBeenCalledTimes(3);
+    expect(cell(BOR, FRI).tagName).toBe("BUTTON");
+    expect(copyButton().disabled).toBe(false);
+  });
+
+  it("the phone's day list is not tappable either while the notice is up (R8)", async () => {
+    renderRoster({ isPhone: true, date: TUE });
+    await raiseNotice();
+    expect(cell(ANA, TUE).tagName).toBe("DIV");
+    expect(cell(BOR, TUE).tagName).toBe("DIV");
+    deskTrpc.invalidateRosterWeek.mockResolvedValue(undefined);
+    fireEvent.click(retryButton());
+    await waitFor(noNotice);
+    expect(cell(BOR, TUE).tagName).toBe("BUTTON");
+  });
+
+  it("a draft already dirty when the notice came up keeps „Shrani“ held back until a retry worked", async () => {
+    // The owner closes the holiday menu while its write runs and edits a cell; then the write is saved and its
+    // refresh fails.
+    const write = deferred<{ status: "saved" }>();
+    deskTrpc.setHolidayOpen.mockReturnValueOnce(write.promise);
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    renderRoster({ view: withHoliday() });
+    fireEvent.click(screen.getByTestId("roster-holiday-2026-11-19"));
+    fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
+    await waitFor(() => expect(deskTrpc.setHolidayOpen).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("roster-holiday-2026-11-19"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Odpri ta dan" })).toBeNull());
+    await applyChoice(BOR, FRI, "Prosto");
+    await act(async () => {
+      write.resolve({ status: "saved" });
+    });
+    expect((await notice()).textContent).toContain(NOTICE);
+    expect(captured.draft?.changedCount).toBe(1);
+    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().querySelector(".animate-spin")).toBeNull();
+    expect((within(bar()).getByRole("button", { name: "Zavrzi" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(saveButton());
+    expect(deskTrpc.saveWeek).not.toHaveBeenCalled();
+    expect(cell(ANA, TUE).tagName).toBe("DIV");
+    deskTrpc.invalidateRosterWeek.mockResolvedValue(undefined);
+    fireEvent.click(retryButton());
+    await waitFor(noNotice);
     expect(saveButton().disabled).toBe(false);
   });
 
-  it("a saved absence whose refresh failed shows the notice in Urnik after the sheet closed", async () => {
+  it("a saved absence whose refresh failed shows the notice in Urnik after the sheet closed; no cell opens", async () => {
     deskTrpc.addAbsence.mockResolvedValueOnce({ status: "saved", absenceId: 90 });
     deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
     renderRoster();
@@ -969,22 +1031,14 @@ describe("RosterView editing: the refresh-failed notice (U29c P1)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect((await notice()).textContent).toContain(NOTICE);
     expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
-    await applyChoice(BOR, FRI, "Prosto");
-    expect(saveButton().disabled).toBe(true);
+    expect(cell(ANA, TUE).tagName).toBe("DIV");
+    expect(cell(BOR, FRI).tagName).toBe("DIV");
   });
 
   it("a saved holiday change whose refresh failed shows the notice in Urnik", async () => {
     deskTrpc.setHolidayOpen.mockResolvedValueOnce({ status: "saved" });
     deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
-    const base = rosterWeek();
-    renderRoster({
-      view: {
-        ...base,
-        days: base.days.map((d) =>
-          d.date === "2026-11-19" ? { ...d, holiday: { name: "Božič", open: false } } : d
-        ),
-      },
-    });
+    renderRoster({ view: withHoliday() });
     fireEvent.click(screen.getByTestId("roster-holiday-2026-11-19"));
     fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
     expect((await notice()).textContent).toContain(NOTICE);
@@ -1001,7 +1055,52 @@ describe("RosterView editing: the refresh-failed notice (U29c P1)", () => {
     fireEvent.click(saveButton());
     await screen.findByTestId("roster-stale");
     await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalled());
-    expect(screen.queryByTestId("roster-refresh-failed")).toBeNull();
+    noNotice();
     expect(toast).not.toHaveBeenCalled();
+  });
+
+  // R11: the notice also goes on any later successful read of roster.week, or on another week or mode.
+  it("clears when a later save's refresh worked (a second holiday change)", async () => {
+    deskTrpc.setHolidayOpen.mockResolvedValue({ status: "saved" });
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    renderRoster({ view: withHoliday() });
+    fireEvent.click(screen.getByTestId("roster-holiday-2026-11-19"));
+    fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
+    await notice();
+    deskTrpc.invalidateRosterWeek.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByTestId("roster-holiday-2026-11-19"));
+    fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
+    await waitFor(() => expect(deskTrpc.setHolidayOpen).toHaveBeenCalledTimes(2));
+    await waitFor(noNotice);
+    expect(cell(BOR, FRI).tagName).toBe("BUTTON");
+  });
+
+  it("clears when a newer roster.week answer arrives (the 30 s poll or a refetch: receivedAt advanced)", async () => {
+    const { rerender } = render(<Harness receivedAt={1000} />);
+    await raiseNotice();
+    // The same answer again (a failed refetch never moves dataUpdatedAt): the notice stays.
+    rerender(<Harness receivedAt={1000} />);
+    expect(screen.getByTestId("roster-refresh-failed")).toBeTruthy();
+    rerender(<Harness receivedAt={31000} />);
+    await waitFor(noNotice);
+    expect(cell(BOR, FRI).tagName).toBe("BUTTON");
+  });
+
+  it("clears on another week and stays gone when the user comes back", async () => {
+    const { rerender } = render(<Harness view={rosterWeek()} date={DATE} />);
+    await raiseNotice();
+    rerender(<Harness view={rosterWeek({ weekStart: NEXT, today: DATE })} date={NEXT} />);
+    await waitFor(noNotice);
+    rerender(<Harness view={rosterWeek()} date={DATE} />);
+    noNotice();
+    expect(cell(BOR, FRI).tagName).toBe("BUTTON");
+  });
+
+  it("clears on another mode („Običajni teden“)", async () => {
+    const { rerender } = render(<Harness mode="week" />);
+    await raiseNotice();
+    rerender(<Harness mode="usual" />);
+    await waitFor(noNotice);
+    expect(cell(ANA, "sat").tagName).toBe("BUTTON");
   });
 });

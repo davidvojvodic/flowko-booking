@@ -16,7 +16,14 @@ import { DESK_POLL_MS, useInvalidateDesk } from "./useDeskData";
 export function useRosterWeek(
   weekStart: string,
   opts: { enabled: boolean; paused: boolean }
-): { view?: RosterWeekView; isPending: boolean; error: unknown; refetch: () => Promise<unknown> } {
+): {
+  view?: RosterWeekView;
+  isPending: boolean;
+  error: unknown;
+  refetch: () => Promise<unknown>;
+  /** Flowko U29c (R11): when the answer arrived (dataUpdatedAt); a successful read moves it, a failed one never. */
+  receivedAt: number;
+} {
   const query = trpc.viewer.flowko.roster.week.useQuery(
     { weekStart },
     {
@@ -27,7 +34,13 @@ export function useRosterWeek(
   );
   // Flowko U29b: an annotation, not a cast: the inferred route output must stay assignable to RosterWeekView.
   const view: RosterWeekView | undefined = query.data;
-  return { view, isPending: query.isPending, error: query.error, refetch: query.refetch };
+  return {
+    view,
+    isPending: query.isPending,
+    error: query.error,
+    refetch: query.refetch,
+    receivedAt: query.dataUpdatedAt,
+  };
 }
 
 // Flowko U29c (P1): answers false when roster.week could not be read again (after its retries); the caller then
