@@ -4,7 +4,7 @@
 // refresh keeps every arrow and action off until the refreshed list is in):
 //  - „Zakleni“: refresh the list first and open the confirm dialog with the FRESH booking count (W7); when the
 //    refresh fails there is no dialog and nothing is locked (generic error text). The dialog's „Zakleni“ locks,
-//    toasts, refreshes; google: "failed" adds a warning toast and, until a reload, „Prekini Google“ on that row.
+//    toasts, refreshes; google: "failed" adds a warning toast and, until a reload, „Prekini povezavo z Googlom“ on that row.
 //  - „Odkleni“: no dialog (W9). Order arrows: send the whole new order (W5), „Shranjeno“ (P8); bad_member = the
 //    order changed meanwhile (text + refetch). „Dodaj brez prijave“: AddDeskWorkerForm (W4).
 // Errors per procedure as W10. A failed refresh after a saved write never undoes it: an inline „Osveži“ notice
@@ -185,7 +185,7 @@ export default function WorkersView() {
     }, undefined);
   }
 
-  /** The lock itself (also the „Prekini Google“ retry: locking a LOCKED member runs the disconnect again). */
+  /** The lock itself (also the „Prekini povezavo z Googlom“ retry: locking a LOCKED member runs the disconnect again). */
   async function lockMember(row: WorkerListRow) {
     await exclusive(async () => {
       let result: Awaited<ReturnType<typeof lock.mutateAsync>>;

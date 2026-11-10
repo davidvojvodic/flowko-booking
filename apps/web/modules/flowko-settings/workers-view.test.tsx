@@ -209,7 +209,7 @@ describe("WorkersView: the list", () => {
     expect(links[0]).toHaveTextContent("tor., 17. 11. · 10:00–11:00 · Striženje, Fen · Ana Testna");
     expect(links[1]).toHaveAttribute("href", "/koledar?view=day&date=2027-01-05");
     expect(
-      r.getByText("Termin prestavite tako, da ga odpoveste in vnesete na drugega delavca.")
+      r.getByText("Termin prestavite k drugemu delavcu tako, da ga odpoveste in znova vnesete.")
     ).toBeInTheDocument();
   });
 
@@ -245,7 +245,7 @@ describe("WorkersView: the list", () => {
 
   it.each([
     [2, "… in še 2 termina"],
-    [3, "… in še 3 termine"],
+    [3, "… in še 3 termini"],
     [5, "… in še 5 terminov"],
   ])("more bookings, %i: plural form", (count, text) => {
     data = withRow(DAN, { moreBookings: count });
@@ -320,7 +320,7 @@ describe("WorkersView: lock (W7)", () => {
     await click(inRow(EVA).getByRole("button", { name: "Lock" }));
     await waitFor(() => expect(dialog()).toBeInTheDocument());
     expect(
-      within(dialog()).getByText("Eva has 1 future booking. It stays until you cancel it.")
+      within(dialog()).getByText("Eva has 1 upcoming booking. It stays until you cancel it.")
     ).toBeInTheDocument();
   });
 
@@ -340,7 +340,7 @@ describe("WorkersView: lock (W7)", () => {
     render(<WorkersView />);
     await click(inRow(id).getByRole("button", { name: "Zakleni" }));
     await waitFor(() => expect(dialog()).toBeInTheDocument());
-    const line = "Prijava bo onemogočena, povezava z Googlom pa se prekine.";
+    const line = "Prijava bo onemogočena, povezava z Googlom pa prekinjena.";
     if (shown) expect(within(dialog()).getByText(line)).toBeInTheDocument();
     else expect(within(dialog()).queryByText(line)).toBeNull();
   });
@@ -371,14 +371,14 @@ describe("WorkersView: lock (W7)", () => {
     expect(mocks.invalidateDeskServices).toHaveBeenCalled();
   });
 
-  it("google failed: warning toast and „Prekini Google“ on that row; it locks again; gone after a reload", async () => {
+  it("google failed: warning toast and „Prekini povezavo z Googlom“ on that row; it locks again; gone after a reload", async () => {
     mocks.lock.mockResolvedValueOnce({ status: "LOCKED", google: "failed", futureCount: 0 });
     const { unmount } = render(<WorkersView />);
     await click(inRow(EVA).getByRole("button", { name: "Zakleni" }));
     await click(within(dialog()).getByRole("button", { name: "Zakleni" }));
     await waitFor(() =>
       expect(mocks.toast).toHaveBeenCalledWith(
-        "Eva: dostop je zaklenjen, povezave z Googlom pa ni bilo mogoče prekiniti. Poskusite znova s „Prekini Google“.",
+        "Eva: dostop je zaklenjen, povezave z Googlom pa ni bilo mogoče prekiniti. Poskusite znova z gumbom „Prekini povezavo z Googlom“.",
         "warning"
       )
     );
@@ -387,7 +387,7 @@ describe("WorkersView: lock (W7)", () => {
     unmount();
     // a fresh mount (reload) has no retry button
     render(<WorkersView />);
-    expect(screen.queryByRole("button", { name: "Prekini Google" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Prekini povezavo z Googlom" })).toBeNull();
   });
 
   it("the retry button calls lock again and goes away once Google is disconnected", async () => {
@@ -398,12 +398,12 @@ describe("WorkersView: lock (W7)", () => {
     render(<WorkersView />);
     await click(inRow(EVA).getByRole("button", { name: "Zakleni" }));
     await click(within(dialog()).getByRole("button", { name: "Zakleni" }));
-    const retry = await screen.findByRole("button", { name: "Prekini Google" });
+    const retry = await screen.findByRole("button", { name: "Prekini povezavo z Googlom" });
     expect(row(EVA).contains(retry)).toBe(true);
     await click(retry);
     await waitFor(() => expect(lockCount()).toBe(2));
     expect(mocks.lock).toHaveBeenLastCalledWith({ memberId: EVA });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Prekini Google" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Prekini povezavo z Googlom" })).toBeNull());
   });
 
   it.each([
@@ -411,7 +411,7 @@ describe("WorkersView: lock (W7)", () => {
     ["forbidden", "FORBIDDEN", "Za to nimate dovoljenja."],
     ["owner_cannot_be_locked", "BAD_REQUEST", "Lastnika ni mogoče zakleniti."],
     ["member_not_locked", "BAD_REQUEST", "Ta oseba ni zaklenjena. Seznam je osvežen."],
-    ["member_conflict", "BAD_REQUEST", "Hkrati je spreminjal še nekdo. Poskusite znova."],
+    ["member_conflict", "BAD_REQUEST", "Hkrati je shranjeval še nekdo. Poskusite znova."],
     ["Too many", "TOO_MANY_REQUESTS", "Preveč zahtev. Poskusite znova čez trenutek."],
     ["boom", "INTERNAL_SERVER_ERROR", "Nekaj je šlo narobe."],
   ])("lock error %s (%s) -> %s", async (message, code, text) => {
@@ -460,7 +460,7 @@ describe("WorkersView: unlock (W9)", () => {
 
   it.each([
     ["forbidden", "BAD_REQUEST", "Za to nimate dovoljenja."],
-    ["member_conflict", "BAD_REQUEST", "Hkrati je spreminjal še nekdo. Poskusite znova."],
+    ["member_conflict", "BAD_REQUEST", "Hkrati je shranjeval še nekdo. Poskusite znova."],
     ["Too many", "TOO_MANY_REQUESTS", "Preveč zahtev. Poskusite znova čez trenutek."],
     ["boom", "INTERNAL_SERVER_ERROR", "Nekaj je šlo narobe."],
   ])("unlock error %s (%s) -> %s; the button is back", async (message, code, text) => {
@@ -478,7 +478,7 @@ describe("WorkersView: unlock (W9)", () => {
     await waitFor(() => expect(screen.getByTestId("flowko-workers-refresh-failed")).toBeInTheDocument());
     expect(mocks.toast).toHaveBeenCalledWith("Odklenjeno: Dan", "success");
     expect(
-      screen.getByText("Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.")
+      screen.getByText("Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.")
     ).toBeInTheDocument();
     expect(screen.getByTestId("flowko-workers-refresh-failed")).toHaveAttribute("role", "alert");
     // the actions are not blocked
@@ -590,7 +590,7 @@ describe("WorkersView: order (W5, W6, P8)", () => {
     render(<WorkersView />);
     await click(screen.getByRole("button", { name: "Premakni dol: Bor" }));
     await waitFor(() =>
-      expect(mocks.toast).toHaveBeenCalledWith("Hkrati je spreminjal še nekdo. Poskusite znova.", "error")
+      expect(mocks.toast).toHaveBeenCalledWith("Hkrati je shranjeval še nekdo. Poskusite znova.", "error")
     );
     expect(screen.getByRole("button", { name: "Premakni dol: Bor" })).toBeEnabled();
     expect(mocks.toast).not.toHaveBeenCalledWith("Shranjeno", "success");
@@ -634,7 +634,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
   it("an empty name: inline error, no call", async () => {
     render(<WorkersView />);
     await submit();
-    expect(screen.getByText("Ime mora imeti od 1 do 80 znakov.")).toBeInTheDocument();
+    expect(screen.getByText("Vnesite ime (največ 80 znakov).")).toBeInTheDocument();
     expect(field()).toHaveAttribute("aria-invalid", "true");
     expect(mocks.add).not.toHaveBeenCalled();
   });
@@ -644,7 +644,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
     const long = "a".repeat(81);
     type(long);
     await submit();
-    expect(screen.getByText("Ime mora imeti od 1 do 80 znakov.")).toBeInTheDocument();
+    expect(screen.getByText("Vnesite ime (največ 80 znakov).")).toBeInTheDocument();
     expect(field().value).toBe(long);
     expect(mocks.add).not.toHaveBeenCalled();
   });
@@ -654,7 +654,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
     render(<WorkersView />);
     type("Gaj");
     await submit();
-    expect(await screen.findByText("Ime mora imeti od 1 do 80 znakov.")).toBeInTheDocument();
+    expect(await screen.findByText("Vnesite ime (največ 80 znakov).")).toBeInTheDocument();
     expect(field().value).toBe("Gaj");
     expect(mocks.toast).not.toHaveBeenCalled();
   });
@@ -664,7 +664,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
     render(<WorkersView />);
     type("Bor");
     await submit();
-    const text = "V podjetju že je oseba s tem imenom.";
+    const text = "V podjetju je že oseba s tem imenom.";
     expect(await screen.findByText(text)).toBeInTheDocument();
     expect(field()).toHaveAttribute("aria-invalid", "true");
     expect(field()).toHaveAccessibleDescription(text);
@@ -676,9 +676,9 @@ describe("WorkersView: add without login (W4, W10)", () => {
     render(<WorkersView />);
     type("Bor");
     await submit();
-    await screen.findByText("V podjetju že je oseba s tem imenom.");
+    await screen.findByText("V podjetju je že oseba s tem imenom.");
     type("Bori");
-    expect(screen.queryByText("V podjetju že je oseba s tem imenom.")).toBeNull();
+    expect(screen.queryByText("V podjetju je že oseba s tem imenom.")).toBeNull();
     expect(field()).not.toHaveAttribute("aria-invalid");
   });
 
@@ -688,7 +688,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
     await submit();
     await waitFor(() => expect(mocks.add).toHaveBeenCalledWith({ displayName: "Gaj" }));
     expect(mocks.toast).toHaveBeenCalledWith(
-      "Dodano: Gaj. Urnik nastavite v Urniku, storitve v Storitvah.",
+      "Dodano: Gaj. Izmene nastavite v Urniku, storitve pa v Storitvah.",
       "success"
     );
     await waitFor(() => expect(field().value).toBe(""));
@@ -697,7 +697,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
 
   it.each([
     ["forbidden", "BAD_REQUEST", "Za to nimate dovoljenja."],
-    ["member_conflict", "BAD_REQUEST", "Hkrati je spreminjal še nekdo. Poskusite znova."],
+    ["member_conflict", "BAD_REQUEST", "Hkrati je shranjeval še nekdo. Poskusite znova."],
     ["Too many", "TOO_MANY_REQUESTS", "Preveč zahtev. Poskusite znova čez trenutek."],
     ["boom", "INTERNAL_SERVER_ERROR", "Nekaj je šlo narobe."],
   ])("add error %s (%s) -> toast %s, value kept", async (message, code, text) => {

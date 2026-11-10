@@ -2,7 +2,7 @@
 // „Lastnik“, WORKER „Delavec“, STAFF „Recepcija“), status badge (LOCKED > no login > active; every badge carries
 // text, never colour alone), the order arrows (always shown; the caller disables them at the ends, while a write
 // or refresh runs and while the on-screen list may be stale) and the action: none for the OWNER, „Zakleni“ for an ACTIVE member, „Odkleni“ for a LOCKED one
-// (whose future bookings are listed under the row), plus „Prekini Google“ on a row whose last lock could not
+// (whose future bookings are listed under the row), plus „Prekini povezavo z Googlom“ on a row whose last lock could not
 // remove the Google connection (this browser session only). The row wraps (flex-wrap) so a phone never scrolls
 // sideways.
 "use client";
@@ -29,7 +29,7 @@ export function WorkerListItem(props: {
   arrowsOff: boolean;
   /** This row's „Zakleni“ is refreshing the list before it opens the dialog. */
   preparing: boolean;
-  /** The last lock of this row could not disconnect Google: „Prekini Google“ is offered. */
+  /** The last lock of this row could not disconnect Google: „Prekini povezavo z Googlom“ is offered. */
   retryGoogle: boolean;
   currentYear: number;
   onMove: (direction: ArrowDirection) => void;

@@ -347,7 +347,7 @@ describe("BusinessProfileView: settings_changed", () => {
 // is never said about the owner's own save.
 describe("BusinessProfileView: the refresh after a save (P1)", () => {
   const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
-  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.";
+  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.";
 
   async function saveWithFailingRefresh() {
     mocks.update.mockResolvedValue({ status: "saved" });

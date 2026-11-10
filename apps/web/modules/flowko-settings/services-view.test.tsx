@@ -291,7 +291,7 @@ describe("ServicesView: the sheet", () => {
 // as the new order); saves carry no version. A reorder that went through says „Shranjeno“.
 describe("ServicesView: the refresh after a write (P1, P8)", () => {
   const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
-  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.";
+  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.";
 
   async function reorderWithFailingRefresh() {
     mocks.invalidateList.mockRejectedValue(new Error("offline"));
@@ -386,7 +386,7 @@ describe("ServicesView: a broken service (P4)", () => {
   it("the row says its steps are damaged; healthy rows do not", () => {
     render(<ServicesView />);
     expect(
-      within(row(KVAR.id)).getByText("Koraki te storitve so poškodovani. Uredite jo znova ali jo odstranite.")
+      within(row(KVAR.id)).getByText("Koraki te storitve so poškodovani. Uredite jo in znova dodajte korake ali pa jo odstranite.")
     ).toBeInTheDocument();
     expect(within(row(STRIZENJE.id)).queryByText(/poškodovani/)).toBeNull();
     expect(within(row(KVAR.id)).queryByTestId("flowko-service-total")).toBeNull();

@@ -922,7 +922,7 @@ describe("RosterView editing: the refresh-failed notice (U29c P1, Rulings R8 and
   const FRI = "2026-11-20";
   const NEXT = "2026-11-23";
   const NOTICE =
-    "Shranjeno, Urnika pa ni bilo mogoče osvežiti. Pred novim shranjevanjem kliknite Poskusi znova.";
+    "Shranjeno, urnika pa ni bilo mogoče osvežiti. Pred novim shranjevanjem kliknite „Poskusi znova“.";
   const notice = () => screen.findByTestId("roster-refresh-failed");
   const noNotice = () => expect(screen.queryByTestId("roster-refresh-failed")).toBeNull();
   const retryButton = () =>
