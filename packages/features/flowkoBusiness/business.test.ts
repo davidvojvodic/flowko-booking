@@ -13,6 +13,7 @@ import {
   addStaffWithoutLogin,
   createBusiness,
   createDeskOnlyWorker,
+  nextPosition,
   setServiceWorkers,
 } from "./business";
 import type { FlowkoDb } from "./db";
@@ -565,5 +566,32 @@ describe("Teams stay untouched", () => {
     expect(await prismock.host.count()).toBe(0);
     expect(await prismock.profile.count()).toBe(0);
     expect(await prismock.eventType.count()).toBe(0);
+  });
+});
+
+// Flowko U29c: nextPosition is max(position) + 1 (0 when empty), not the member count, for every member creator.
+// The business row lock it takes is a raw statement prismock ignores; the lock itself is proven in
+// workers.integration-test.ts.
+describe("nextPosition (U29c)", () => {
+  it("is 0 for a business without members and max + 1 otherwise, also when the positions have gaps", async () => {
+    const { businessId, ownerMemberId } = await makeBusiness();
+    expect(await nextPosition(prismock as never, 999_999)).toBe(0);
+    expect(await nextPosition(prismock as never, businessId)).toBe(1);
+    await prismock.flowkoBusinessMember.update({ where: { id: ownerMemberId }, data: { position: 5 } });
+    expect(await nextPosition(prismock as never, businessId)).toBe(6);
+    // Every creator uses it: members at 0 and 5 -> the new one is 6, then 7, then 8.
+    await prismock.flowkoBusinessMember.create({
+      data: { businessId, userId: null, role: FlowkoBusinessRole.STAFF, displayName: "Zero", position: 0 },
+    });
+    const staff = await addStaffWithoutLogin(db, businessId, "Sara");
+    const desk = await createDeskOnlyWorker(db, businessId, "Maja");
+    const positions = await prismock.flowkoBusinessMember.findMany({
+      where: { id: { in: [staff.memberId, desk.memberId] } },
+      select: { id: true, position: true },
+    });
+    expect(Object.fromEntries(positions.map((p) => [p.id, p.position]))).toEqual({
+      [staff.memberId]: 6,
+      [desk.memberId]: 7,
+    });
   });
 });

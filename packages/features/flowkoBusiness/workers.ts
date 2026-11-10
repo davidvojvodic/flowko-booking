@@ -4,7 +4,8 @@
 // event type (the business's own bookings, never a worker's private Cal bookings), only holding ones that are
 // not over, and carry id, local date and time, service names and the first attendee's name; no uid, e-mail,
 // phone or user id is selected or returned, and the member's user id stays inside this function (isMe and
-// noLogin are computed here). Owner only. Server only.
+// noLogin are computed here). Also the owner's member writes: add a desk-only worker (W4) and reorder every
+// member (W5), both under the business row lock. Owner only. Server only.
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
 import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import {
@@ -12,11 +13,14 @@ import {
   type WorkerListBooking,
   type WorkerListRow,
 } from "@calcom/lib/flowkoBusiness/workers";
+import type { Prisma } from "@calcom/prisma/client";
 import { FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { listMembers, mayManageBusiness, requireBusinessAccess } from "./access";
 import { HOLDING_STATUSES } from "./bookingDay";
+import { createDeskOnlyWorker, displayNameOrThrow } from "./business";
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
+import { memberTx } from "./memberTx";
 
 /** The mirror's bookings that still hold the member's time: holding status and not over (`endTime > now`). */
 function futureWhere(eventTypeIds: number[], now: Date) {
@@ -109,8 +113,84 @@ export async function listWorkers(
       futureCount,
       futureBookings,
       // Only a listed (LOCKED) row has a "rest"; an ACTIVE row shows its count and no list.
-      moreBookings: member.status === FlowkoMemberStatus.LOCKED ? futureCount - futureBookings.length : 0,
+      // The two reads are separate queries, so a booking made between them could make the list longer than the count.
+      moreBookings:
+        member.status === FlowkoMemberStatus.LOCKED ? Math.max(0, futureCount - futureBookings.length) : 0,
     });
   }
   return { members: rows };
+}
+
+/** Flowko U29c: the business row lock every member add and reorder takes first (re-taking it in one tx is a no-op). */
+async function lockBusiness(tx: Prisma.TransactionClient, businessId: number): Promise<void> {
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
+}
+
+/** Flowko U29c: one comparison key per name: trimmed, lower-cased by Slovene rules. */
+const nameKey = (name: string): string => name.trim().toLocaleLowerCase("sl");
+
+/**
+ * W4: adds a desk-only worker (ACTIVE WORKER with a desk column at once, no usual week, no services) as the last
+ * member. Owner only (otherwise forbidden); the name is trimmed, 1..80 characters (bad_member) and unique in the
+ * business without regard to case, over every member of any status or kind (member_name_taken). Under the business
+ * row lock, so two adds never get the same position or the same name. A lost lock race is member_conflict.
+ */
+export async function addDeskWorker(
+  db: FlowkoDb,
+  actorUserId: number,
+  input: { displayName: string }
+): Promise<{ memberId: number }> {
+  return memberTx(db, async (tx) => {
+    const access = await requireBusinessAccess(tx, actorUserId);
+    if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
+    const name = displayNameOrThrow(input.displayName);
+
+    await lockBusiness(tx, access.businessId);
+    const members = await tx.flowkoBusinessMember.findMany({
+      where: { businessId: access.businessId },
+      select: { displayName: true },
+    });
+    const key = nameKey(name);
+    if (members.some((m) => nameKey(m.displayName) === key))
+      throw new FlowkoBusinessError("member_name_taken");
+
+    const { memberId } = await createDeskOnlyWorker(tx, access.businessId, name);
+    return { memberId };
+  });
+}
+
+/**
+ * W5: stores the owner's order: `position = index` over `memberIds`, which must be exactly the business's members
+ * (OWNER, STAFF, LOCKED and desk-only included): a missing, extra, duplicate or foreign id is bad_member and nothing
+ * is written. Owner only (otherwise forbidden). Under the business row lock; a lost lock race is member_conflict.
+ */
+export async function reorderWorkers(
+  db: FlowkoDb,
+  actorUserId: number,
+  input: { memberIds: number[] }
+): Promise<{ status: "saved" }> {
+  return memberTx(db, async (tx) => {
+    const access = await requireBusinessAccess(tx, actorUserId);
+    if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
+    if (!input.memberIds.every((id) => Number.isInteger(id))) throw new FlowkoBusinessError("bad_member");
+
+    await lockBusiness(tx, access.businessId);
+    const stored = await tx.flowkoBusinessMember.findMany({
+      where: { businessId: access.businessId },
+      select: { id: true },
+    });
+    const storedIds = new Set(stored.map((m) => m.id));
+    const sent = new Set(input.memberIds);
+    if (
+      input.memberIds.length !== stored.length ||
+      sent.size !== input.memberIds.length ||
+      !input.memberIds.every((id) => storedIds.has(id))
+    )
+      throw new FlowkoBusinessError("bad_member");
+
+    for (const [position, id] of input.memberIds.entries()) {
+      await tx.flowkoBusinessMember.update({ where: { id }, data: { position } });
+    }
+    return { status: "saved" as const };
+  });
 }

@@ -31,6 +31,9 @@ export type WorkerListRow = {
   futureCount: number;
   /** Only for a LOCKED column member; [] otherwise. */
   futureBookings: WorkerListBooking[];
-  /** futureCount minus the bookings listed. */
+  /**
+   * Flowko U29c: 0 for a row without a bookings list (ACTIVE, STAFF); for a LOCKED row futureCount minus the
+   * bookings listed (never negative).
+   */
   moreBookings: number;
 };

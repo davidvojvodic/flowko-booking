@@ -13,11 +13,11 @@ import prisma from "@calcom/prisma";
 import { BookingStatus, FlowkoBusinessRole } from "@calcom/prisma/enums";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
-import { addLoginMember, createBusiness, createDeskOnlyWorker } from "./business";
+import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWorker } from "./business";
 import { FlowkoBusinessError } from "./errors";
 import { setMemberLock } from "./lock";
 import { setUsualWeek } from "./roster";
-import { listWorkers } from "./workers";
+import { addDeskWorker, listWorkers, reorderWorkers } from "./workers";
 
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const TZ = "Europe/Ljubljana";
@@ -267,5 +267,163 @@ describe("U29c listWorkers on a real database", () => {
   it("a worker (and a locked worker) is forbidden", async () => {
     expect(await codeOf(listWorkers(prisma, fx.ana, NOW))).toBe("forbidden");
     expect(await codeOf(listWorkers(prisma, fx.olga + 999_999, NOW))).toBe("forbidden");
+  });
+});
+
+// Flowko U29c Task 3: W4 / W5 and the locked, gap-proof nextPosition on a real database (Review Focus 5). Each test
+// builds its own business, so the list assertions above stay exact.
+async function freshBusiness(
+  label: string
+): Promise<{ owner: number; businessId: number; ownerMemberId: number }> {
+  const owner = await realUser(`Own${label}`);
+  const created = await createBusiness(prisma, {
+    ownerUserId: owner,
+    name: `Salon ${label} ${RUN}`,
+    slug: `salon-${label.toLowerCase()}-${RUN}`,
+    templateId: "hair-salon",
+  });
+  return { owner, businessId: created.businessId, ownerMemberId: created.ownerMemberId };
+}
+
+const positionsOf = async (businessId: number): Promise<Array<[number, number]>> =>
+  (
+    await prisma.flowkoBusinessMember.findMany({
+      where: { businessId },
+      select: { id: true, position: true },
+      orderBy: [{ position: "asc" }, { id: "asc" }],
+    })
+  ).map((m) => [m.id, m.position]);
+
+describe("U29c addDeskWorker / reorderWorkers / nextPosition on a real database", () => {
+  it("Review Focus 5: members at 0 and 5 -> the new desk-only worker is 6, ACTIVE WORKER on a desk address", async () => {
+    const { owner, businessId } = await freshBusiness("Gap");
+    const second = await createDeskOnlyWorker(prisma, businessId, "Drugi");
+    await prisma.flowkoBusinessMember.update({ where: { id: second.memberId }, data: { position: 5 } });
+    const { memberId } = await addDeskWorker(prisma, owner, { displayName: "Maja" });
+    const member = await prisma.flowkoBusinessMember.findUniqueOrThrow({
+      where: { id: memberId },
+      include: { user: { select: { email: true, username: true, locked: true } } },
+    });
+    expect(member).toMatchObject({ position: 6, role: "WORKER", status: "ACTIVE", displayName: "Maja" });
+    expect(member.user?.email.endsWith("@flowko.invalid")).toBe(true);
+    expect(member.user?.username).toBeNull();
+    // Another business's and a plain worker's actor: forbidden, nothing written.
+    expect(await codeOf(addDeskWorker(prisma, fx.zala + 999_999, { displayName: "Nova" }))).toBe("forbidden");
+    expect(await codeOf(addDeskWorker(prisma, fx.ana, { displayName: "Nova" }))).toBe("forbidden");
+    expect(await prisma.flowkoBusinessMember.count({ where: { businessId } })).toBe(3);
+  });
+
+  it("Review Focus 5: parallel addDeskWorker x2 -> positions n and n+1 (10 rounds)", async () => {
+    const { owner, businessId } = await freshBusiness("Par");
+    for (let round = 0; round < 10; round++) {
+      const before = await prisma.flowkoBusinessMember.count({ where: { businessId } });
+      const [a, b] = await Promise.all([
+        addDeskWorker(prisma, owner, { displayName: `A${round}` }),
+        addDeskWorker(prisma, owner, { displayName: `B${round}` }),
+      ]);
+      const rows = await prisma.flowkoBusinessMember.findMany({
+        where: { id: { in: [a.memberId, b.memberId] } },
+        select: { position: true },
+      });
+      expect(rows.map((r) => r.position).sort((x, y) => x - y)).toEqual([before, before + 1]);
+    }
+    const all = await positionsOf(businessId);
+    expect(all.map(([, position]) => position)).toEqual(all.map((_, index) => index));
+  });
+
+  it("every creator is serialised: parallel addDeskWorker + addStaffWithoutLogin + addLoginMember never share a position", async () => {
+    const { owner, businessId } = await freshBusiness("Mix");
+    for (let round = 0; round < 8; round++) {
+      const login = await realUser(`Mix${round}`);
+      await Promise.all([
+        addDeskWorker(prisma, owner, { displayName: `Desk${round}` }),
+        addStaffWithoutLogin(prisma, businessId, `Staff${round}`),
+        addLoginMember(prisma, businessId, login, FlowkoBusinessRole.WORKER),
+      ]);
+    }
+    const all = await positionsOf(businessId);
+    expect(all).toHaveLength(1 + 8 * 3);
+    expect(all.map(([, position]) => position)).toEqual(all.map((_, index) => index));
+  });
+
+  it("parallel „Maja“ + „maja“ -> exactly one member_name_taken (10 rounds, fresh pair each round)", async () => {
+    const { owner, businessId } = await freshBusiness("Dup");
+    for (let round = 0; round < 10; round++) {
+      const codes = await Promise.all([
+        codeOf(addDeskWorker(prisma, owner, { displayName: `Maja${round}` })),
+        codeOf(addDeskWorker(prisma, owner, { displayName: ` maja${round} ` })),
+      ]);
+      expect(codes.sort()).toEqual(["member_name_taken", "ok"]);
+      const same = await prisma.flowkoBusinessMember.findMany({
+        where: { businessId, displayName: { in: [`Maja${round}`, `maja${round}`] } },
+      });
+      expect(same).toHaveLength(1);
+    }
+  });
+
+  it("the same name in another business is free; a locked member's name is taken", async () => {
+    const one = await freshBusiness("NameOne");
+    const two = await freshBusiness("NameTwo");
+    const worker = await createDeskOnlyWorker(prisma, one.businessId, "Lara");
+    await setMemberLock(prisma, worker.memberId, true, NOW);
+    expect(await codeOf(addDeskWorker(prisma, one.owner, { displayName: "lara" }))).toBe("member_name_taken");
+    expect(await codeOf(addDeskWorker(prisma, two.owner, { displayName: "lara" }))).toBe("ok");
+  });
+
+  it("reorder writes 0..n-1 in the sent order over every member and closes gaps; the other business is untouched", async () => {
+    const one = await freshBusiness("Ord");
+    const other = await freshBusiness("OrdOther");
+    const a = await addDeskWorker(prisma, one.owner, { displayName: "A" });
+    const b = await addDeskWorker(prisma, one.owner, { displayName: "B" });
+    const staff = await addStaffWithoutLogin(prisma, one.businessId, "S");
+    await prisma.flowkoBusinessMember.update({ where: { id: b.memberId }, data: { position: 30 } });
+    const otherBefore = await positionsOf(other.businessId);
+    const order = [staff.memberId, one.ownerMemberId, b.memberId, a.memberId];
+    expect(await reorderWorkers(prisma, one.owner, { memberIds: order })).toEqual({ status: "saved" });
+    expect(await positionsOf(one.businessId)).toEqual(order.map((id, index) => [id, index]));
+    expect(await positionsOf(other.businessId)).toEqual(otherBefore);
+  });
+
+  it("Review Focus 5: a stale list (a member was added meanwhile) is bad_member and nothing is written; foreign ids too", async () => {
+    const one = await freshBusiness("Stale");
+    const a = await addDeskWorker(prisma, one.owner, { displayName: "A" });
+    const staleOrder = [a.memberId, one.ownerMemberId];
+    await addDeskWorker(prisma, one.owner, { displayName: "B" });
+    const before = await positionsOf(one.businessId);
+    expect(await codeOf(reorderWorkers(prisma, one.owner, { memberIds: staleOrder }))).toBe("bad_member");
+    expect(
+      await codeOf(
+        reorderWorkers(prisma, one.owner, { memberIds: [...before.map(([id]) => id), fx.members.bea] })
+      )
+    ).toBe("bad_member");
+    expect(
+      await codeOf(
+        reorderWorkers(prisma, one.owner, {
+          memberIds: [...before.slice(1).map(([id]) => id), fx.members.bea],
+        })
+      )
+    ).toBe("bad_member");
+    expect(await positionsOf(one.businessId)).toEqual(before);
+    // Rights: a worker of another business and the business's own non-owner.
+    expect(await codeOf(reorderWorkers(prisma, fx.ana, { memberIds: before.map(([id]) => id) }))).toBe(
+      "forbidden"
+    );
+    expect(await positionsOf(one.businessId)).toEqual(before);
+  });
+
+  it("Review Focus 5: reorder + add in parallel -> never a duplicate or a gap; the reorder is saved or bad_member (12 rounds)", async () => {
+    const { owner, businessId } = await freshBusiness("Race");
+    for (let round = 0; round < 12; round++) {
+      const ids = (await positionsOf(businessId)).map(([id]) => id);
+      const [reordered, added] = await Promise.all([
+        codeOf(reorderWorkers(prisma, owner, { memberIds: [...ids].reverse() })),
+        codeOf(addDeskWorker(prisma, owner, { displayName: `N${round}` })),
+      ]);
+      expect(added).toBe("ok");
+      expect(["ok", "bad_member"]).toContain(reordered);
+      const all = await positionsOf(businessId);
+      expect(all).toHaveLength(ids.length + 1);
+      expect(all.map(([, position]) => position)).toEqual(all.map((_, index) => index));
+    }
   });
 });

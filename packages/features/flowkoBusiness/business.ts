@@ -76,16 +76,28 @@ async function assertBusinessExists(tx: Tx, businessId: number): Promise<void> {
   if (!business) throw new FlowkoBusinessError("forbidden");
 }
 
-function displayNameOrThrow(displayName: string): string {
+// Flowko U29c: exported for addDeskWorker (workers.ts), which validates the name before its duplicate check.
+export function displayNameOrThrow(displayName: string): string {
   const trimmed = displayName.trim();
   if (trimmed.length === 0 || trimmed.length > DISPLAY_NAME_MAX_LENGTH)
     throw new FlowkoBusinessError("bad_member");
   return trimmed;
 }
 
-/** Members are listed in the order they joined. */
-async function nextPosition(tx: Tx, businessId: number): Promise<number> {
-  return tx.flowkoBusinessMember.count({ where: { businessId } });
+/**
+ * Members are listed in the order they joined. Flowko U29c: takes the business row lock itself (re-taking it in
+ * the same transaction is a no-op), so every member creator is serialised, and returns max(position) + 1 (0 when
+ * the business has no member), which stays right when the positions are not exactly 0..n-1. The lock is a raw
+ * statement: prismock ignores it, real locking is proven in workers.integration-test.ts.
+ */
+export async function nextPosition(tx: Tx, businessId: number): Promise<number> {
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
+  const last = await tx.flowkoBusinessMember.findFirst({
+    where: { businessId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+  return last ? last.position + 1 : 0;
 }
 
 /**

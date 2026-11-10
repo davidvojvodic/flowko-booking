@@ -11,12 +11,13 @@ import "@calcom/prisma";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import type { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
-import { beforeEach, describe, expect, it } from "vitest";
+import { Prisma as PrismaErrors } from "@calcom/prisma/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { ensureWorkerMirror } from "./mirror";
-import { listWorkers } from "./workers";
+import { addDeskWorker, listWorkers, reorderWorkers } from "./workers";
 
 const db = prismock as unknown as FlowkoDb;
 const tx = prismock as unknown as Prisma.TransactionClient;
@@ -402,5 +403,249 @@ describe("listWorkers (W1 workers.list)", () => {
         "to",
       ].sort()
     );
+  });
+});
+
+// Flowko U29c: W4 (add a desk-only worker) and W5 (reorder). Locks and races: workers.integration-test.ts.
+const businessOf = async (memberId: number): Promise<number> =>
+  (await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } })).businessId;
+const memberRows = async (businessId: number) =>
+  (
+    await prismock.flowkoBusinessMember.findMany({
+      where: { businessId },
+      select: { id: true, position: true, displayName: true },
+    })
+  )
+    .sort((x, y) => x.position - y.position || x.id - y.id)
+    .map((m) => [m.id, m.position]);
+
+describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
+  it("adds an ACTIVE desk-only WORKER, last in the list, and answers its member id", async () => {
+    const { memberId } = await addDeskWorker(db, f.users.olga, { displayName: "Maja" });
+
+    const member = await prismock.flowkoBusinessMember.findUnique({ where: { id: memberId } });
+    expect(member).toMatchObject({
+      businessId: f.a,
+      role: FlowkoBusinessRole.WORKER,
+      status: FlowkoMemberStatus.ACTIVE,
+      displayName: "Maja",
+      position: 7,
+    });
+    const user = await prismock.user.findUnique({ where: { id: member?.userId as number } });
+    expect(user?.email.endsWith("@flowko.invalid")).toBe(true);
+    // No usual week, no roster days, no services.
+    expect(await prismock.flowkoRosterDay.count({ where: { memberId } })).toBe(0);
+    expect(member?.usualWeek ?? null).toBeNull();
+    expect(await prismock.flowkoServiceWorker.count({ where: { memberId } })).toBe(0);
+
+    const { members } = await listWorkers(db, f.users.olga, NOW);
+    const last = members[members.length - 1];
+    expect([last.displayName, last.role, last.status, last.noLogin]).toEqual([
+      "Maja",
+      "WORKER",
+      "ACTIVE",
+      true,
+    ]);
+  });
+
+  it("goes after the highest position, not after the count (members at 0 and 5 -> 6)", async () => {
+    const solo = await makeUser("Solo");
+    const created = await createBusiness(db, {
+      ownerUserId: solo,
+      name: "Salon C",
+      slug: `salon-c-${seq}`,
+      templateId: "hair-salon",
+      phone: "01 000 00 00",
+    });
+    const second = await createDeskOnlyWorker(db, created.businessId, "Drugi");
+    await prismock.flowkoBusinessMember.update({ where: { id: second.memberId }, data: { position: 5 } });
+    const { memberId } = await addDeskWorker(db, solo, { displayName: "Maja" });
+    const member = await prismock.flowkoBusinessMember.findUnique({ where: { id: memberId } });
+    expect(member?.position).toBe(6);
+  });
+
+  it("trims the name; a name already used (trim + Slovene lower-case compare, any status or kind) is member_name_taken", async () => {
+    for (const taken of ["Ana", "  ana ", "ANA", "Dan", "mojca", "SARA", "olga"]) {
+      expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: taken }))).toBe(
+        "member_name_taken"
+      );
+    }
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+    // The same name in another business is free.
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "Bea" }))).toBe("ok");
+    await addDeskWorker(db, f.users.olga, { displayName: "  Maja  " });
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: " maja " }))).toBe(
+      "member_name_taken"
+    );
+    const stored = await prismock.flowkoBusinessMember.findMany({ where: { displayName: "Maja" } });
+    expect(stored).toHaveLength(1);
+  });
+
+  it("refuses an empty name and one of 81 characters as bad_member; 80 is fine", async () => {
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "" }))).toBe("bad_member");
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "   " }))).toBe("bad_member");
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "x".repeat(81) }))).toBe(
+      "bad_member"
+    );
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "y".repeat(80) }))).toBe("ok");
+  });
+
+  it("is the owner's: a worker, a staff member, a locked member and a stranger are forbidden, nothing written", async () => {
+    const users = await prismock.user.count();
+    for (const actor of [f.users.ana, f.users.rok, f.users.dan, await makeUser("Nobody")]) {
+      expect(await outcome(addDeskWorker(db, actor, { displayName: "Maja" }))).toBe("forbidden");
+    }
+    expect(await prismock.user.count()).toBe(users + 1); // only "Nobody" itself
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+  });
+
+  it("always writes into the actor's own business (the owner of B adds to B only)", async () => {
+    const { memberId } = await addDeskWorker(db, f.users.zala, { displayName: "Maja" });
+    const member = await prismock.flowkoBusinessMember.findUnique({ where: { id: memberId } });
+    expect(member?.businessId).not.toBe(f.a);
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+  });
+
+  it("answers a lost lock race (P2028, P2034, P2010 with 40P01 in both meta forms) as member_conflict", async () => {
+    const raw = (code: string, meta: Record<string, unknown>) =>
+      new PrismaErrors.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+    const failures = [
+      raw("P2028", {}),
+      raw("P2034", {}),
+      raw("P2010", { code: "40P01", message: "deadlock detected" }),
+      raw("P2010", {
+        driverAdapterError: { cause: { originalCode: "40P01", kind: "postgres", code: "40P01" } },
+      }),
+    ];
+    for (const failure of failures) {
+      vi.spyOn(prismock.flowkoBusinessMember, "create").mockRejectedValueOnce(failure);
+      expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "Maja" }))).toBe("member_conflict");
+    }
+    const other = raw("P2010", { code: "22P02" });
+    vi.spyOn(prismock.flowkoBusinessMember, "create").mockRejectedValueOnce(other);
+    await expect(addDeskWorker(db, f.users.olga, { displayName: "Maja" })).rejects.toBe(other);
+  });
+});
+
+describe("reorderWorkers (W5 workers.reorder)", () => {
+  const allIds = () =>
+    Object.values([
+      f.members.olga,
+      f.members.ana,
+      f.members.bor,
+      f.members.dan,
+      f.members.mojca,
+      f.members.rok,
+      f.members.sara,
+    ]);
+
+  it("writes position = index in the sent order over every member (OWNER, LOCKED, STAFF, desk-only), nothing else", async () => {
+    const order = [
+      f.members.sara,
+      f.members.olga,
+      f.members.dan,
+      f.members.mojca,
+      f.members.rok,
+      f.members.bor,
+      f.members.ana,
+    ];
+    expect(await reorderWorkers(db, f.users.olga, { memberIds: order })).toEqual({ status: "saved" });
+    expect(await memberRows(f.a)).toEqual(order.map((id, index) => [id, index]));
+    const { members } = await listWorkers(db, f.users.olga, NOW);
+    expect(members.map((m) => m.memberId)).toEqual(order);
+    // Business B is untouched.
+    expect(await memberRows(await businessOf(f.members.zala))).toEqual([
+      [f.members.zala, 0],
+      [f.members.bea, 1],
+    ]);
+  });
+
+  it("closes gaps: stored positions 0, 5, 9 ... become 0..n-1", async () => {
+    await prismock.flowkoBusinessMember.update({ where: { id: f.members.sara }, data: { position: 40 } });
+    await prismock.flowkoBusinessMember.update({ where: { id: f.members.ana }, data: { position: 17 } });
+    const order = allIds();
+    await reorderWorkers(db, f.users.olga, { memberIds: order });
+    expect(await memberRows(f.a)).toEqual(order.map((id, index) => [id, index]));
+  });
+
+  it("refuses a missing, an extra, a duplicate and a foreign id as bad_member, nothing written", async () => {
+    const before = await memberRows(f.a);
+    const ids = allIds();
+    const attempts = [
+      ids.slice(1), // missing
+      [...ids, 999_999], // extra (unknown)
+      [...ids.slice(0, -1), ids[0]], // duplicate in place of the last
+      [...ids, ids[0]], // duplicate on top
+      [...ids.slice(0, -1), f.members.bea], // foreign member in place of one of ours
+      [...ids, f.members.bea], // foreign member as well
+      [], // empty
+    ];
+    for (const memberIds of attempts) {
+      expect(await outcome(reorderWorkers(db, f.users.olga, { memberIds }))).toBe("bad_member");
+      expect(await memberRows(f.a)).toEqual(before);
+    }
+    // Non-integers never reach the write.
+    expect(await outcome(reorderWorkers(db, f.users.olga, { memberIds: [...ids.slice(1), 1.5] }))).toBe(
+      "bad_member"
+    );
+    expect(await memberRows(f.a)).toEqual(before);
+  });
+
+  it("is the owner's: a worker, a staff member, a locked member and a stranger are forbidden, nothing written", async () => {
+    const before = await memberRows(f.a);
+    const reversed = allIds().reverse();
+    for (const actor of [f.users.ana, f.users.rok, f.users.dan, await makeUser("Nobody")]) {
+      expect(await outcome(reorderWorkers(db, actor, { memberIds: reversed }))).toBe("forbidden");
+    }
+    expect(await memberRows(f.a)).toEqual(before);
+  });
+
+  it("the owner of B cannot reorder A: B's own list is the only valid set", async () => {
+    const before = await memberRows(f.a);
+    expect(await outcome(reorderWorkers(db, f.users.zala, { memberIds: allIds() }))).toBe("bad_member");
+    expect(await memberRows(f.a)).toEqual(before);
+    expect(
+      await outcome(reorderWorkers(db, f.users.zala, { memberIds: [f.members.bea, f.members.zala] }))
+    ).toBe("ok");
+  });
+
+  it("answers a lost lock race (P2028, P2034, P2010 with 40P01 in both meta forms) as member_conflict", async () => {
+    const raw = (code: string, meta: Record<string, unknown>) =>
+      new PrismaErrors.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+    const failures = [
+      raw("P2028", {}),
+      raw("P2034", {}),
+      raw("P2010", { code: "40P01", message: "deadlock detected" }),
+      raw("P2010", {
+        driverAdapterError: { cause: { originalCode: "40P01", kind: "postgres", code: "40P01" } },
+      }),
+    ];
+    const reversed = allIds().reverse();
+    for (const failure of failures) {
+      vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(failure);
+      expect(await outcome(reorderWorkers(db, f.users.olga, { memberIds: reversed }))).toBe(
+        "member_conflict"
+      );
+    }
+    const other = raw("P2010", { code: "22P02" });
+    vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(other);
+    await expect(reorderWorkers(db, f.users.olga, { memberIds: reversed })).rejects.toBe(other);
+  });
+});
+
+describe("listWorkers moreBookings (Task 2 review carry)", () => {
+  it("never goes negative when the list read finds more rows than the count read did", async () => {
+    await bookingOn(f.members.dan, { start: at("2026-11-17", "10:00") });
+    await bookingOn(f.members.dan, { start: at("2026-11-18", "10:00") });
+    const real = prismock.booking.findMany.bind(prismock.booking);
+    // The first read (the counts) sees only one booking; the second (the details) sees both.
+    vi.spyOn(prismock.booking, "findMany").mockImplementationOnce((async (args: never) =>
+      (await real(args)).slice(0, 1)) as never);
+    const { members } = await listWorkers(db, f.users.olga, NOW);
+    const dan = members.find((m) => m.displayName === "Dan");
+    expect(dan?.futureCount).toBe(1);
+    expect(dan?.futureBookings).toHaveLength(2);
+    expect(dan?.moreBookings).toBe(0);
   });
 });
