@@ -5334,5 +5334,6 @@
   "flowko_roster_discard_body": "Neshranjene spremembe bodo izgubljene. Urnik ostane tak, kot je bil nazadnje shranjen.",
   "flowko_settings_refresh_failed": "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.",
   "flowko_settings_refresh": "Osveži",
-  "flowko_settings_service_broken": "Koraki te storitve so poškodovani. Uredite jo znova ali jo odstranite."
+  "flowko_settings_service_broken": "Koraki te storitve so poškodovani. Uredite jo znova ali jo odstranite.",
+  "flowko_roster_refresh_failed": "Shranjeno, Urnika pa ni bilo mogoče osvežiti. Pred novim shranjevanjem kliknite Poskusi znova."
 }

@@ -20,6 +20,9 @@ type DraftState = {
   scope: string;
   snapshot: RosterWeekView | null;
   cells: Record<string, DraftCell>;
+  // Flowko U29c (P7): bumped by every reset and every discard. A callback works only on the generation it was made
+  // in, so a save or copy still running after A → Dan → A (the same scope value again) cannot touch the new draft.
+  gen: number;
 };
 
 const cellKey = (memberId: number, key: string) => `${memberId}:${key}`;
@@ -63,21 +66,26 @@ function withCell(
 
 export function useRosterDraft(weekStart: string, mode: RosterMode) {
   const scope = `${weekStart}|${mode}`;
-  const [raw, setRaw] = useState<DraftState>({ scope, snapshot: null, cells: {} });
+  const [raw, setRaw] = useState<DraftState>({ scope, snapshot: null, cells: {}, gen: 0 });
   // Another week or mode: the old state is dropped for good (React's „state from props“ pattern: set during
   // render, no effect, no stale frame), so coming back to the week never revives it.
-  if (raw.scope !== scope) setRaw({ scope, snapshot: null, cells: {} });
+  // Flowko U29c (P7): the reset starts a new generation.
+  if (raw.scope !== scope) setRaw({ scope, snapshot: null, cells: {}, gen: raw.gen + 1 });
   const state = useMemo<DraftState>(
-    () => (raw.scope === scope ? raw : { scope, snapshot: null, cells: {} }),
+    () => (raw.scope === scope ? raw : { scope, snapshot: null, cells: {}, gen: raw.gen + 1 }),
     [raw, scope]
   );
+  const gen = raw.gen;
   // Flowko U29b (Task 8 fix 1): a change belongs to the week + mode its callback was made for. A save or copy that
   // finishes after the user moved on calls the old callbacks; they find another scope in the state and do nothing,
   // so a newer week's edits are never wiped or filled by an older week's async flow (D7).
+  // Flowko U29c (P7): and to its generation: the scope is a value, and coming back to the same week gives the same
+  // value, so the scope alone cannot tell the draft a save started from the one the user came back to. Accepted side
+  // effect: a callback taken before a discard (an open cell sheet's `set`) does nothing after it.
   const update = useCallback(
     (change: (current: DraftState) => DraftState) =>
-      setRaw((prev) => (prev.scope === scope ? change(prev) : prev)),
-    [scope]
+      setRaw((prev) => (prev.scope === scope && prev.gen === gen ? change(prev) : prev)),
+    [scope, gen]
   );
 
   const { snapshot, cells } = state;
@@ -126,7 +134,11 @@ export function useRosterDraft(weekStart: string, mode: RosterMode) {
     [update, mode]
   );
 
-  const discard = useCallback(() => update(() => ({ scope, snapshot: null, cells: {} })), [update, scope]);
+  // Flowko U29c (P7): a discard starts a new generation (callbacks taken before it do nothing after it).
+  const discard = useCallback(
+    () => update((current) => ({ scope, snapshot: null, cells: {}, gen: current.gen + 1 })),
+    [update, scope]
+  );
 
   /** Members with at least one change, in the snapshot's row order. */
   const changedMembers = useCallback(() => {

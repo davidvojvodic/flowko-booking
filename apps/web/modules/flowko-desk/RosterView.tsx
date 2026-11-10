@@ -8,6 +8,9 @@
 // `onOpenDay` (a day header's date → Dan) and `onModeChange` already run through DeskView's guard; they are not
 // wrapped again here (a second guard would ask twice). A phone day arrow inside the week is DeskView's, unguarded.
 // Absences (Task 9, S7) are the cell sheet's `children`: AbsenceSection, saved at once, off while the draft is dirty.
+// Flowko U29c (P1, P8): every save (week/usual saved, absence add/remove, holiday open/close) shows „Shranjeno“; the
+// refresh after it is checked (useInvalidateRoster answers whether roster.week was read again). A failed one raises
+// the notice here („Poskusi znova“ runs the refresh again); „Shrani“ waits while it is up (the versions are stale).
 import { useRef, useState } from "react";
 
 import type { RosterWeekView } from "@calcom/features/flowkoBusiness/roster";
@@ -66,6 +69,18 @@ export function RosterView(props: {
 
   // Flowko U29b (Task 8 fix 1, D7): the week + mode shown now, for a save or copy that finishes after the user moved on.
   const scopeRef = useRef("");
+  // Flowko U29c (P1): a save stood but roster.week could not be read again; „Poskusi znova“ is running.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const onRefreshFailed = () => setRefreshFailed(true);
+  async function retryRefresh() {
+    setRetrying(true);
+    try {
+      setRefreshFailed(!(await invalidate()));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   if (!view) {
     return (
@@ -89,6 +104,8 @@ export function RosterView(props: {
     draft,
     today: props.today,
     ownId: me?.role === "WORKER" ? me.memberId : null,
+    // Flowko U29c (P1): the holiday menu in the day headers reports a failed refresh here.
+    onRefreshFailed,
   });
 
   // S15: the rows „Kopiraj prejšnji teden“ fills: editable, visible; none on a read-only week or in the usual week.
@@ -139,8 +156,12 @@ export function RosterView(props: {
       }
       setWarnings(null);
       // S16: the edit stays on screen until the fresh answer is in; a failed refresh does not undo the save.
-      await invalidate().catch(() => undefined);
+      // Flowko U29c (P1, P8): the refresh answers; the draft goes either way, „Shranjeno“, and a failed refresh
+      // raises the notice.
+      const refreshed = await invalidate();
       draft.discard();
+      showToast(t("saved"), "success");
+      if (!refreshed) setRefreshFailed(true);
     } catch (error) {
       setWarnings(null);
       const code = rosterErrorCode(error);
@@ -148,7 +169,8 @@ export function RosterView(props: {
         // D8: nothing was saved; the draft goes, the current roster is read again and the alert says why.
         draft.discard();
         setStaleScope(scope);
-        await invalidate().catch(() => undefined);
+        // Flowko U29c (P1): nothing was saved, so no notice; useInvalidateRoster never rejects.
+        await invalidate();
       } else {
         showToast(t(rosterErrorKey(code)), "error");
       }
@@ -198,6 +220,24 @@ export function RosterView(props: {
           )}
         </div>
       )}
+      {refreshFailed && (
+        <div role="alert" data-testid="roster-refresh-failed">
+          <Alert
+            severity="warning"
+            title={t("flowko_roster_refresh_failed")}
+            actions={
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                loading={retrying}
+                onClick={() => void retryRefresh()}>
+                {t("try_again")}
+              </Button>
+            }
+          />
+        </div>
+      )}
       {staleScope === scope && !draft.dirty && (
         <div role="alert" data-testid="roster-stale">
           <Alert severity="warning" title={t("flowko_roster_stale")} />
@@ -223,6 +263,8 @@ export function RosterView(props: {
         <RosterSaveBar
           count={draft.changedCount}
           busy={locked}
+          // Flowko U29c (P1): the versions are stale until „Poskusi znova“ worked.
+          saveBlocked={refreshFailed}
           usualNote={mode === "usual"}
           onSave={() => void send(false)}
           onDiscard={draft.discard}
@@ -259,6 +301,7 @@ export function RosterView(props: {
             absences={sheetMember.absences}
             dirty={draft.dirty}
             onDone={() => setSelected(null)}
+            onRefreshFailed={onRefreshFailed}
           />
         </RosterCellSheet>
       )}

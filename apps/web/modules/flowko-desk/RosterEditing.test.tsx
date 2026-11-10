@@ -1,7 +1,9 @@
 // Flowko U29b (Task 8, S12–S16, D6–D11, Review Focus 4 and 6): editing in Urnik: a tappable cell opens the cell sheet,
 // „Uporabi“ writes only the draft (highlight, no web storage, no mutation), the save bar, the save flow (saved after
 // the refresh, needs_confirm → warnings → resend, roster_changed → discard + refetch + alert, other codes → toasts),
-// „Običajni teden“ (planned-weeks note) and „Kopiraj prejšnji teden“.
+// „Običajni teden“ (planned-weeks note) and „Kopiraj prejšnji teden“. Flowko U29c (P1, P7, P8): a save or copy
+// started before A → Dan → A leaves the new draft alone, „Shranjeno“ after every save, and the refresh-failed notice
+// with „Poskusi znova“ that holds „Shrani“ back.
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -775,5 +777,231 @@ describe("RosterView editing: absences from a cell (Task 9, S7, D12)", () => {
     renderRoster({ view: rosterWeek({ weekStart: "2026-11-09" }) });
     fireEvent.click(cell(ANA, "2026-11-10"));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+// Flowko U29c (P7): DeskView scopes the draft to no week outside Urnik and renders RosterView only inside it.
+function DeskHarness(props: { inRoster: boolean }) {
+  const view = rosterWeek();
+  const draft = useRosterDraft(props.inRoster ? view.weekStart : "", "week");
+  captured.draft = draft;
+  return (
+    <TooltipProvider>
+      {props.inRoster ? (
+        <RosterView
+          view={view}
+          isPending={false}
+          mode="week"
+          date={DATE}
+          today={DATE}
+          isPhone={false}
+          draft={draft}
+          guard={spies.guard}
+          onOpenDay={spies.onOpenDay}
+          onModeChange={spies.onModeChange}
+        />
+      ) : (
+        <div data-testid="dan-view" />
+      )}
+    </TooltipProvider>
+  );
+}
+
+describe("RosterView editing: A → Dan → A while a save or copy runs (U29c P7)", () => {
+  const FRI = "2026-11-20";
+
+  function renderDesk() {
+    const utils = render(<DeskHarness inRoster />);
+    const toDan = () => utils.rerender(<DeskHarness inRoster={false} />);
+    const backToUrnik = () => utils.rerender(<DeskHarness inRoster />);
+    return { toDan, backToUrnik };
+  }
+
+  it("a save that finishes after the user came back to the same week keeps the new edit", async () => {
+    const save = deferred<{ status: "saved" }>();
+    deskTrpc.saveWeek.mockReturnValueOnce(save.promise);
+    const { toDan, backToUrnik } = renderDesk();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(deskTrpc.saveWeek).toHaveBeenCalledTimes(1));
+    toDan();
+    expect(captured.draft?.dirty).toBe(false);
+    backToUrnik();
+    // A fresh RosterView: the cells are tappable again while the first save is still in flight.
+    await applyChoice(BOR, FRI, "Prosto");
+    expect(captured.draft?.changedCount).toBe(1);
+    await act(async () => {
+      save.resolve({ status: "saved" });
+    });
+    await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(captured.draft?.changedCount).toBe(1);
+    expect(cell(BOR, FRI).getAttribute("data-changed")).toBe("true");
+    expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
+    // The first save stood: „Shranjeno“ (the global toast outlives the RosterView it started in).
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
+  });
+
+  it("a copy that finishes after the user came back to the same week fills nothing", async () => {
+    const fetching = deferred<RosterWeekView>();
+    deskTrpc.fetchRosterWeek.mockReturnValueOnce(fetching.promise);
+    const { toDan, backToUrnik } = renderDesk();
+    fireEvent.click(screen.getByRole("button", { name: "Kopiraj prejšnji teden" }));
+    await waitFor(() => expect(deskTrpc.fetchRosterWeek).toHaveBeenCalledWith({ weekStart: "2026-11-09" }));
+    toDan();
+    backToUrnik();
+    await applyChoice(BOR, FRI, "Prosto");
+    const previous = rosterWeek({ weekStart: "2026-11-09" });
+    await act(async () => {
+      fetching.resolve({
+        ...previous,
+        members: previous.members.map((m) =>
+          m.memberId === ANA
+            ? { ...m, days: m.days.map((d) => ({ ...d, source: "planned" as const, entries: [] })) }
+            : m
+        ),
+      });
+    });
+    expect(captured.draft?.changedCount).toBe(1);
+    expect(cell(BOR, FRI).getAttribute("data-changed")).toBe("true");
+    expect(cell(ANA, TUE).getAttribute("data-changed")).toBeNull();
+  });
+});
+
+describe("RosterView editing: „Shranjeno“ (U29c P8)", () => {
+  it("a saved week shows „Shranjeno“ once, after the refresh", async () => {
+    const refresh = deferred();
+    deskTrpc.invalidateRosterWeek.mockReturnValue(refresh.promise);
+    renderRoster();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalled());
+    expect(toast).not.toHaveBeenCalled();
+    await act(async () => {
+      refresh.resolve();
+    });
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("roster-refresh-failed")).toBeNull();
+  });
+
+  it("a saved usual week shows „Shranjeno“", async () => {
+    renderRoster({ mode: "usual" });
+    await applyChoice(ANA, "sat", "Prosto");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
+  });
+
+  it("needs_confirm is no save: no „Shranjeno“ until „Vseeno shrani“ is saved", async () => {
+    deskTrpc.saveWeek.mockResolvedValueOnce({
+      status: "needs_confirm",
+      warnings: [{ memberId: ANA, outsideOpening: [TUE], bookingsNewlyOutside: 1 }],
+    });
+    renderRoster();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    const dialog = await screen.findByRole("dialog", { name: "Opozorilo pred shranjevanjem" });
+    expect(toast).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Vseeno shrani" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it("„Kopiraj prejšnji teden“ is no save: no toast", async () => {
+    deskTrpc.fetchRosterWeek.mockResolvedValue(rosterWeek({ weekStart: "2026-11-09" }));
+    renderRoster();
+    fireEvent.click(screen.getByRole("button", { name: "Kopiraj prejšnji teden" }));
+    await waitFor(() => expect(deskTrpc.fetchRosterWeek).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Kopiraj prejšnji teden" })).toBeTruthy());
+    expect(toast).not.toHaveBeenCalled();
+  });
+});
+
+describe("RosterView editing: the refresh-failed notice (U29c P1)", () => {
+  const FRI = "2026-11-20";
+  const NOTICE =
+    "Shranjeno, Urnika pa ni bilo mogoče osvežiti. Pred novim shranjevanjem kliknite Poskusi znova.";
+  const notice = () => screen.findByTestId("roster-refresh-failed");
+  const retryButton = () =>
+    within(screen.getByTestId("roster-refresh-failed")).getByRole("button", { name: "Poskusi znova" });
+
+  it("a saved week whose refresh failed: the save stands, the notice shows, „Shrani“ waits for a retry", async () => {
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    renderRoster();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    expect((await notice()).textContent).toContain(NOTICE);
+    expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
+    // The save stands: the draft is gone.
+    expect(captured.draft?.dirty).toBe(false);
+    expect(screen.queryByTestId("roster-save-bar")).toBeNull();
+    // A new edit is possible, but „Shrani“ is held back (the versions are stale); „Zavrzi“ still works.
+    await applyChoice(BOR, FRI, "Prosto");
+    expect(saveButton().disabled).toBe(true);
+    expect((within(bar()).getByRole("button", { name: "Zavrzi" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(saveButton());
+    expect(deskTrpc.saveWeek).toHaveBeenCalledTimes(1);
+    // A retry that fails again keeps the notice.
+    fireEvent.click(retryButton());
+    await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((retryButton() as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("roster-refresh-failed")).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+    // A retry that works removes it and frees „Shrani“.
+    deskTrpc.invalidateRosterWeek.mockResolvedValue(undefined);
+    fireEvent.click(retryButton());
+    await waitFor(() => expect(screen.queryByTestId("roster-refresh-failed")).toBeNull());
+    expect(deskTrpc.invalidateRosterWeek).toHaveBeenLastCalledWith(undefined, undefined, {
+      throwOnError: true,
+    });
+    expect(deskTrpc.invalidateDay).toHaveBeenCalledTimes(3);
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("a saved absence whose refresh failed shows the notice in Urnik after the sheet closed", async () => {
+    deskTrpc.addAbsence.mockResolvedValueOnce({ status: "saved", absenceId: 90 });
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    renderRoster();
+    fireEvent.click(cell(ANA, TUE));
+    fireEvent.click(within(await sheet()).getByRole("button", { name: "Dodaj odsotnost" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect((await notice()).textContent).toContain(NOTICE);
+    expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
+    await applyChoice(BOR, FRI, "Prosto");
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  it("a saved holiday change whose refresh failed shows the notice in Urnik", async () => {
+    deskTrpc.setHolidayOpen.mockResolvedValueOnce({ status: "saved" });
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    const base = rosterWeek();
+    renderRoster({
+      view: {
+        ...base,
+        days: base.days.map((d) =>
+          d.date === "2026-11-19" ? { ...d, holiday: { name: "Božič", open: false } } : d
+        ),
+      },
+    });
+    fireEvent.click(screen.getByTestId("roster-holiday-2026-11-19"));
+    fireEvent.click(screen.getByRole("button", { name: "Odpri ta dan" }));
+    expect((await notice()).textContent).toContain(NOTICE);
+    expect(deskTrpc.setHolidayOpen).toHaveBeenCalledWith({ date: "2026-11-19", open: true });
+    expect(deskTrpc.invalidateSettings).toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
+  });
+
+  it("roster_changed (nothing saved) raises no notice even when the refresh fails", async () => {
+    deskTrpc.saveWeek.mockRejectedValueOnce(trpcError("roster_changed"));
+    deskTrpc.invalidateRosterWeek.mockRejectedValue(new Error("network"));
+    renderRoster();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    await screen.findByTestId("roster-stale");
+    await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalled());
+    expect(screen.queryByTestId("roster-refresh-failed")).toBeNull();
+    expect(toast).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,8 @@ export function RosterSaveBar(props: {
   count: number;
   /** A save is running (through the refresh that follows it): „Shrani“ and „Zavrzi“ are off. */
   busy: boolean;
+  /** Flowko U29c (P1): „Shrani“ is off (not busy) while Urnik's refresh-failed notice is up; „Zavrzi“ stays. */
+  saveBlocked?: boolean;
   usualNote: boolean;
   onSave: () => void;
   onDiscard: () => void;
@@ -36,7 +38,8 @@ export function RosterSaveBar(props: {
             color="primary"
             size="sm"
             loading={props.busy}
-            disabled={props.busy}
+            // Flowko U29c (P1): held back while the shown versions are stale.
+            disabled={props.busy || props.saveBlocked}
             onClick={props.onSave}>
             {t("save")}
           </Button>

@@ -5,6 +5,8 @@
 // range and removed whole. No reason (sick leave is health data). Absences are saved at once, not through the draft:
 // both actions are off, with a hint, while the week has unsaved edits (the refresh would drop them). After a save
 // the roster and the desk are refreshed, then the sheet closes (`onDone`). Errors are toasts (rosterErrors).
+// Flowko U29c (P1, P8): a saved add or removal shows „Shranjeno“; when the roster could not be read again after it,
+// `onRefreshFailed` raises RosterView's notice (the sheet closes anyway: the save stands).
 import { useRef, useState } from "react";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -30,6 +32,8 @@ export function AbsenceSection(props: {
   dirty: boolean;
   /** An absence was saved or removed and the roster is refreshed: the caller closes the sheet. */
   onDone: () => void;
+  /** Flowko U29c (P1): a save stood but roster.week could not be read again: the caller shows its notice. */
+  onRefreshFailed: () => void;
 }) {
   const { t, i18n } = useLocale();
   const language = i18n?.language ?? "sl";
@@ -58,13 +62,17 @@ export function AbsenceSection(props: {
     try {
       const result = await write();
       if (await onResult(result)) {
-        // The save stands even when the refresh fails.
-        await Promise.resolve(invalidate()).catch(() => undefined);
+        // The save stands even when the refresh fails. Flowko U29c (P1, P8): „Shranjeno“, and a failed refresh is
+        // RosterView's notice (the stale versions hold „Shrani“ back there).
+        const refreshed = await invalidate();
+        showToast(t("saved"), "success");
+        if (!refreshed) props.onRefreshFailed();
         props.onDone();
       }
     } catch (error) {
       showToast(t(rosterErrorKey(rosterErrorCode(error))), "error");
-      await Promise.resolve(invalidate()).catch(() => undefined);
+      // Flowko U29c (P1): nothing was saved; the read again needs no answer (useInvalidateRoster never rejects).
+      await invalidate();
     } finally {
       setBusy(false);
     }

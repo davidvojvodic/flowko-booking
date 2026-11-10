@@ -59,6 +59,8 @@ export function RosterDayHeading(props: {
           holidaysClosed={layout.view.holidaysClosed}
           canManage={layout.canManageHoliday(date)}
           dirty={layout.dirty}
+          // Flowko U29c (P1): a failed refresh after a holiday change is RosterView's notice.
+          onRefreshFailed={layout.onRefreshFailed}
         />
       )}
     </div>

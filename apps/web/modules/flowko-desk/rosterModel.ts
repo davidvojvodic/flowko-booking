@@ -81,6 +81,8 @@ export type RosterLayout = {
   /** The owner may open/close this holiday (S8: week mode, today…today+371, writable week). */
   canManageHoliday: (date: string) => boolean;
   dirty: boolean;
+  /** Flowko U29c (P1): a holiday change stood but roster.week could not be read again (RosterView's notice). */
+  onRefreshFailed: () => void;
 };
 
 const sameEntries = (a: ShiftEntry[], b: ShiftEntry[]) =>
@@ -92,6 +94,8 @@ export function buildRosterLayout(input: {
   draft: RosterDraft;
   today: string;
   ownId: number | null;
+  // Flowko U29c (P1): handed to the holiday menu in the day headers.
+  onRefreshFailed: () => void;
 }): RosterLayout {
   const { view, mode, draft, today } = input;
   const visible = view.members.filter((m) => m.status !== "LOCKED");
@@ -154,5 +158,6 @@ export function buildRosterLayout(input: {
       date >= today &&
       date <= addDays(today, HORIZON_DAYS),
     dirty: draft.dirty,
+    onRefreshFailed: input.onRefreshFailed,
   };
 }
