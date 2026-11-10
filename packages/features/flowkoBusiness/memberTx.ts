@@ -1,7 +1,7 @@
 // Flowko U29c: the transaction wrapper of the member writes (add desk-only, reorder; lock/unlock in lock.ts).
 // A lock wait beyond Prisma's 5 s interactive-transaction limit (P2028), a write conflict or deadlock (P2034) and
 // a deadlock on a raw lock statement (P2010 with 40P01) are one retryable answer, member_conflict, never a 500.
-// The matcher is the one roster.ts uses for its savers (rosterTx), copied so this file imports only ./db and ./errors.
+// The 40P01 matcher lives here once (roster.ts's rosterTx imports it); this file imports only ./db and ./errors.
 import { Prisma } from "@calcom/prisma/client";
 import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError } from "./errors";
@@ -10,7 +10,7 @@ import { FlowkoBusinessError } from "./errors";
  * A deadlock on a raw statement ($executeRaw) arrives as P2010: with the SQLSTATE in `meta.code` (classic form) or
  * in the pg driver-adapter form this client uses (`meta.driverAdapterError.cause` with `code`/`originalCode`).
  */
-function isRawDeadlock(e: Prisma.PrismaClientKnownRequestError): boolean {
+export function isRawDeadlock(e: Prisma.PrismaClientKnownRequestError): boolean {
   if (e.code !== "P2010") return false;
   const meta = (e.meta ?? {}) as {
     code?: unknown;

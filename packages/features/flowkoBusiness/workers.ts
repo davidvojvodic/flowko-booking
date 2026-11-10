@@ -126,8 +126,8 @@ async function lockBusiness(tx: Prisma.TransactionClient, businessId: number): P
   await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
 }
 
-/** Flowko U29c: one comparison key per name: trimmed, lower-cased by Slovene rules. */
-const nameKey = (name: string): string => name.trim().toLocaleLowerCase("sl");
+/** Flowko U29c: one comparison key per name: trimmed, Unicode-composed (NFC), lower-cased by Slovene rules. */
+const nameKey = (name: string): string => name.trim().normalize("NFC").toLocaleLowerCase("sl");
 
 /**
  * W4: adds a desk-only worker (ACTIVE WORKER with a desk column at once, no usual week, no services) as the last
@@ -188,8 +188,9 @@ export async function reorderWorkers(
     )
       throw new FlowkoBusinessError("bad_member");
 
-    for (const [position, id] of input.memberIds.entries()) {
-      await tx.flowkoBusinessMember.update({ where: { id }, data: { position } });
+    // Flowko U29c: an indexed loop, not `entries()` (the trpc build targets ES5 without downlevelIteration).
+    for (let position = 0; position < input.memberIds.length; position++) {
+      await tx.flowkoBusinessMember.update({ where: { id: input.memberIds[position] }, data: { position } });
     }
     return { status: "saved" as const };
   });

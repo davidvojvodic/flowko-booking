@@ -9,9 +9,8 @@ import prismock from "@calcom/testing/lib/__mocks__/prisma";
 // The prismock factory runs when @calcom/prisma is first imported; workers.ts takes `db` and never imports it.
 import "@calcom/prisma";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
-import type { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
-import { Prisma as PrismaErrors } from "@calcom/prisma/client";
+import { Prisma } from "@calcom/prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
@@ -481,6 +480,13 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
     expect(stored).toHaveLength(1);
   });
 
+  it("treats a decomposed and a composed spelling of the same name as one (NFC)", async () => {
+    await addDeskWorker(db, f.users.olga, { displayName: "\u010Caja" }); // composed C-caron
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "C\u030Caja" }))).toBe(
+      "member_name_taken"
+    );
+  });
+
   it("refuses an empty name and one of 81 characters as bad_member; 80 is fine", async () => {
     expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "" }))).toBe("bad_member");
     expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "   " }))).toBe("bad_member");
@@ -509,7 +515,7 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
 
   it("answers a lost lock race (P2028, P2034, P2010 with 40P01 in both meta forms) as member_conflict", async () => {
     const raw = (code: string, meta: Record<string, unknown>) =>
-      new PrismaErrors.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+      new Prisma.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
     const failures = [
       raw("P2028", {}),
       raw("P2034", {}),
@@ -529,16 +535,15 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
 });
 
 describe("reorderWorkers (W5 workers.reorder)", () => {
-  const allIds = () =>
-    Object.values([
-      f.members.olga,
-      f.members.ana,
-      f.members.bor,
-      f.members.dan,
-      f.members.mojca,
-      f.members.rok,
-      f.members.sara,
-    ]);
+  const allIds = () => [
+    f.members.olga,
+    f.members.ana,
+    f.members.bor,
+    f.members.dan,
+    f.members.mojca,
+    f.members.rok,
+    f.members.sara,
+  ];
 
   it("writes position = index in the sent order over every member (OWNER, LOCKED, STAFF, desk-only), nothing else", async () => {
     const order = [
@@ -612,7 +617,7 @@ describe("reorderWorkers (W5 workers.reorder)", () => {
 
   it("answers a lost lock race (P2028, P2034, P2010 with 40P01 in both meta forms) as member_conflict", async () => {
     const raw = (code: string, meta: Record<string, unknown>) =>
-      new PrismaErrors.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+      new Prisma.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
     const failures = [
       raw("P2028", {}),
       raw("P2034", {}),

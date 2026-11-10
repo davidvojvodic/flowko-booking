@@ -47,6 +47,8 @@ import {
 } from "./access";
 import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError, type FlowkoBusinessErrorCode } from "./errors";
+// Flowko U29c: the 40P01 matcher now lives once in memberTx.ts (no cycle: it imports only ./db and ./errors).
+import { isRawDeadlock } from "./memberTx";
 // Flowko U29b: what a save would newly leave outside (S5).
 import { mirrorBookingsOfMembers, usualRowImpact, weekRowImpact } from "./rosterImpact";
 // Flowko U29b: content hashes for the week read.
@@ -236,21 +238,6 @@ function checkOpeningCap(
   }
 }
 
-/**
- * Flowko U29b (S6): a raw query Postgres ended as a deadlock: P2010 with the SQLSTATE 40P01 in its meta, in the
- * classic form (`meta.code`) and in the pg driver-adapter form this client uses (`meta.driverAdapterError.cause`
- * with `code`/`originalCode`, measured on Postgres 16 with two crossed advisory locks).
- */
-function isRawDeadlock(e: Prisma.PrismaClientKnownRequestError): boolean {
-  if (e.code !== "P2010") return false;
-  const meta = (e.meta ?? {}) as {
-    code?: unknown;
-    driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } };
-  };
-  const cause = meta.driverAdapterError?.cause;
-  return meta.code === "40P01" || cause?.code === "40P01" || cause?.originalCode === "40P01";
-}
-
 /** Runs a roster write; a unique violation (two writers of one member-week) is roster_conflict, never a 500. */
 async function rosterTx<T>(db: FlowkoDb, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   try {
@@ -333,8 +320,9 @@ export function memberRosterVersions(
   storedRows: Map<LocalDate, unknown>
 ): { weekVersion: string; usualVersion: string } {
   const usualWeek = readUsualWeek(member.usualWeek);
-  const rows = dates.flatMap((date): Array<[string, ShiftEntry[]]> =>
-    storedRows.has(date) ? [[date, readShifts(storedRows.get(date))]] : []
+  const rows = dates.flatMap(
+    (date): Array<[string, ShiftEntry[]]> =>
+      storedRows.has(date) ? [[date, readShifts(storedRows.get(date))]] : []
   );
   return {
     weekVersion: weekVersionOf({ status: member.status, usualWeek, rows }),
@@ -761,7 +749,14 @@ export async function saveRosterWeek(
 
     for (let i = 0; i < rows.length; i += 1) {
       const plan = plans[i];
-      await replaceWeek(tx, rows[i].memberId, dates, WEEKDAYS.map((wd) => plan[wd]), actorUserId, today);
+      await replaceWeek(
+        tx,
+        rows[i].memberId,
+        dates,
+        WEEKDAYS.map((wd) => plan[wd]),
+        actorUserId,
+        today
+      );
     }
     return { status: "saved" };
   });
