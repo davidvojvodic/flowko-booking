@@ -120,5 +120,18 @@ export const FEN: OwnerService = {
   broken: false, // Flowko U29c: P4
 };
 
+// Flowko U29c: a service whose stored steps are corrupt, as listServicesForOwner returns it (steps [], broken).
+export const KVAR: OwnerService = {
+  id: 4,
+  name: "Kvar",
+  category: null,
+  steps: [],
+  totalMinutes: 0,
+  position: 3,
+  workers: workers([ANA]),
+  futureBookings: 0,
+  broken: true,
+};
+
 /** Out of position order on purpose: the page sorts by position. */
 export const SERVICES_VIEW: OwnerServicesView = { services: [BARVANJE, FEN, STRIZENJE], members: MEMBERS };

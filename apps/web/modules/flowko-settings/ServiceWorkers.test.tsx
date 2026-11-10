@@ -11,9 +11,9 @@ vi.mock("@calcom/lib/hooks/useLocale", () => ({ useLocale: () => ({ t: localeT("
 const box = (name: string) => screen.getByRole("checkbox", { name });
 
 function setup(checked: number[], rows = BARVANJE.workers) {
-  const onChange = vi.fn();
-  render(<ServiceWorkers rows={rows} checked={checked} onChange={onChange} />);
-  return onChange;
+  const onToggle = vi.fn();
+  render(<ServiceWorkers rows={rows} checked={checked} onToggle={onToggle} />);
+  return onToggle;
 }
 
 describe("ServiceWorkers (U29a S10)", () => {
@@ -40,12 +40,21 @@ describe("ServiceWorkers (U29a S10)", () => {
     expect(box("Dan (zaklenjeno)")).not.toBeChecked();
   });
 
-  it("ticking and unticking is one onChange with the ACTIVE ids in roster order", () => {
-    const onChange = setup([ANA]);
+  // Flowko U29c (P3): one toggle per click, for that member only; the sheet keeps the overrides.
+  it("each click is one onToggle(memberId, on) for that member only", () => {
+    const onToggle = setup([ANA]);
     fireEvent.click(box("Bor"));
-    expect(onChange).toHaveBeenLastCalledWith([ANA, BOR]);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(onToggle).toHaveBeenLastCalledWith(BOR, true);
     fireEvent.click(box("Ana"));
-    expect(onChange).toHaveBeenLastCalledWith([]);
+    expect(onToggle).toHaveBeenCalledTimes(2);
+    expect(onToggle).toHaveBeenLastCalledWith(ANA, false);
+  });
+
+  it("a LOCKED member never toggles", () => {
+    const onToggle = setup([ANA]);
+    fireEvent.click(box("Dan (zaklenjeno)"));
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
   it("with nobody ticked it says the calendar cannot book the service", () => {

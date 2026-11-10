@@ -7,7 +7,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SERVICE_ERROR_CODES, ServiceSheet, type ServiceSheetTarget } from "./ServiceSheet";
-import { ANA, BARVANJE, BOR, FEN, localeT, MEMBERS, STRIZENJE } from "./settings.fixture";
+import { ANA, BARVANJE, BOR, DAN, FEN, KVAR, localeT, MEMBERS, STRIZENJE } from "./settings.fixture";
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
@@ -221,6 +221,114 @@ describe("ServiceSheet: editing a service", () => {
   it("S11: no note without future bookings", () => {
     open(edit(STRIZENJE));
     expect(screen.queryByTestId("flowko-service-future-bookings")).toBeNull();
+  });
+});
+
+// Flowko U29c (P3): the ticks are the user's toggles over the live rows. A refetch that turns a LOCKED member ACTIVE
+// (the sheet stays mounted, keyed by service id) shows it ticked when the server still has the assignment, so
+// „Shrani“ never drops it silently; an untick by the user survives the refresh.
+describe("ServiceSheet: ticks follow the live rows (P3)", () => {
+  const withDan = (status: "ACTIVE" | "LOCKED") => ({
+    ...BARVANJE,
+    workers: BARVANJE.workers.map((w) => (w.memberId === DAN ? { ...w, status } : w)),
+  });
+  const renderEdit = (service = withDan("LOCKED")) => {
+    const view = render(
+      <ServiceSheet
+        target={edit(service)}
+        members={MEMBERS}
+        onClose={mocks.onClose}
+        onChanged={mocks.onChanged}
+      />
+    );
+    return (next: typeof service) =>
+      view.rerender(
+        <ServiceSheet
+          target={edit(next)}
+          members={MEMBERS}
+          onClose={mocks.onClose}
+          onChanged={mocks.onChanged}
+        />
+      );
+  };
+
+  it("Dan LOCKED + assigned, then ACTIVE + assigned: Dan is ticked and „Shrani“ sends Dan", async () => {
+    const refresh = renderEdit();
+    expect(box("Dan (zaklenjeno)")).toBeChecked();
+    expect(box("Dan (zaklenjeno)")).toBeDisabled();
+    refresh(withDan("ACTIVE"));
+    expect(box("Dan")).toBeChecked();
+    expect(box("Dan")).not.toBeDisabled();
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ workerMemberIds: [ANA, DAN] }))
+    );
+  });
+
+  it("a user untick of Ana survives the rerender", async () => {
+    const refresh = renderEdit();
+    fireEvent.click(box("Ana"));
+    expect(box("Ana")).not.toBeChecked();
+    refresh(withDan("ACTIVE"));
+    expect(box("Ana")).not.toBeChecked();
+    expect(box("Dan")).toBeChecked();
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ workerMemberIds: [DAN] }))
+    );
+  });
+
+  it("a user tick of Bor survives the rerender", async () => {
+    const refresh = renderEdit();
+    fireEvent.click(box("Bor"));
+    refresh(withDan("ACTIVE"));
+    expect(box("Bor")).toBeChecked();
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ workerMemberIds: [ANA, BOR, DAN] }))
+    );
+  });
+
+  it("a member locked meanwhile is shown disabled and never sent", async () => {
+    const refresh = renderEdit(withDan("ACTIVE"));
+    expect(box("Dan")).toBeChecked();
+    refresh(withDan("LOCKED"));
+    expect(box("Dan (zaklenjeno)")).toBeDisabled();
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ workerMemberIds: [ANA] }))
+    );
+  });
+});
+
+// Flowko U29c (P4): a corrupt stored service arrives with steps [] and broken; the owner can re-enter the steps
+// (the save validates as always) or remove it.
+describe("ServiceSheet: a broken service (P4)", () => {
+  it("opens with no steps; the save is refused until the owner adds one, then it validates as always", async () => {
+    open(edit(KVAR));
+    expect(input("Ime storitve").value).toBe("Kvar");
+    expect(screen.queryByLabelText("1. korak: minute")).toBeNull();
+    await save();
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(screen.getByText("Dodajte vsaj en korak.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj korak" }));
+    type("1. korak: minute", "30");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: KVAR.id, steps: [{ kind: "busy", minutes: 30 }] })
+      )
+    );
+  });
+
+  it("„Odstrani“ removes it", async () => {
+    open(edit(KVAR));
+    fireEvent.click(screen.getByRole("button", { name: "Odstrani" }));
+    const dialog = screen.getByRole("dialog", { name: "Odstrani storitev: Kvar" });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Odstrani" }));
+    });
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith({ serviceId: KVAR.id }));
   });
 });
 

@@ -151,9 +151,10 @@ export function ServiceSheet(props: {
   const [name, setName] = useState(service?.name ?? "");
   const [category, setCategory] = useState(service?.category ?? "");
   const [steps, setSteps] = useState<StepDraft[]>(() => (service ? toDrafts(service.steps) : NEW_STEPS));
-  const [checked, setChecked] = useState<number[]>(() =>
-    rows.filter((r) => !isLocked(r) && (service ? r.assigned : true)).map((r) => r.memberId)
-  );
+  // Flowko U29c (P3): only the owner's clicks are state. Ticked = the click, else the live row (edit: assigned;
+  // new: every ACTIVE member), so a refetch that turns a LOCKED member ACTIVE shows it ticked instead of dropping
+  // its assignment on the next save, and an untick survives the refresh.
+  const [toggles, setToggles] = useState<Record<number, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
   const [nameTaken, setNameTaken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -166,7 +167,7 @@ export function ServiceSheet(props: {
 
   // Only members ACTIVE in the current rows are sent (one locked meanwhile drops out once the list refreshes).
   const workerMemberIds = rows
-    .filter((r) => !isLocked(r) && checked.includes(r.memberId))
+    .filter((r) => !isLocked(r) && (toggles[r.memberId] ?? (service ? r.assigned : true)))
     .map((r) => r.memberId);
   const input = {
     ...(service ? { id: service.id } : {}),
@@ -310,7 +311,11 @@ export function ServiceSheet(props: {
                 listError={problems.steps ? t(fieldKey(problems.steps)) : undefined}
               />
             </div>
-            <ServiceWorkers rows={rows} checked={checked} onChange={setChecked} />
+            <ServiceWorkers
+              rows={rows}
+              checked={workerMemberIds}
+              onToggle={(memberId, on) => setToggles((prev) => ({ ...prev, [memberId]: on }))}
+            />
           </SheetBody>
           <SheetFooter className="flex flex-wrap items-center gap-2">
             {service && (

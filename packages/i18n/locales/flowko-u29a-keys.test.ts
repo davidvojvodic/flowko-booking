@@ -134,6 +134,10 @@ const U29A_KEYS = [
   // Flowko U29b (Task 1a): U29a polish, per-day „Dodaj“ name and the service-gone text.
   "flowko_settings_add_range_day",
   "flowko_settings_service_error_gone",
+  // Flowko U29c (Task 1b): the checked refresh after a save (P1) and the broken service row (P4).
+  "flowko_settings_refresh_failed",
+  "flowko_settings_refresh",
+  "flowko_settings_service_broken",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.

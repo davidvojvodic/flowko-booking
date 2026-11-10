@@ -5331,5 +5331,8 @@
   "flowko_roster_absence_bookings_other": "{{count}} terminov v tem času ostane v koledarju",
   "flowko_roster_absence_confirm_add": "Vseeno dodaj",
   "flowko_roster_cell_changed": "Neshranjeno",
-  "flowko_roster_discard_body": "Neshranjene spremembe bodo izgubljene. Urnik ostane tak, kot je bil nazadnje shranjen."
+  "flowko_roster_discard_body": "Neshranjene spremembe bodo izgubljene. Urnik ostane tak, kot je bil nazadnje shranjen.",
+  "flowko_settings_refresh_failed": "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.",
+  "flowko_settings_refresh": "Osveži",
+  "flowko_settings_service_broken": "Koraki te storitve so poškodovani. Uredite jo znova ali jo odstranite."
 }

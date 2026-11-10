@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ServicesView from "./services-view";
-import { BARVANJE, FEN, localeT, SERVICES_VIEW, STRIZENJE } from "./settings.fixture";
+import { BARVANJE, FEN, KVAR, localeT, SERVICES_VIEW, STRIZENJE } from "./settings.fixture";
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
@@ -282,5 +282,118 @@ describe("ServicesView: the sheet", () => {
     });
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith({ serviceId: FEN.id }));
     await waitFor(() => expectS17Invalidated());
+  });
+});
+
+// Flowko U29c (P1, P8): the refresh after a write is checked. services.list is the probe (invalidated with
+// throwOnError; the other S17 queries use a plain invalidate). A failed probe shows an inline notice above the list
+// with „Osveži“; nothing is blocked (saves carry no version, a stale reorder answers bad_service + refetch). A
+// reorder that went through says „Shranjeno“.
+describe("ServicesView: the refresh after a write (P1, P8)", () => {
+  const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
+  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.";
+
+  async function reorderWithFailingRefresh() {
+    mocks.invalidateList.mockRejectedValue(new Error("offline"));
+    render(<ServicesView />);
+    await act(async () => {
+      fireEvent.click(button("Premakni dol: Striženje"));
+    });
+    await waitFor(() => expect(notice()).toBeInTheDocument());
+  }
+
+  it("probes services.list with throwOnError; the other S17 queries use a plain invalidate", async () => {
+    render(<ServicesView />);
+    await act(async () => {
+      fireEvent.click(button("Premakni dol: Striženje"));
+    });
+    await waitFor(() => expectS17Invalidated());
+    expect(mocks.invalidateList).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+    expect(mocks.invalidateDeskServices).toHaveBeenCalledWith();
+    expect(mocks.invalidateFreeStarts).toHaveBeenCalledWith();
+    expect(notice()).toBeNull();
+  });
+
+  it("a reorder that went through says „Shranjeno“ after the refresh", async () => {
+    render(<ServicesView />);
+    await act(async () => {
+      fireEvent.click(button("Premakni dol: Striženje"));
+    });
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Shranjeno", "success"));
+  });
+
+  it("a failed refresh after a reorder → the inline notice with „Osveži“; arrows and „Nova storitev“ stay usable", async () => {
+    await reorderWithFailingRefresh();
+    expect(notice()).toHaveTextContent(NOTICE_TEXT);
+    expect(button("Osveži")).toBeInTheDocument();
+    expect(button("Premakni dol: Striženje")).not.toBeDisabled();
+    expect(button("Premakni gor: Fen")).not.toBeDisabled();
+    expect(button("Nova storitev")).not.toBeDisabled();
+    expect(mocks.toast).toHaveBeenCalledWith("Shranjeno", "success");
+  });
+
+  it("„Osveži“ runs the probe again; when it answers the notice is gone", async () => {
+    await reorderWithFailingRefresh();
+    mocks.invalidateList.mockReset();
+    mocks.invalidateList.mockResolvedValue(undefined);
+    await act(async () => {
+      fireEvent.click(button("Osveži"));
+    });
+    expect(mocks.invalidateList).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+    await waitFor(() => expect(notice()).toBeNull());
+  });
+
+  it("„Osveži“ failing again keeps the notice", async () => {
+    await reorderWithFailingRefresh();
+    await act(async () => {
+      fireEvent.click(button("Osveži"));
+    });
+    expect(notice()).toBeInTheDocument();
+  });
+
+  it("a failed refresh after a sheet save raises the same notice and the sheet still closes", async () => {
+    mocks.invalidateList.mockRejectedValue(new Error("offline"));
+    render(<ServicesView />);
+    fireEvent.click(button("Uredi: Fen"));
+    await act(async () => {
+      fireEvent.click(button("Shrani"));
+    });
+    await waitFor(() => expect(notice()).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Uredi storitev" })).toBeNull());
+  });
+});
+
+// Flowko U29c (P4): a service with corrupt stored steps (steps [], broken) is listed with its own text; „Uredi“
+// opens it with no steps and „Odstrani“ works, so one manual DB edit cannot lock the owner out of the catalogue.
+describe("ServicesView: a broken service (P4)", () => {
+  beforeEach(() => {
+    data = { ...SERVICES_VIEW, services: [...SERVICES_VIEW.services, KVAR] };
+  });
+
+  it("the row says its steps are damaged; healthy rows do not", () => {
+    render(<ServicesView />);
+    expect(
+      within(row(KVAR.id)).getByText("Koraki te storitve so poškodovani. Uredite jo znova ali jo odstranite.")
+    ).toBeInTheDocument();
+    expect(within(row(STRIZENJE.id)).queryByText(/poškodovani/)).toBeNull();
+    expect(within(row(KVAR.id)).queryByTestId("flowko-service-total")).toBeNull();
+  });
+
+  it("„Uredi“ opens it with no steps", () => {
+    render(<ServicesView />);
+    fireEvent.click(button("Uredi: Kvar"));
+    expect((screen.getByLabelText("Ime storitve") as HTMLInputElement).value).toBe("Kvar");
+    expect(screen.queryByLabelText("1. korak: minute")).toBeNull();
+  });
+
+  it("„Odstrani“ removes it", async () => {
+    render(<ServicesView />);
+    fireEvent.click(button("Uredi: Kvar"));
+    fireEvent.click(button("Odstrani"));
+    const dialog = screen.getByRole("dialog", { name: "Odstrani storitev: Kvar" });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Odstrani" }));
+    });
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith({ serviceId: KVAR.id }));
   });
 });

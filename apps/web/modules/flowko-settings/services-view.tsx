@@ -4,16 +4,19 @@
 // when nobody; a LOCKED member marked as on the desk), up/down buttons (always visible; each sends the whole new
 // order, and a stale list answers bad_service → refetch and say so) and „Uredi“. „Nova storitev“ and „Uredi“ open
 // the ServiceSheet; an empty catalogue shows the empty state. Every service write invalidates services.list, the
-// desk's business.services and bookings.freeStarts (S17).
+// desk's business.services and bookings.freeStarts (S17). Flowko U29c: a failed refresh shows an inline notice with
+// „Osveži“; a corrupt service is listed with a damaged-steps text (P1, P4, P8).
 "use client";
 
 import type { OwnerService } from "@calcom/features/flowkoBusiness/services";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
+import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
 import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
+import { refreshAfterSave } from "@calcom/web/lib/flowko/refreshAfterSave";
 import { useState } from "react";
 import { ServiceSheet, serviceErrorCode, serviceErrorKey } from "./ServiceSheet";
 import { isLocked } from "./ServiceWorkers";
@@ -34,12 +37,29 @@ export default function ServicesView() {
   const [reordering, setReordering] = useState(false);
 
   // S17: the catalogue here, the desk's service list and its free starts.
-  const invalidate = () =>
-    Promise.all([
-      utils.viewer.flowko.services.list.invalidate(),
-      utils.viewer.flowko.business.services.invalidate(),
-      utils.viewer.flowko.bookings.freeStarts.invalidate(),
-    ]).catch(() => undefined);
+  // Flowko U29c (P1): services.list is the probe (invalidated with throwOnError, so it rejects when its refetch
+  // fails); the other two only run alongside. A failed probe raises the inline notice; nothing is blocked (saves
+  // carry no version, a stale reorder answers bad_service + refetch). A saved write is never undone by it.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const probeList = () =>
+    utils.viewer.flowko.services.list.invalidate(undefined, undefined, { throwOnError: true });
+  const invalidate = async () => {
+    const ok = await refreshAfterSave(probeList, [
+      () => utils.viewer.flowko.business.services.invalidate(),
+      () => utils.viewer.flowko.bookings.freeStarts.invalidate(),
+    ]);
+    setRefreshFailed(!ok);
+    return ok;
+  };
+  async function retryRefresh() {
+    setRetrying(true);
+    try {
+      setRefreshFailed(!(await refreshAfterSave(probeList, [])));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   if (!query.data) {
     if (query.error) {
@@ -87,8 +107,10 @@ export default function ServicesView() {
       return;
     }
     // Flowko U29b: the arrows stay off until the refreshed list is in (D1 c); the next move starts from it.
+    // Flowko U29c (P8): the reorder went through, so it says so, whatever the refresh answered (P1).
     await invalidate();
     setReordering(false);
+    showToast(t("saved"), "success");
   }
 
   const workersText = (service: OwnerService) => {
@@ -107,6 +129,19 @@ export default function ServicesView() {
 
   return (
     <div className={BOX}>
+      {refreshFailed && (
+        <div data-testid="flowko-settings-refresh-failed" className="mb-4">
+          <Alert
+            severity="warning"
+            title={t("flowko_settings_refresh_failed")}
+            actions={
+              <Button type="button" color="secondary" loading={retrying} onClick={() => void retryRefresh()}>
+                {t("flowko_settings_refresh")}
+              </Button>
+            }
+          />
+        </div>
+      )}
       {services.length === 0 ? (
         <EmptyScreen
           Icon="layers"
@@ -136,12 +171,17 @@ export default function ServicesView() {
                     <span className="text-emphasis font-medium">{service.name}</span>
                     {service.category && <span className="text-subtle text-xs">{service.category}</span>}
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span data-testid="flowko-service-total" className="text-default text-sm tabular-nums">
-                      {t("flowko_settings_service_minutes", { minutes: service.totalMinutes })}
-                    </span>
-                    <StepsBar steps={service.steps} />
-                  </div>
+                  {/* Flowko U29c (P4): corrupt stored steps: no total or bar, only the way out. */}
+                  {service.broken ? (
+                    <p className="text-error text-sm">{t("flowko_settings_service_broken")}</p>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <span data-testid="flowko-service-total" className="text-default text-sm tabular-nums">
+                        {t("flowko_settings_service_minutes", { minutes: service.totalMinutes })}
+                      </span>
+                      <StepsBar steps={service.steps} />
+                    </div>
+                  )}
                   <span data-testid="flowko-service-workers" className="text-subtle text-sm">
                     {workersText(service)}
                   </span>

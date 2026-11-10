@@ -5255,5 +5255,8 @@
   "flowko_roster_absence_bookings_other": "{{count}} bookings in this period stay on the calendar",
   "flowko_roster_absence_confirm_add": "Add anyway",
   "flowko_roster_cell_changed": "Unsaved",
-  "flowko_roster_discard_body": "Your unsaved changes will be lost. The roster stays as it was last saved."
+  "flowko_roster_discard_body": "Your unsaved changes will be lost. The roster stays as it was last saved.",
+  "flowko_settings_refresh_failed": "Saved, but the view could not be refreshed. Click Refresh.",
+  "flowko_settings_refresh": "Refresh",
+  "flowko_settings_service_broken": "This service's steps are damaged. Edit it again or remove it."
 }
