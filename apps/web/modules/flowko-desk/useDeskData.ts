@@ -10,7 +10,8 @@ import { trpc } from "@calcom/trpc/react";
 
 export const DESK_POLL_MS = 30_000;
 
-function useInvalidateDesk() {
+// Flowko U29b (S16): exported, Urnik's saves refresh the desk's bookings and free starts too (shifts drive them).
+export function useInvalidateDesk() {
   const utils = trpc.useUtils();
   return useCallback(
     () =>

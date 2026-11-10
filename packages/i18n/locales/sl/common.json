@@ -5271,5 +5271,10 @@
   "flowko_settings_service_field_too_many_steps": "Storitev ima lahko največ 8 korakov.",
   "flowko_settings_service_field_total_too_long": "Storitev je lahko dolga največ 12 ur (720 minut).",
   "flowko_settings_add_range_day": "Dodaj čas: {{day}}",
-  "flowko_settings_service_error_gone": "Te storitve ni več, odstranil jo je nekdo drug. Seznam je osvežen."
+  "flowko_settings_service_error_gone": "Te storitve ni več, odstranil jo je nekdo drug. Seznam je osvežen.",
+  "flowko_roster_view": "Urnik",
+  "flowko_roster_unsaved_title": "Neshranjene spremembe",
+  "flowko_roster_unsaved_body": "Spremembe urnika še niso shranjene. Če nadaljujete, se izgubijo.",
+  "flowko_roster_unsaved_stay": "Ostani",
+  "flowko_roster_unsaved_discard": "Zavrzi in nadaljuj"
 }

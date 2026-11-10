@@ -30,6 +30,16 @@ export const deskTrpc = {
   refetchMe: vi.fn(),
   // Flowko U29a (S7): the desk's business.me poll (useDeskBusinessMePoll); the desk reads `me` via useFlowkoBusiness.
   meQuery: vi.fn(),
+  // Flowko U29b: Urnik's read, writes and refreshes (DeskView calls the roster hooks in every view).
+  rosterWeekQuery: vi.fn(),
+  saveWeek: vi.fn(),
+  saveUsualWeeks: vi.fn(),
+  addAbsence: vi.fn(),
+  removeAbsence: vi.fn(),
+  setHolidayOpen: vi.fn(),
+  invalidateRosterWeek: vi.fn(),
+  fetchRosterWeek: vi.fn(),
+  invalidateSettings: vi.fn(),
 };
 
 /** Defaults: members + services answered, no free starts, no customers, every write rejects until a test says. */
@@ -52,6 +62,15 @@ export function resetDeskTrpc() {
   deskTrpc.refetchFreeStarts.mockResolvedValue(undefined);
   deskTrpc.refetchMe.mockResolvedValue(undefined);
   deskTrpc.meQuery.mockReturnValue({ data: undefined });
+  // Flowko U29b: roster.week pending (a test answers it), its refreshes resolve.
+  deskTrpc.rosterWeekQuery.mockReturnValue({
+    data: undefined,
+    isPending: true,
+    error: null,
+    refetch: vi.fn().mockResolvedValue(undefined),
+  });
+  deskTrpc.invalidateRosterWeek.mockResolvedValue(undefined);
+  deskTrpc.invalidateSettings.mockResolvedValue(undefined);
 }
 
 /** A TRPCClientError as the desk sees it: `message` is the Flowko code, `data.code` the tRPC code. */
@@ -71,7 +90,18 @@ export const trpcModule = {
             week: { invalidate: deskTrpc.invalidateWeek },
             freeStarts: { invalidate: deskTrpc.invalidateFreeStarts, refetch: deskTrpc.refetchFreeStarts },
           },
-          business: { me: { refetch: deskTrpc.refetchMe } },
+          business: {
+            me: { refetch: deskTrpc.refetchMe },
+            // Flowko U29b: a holiday change refreshes the settings too (S16).
+            settings: { invalidate: deskTrpc.invalidateSettings },
+          },
+          // Flowko U29b: Urnik refreshes its week; „Kopiraj prejšnji teden“ fetches the week before (S15).
+          roster: {
+            week: {
+              invalidate: deskTrpc.invalidateRosterWeek,
+              fetch: (...args: unknown[]) => deskTrpc.fetchRosterWeek(...args),
+            },
+          },
         },
       },
     }),
@@ -91,6 +121,15 @@ export const trpcModule = {
           members: { useQuery: (...args: unknown[]) => deskTrpc.membersQuery(...args) },
           services: { useQuery: (...args: unknown[]) => deskTrpc.servicesQuery(...args) },
           me: { useQuery: (...args: unknown[]) => deskTrpc.meQuery(...args) },
+        },
+        // Flowko U29b: Urnik (roster.week + the writes it uses).
+        roster: {
+          week: { useQuery: (...args: unknown[]) => deskTrpc.rosterWeekQuery(...args) },
+          saveWeek: { useMutation: mutation((input) => deskTrpc.saveWeek(input)) },
+          saveUsualWeeks: { useMutation: mutation((input) => deskTrpc.saveUsualWeeks(input)) },
+          addAbsence: { useMutation: mutation((input) => deskTrpc.addAbsence(input)) },
+          removeAbsence: { useMutation: mutation((input) => deskTrpc.removeAbsence(input)) },
+          setHolidayOpen: { useMutation: mutation((input) => deskTrpc.setHolidayOpen(input)) },
         },
       },
     },

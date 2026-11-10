@@ -5201,5 +5201,10 @@
   "flowko_settings_service_field_too_many_steps": "A service can have at most 8 steps.",
   "flowko_settings_service_field_total_too_long": "A service can be at most 12 hours (720 minutes) long.",
   "flowko_settings_add_range_day": "Add a time: {{day}}",
-  "flowko_settings_service_error_gone": "This service no longer exists; someone else removed it. The list is refreshed."
+  "flowko_settings_service_error_gone": "This service no longer exists; someone else removed it. The list is refreshed.",
+  "flowko_roster_view": "Roster",
+  "flowko_roster_unsaved_title": "Unsaved changes",
+  "flowko_roster_unsaved_body": "Your roster changes are not saved yet. If you continue, they are lost.",
+  "flowko_roster_unsaved_stay": "Stay",
+  "flowko_roster_unsaved_discard": "Discard and continue"
 }
