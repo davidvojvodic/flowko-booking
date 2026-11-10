@@ -7,7 +7,7 @@
 // draft dropped, week refetched, alert; other codes → toasts; saved → await the refresh, then drop the draft).
 // `onOpenDay` (a day header's date → Dan) and `onModeChange` already run through DeskView's guard; they are not
 // wrapped again here (a second guard would ask twice). A phone day arrow inside the week is DeskView's, unguarded.
-// Absences are Task 9 (the cell sheet's `children`).
+// Absences (Task 9, S7) are the cell sheet's `children`: AbsenceSection, saved at once, off while the draft is dirty.
 import { useRef, useState } from "react";
 
 import type { RosterWeekView } from "@calcom/features/flowkoBusiness/roster";
@@ -22,6 +22,7 @@ import { ToggleGroup } from "@calcom/ui/components/form";
 import { showToast } from "@calcom/ui/components/toast";
 import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness";
 
+import { AbsenceSection } from "./AbsenceSection";
 import { RosterCellSheet } from "./RosterCellSheet";
 import { RosterDayList } from "./RosterDayList";
 import { RosterGrid } from "./RosterGrid";
@@ -249,8 +250,17 @@ export function RosterView(props: {
             setStaleScope(null);
             setSelected(null);
           }}
-          onClose={() => setSelected(null)}
-        />
+          onClose={() => setSelected(null)}>
+          {/* Flowko U29b (Task 9, S7): week mode only (the sheet renders its children there only). */}
+          <AbsenceSection
+            memberId={selected.memberId}
+            date={selected.key}
+            today={props.today}
+            absences={sheetMember.absences}
+            dirty={draft.dirty}
+            onDone={() => setSelected(null)}
+          />
+        </RosterCellSheet>
       )}
       <RosterWarningsDialog
         open={warnings !== null}

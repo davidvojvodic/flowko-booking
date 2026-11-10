@@ -5316,5 +5316,18 @@
   "flowko_roster_error_week_out_of_range": "Ta teden je zunaj obdobja, ki ga je mogoče urejati.",
   "flowko_roster_error_roster_conflict": "Hkrati je shranjeval še nekdo. Poskusite znova.",
   "flowko_roster_error_bad_absence": "Odsotnosti ni mogoče shraniti. Preverite datume.",
-  "flowko_roster_error_not_a_holiday": "Ta dan ni praznik."
+  "flowko_roster_error_not_a_holiday": "Ta dan ni praznik.",
+  "flowko_roster_absence_title": "Odsotnost",
+  "flowko_roster_absence_end": "Zadnji dan odsotnosti",
+  "flowko_roster_absence_add": "Dodaj odsotnost",
+  "flowko_roster_absence_range": "Odsotnost {{from}} – {{to}}",
+  "flowko_roster_absence_day": "Odsotnost {{date}}",
+  "flowko_roster_absence_remove": "Odstrani odsotnost",
+  "flowko_roster_absence_dirty_hint": "Najprej shranite ali zavrzite spremembe urnika.",
+  "flowko_roster_absence_confirm_title": "Termini v času odsotnosti",
+  "flowko_roster_absence_bookings_one": "{{count}} termin v tem času ostane",
+  "flowko_roster_absence_bookings_two": "{{count}} termina v tem času ostaneta",
+  "flowko_roster_absence_bookings_few": "{{count}} termini v tem času ostanejo",
+  "flowko_roster_absence_bookings_other": "{{count}} terminov v tem času ostane",
+  "flowko_roster_absence_confirm_add": "Vseeno dodaj"
 }

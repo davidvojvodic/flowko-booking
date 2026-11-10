@@ -640,3 +640,140 @@ describe("RosterView editing: „Kopiraj prejšnji teden“ (S15, D11)", () => {
     expect(captured.draft?.dirty).toBe(false);
   });
 });
+
+describe("RosterView editing: absences from a cell (Task 9, S7, D12)", () => {
+  const FRI = "2026-11-20";
+  const sheetDialog = () => screen.getByRole("dialog", { name: /^Ana · / });
+
+  it("week mode: add 17.–18. 11. → addAbsence with confirm false, the roster is refreshed, the sheet closes", async () => {
+    deskTrpc.addAbsence.mockResolvedValueOnce({ status: "saved", absenceId: 90 });
+    renderRoster();
+    fireEvent.click(cell(ANA, TUE));
+    const dialog = await sheet();
+    fireEvent.change(within(dialog).getByLabelText("Zadnji dan odsotnosti"), {
+      target: { value: WED },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Dodaj odsotnost" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deskTrpc.addAbsence).toHaveBeenCalledWith({
+      memberId: ANA,
+      startDate: TUE,
+      endDate: WED,
+      confirm: false,
+    });
+    expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(1);
+    expect(captured.draft?.dirty).toBe(false);
+  });
+
+  it("needs_confirm 2 → „2 termina v tem času ostaneta“ → „Vseeno dodaj“ resends with confirm true", async () => {
+    deskTrpc.addAbsence
+      .mockResolvedValueOnce({ status: "needs_confirm", bookings: 2 })
+      .mockResolvedValueOnce({ status: "saved", absenceId: 91 });
+    renderRoster();
+    fireEvent.click(cell(ANA, TUE));
+    fireEvent.click(within(await sheet()).getByRole("button", { name: "Dodaj odsotnost" }));
+    const confirm = await screen.findByText("2 termina v tem času ostaneta");
+    expect(deskTrpc.invalidateRosterWeek).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(confirm.closest('[role="dialog"]') as HTMLElement).getByRole("button", {
+        name: "Vseeno dodaj",
+      })
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deskTrpc.addAbsence).toHaveBeenLastCalledWith({
+      memberId: ANA,
+      startDate: TUE,
+      endDate: TUE,
+      confirm: true,
+    });
+    expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(1);
+  });
+
+  it("a cell that shows an absence lists its stored range and removes it whole", async () => {
+    deskTrpc.removeAbsence.mockResolvedValueOnce({ ok: true });
+    renderRoster({
+      view: rosterWeek({
+        members: rosterWeek().members.map((m) =>
+          m.memberId === ANA
+            ? {
+                ...m,
+                absences: [{ id: 71, startDate: FRI, endDate: "2026-11-22" }],
+              }
+            : m
+        ),
+      }),
+    });
+    fireEvent.click(cell(ANA, FRI));
+    const dialog = await sheet();
+    expect(within(dialog).getByTestId("roster-absence-71").textContent).toContain("20. 11.");
+    expect(within(dialog).getByTestId("roster-absence-71").textContent).toContain("22. 11.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Odstrani odsotnost" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deskTrpc.removeAbsence).toHaveBeenCalledWith({ absenceId: 71 });
+    expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(1);
+  });
+
+  it("both actions are disabled with the hint while the draft is dirty", async () => {
+    renderRoster();
+    await applyChoice(BOR, TUE, "Prosto");
+    fireEvent.click(cell(ANA, TUE));
+    let dialog = await sheet();
+    expect(
+      (within(dialog).getByRole("button", { name: "Dodaj odsotnost" }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(within(dialog).getByText("Najprej shranite ali zavrzite spremembe urnika.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Prekliči" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(cell(ANA, FRI));
+    dialog = await sheet();
+    expect(
+      (within(dialog).getByRole("button", { name: "Odstrani odsotnost" }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(deskTrpc.addAbsence).not.toHaveBeenCalled();
+    expect(deskTrpc.removeAbsence).not.toHaveBeenCalled();
+  });
+
+  it("no reason field anywhere in the sheet", async () => {
+    renderRoster();
+    fireEvent.click(cell(ANA, TUE));
+    const dialog = await sheet();
+    expect(within(dialog).queryByLabelText(/razlog/i)).toBeNull();
+    expect(within(dialog).queryByPlaceholderText(/razlog/i)).toBeNull();
+  });
+
+  it("„Običajni teden“ has no absence section", async () => {
+    renderRoster({ mode: "usual" });
+    fireEvent.click(cell(ANA, "tue"));
+    const dialog = await sheet();
+    expect(within(dialog).queryByRole("button", { name: "Dodaj odsotnost" })).toBeNull();
+    expect(within(dialog).queryByTestId("roster-absence")).toBeNull();
+  });
+
+  it("a worker adds an absence for their own row; other rows have no sheet", async () => {
+    me.mockReturnValue(businessMe(ANA, "WORKER", false));
+    deskTrpc.addAbsence.mockResolvedValueOnce({ status: "saved", absenceId: 92 });
+    renderRoster({ view: rosterWeek({ canEditUsualWeek: false, editableMemberIds: [ANA] }) });
+    expect(cell(BOR, TUE).tagName).toBe("DIV");
+    fireEvent.click(cell(ANA, TUE));
+    fireEvent.click(within(sheetDialog()).getByRole("button", { name: "Dodaj odsotnost" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deskTrpc.addAbsence).toHaveBeenCalledWith({
+      memberId: ANA,
+      startDate: TUE,
+      endDate: TUE,
+      confirm: false,
+    });
+  });
+
+  it("STAFF (no editable row) and a read-only week open no sheet, so no absence action", () => {
+    me.mockReturnValue(businessMe(OLGA, "STAFF", false));
+    renderRoster({ view: rosterWeek({ canEditUsualWeek: false, editableMemberIds: [] }) });
+    fireEvent.click(cell(ANA, TUE));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    cleanup();
+    me.mockReturnValue(businessMe(OLGA, "OWNER", false));
+    renderRoster({ view: rosterWeek({ weekStart: "2026-11-09" }) });
+    fireEvent.click(cell(ANA, "2026-11-10"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

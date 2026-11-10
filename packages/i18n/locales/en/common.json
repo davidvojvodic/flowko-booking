@@ -5242,5 +5242,16 @@
   "flowko_roster_error_week_out_of_range": "This week is outside the period that can be edited.",
   "flowko_roster_error_roster_conflict": "Someone else was saving at the same time. Try again.",
   "flowko_roster_error_bad_absence": "The absence could not be saved. Check the dates.",
-  "flowko_roster_error_not_a_holiday": "This day is not a public holiday."
+  "flowko_roster_error_not_a_holiday": "This day is not a public holiday.",
+  "flowko_roster_absence_title": "Absence",
+  "flowko_roster_absence_end": "Last day of the absence",
+  "flowko_roster_absence_add": "Add absence",
+  "flowko_roster_absence_range": "Absence {{from}} – {{to}}",
+  "flowko_roster_absence_day": "Absence {{date}}",
+  "flowko_roster_absence_remove": "Remove absence",
+  "flowko_roster_absence_dirty_hint": "Save or discard the roster changes first.",
+  "flowko_roster_absence_confirm_title": "Bookings during the absence",
+  "flowko_roster_absence_bookings_one": "{{count}} booking in this period stays",
+  "flowko_roster_absence_bookings_other": "{{count}} bookings in this period stay",
+  "flowko_roster_absence_confirm_add": "Add anyway"
 }
