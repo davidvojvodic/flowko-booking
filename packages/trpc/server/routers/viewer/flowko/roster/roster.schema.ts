@@ -37,8 +37,14 @@ export const ZCopyWeekInput = z
   .strict();
 export type TCopyWeekInput = z.infer<typeof ZCopyWeekInput>;
 
+// Flowko U29b (S7): confirm answers the booking count of a needs_confirm result.
 export const ZAddAbsenceInput = z
-  .object({ memberId: idSchema, startDate: localDateSchema, endDate: localDateSchema })
+  .object({
+    memberId: idSchema,
+    startDate: localDateSchema,
+    endDate: localDateSchema,
+    confirm: z.boolean().default(false),
+  })
   .strict();
 export type TAddAbsenceInput = z.infer<typeof ZAddAbsenceInput>;
 
@@ -50,3 +56,34 @@ export type TSetHolidaysClosedInput = z.infer<typeof ZSetHolidaysClosedInput>;
 
 export const ZSetHolidayOpenInput = z.object({ date: localDateSchema, open: z.boolean() }).strict();
 export type TSetHolidayOpenInput = z.infer<typeof ZSetHolidayOpenInput>;
+
+// Flowko U29b (S3, S4, S17): the roster editor's all-or-nothing saves. `version` is the 64-char hex token the
+// read gave (weekVersion / usualVersion); row rules (distinct ids, rights, 4 entries a day) live in the services.
+const versionSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const ZSaveWeekInput = z
+  .object({
+    weekStart: localDateSchema,
+    rows: z
+      .array(z.object({ memberId: idSchema, version: versionSchema, days: weekPlanSchema }).strict())
+      .min(1)
+      .max(50),
+    confirm: z.boolean().default(false),
+  })
+  .strict();
+export type TSaveWeekInput = z.infer<typeof ZSaveWeekInput>;
+
+export const ZSaveUsualWeeksInput = z
+  .object({
+    rows: z
+      .array(
+        z
+          .object({ memberId: idSchema, version: versionSchema, usualWeek: weekHoursSchema.nullable() })
+          .strict()
+      )
+      .min(1)
+      .max(50),
+    confirm: z.boolean().default(false),
+  })
+  .strict();
+export type TSaveUsualWeeksInput = z.infer<typeof ZSaveUsualWeeksInput>;

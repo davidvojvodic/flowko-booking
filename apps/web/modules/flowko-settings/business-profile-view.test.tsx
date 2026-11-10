@@ -463,3 +463,51 @@ describe("BusinessProfileView: field rules (businessSettingsSchema)", () => {
     }
   });
 });
+
+// Flowko U29b (Task 1a, D1 a): a field error is tied to its control, the reminder group has a name, and no label
+// is left unbound.
+describe("BusinessProfileView: accessibility (U29b D1 a)", () => {
+  const EMAIL_PLACEHOLDER = "To ni pravi e-poštni naslov. Vnesite naslov, ki ga redno pregledujete.";
+
+  it("a failing save ties the name and e-mail errors to their inputs (aria-invalid + description)", async () => {
+    render(<BusinessProfileView />);
+    type("Ime podjetja", "");
+    type("E-pošta podjetja", "x@salon.flowko.invalid");
+    await save();
+    await waitFor(() => expect(screen.getByText(EMAIL_PLACEHOLDER)).toBeInTheDocument());
+    const name = input("Ime podjetja");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription("Vnesite ime podjetja (največ 80 znakov).");
+    const email = input("E-pošta podjetja");
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(email).toHaveAccessibleDescription(EMAIL_PLACEHOLDER);
+    expect(input("Telefon")).not.toHaveAttribute("aria-invalid");
+    expect(input("Telefon")).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("the slot grid select is tied to its error", async () => {
+    render(<BusinessProfileView />);
+    fireEvent.change(screen.getByLabelText("Razmik med termini"), { target: { value: "7" } });
+    await save();
+    const select = screen.getByLabelText("Razmik med termini");
+    await waitFor(() => expect(select).toHaveAttribute("aria-invalid", "true"));
+    expect(select).toHaveAccessibleDescription(/\S/);
+  });
+
+  it("the reminder choices are a named radiogroup", () => {
+    render(<BusinessProfileView />);
+    expect(screen.getByRole("radiogroup", { name: "Opomnik strankam" })).toBeInTheDocument();
+  });
+
+  it("no label is left without a control (call page and time zone are plain text)", () => {
+    const { container } = render(<BusinessProfileView />);
+    const unbound = Array.from(container.querySelectorAll("label:not([for])")).map(
+      (l) => l.textContent ?? ""
+    );
+    expect(
+      unbound.filter((text) => text.includes("Stran za stranke") || text.includes("Časovni pas"))
+    ).toEqual([]);
+    expect(screen.getByText("Stran za stranke")).toBeInTheDocument();
+    expect(screen.getByText("Časovni pas")).toBeInTheDocument();
+  });
+});

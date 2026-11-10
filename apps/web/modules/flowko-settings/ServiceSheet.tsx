@@ -15,7 +15,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
-import { ConfirmationDialogContent, Dialog } from "@calcom/ui/components/dialog";
+import { ConfirmationContent, Dialog, DialogContent } from "@calcom/ui/components/dialog";
 import { TextField } from "@calcom/ui/components/form";
 import {
   Sheet,
@@ -26,7 +26,7 @@ import {
   SheetTitle,
 } from "@calcom/ui/components/sheet";
 import { showToast } from "@calcom/ui/components/toast";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ZodIssue } from "zod";
 import { isLocked, ServiceWorkers, type WorkerRow } from "./ServiceWorkers";
 import { draftSteps, type StepDraft, StepsEditor, toDrafts } from "./StepsEditor";
@@ -125,9 +125,10 @@ function workerRows(target: ServiceSheetTarget, members: readonly ServiceColumnM
 
 const NEW_STEPS: StepDraft[] = [{ key: 0, kind: "busy", minutes: "30" }];
 
-const fieldError = (text: string | undefined, testId: string) =>
+// Flowko U29b: the error carries an id, so its input can point at it with aria-describedby (D1 a).
+const fieldError = (text: string | undefined, errorId: string, testId?: string) =>
   text ? (
-    <p role="alert" data-testid={testId} className="text-error mt-1 text-sm">
+    <p id={errorId} role="alert" data-testid={testId} className="text-error mt-1 text-sm">
       {text}
     </p>
   ) : null;
@@ -157,6 +158,11 @@ export function ServiceSheet(props: {
   const [nameTaken, setNameTaken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // Flowko U29b: ids of the name/category errors, and the remove dialog (to focus its „Prekliči“).
+  const idBase = useId();
+  const nameErrorId = `${idBase}-name-error`;
+  const categoryErrorId = `${idBase}-category-error`;
+  const removeDialogRef = useRef<HTMLDivElement>(null);
 
   // Only members ACTIVE in the current rows are sent (one locked meanwhile drops out once the list refreshes).
   const workerMemberIds = rows
@@ -180,6 +186,15 @@ export function ServiceSheet(props: {
   const stepErrors: Record<number, string> = {};
   for (const [index, code] of Object.entries(problems.step)) stepErrors[Number(index)] = t(fieldKey(code));
 
+  // Flowko U29b: "busy" stays on through the S17 refresh and the close (the sheet unmounts), so a second click
+  // cannot send a second write; it is cleared only where the sheet stays open (D1 c).
+  /** The edited service is gone for this owner (forbidden = unknown or foreign id, e.g. removed elsewhere). */
+  async function onGone() {
+    showToast(t("flowko_settings_service_error_gone"), "error");
+    await props.onChanged();
+    props.onClose();
+  }
+
   async function onSave() {
     setSubmitted(true);
     if (!parsed.success) return;
@@ -191,13 +206,21 @@ export function ServiceSheet(props: {
       const code = serviceErrorCode(error);
       if (code === "service_name_taken") {
         setNameTaken(true);
+        setBusy(false);
+        return;
+      }
+      // Flowko U29b: on an edit, forbidden means the service is gone (D1 d); a new service keeps the plain text.
+      if (code === "forbidden" && service) {
+        await onGone();
         return;
       }
       showToast(t(serviceErrorKey(code)), "error");
-      if (code === "bad_member") await props.onChanged();
+      try {
+        if (code === "bad_member") await props.onChanged();
+      } finally {
+        setBusy(false);
+      }
       return;
-    } finally {
-      setBusy(false);
     }
     showToast(t("flowko_settings_service_saved"), "success");
     await props.onChanged();
@@ -210,10 +233,14 @@ export function ServiceSheet(props: {
     try {
       await remove.mutateAsync({ serviceId: service.id });
     } catch (error) {
-      showToast(t(serviceErrorKey(serviceErrorCode(error))), "error");
-      return;
-    } finally {
+      const code = serviceErrorCode(error);
+      if (code === "forbidden") {
+        await onGone();
+        return;
+      }
+      showToast(t(serviceErrorKey(code)), "error");
       setBusy(false);
+      return;
     }
     showToast(t("flowko_settings_service_removed"), "success");
     await props.onChanged();
@@ -252,12 +279,14 @@ export function ServiceSheet(props: {
                 label={t("flowko_settings_service_name")}
                 maxLength={200}
                 value={name}
+                aria-invalid={nameText ? true : undefined}
+                aria-describedby={nameText ? nameErrorId : undefined}
                 onChange={(e) => {
                   setName(e.target.value);
                   setNameTaken(false);
                 }}
               />
-              {fieldError(nameText, "flowko-service-name-error")}
+              {fieldError(nameText, nameErrorId, "flowko-service-name-error")}
             </div>
             <div>
               <TextField
@@ -266,9 +295,11 @@ export function ServiceSheet(props: {
                 hint={t("flowko_settings_service_category_hint")}
                 maxLength={200}
                 value={category}
+                aria-invalid={categoryText ? true : undefined}
+                aria-describedby={categoryText ? categoryErrorId : undefined}
                 onChange={(e) => setCategory(e.target.value)}
               />
-              {fieldError(categoryText, "flowko-service-category-error")}
+              {fieldError(categoryText, categoryErrorId, "flowko-service-category-error")}
             </div>
             <div>
               <h3 className="text-emphasis mb-2 text-sm font-medium">{t("flowko_settings_service_steps")}</h3>
@@ -303,20 +334,32 @@ export function ServiceSheet(props: {
         </form>
         {service && confirmRemove && (
           <Dialog open onOpenChange={(open) => !open && setConfirmRemove(false)}>
-            <ConfirmationDialogContent
-              variety="danger"
-              title={t("flowko_settings_service_remove_title", { name: service.name })}
-              confirmBtnText={t("flowko_settings_service_remove")}
-              cancelBtnText={t("cancel")}
-              isPending={busy}
-              onConfirm={() => void onRemove()}>
-              <p data-testid="flowko-service-remove-bookings" className="mt-2">
-                {futureBookings > 0
-                  ? t("flowko_settings_service_remove_bookings", { count: futureBookings })
-                  : t("flowko_settings_service_remove_no_bookings")}
-              </p>
-              <p className="mt-2">{t("flowko_settings_service_remove_final")}</p>
-            </ConfirmationDialogContent>
+            {/* Flowko U29b: ConfirmationDialogContent composed locally, so the dialog opens on „Prekliči“ and
+                not on the destructive „Odstrani“, which comes first in the DOM (D1 b). */}
+            <DialogContent
+              type="creation"
+              ref={removeDialogRef}
+              onOpenAutoFocus={(event) => {
+                event.preventDefault();
+                removeDialogRef.current
+                  ?.querySelector<HTMLElement>('[data-testid="dialog-rejection"]')
+                  ?.focus();
+              }}>
+              <ConfirmationContent
+                variety="danger"
+                title={t("flowko_settings_service_remove_title", { name: service.name })}
+                confirmBtnText={t("flowko_settings_service_remove")}
+                cancelBtnText={t("cancel")}
+                isPending={busy}
+                onConfirm={() => void onRemove()}>
+                <p data-testid="flowko-service-remove-bookings" className="mt-2">
+                  {futureBookings > 0
+                    ? t("flowko_settings_service_remove_bookings", { count: futureBookings })
+                    : t("flowko_settings_service_remove_no_bookings")}
+                </p>
+                <p className="mt-2">{t("flowko_settings_service_remove_final")}</p>
+              </ConfirmationContent>
+            </DialogContent>
           </Dialog>
         )}
       </SheetContent>

@@ -179,3 +179,25 @@ export function businessDayRules(
     holiday: freeDay ? { name: freeDay.name, open } : null,
   };
 }
+
+// Flowko U29b: the Urnik editor's save contract (client-safe types; the all-or-nothing savers are server only).
+/** One saved row may hold at most this many shifts per day (server check `bad_roster`, mirrored by the editor). */
+export const ROSTER_MAX_SHIFTS_PER_DAY = 4;
+
+/**
+ * What a save would newly leave outside, per member with something to report: the dates (week save) or weekdays
+ * (usual-week save) whose entries hit the opening hours, and the bookings newly outside the member's shifts.
+ */
+export type RosterWarning = {
+  memberId: number;
+  outsideOpening: string[]; // LocalDate[] (week) or Weekday[] (usual)
+  bookingsNewlyOutside: number;
+};
+
+/** The answer of a week or usual-week save: written, or nothing written until the warnings are confirmed. */
+export type RosterSaveResult = { status: "saved" } | { status: "needs_confirm"; warnings: RosterWarning[] };
+
+/** The answer of adding an absence: written, or nothing written until the bookings it covers are confirmed. */
+export type AddAbsenceResult =
+  | { status: "saved"; absenceId: number }
+  | { status: "needs_confirm"; bookings: number };

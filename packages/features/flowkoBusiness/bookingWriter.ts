@@ -45,14 +45,16 @@ import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { ensureWorkerMirror } from "./mirror";
 import { loadBusinessDay } from "./roster";
+// Flowko U29b: the advisory lock lives in workerLock.ts (the roster savers take it too); re-exported unchanged.
+import { lockWorkerAdvisory } from "./workerLock";
+
+export { lockWorkerAdvisory };
 
 type Tx = Prisma.TransactionClient;
 
 const log = logger.getSubLogger({ prefix: ["flowko-business-booking-writer"] });
 
 const MINUTE_MS = 60_000;
-/** W2: the advisory-lock namespace of the booking writer; the second key is the worker's user id. */
-const WORKER_LOCK_NAMESPACE = 27027;
 /** W1: the customer's attendee locale (Slovene business). */
 const ATTENDEE_LOCALE = "sl";
 /** M3: the language of the stored title when the worker has none. */
@@ -60,6 +62,8 @@ const DEFAULT_TITLE_LOCALE = "sl";
 /** The unique index Cal's idempotency extension fills on ACCEPTED bookings (D1). */
 const IDEMPOTENCY_INDEX = "Booking_idempotencyKey_key";
 const IDEMPOTENCY_COLUMN = "idempotencyKey";
+/** Flowko U29b: the foreign key from a booking's step copy to the service (ON DELETE SET NULL). */
+const STEP_SERVICE_FK = "FlowkoBookingStep_serviceId_fkey";
 
 export type ActorRef = { actorMemberId?: number | null };
 export type CreateBookingInput = ActorRef & {
@@ -89,12 +93,6 @@ export type WriterDeps = {
   sendMails?: boolean;
 };
 
-/** W2: the worker's transaction-scoped advisory lock; two desks writing one worker's day queue here. */
-export async function lockWorkerAdvisory(tx: Tx, userId: number): Promise<void> {
-  // $executeRaw, not $queryRaw: the function returns void, which the query path cannot deserialize.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WORKER_LOCK_NAMESPACE}::integer, ${userId}::integer)`;
-}
-
 /** D1: true for a unique violation of Booking.idempotencyKey, in the classic and in the driver-adapter form. */
 export function isIdempotencyKeyConflict(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
@@ -109,6 +107,17 @@ export function isIdempotencyKeyConflict(error: unknown): boolean {
   const constraint = meta.driverAdapterError?.cause?.constraint;
   const named = [...names(meta.target), ...names(constraint?.fields), ...names(constraint?.index)];
   return named.some((name) => name === IDEMPOTENCY_COLUMN || name === IDEMPOTENCY_INDEX);
+}
+
+/**
+ * Flowko U29b (D1 e): true for a foreign-key violation (P2003) of FlowkoBookingStep.serviceId: the service was
+ * removed between the desk's read and the step insert. The constraint name is looked for in the whole meta, as
+ * services.ts isNameClash does, so the classic (field_name) and the driver-adapter (cause.constraint) forms both
+ * match; any other P2003 is not this race. Used by the create and the move writer.
+ */
+export function isServiceForeignKeyRace(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2003") return false;
+  return JSON.stringify(error.meta ?? {}).includes(STEP_SERVICE_FK);
 }
 
 export type BusinessMailKind = "created" | "moved" | "cancelled";
@@ -517,6 +526,8 @@ export async function createBusinessBooking(
     if (error instanceof NeedsConfirm) return needsConfirmResult(error);
     // Caught here, outside the transaction: on Postgres the failed insert has aborted it.
     if (isIdempotencyKeyConflict(error)) throw new FlowkoBusinessError("duplicate_time");
+    // Flowko U29b: a service removed between the read above and the step insert (D1 e); the desk refetches.
+    if (isServiceForeignKeyRace(error)) throw new FlowkoBusinessError("service_not_assigned");
     throw error;
   }
 

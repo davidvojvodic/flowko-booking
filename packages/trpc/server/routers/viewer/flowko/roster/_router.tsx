@@ -6,6 +6,8 @@ import {
   ZCopyWeekInput,
   ZRemoveAbsenceInput,
   ZRosterWeekInput,
+  ZSaveUsualWeeksInput,
+  ZSaveWeekInput,
   ZSetHolidayOpenInput,
   ZSetHolidaysClosedInput,
   ZSetUsualWeekInput,
@@ -29,6 +31,13 @@ export const rosterRouter = router({
   }),
   addAbsence: authedProcedure.input(ZAddAbsenceInput).mutation(async ({ ctx, input }) => {
     return (await load()).addAbsenceHandler({ ctx, input });
+  }),
+  // Flowko U29b (S17): the roster editor's all-or-nothing saves
+  saveWeek: authedProcedure.input(ZSaveWeekInput).mutation(async ({ ctx, input }) => {
+    return (await load()).saveWeekHandler({ ctx, input });
+  }),
+  saveUsualWeeks: authedProcedure.input(ZSaveUsualWeeksInput).mutation(async ({ ctx, input }) => {
+    return (await load()).saveUsualWeeksHandler({ ctx, input });
   }),
   removeAbsence: authedProcedure.input(ZRemoveAbsenceInput).mutation(async ({ ctx, input }) => {
     return (await load()).removeAbsenceHandler({ ctx, input });

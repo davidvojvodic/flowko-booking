@@ -603,6 +603,29 @@ describe("moveBusinessBooking (W9)", () => {
     await expectCode(move(f.users.olga, f.ana.bookingId, at("09:15")), "duplicate_time");
     expect(mail.moved).not.toHaveBeenCalled();
   });
+
+  // Flowko U29b (D1 e): a service removed between the step copy's read and its re-insert. (Prismock has no
+  // rollback, so each case gets its own fixture.)
+  const stepFkError = (field: string) =>
+    new Prisma.PrismaClientKnownRequestError("Foreign key constraint violated", {
+      code: "P2003",
+      clientVersion: "test",
+      meta: { modelName: "FlowkoBookingStep", field_name: field },
+    });
+
+  it("P2003 on the step copy's serviceId foreign key → service_not_assigned; no mail", async () => {
+    vi.spyOn(prismock.flowkoBookingStep, "createMany").mockRejectedValueOnce(
+      stepFkError("FlowkoBookingStep_serviceId_fkey (index)")
+    );
+    await expectCode(move(f.users.olga, f.ana.bookingId, at("09:15")), "service_not_assigned");
+    expect(mail.moved).not.toHaveBeenCalled();
+  });
+
+  it("any other P2003 on the step copy is rethrown", async () => {
+    const other = stepFkError("FlowkoBookingStep_bookingId_fkey (index)");
+    vi.spyOn(prismock.flowkoBookingStep, "createMany").mockRejectedValueOnce(other);
+    await expect(move(f.users.olga, f.ana.bookingId, at("09:15"))).rejects.toBe(other);
+  });
 });
 
 describe("mails after commit never undo the write (the writer's one helper)", () => {

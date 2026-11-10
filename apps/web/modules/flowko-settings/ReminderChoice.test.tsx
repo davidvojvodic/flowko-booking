@@ -20,7 +20,7 @@ describe("ReminderChoice (U29a S5)", () => {
   });
 
   it("shows the four choices with the stored one checked, and the e-mail volume note", () => {
-    render(<ReminderChoice value={[1440]} onChange={vi.fn()} />);
+    render(<ReminderChoice value={[1440]} onChange={vi.fn()} labelledBy="title" />);
     expect(radio("Brez opomnika")).toHaveAttribute("aria-checked", "false");
     expect(radio("24 ur pred terminom")).toHaveAttribute("aria-checked", "true");
     expect(radio("2 uri pred terminom")).toHaveAttribute("aria-checked", "false");
@@ -30,13 +30,24 @@ describe("ReminderChoice (U29a S5)", () => {
     );
   });
 
+  // Flowko U29b (D1 a): the group is named by the heading it points at.
+  it("the radio group is named by the heading it is labelled by", () => {
+    render(
+      <>
+        <h3 id="heading">Opomnik strankam</h3>
+        <ReminderChoice value={[1440]} onChange={vi.fn()} labelledBy="heading" />
+      </>
+    );
+    expect(screen.getByRole("radiogroup", { name: "Opomnik strankam" })).toBeInTheDocument();
+  });
+
   it.each([
     ["Brez opomnika", []],
     ["2 uri pred terminom", [120]],
     ["24 ur in 2 uri pred terminom", [1440, 120]],
   ])("picking „%s“ sends its offsets", (name, offsets) => {
     const onChange = vi.fn();
-    render(<ReminderChoice value={[1440]} onChange={onChange} />);
+    render(<ReminderChoice value={[1440]} onChange={onChange} labelledBy="title" />);
     fireEvent.click(radio(name));
     expect(onChange).toHaveBeenCalledWith(offsets);
   });

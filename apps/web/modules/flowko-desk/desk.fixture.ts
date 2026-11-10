@@ -4,8 +4,16 @@
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
 import type { DeskBooking, DeskMember, DeskService, DeskView } from "@calcom/features/flowkoBusiness/desk";
-import { weekDates } from "@calcom/lib/flowkoBusiness/roster";
-import { wallClockToMs } from "@calcom/lib/flowkoSalon";
+// Flowko U29b: the Urnik answer's type (type only: the features module is server code).
+import type { RosterWeekView } from "@calcom/features/flowkoBusiness/roster";
+import {
+  resolveMemberDay,
+  type ShiftEntry,
+  type WeekHours,
+  weekDates,
+  weekdayOf,
+} from "@calcom/lib/flowkoBusiness/roster";
+import { type LocalDate, wallClockToMs } from "@calcom/lib/flowkoSalon";
 
 export const TZ = "Europe/Ljubljana";
 export const DATE = "2026-11-16";
@@ -213,6 +221,137 @@ export const services: DeskService[] = [
 /** A `t` backed by the real locale files, with {{placeholder}} interpolation (BookingSuccessCard.test precedent). */
 export function localeT(lang: "sl" | "en" = "sl") {
   const strings = (lang === "sl" ? sl : en) as unknown as Record<string, string>;
-  return (key: string, opts?: Record<string, unknown>) =>
-    (strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(opts?.[k] ?? ""));
+  // Flowko U29b: `count` picks the plural form first (_one/_two/_few/_other), as i18next does.
+  const rules = new Intl.PluralRules(lang);
+  return (key: string, opts?: Record<string, unknown>) => {
+    const count = opts?.count;
+    const plural = typeof count === "number" ? strings[`${key}_${rules.select(count)}`] : undefined;
+    return (plural ?? strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) =>
+      String(opts?.[k] ?? "")
+    );
+  };
+}
+
+// Flowko U29b: the Urnik answer (viewer.flowko.roster.week) for the same people and week. Opening Mon–Fri
+// 08:00–19:00, Sat 08:00–13:00, Sun closed. Usual weeks: Olga Mon–Fri 08–16; Ana Mon–Fri 08–16 + Sat 08–13; Bor
+// Tue–Sat 12–19; Cene (desk-only) none; Dan (LOCKED) Mon–Fri 09–17. Planned in the week of the 16th: Bor Wed 18
+// „Prosto“ ([]) and Thu 19 10:00–14:00. Ana is absent on Fri 20 (absence 71). Versions: weekVersion "a…" and
+// usualVersion "b…", each ending in the member id (64 hex characters, as the server's sha256).
+const shift = (from: string, to: string): ShiftEntry => ({ from, to });
+const week = (days: Partial<WeekHours>): WeekHours => ({
+  mon: [],
+  tue: [],
+  wed: [],
+  thu: [],
+  fri: [],
+  sat: [],
+  sun: [],
+  ...days,
+});
+const weekdays = (entries: ShiftEntry[]) => ({
+  mon: entries,
+  tue: entries,
+  wed: entries,
+  thu: entries,
+  fri: entries,
+});
+
+export const ROSTER_OPENING: WeekHours = week({
+  ...weekdays([shift("08:00", "19:00")]),
+  sat: [shift("08:00", "13:00")],
+});
+
+export const weekVersionOf = (memberId: number) => `${"a".repeat(63)}${memberId.toString(16)}`;
+export const usualVersionOf = (memberId: number) => `${"b".repeat(63)}${memberId.toString(16)}`;
+
+type RosterMember = RosterWeekView["members"][number];
+
+/**
+ * One member's row of a roster week: `planned` per date (an empty list = a planned day off), else the usual
+ * week, else nothing (resolveMemberDay's rule); `absences` mark their dates absent.
+ */
+export function rosterMember(
+  memberId: number,
+  displayName: string,
+  over: {
+    usualWeek: WeekHours | null;
+    planned?: Record<LocalDate, ShiftEntry[]>;
+    absences?: RosterMember["absences"];
+    status?: RosterMember["status"];
+    deskOnly?: boolean;
+  },
+  weekStart: LocalDate = DATE
+): RosterMember {
+  const absences = over.absences ?? [];
+  return {
+    memberId,
+    displayName,
+    deskOnly: over.deskOnly ?? false,
+    status: over.status ?? "ACTIVE",
+    usualWeek: over.usualWeek,
+    weekVersion: weekVersionOf(memberId),
+    usualVersion: usualVersionOf(memberId),
+    days: weekDates(weekStart).map((date) => {
+      const planned = over.planned?.[date] ?? null;
+      const day = resolveMemberDay({ usualWeek: over.usualWeek, planned, absent: false }, date, TZ);
+      const absent = absences.some((a) => a.startDate <= date && date <= a.endDate);
+      return { date, source: day.source, entries: day.entries, absent };
+    }),
+    absences,
+  };
+}
+
+/** The roster week of the 16th as the owner Olga reads it (every column member editable, today = the 16th). */
+export function rosterWeek(overrides: Partial<RosterWeekView> = {}): RosterWeekView {
+  const weekStart = overrides.weekStart ?? DATE;
+  return {
+    businessId: 9,
+    timeZone: TZ,
+    weekStart,
+    today: DATE,
+    lastWritableWeekStart: "2027-11-22",
+    holidaysClosed: true,
+    days: weekDates(weekStart).map((date) => ({
+      date,
+      opening: ROSTER_OPENING[weekdayOf(date)],
+      holiday: null,
+    })),
+    members: [
+      rosterMember(OLGA, "Olga", { usualWeek: week(weekdays([shift("08:00", "16:00")])) }, weekStart),
+      rosterMember(
+        ANA,
+        "Ana",
+        {
+          usualWeek: week({ ...weekdays([shift("08:00", "16:00")]), sat: [shift("08:00", "13:00")] }),
+          absences: weekStart === DATE ? [{ id: 71, startDate: "2026-11-20", endDate: "2026-11-20" }] : [],
+        },
+        weekStart
+      ),
+      rosterMember(
+        BOR,
+        "Bor",
+        {
+          usualWeek: week({
+            tue: [shift("12:00", "19:00")],
+            wed: [shift("12:00", "19:00")],
+            thu: [shift("12:00", "19:00")],
+            fri: [shift("12:00", "19:00")],
+            sat: [shift("08:00", "13:00")],
+          }),
+          planned: weekStart === DATE ? { "2026-11-18": [], "2026-11-19": [shift("10:00", "14:00")] } : {},
+        },
+        weekStart
+      ),
+      rosterMember(CENE, "Cene", { usualWeek: null, deskOnly: true }, weekStart),
+      rosterMember(
+        DAN,
+        "Dan",
+        { usualWeek: week(weekdays([shift("09:00", "17:00")])), status: "LOCKED" },
+        weekStart
+      ),
+    ],
+    canEditUsualWeek: true,
+    editableMemberIds: [OLGA, ANA, BOR, CENE, DAN],
+    ...overrides,
+  };
 }

@@ -133,6 +133,17 @@ describe("StepsEditor (U29a S9)", () => {
     );
   });
 
+  // Flowko U29b (D1 a): the minutes input points at its row's error.
+  it("a step's error is the accessible description of that row's minutes input", () => {
+    setup(COLOURING, { step: { 1: "Vnesite število minut, deljivo s 5 (najmanj 5)." } });
+    const bad = screen.getByLabelText("2. korak: minute");
+    expect(bad).toHaveAttribute("aria-invalid", "true");
+    expect(bad).toHaveAccessibleDescription("Vnesite število minut, deljivo s 5 (najmanj 5).");
+    const fine = screen.getByLabelText("1. korak: minute");
+    expect(fine).not.toHaveAttribute("aria-invalid");
+    expect(fine).not.toHaveAttribute("aria-describedby");
+  });
+
   it("draftSteps turns the drafts into numbers (blank → 0, which the rules refuse)", () => {
     expect(draftSteps([...COLOURING, { key: 9, kind: "busy", minutes: "" }])).toEqual([
       { kind: "busy", minutes: 30 },

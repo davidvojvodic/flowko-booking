@@ -1,11 +1,12 @@
 // Flowko U29a: the per-weekday time-ranges editor (S16): the business opening hours now, the roster's shifts in
 // U29b. Per weekday a list of from–to rows with 24-hour selects in 15-minute steps from 03:00 to 24:00 (the floor
-// of openingHoursSchema), „Dodaj“ / remove per row, „Zaprto“ when a day is empty, „Kopiraj na vse dni“ from Monday.
+// of openingHoursSchema), „Dodaj“ / remove per row, „Zaprto“ when a day is empty, „Kopiraj v vse dni“ from Monday.
 // Controlled and rule-free: the caller validates (openingHoursSchema / shiftDaySchema) and passes each day's
 // translated error. A stored time off the 15-minute grid stays selectable, so loading never changes a value.
 import { WEEKDAYS, type Weekday } from "@calcom/lib/flowkoBusiness/schemas";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button } from "@calcom/ui/components/button";
+import { type ReactNode, useId } from "react";
 
 export type DayRange = { from: string; to: string };
 export type DayRanges = Record<Weekday, DayRange[]>;
@@ -56,6 +57,103 @@ function optionsWith(value: string): readonly string[] {
 
 const SELECT_CLASS = "border-default bg-default text-emphasis h-9 rounded-md border px-2 text-sm";
 
+/**
+ * Flowko U29b: one day's from–to rows (extracted from DayRangesEditor for the Urnik cell editor, S12): the rows,
+ * the empty text (`emptyLabel`: „Zaprto“ for opening hours, „Prosto“ for a shift day), the day's error under them
+ * and the add button (`addLabel` / `addAriaLabel`), off at `maxRows` rows or when the last row ends at 24:00.
+ * `dayLabel` names the selects and the remove buttons for screen readers. Controlled and rule-free, as the editor.
+ * Test ids: `<testIdPrefix>-closed`, `-<row>-from|to|remove`, `-error`, `-add`.
+ */
+export function DayRangesRows(props: {
+  value: DayRange[];
+  onChange: (next: DayRange[]) => void;
+  dayLabel: string;
+  addLabel: string;
+  addAriaLabel: string;
+  emptyLabel: string;
+  maxRows?: number;
+  error?: string;
+  /** The error's element id (the selects point at it); default a generated one. */
+  errorId?: string;
+  disabled?: boolean;
+  testIdPrefix: string;
+  /** More buttons next to the add button (the editor's „Kopiraj v vse dni“ on Monday). */
+  children?: ReactNode;
+}) {
+  const { t } = useLocale();
+  const { value: ranges, onChange, dayLabel, error, disabled, testIdPrefix: prefix } = props;
+  const generatedId = useId();
+  const errorId = props.errorId ?? `${generatedId}-error`;
+  const full = props.maxRows !== undefined && ranges.length >= props.maxRows;
+
+  const setTime = (index: number, edge: keyof DayRange, time: string) =>
+    onChange(ranges.map((range, i) => (i === index ? { ...range, [edge]: time } : range)));
+
+  return (
+    <div className="flex flex-1 flex-col gap-2">
+      {ranges.length === 0 && (
+        <span data-testid={`${prefix}-closed`} className="text-subtle pt-2 text-sm">
+          {props.emptyLabel}
+        </span>
+      )}
+      {ranges.map((range, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity beyond their position
+        <div key={index} className="flex items-center gap-2">
+          {(["from", "to"] as const).map((edge) => (
+            <select
+              key={edge}
+              data-testid={`${prefix}-${index}-${edge}`}
+              aria-label={t(edge === "from" ? "flowko_settings_range_from" : "flowko_settings_range_to", {
+                day: dayLabel,
+              })}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
+              className={SELECT_CLASS}
+              disabled={disabled}
+              value={range[edge]}
+              onChange={(e) => setTime(index, edge, e.target.value)}>
+              {optionsWith(range[edge]).map((time) => (
+                <option key={time} value={time}>
+                  {time}
+                </option>
+              ))}
+            </select>
+          ))}
+          <Button
+            type="button"
+            variant="icon"
+            color="minimal"
+            StartIcon="trash-2"
+            data-testid={`${prefix}-${index}-remove`}
+            aria-label={t("flowko_settings_range_remove", { day: dayLabel })}
+            disabled={disabled}
+            onClick={() => onChange(ranges.filter((_, i) => i !== index))}
+          />
+        </div>
+      ))}
+      {error && (
+        <p id={errorId} role="alert" data-testid={`${prefix}-error`} className="text-error text-sm">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          color="minimal"
+          size="sm"
+          StartIcon="plus"
+          data-testid={`${prefix}-add`}
+          aria-label={props.addAriaLabel}
+          disabled={disabled || full || ranges[ranges.length - 1]?.to === "24:00"}
+          onClick={() => onChange([...ranges, nextRange(ranges)])}>
+          {props.addLabel}
+        </Button>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 export function DayRangesEditor(props: {
   value: DayRanges;
   onChange: (next: DayRanges) => void;
@@ -68,13 +166,9 @@ export function DayRangesEditor(props: {
   const { t } = useLocale();
   const { value, onChange, dayErrors, disabled } = props;
   const prefix = props.testIdPrefix ?? "flowko-day-ranges";
+  // Flowko U29b: a day's error gets an id so that day's selects can point at it (aria-describedby, D1 a).
+  const idBase = useId();
 
-  const setDay = (day: Weekday, ranges: DayRange[]) => onChange({ ...value, [day]: ranges });
-  const setTime = (day: Weekday, index: number, edge: keyof DayRange, time: string) =>
-    setDay(
-      day,
-      value[day].map((range, i) => (i === index ? { ...range, [edge]: time } : range))
-    );
   const copyMondayToAll = () => {
     const week = {} as DayRanges;
     for (const day of WEEKDAYS) week[day] = value.mon.map((range) => ({ ...range }));
@@ -85,88 +179,34 @@ export function DayRangesEditor(props: {
     <div className="flex flex-col gap-4">
       {WEEKDAYS.map((day) => {
         const dayName = t(DAY_KEYS[day]);
-        const ranges = value[day];
-        const error = dayErrors?.[day];
         return (
           <div key={day} className="flex flex-col gap-2 sm:flex-row sm:items-start">
             <span className="text-emphasis w-32 shrink-0 pt-2 text-sm font-medium capitalize">{dayName}</span>
-            <div className="flex flex-1 flex-col gap-2">
-              {ranges.length === 0 && (
-                <span data-testid={`${prefix}-${day}-closed`} className="text-subtle pt-2 text-sm">
-                  {t("flowko_settings_closed")}
-                </span>
-              )}
-              {ranges.map((range, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity beyond their position
-                <div key={index} className="flex items-center gap-2">
-                  {(["from", "to"] as const).map((edge) => (
-                    <select
-                      key={edge}
-                      data-testid={`${prefix}-${day}-${index}-${edge}`}
-                      aria-label={t(
-                        edge === "from" ? "flowko_settings_range_from" : "flowko_settings_range_to",
-                        {
-                          day: dayName,
-                        }
-                      )}
-                      className={SELECT_CLASS}
-                      disabled={disabled}
-                      value={range[edge]}
-                      onChange={(e) => setTime(day, index, edge, e.target.value)}>
-                      {optionsWith(range[edge]).map((time) => (
-                        <option key={time} value={time}>
-                          {time}
-                        </option>
-                      ))}
-                    </select>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="icon"
-                    color="minimal"
-                    StartIcon="trash-2"
-                    data-testid={`${prefix}-${day}-${index}-remove`}
-                    aria-label={t("flowko_settings_range_remove", { day: dayName })}
-                    disabled={disabled}
-                    onClick={() =>
-                      setDay(
-                        day,
-                        ranges.filter((_, i) => i !== index)
-                      )
-                    }
-                  />
-                </div>
-              ))}
-              {error && (
-                <p role="alert" data-testid={`${prefix}-${day}-error`} className="text-error text-sm">
-                  {error}
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
+            {/* Flowko U29b: the day's rows are the shared DayRangesRows (S12), same ids, labels and layout. */}
+            <DayRangesRows
+              value={value[day]}
+              onChange={(ranges) => onChange({ ...value, [day]: ranges })}
+              dayLabel={dayName}
+              addLabel={t("flowko_settings_add_range")}
+              addAriaLabel={t("flowko_settings_add_range_day", { day: dayName })}
+              emptyLabel={t("flowko_settings_closed")}
+              error={dayErrors?.[day]}
+              errorId={`${idBase}-${day}-error`}
+              disabled={disabled}
+              testIdPrefix={`${prefix}-${day}`}>
+              {day === "mon" && (
                 <Button
                   type="button"
                   color="minimal"
                   size="sm"
-                  StartIcon="plus"
-                  data-testid={`${prefix}-${day}-add`}
-                  disabled={disabled || ranges[ranges.length - 1]?.to === "24:00"}
-                  onClick={() => setDay(day, [...ranges, nextRange(ranges)])}>
-                  {t("flowko_settings_add_range")}
+                  StartIcon="copy"
+                  data-testid={`${prefix}-copy`}
+                  disabled={disabled}
+                  onClick={copyMondayToAll}>
+                  {t("flowko_settings_copy_to_all")}
                 </Button>
-                {day === "mon" && (
-                  <Button
-                    type="button"
-                    color="minimal"
-                    size="sm"
-                    StartIcon="copy"
-                    data-testid={`${prefix}-copy`}
-                    disabled={disabled}
-                    onClick={copyMondayToAll}>
-                    {t("flowko_settings_copy_to_all")}
-                  </Button>
-                )}
-              </div>
-            </div>
+              )}
+            </DayRangesRows>
           </div>
         );
       })}

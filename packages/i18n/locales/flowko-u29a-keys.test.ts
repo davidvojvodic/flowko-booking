@@ -131,6 +131,9 @@ const U29A_KEYS = [
   "flowko_settings_service_field_step_too_long",
   "flowko_settings_service_field_too_many_steps",
   "flowko_settings_service_field_total_too_long",
+  // Flowko U29b (Task 1a): U29a polish, per-day „Dodaj“ name and the service-gone text.
+  "flowko_settings_add_range_day",
+  "flowko_settings_service_error_gone",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.

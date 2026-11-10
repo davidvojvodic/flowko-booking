@@ -9,6 +9,7 @@ import { SERVICE_LIMITS } from "@calcom/lib/flowkoBusiness/schemas";
 import type { ServiceStep, StepKind } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button } from "@calcom/ui/components/button";
+import { useId } from "react";
 
 /** One editor row: `key` keeps React rows stable while steps move. */
 export type StepDraft = { key: number; kind: StepKind; minutes: string };
@@ -82,6 +83,8 @@ export function StepsEditor(props: {
 }) {
   const { t } = useLocale();
   const { value, onChange } = props;
+  // Flowko U29b: a row's error gets an id so its minutes input can point at it (aria-describedby, D1 a).
+  const idBase = useId();
   const steps = draftSteps(value);
   const total = steps.reduce((sum, s) => sum + s.minutes, 0);
 
@@ -105,6 +108,7 @@ export function StepsEditor(props: {
         {value.map((draft, index) => {
           const step = index + 1;
           const error = props.stepErrors?.[index];
+          const errorId = `${idBase}-step-${index}-error`;
           return (
             <li key={draft.key} className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -125,6 +129,7 @@ export function StepsEditor(props: {
                   inputMode="numeric"
                   aria-label={t("flowko_settings_service_step_minutes", { step })}
                   aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? errorId : undefined}
                   className={`${SELECT_CLASS} w-20 tabular-nums`}
                   min={SERVICE_LIMITS.stepMinutesMin}
                   max={SERVICE_LIMITS.stepMinutesMax}
@@ -165,6 +170,7 @@ export function StepsEditor(props: {
               </div>
               {error && (
                 <p
+                  id={errorId}
                   role="alert"
                   data-testid={`flowko-service-step-${index}-error`}
                   className="text-error text-sm">

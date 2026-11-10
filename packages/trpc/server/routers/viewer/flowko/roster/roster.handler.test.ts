@@ -14,6 +14,8 @@ const m = vi.hoisted(() => ({
   removeAbsence: vi.fn(),
   setHolidaysClosed: vi.fn(),
   setHolidayOpen: vi.fn(),
+  saveRosterWeek: vi.fn(),
+  saveUsualWeeks: vi.fn(),
   checkRateLimitAndThrowError: vi.fn(),
   prisma: { marker: "prisma" },
 }));
@@ -31,6 +33,9 @@ vi.mock("@calcom/features/flowkoBusiness/roster", () => ({
   removeAbsence: m.removeAbsence,
   setHolidaysClosed: m.setHolidaysClosed,
   setHolidayOpen: m.setHolidayOpen,
+  // Flowko U29b (S3, S4)
+  saveRosterWeek: m.saveRosterWeek,
+  saveUsualWeeks: m.saveUsualWeeks,
 }));
 
 import { FlowkoBusinessError } from "@calcom/features/flowkoBusiness/errors";
@@ -43,6 +48,7 @@ import * as schemas from "./roster.schema";
 
 const ctx = { user: { id: 7 } } as never;
 const WEEK = "2026-11-09";
+const VERSION = "a".repeat(64);
 const week = { mon: [], tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
 const usual = {
   mon: [{ from: "09:00", to: "17:00" }],
@@ -68,7 +74,7 @@ const cases: Case[] = [
     mutation: false,
     service: m.getRosterWeek,
     run: () => handlers.weekHandler({ ctx, input: { weekStart: WEEK } }),
-    args: [m.prisma, 7, WEEK],
+    args: [m.prisma, 7, WEEK, expect.any(Date)],
   },
   {
     name: "setUsualWeek",
@@ -115,9 +121,14 @@ const cases: Case[] = [
     run: () =>
       handlers.addAbsenceHandler({
         ctx,
-        input: { memberId: 3, startDate: "2026-11-10", endDate: "2026-11-12" },
+        input: { memberId: 3, startDate: "2026-11-10", endDate: "2026-11-12", confirm: true },
       }),
-    args: [m.prisma, 7, { memberId: 3, startDate: "2026-11-10", endDate: "2026-11-12" }, expect.any(Date)],
+    args: [
+      m.prisma,
+      7,
+      { memberId: 3, startDate: "2026-11-10", endDate: "2026-11-12", confirm: true },
+      expect.any(Date),
+    ],
   },
   {
     name: "removeAbsence",
@@ -139,6 +150,51 @@ const cases: Case[] = [
     service: m.setHolidayOpen,
     run: () => handlers.setHolidayOpenHandler({ ctx, input: { date: "2026-12-25", open: true } }),
     args: [m.prisma, 7, { date: "2026-12-25", open: true }, expect.any(Date)],
+  },
+  // Flowko U29b (S3, S4, S17)
+  {
+    name: "saveWeek",
+    mutation: true,
+    service: m.saveRosterWeek,
+    run: () =>
+      handlers.saveWeekHandler({
+        ctx,
+        input: { weekStart: WEEK, rows: [{ memberId: 3, version: VERSION, days: week as never }], confirm: true },
+      }),
+    args: [
+      m.prisma,
+      7,
+      { weekStart: WEEK, rows: [{ memberId: 3, version: VERSION, days: week }], confirm: true },
+      expect.any(Date),
+    ],
+  },
+  {
+    name: "saveUsualWeeks",
+    mutation: true,
+    service: m.saveUsualWeeks,
+    run: () =>
+      handlers.saveUsualWeeksHandler({
+        ctx,
+        input: {
+          rows: [
+            { memberId: 3, version: VERSION, usualWeek: usual as never },
+            { memberId: 4, version: VERSION, usualWeek: null },
+          ],
+          confirm: false,
+        },
+      }),
+    args: [
+      m.prisma,
+      7,
+      {
+        rows: [
+          { memberId: 3, version: VERSION, usualWeek: usual },
+          { memberId: 4, version: VERSION, usualWeek: null },
+        ],
+        confirm: false,
+      },
+      expect.any(Date),
+    ],
   },
 ];
 
@@ -201,8 +257,33 @@ describe("viewer.flowko.roster handlers (Flowko U26)", () => {
     expect(m.setHolidaysClosed).not.toHaveBeenCalled();
   });
 
+  it("addAbsence: an input without confirm reaches the service with confirm false; the result is forwarded", async () => {
+    const saved = { status: "needs_confirm", bookings: 2 };
+    m.addAbsence.mockResolvedValue(saved);
+    const input = schemas.ZAddAbsenceInput.parse({ memberId: 3, startDate: "2026-11-10", endDate: "2026-11-12" });
+    await expect(handlers.addAbsenceHandler({ ctx, input })).resolves.toBe(saved);
+    expect(m.addAbsence.mock.calls[0]).toEqual([
+      m.prisma,
+      7,
+      { memberId: 3, startDate: "2026-11-10", endDate: "2026-11-12", confirm: false },
+      expect.any(Date),
+    ]);
+  });
+
+  it.each(["saveWeek", "saveUsualWeeks"] as const)(
+    "%s: a roster_changed service error reaches the client as BAD_REQUEST with the code as message",
+    async (name) => {
+      const c = cases.find((x) => x.name === name)!;
+      c.service.mockRejectedValue(new FlowkoBusinessError("roster_changed"));
+      const err = await c.run().catch((e) => e);
+      expect(err).toBeInstanceOf(TRPCError);
+      expect(err.code).toBe("BAD_REQUEST");
+      expect(err.message).toBe("roster_changed");
+    }
+  );
+
   it("flowkoTrpcError: other business codes become BAD_REQUEST with the code", () => {
-    for (const code of ["bad_roster", "week_out_of_range", "bad_absence", "not_a_holiday", "same_week", "roster_conflict"] as const) {
+    for (const code of ["bad_roster", "week_out_of_range", "bad_absence", "not_a_holiday", "same_week", "roster_conflict", "roster_changed"] as const) {
       try {
         flowkoTrpcError(new FlowkoBusinessError(code));
         expect.unreachable();
@@ -220,10 +301,12 @@ const okInputs = {
   setUsualWeek: { memberId: 1, usualWeek: usual, confirmOutsideOpening: false },
   setWeek: { memberId: 1, weekStart: "2026-11-10", days: week, confirmOutsideOpening: false },
   copyWeek: { fromWeekStart: "2026-11-09", toWeekStart: "2026-11-16", memberIds: [1] },
-  addAbsence: { memberId: 1, startDate: "2026-11-10", endDate: "2026-11-11" },
+  addAbsence: { memberId: 1, startDate: "2026-11-10", endDate: "2026-11-11", confirm: false },
   removeAbsence: { absenceId: 1 },
   setHolidaysClosed: { closed: true },
   setHolidayOpen: { date: "2026-12-25", open: false },
+  saveWeek: { weekStart: "2026-11-09", rows: [{ memberId: 1, version: VERSION, days: week }], confirm: false },
+  saveUsualWeeks: { rows: [{ memberId: 1, version: VERSION, usualWeek: usual }], confirm: false },
 } as const;
 
 const schemaByName = {
@@ -235,6 +318,8 @@ const schemaByName = {
   removeAbsence: schemas.ZRemoveAbsenceInput,
   setHolidaysClosed: schemas.ZSetHolidaysClosedInput,
   setHolidayOpen: schemas.ZSetHolidayOpenInput,
+  saveWeek: schemas.ZSaveWeekInput,
+  saveUsualWeeks: schemas.ZSaveUsualWeeksInput,
 } as const;
 
 describe("roster input schemas (Flowko U26)", () => {
@@ -290,6 +375,66 @@ describe("roster input schemas (Flowko U26)", () => {
     expect(schemas.ZSetWeekInput.safeParse({ memberId: 1, weekStart: WEEK, days: week, confirmOutsideOpening: "yes" }).success).toBe(false);
   });
 
+  it("addAbsence: confirm defaults to false and must be a boolean", () => {
+    const base = { memberId: 1, startDate: "2026-11-10", endDate: "2026-11-11" };
+    const parsed = schemas.ZAddAbsenceInput.safeParse(base);
+    expect(parsed.success && parsed.data.confirm).toBe(false);
+    expect(schemas.ZAddAbsenceInput.safeParse({ ...base, confirm: "yes" }).success).toBe(false);
+  });
+
+  describe("saveWeek / saveUsualWeeks (Flowko U29b S17)", () => {
+    const weekRow = (i: number) => ({ memberId: i + 1, version: VERSION, days: week });
+    const usualRow = (i: number) => ({ memberId: i + 1, version: VERSION, usualWeek: usual });
+    const saveWeek = (rows: unknown, extra: Record<string, unknown> = {}) =>
+      schemas.ZSaveWeekInput.safeParse({ weekStart: WEEK, rows, ...extra });
+    const saveUsual = (rows: unknown, extra: Record<string, unknown> = {}) =>
+      schemas.ZSaveUsualWeeksInput.safeParse({ rows, ...extra });
+
+    it("rows: 1..50 pass, 0 and 51 fail", () => {
+      expect(saveWeek(Array.from({ length: 50 }, (_, i) => weekRow(i))).success).toBe(true);
+      expect(saveWeek(Array.from({ length: 51 }, (_, i) => weekRow(i))).success).toBe(false);
+      expect(saveWeek([]).success).toBe(false);
+      expect(saveUsual(Array.from({ length: 50 }, (_, i) => usualRow(i))).success).toBe(true);
+      expect(saveUsual(Array.from({ length: 51 }, (_, i) => usualRow(i))).success).toBe(false);
+      expect(saveUsual([]).success).toBe(false);
+    });
+
+    it("version: exactly 64 lowercase hex characters", () => {
+      for (const version of ["a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64), "", 5]) {
+        expect(saveWeek([{ ...weekRow(0), version }]).success).toBe(false);
+        expect(saveUsual([{ ...usualRow(0), version }]).success).toBe(false);
+      }
+      expect(saveWeek([{ ...weekRow(0), version: "0123456789abcdef".repeat(4) }]).success).toBe(true);
+    });
+
+    it("an unknown key is refused at the top level and inside a row", () => {
+      expect(saveWeek([weekRow(0)], { extra: 1 }).success).toBe(false);
+      expect(saveWeek([{ ...weekRow(0), extra: 1 }]).success).toBe(false);
+      expect(saveUsual([usualRow(0)], { extra: 1 }).success).toBe(false);
+      expect(saveUsual([{ ...usualRow(0), extra: 1 }]).success).toBe(false);
+    });
+
+    it("confirm defaults to false and must be a boolean", () => {
+      const a = saveWeek([weekRow(0)]);
+      expect(a.success && a.data.confirm).toBe(false);
+      const b = saveUsual([usualRow(0)]);
+      expect(b.success && b.data.confirm).toBe(false);
+      expect(saveWeek([weekRow(0)], { confirm: "yes" }).success).toBe(false);
+      expect(saveUsual([usualRow(0)], { confirm: 1 }).success).toBe(false);
+    });
+
+    it("memberId: positive int only; days must be a week plan; usualWeek a week or null", () => {
+      for (const memberId of [0, -1, 1.5, "1", null]) {
+        expect(saveWeek([{ ...weekRow(0), memberId }]).success).toBe(false);
+        expect(saveUsual([{ ...usualRow(0), memberId }]).success).toBe(false);
+      }
+      expect(saveWeek([{ ...weekRow(0), days: { mon: "x" } }]).success).toBe(false);
+      expect(saveUsual([{ ...usualRow(0), usualWeek: { mon: "x" } }]).success).toBe(false);
+      expect(saveUsual([{ ...usualRow(0), usualWeek: null }]).success).toBe(true);
+      expect(saveUsual([{ memberId: 1, version: VERSION }]).success).toBe(false);
+    });
+  });
+
   it("usualWeek may be null (clears it) but not missing-shaped junk", () => {
     expect(schemas.ZSetUsualWeekInput.safeParse({ memberId: 1, usualWeek: null }).success).toBe(true);
     expect(schemas.ZSetUsualWeekInput.safeParse({ memberId: 1, usualWeek: { mon: "x" } }).success).toBe(false);
@@ -302,7 +447,7 @@ describe("flowko router wiring (Flowko U26)", () => {
   });
 
   // Flowko U27: bookings.* and business.me joined the flowko router (13 keys); Flowko U28 added six (19 keys);
-  // Flowko U29a added six (25 keys).
+  // Flowko U29a added six (25 keys); Flowko U29b added roster.saveWeek and roster.saveUsualWeeks (27 keys).
   it("flowkoRouter serves the roster.* procedures and the U27 ones", () => {
     expect(Object.keys(flowkoRouter._def.procedures).sort()).toEqual(
       [
@@ -333,6 +478,9 @@ describe("flowko router wiring (Flowko U26)", () => {
         "services.save",
         "services.remove",
         "services.reorder",
+        // Flowko U29b (S17): the roster editor's saves (27 keys)
+        "roster.saveWeek",
+        "roster.saveUsualWeeks",
       ].sort()
     );
   });

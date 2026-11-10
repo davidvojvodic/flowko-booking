@@ -17,6 +17,7 @@ import {
   type ActorRef,
   fitUnderLock,
   isIdempotencyKeyConflict,
+  isServiceForeignKeyRace, // Flowko U29b
   loadBookableWorker,
   lockWorkerAdvisory,
   NeedsConfirm,
@@ -391,6 +392,8 @@ export async function moveBusinessBooking(
     if (error instanceof NeedsConfirm) return needsConfirmResult(error);
     // Outside the transaction: on Postgres the failed update has aborted it.
     if (isIdempotencyKeyConflict(error)) throw new FlowkoBusinessError("duplicate_time");
+    // Flowko U29b: a service removed between the step copy's read and its re-insert (D1 e).
+    if (isServiceForeignKeyRace(error)) throw new FlowkoBusinessError("service_not_assigned");
     throw error;
   }
 

@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeskView as DeskViewData } from "@calcom/features/flowkoBusiness/desk";
 
+import type { RosterWeekView } from "@calcom/features/flowkoBusiness/roster";
+
+import type { RosterView as RosterViewType } from "./RosterView";
 import DeskView from "./desk-view";
 import {
   ANA,
@@ -19,9 +22,56 @@ import {
   deskView,
   iso,
   localeT,
+  rosterWeek,
   weekViewOf,
 } from "./desk.fixture";
 import { deskTrpc, resetDeskTrpc } from "./desk.testDoubles";
+
+// Flowko U29b: Urnik's leave guard pushes with the app router; no desk file had next/navigation before.
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: navigation.push }) }));
+
+// Flowko U29b: the real RosterView, plus (when a test switches it on) a probe that drives the props DeskView hands
+// it: the draft, the guarded day/mode callbacks, and what DeskView passes as date/today/mode.
+const rosterProbe = vi.hoisted(() => ({ on: false }));
+vi.mock("./RosterView", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./RosterView")>();
+  function ProbedRosterView(props: Parameters<typeof RosterViewType>[0]) {
+    return (
+      <>
+        <actual.RosterView {...props} />
+        {rosterProbe.on && (
+          <div data-testid="roster-probe">
+            <span data-testid="probe-state">
+              {JSON.stringify({
+                mode: props.mode,
+                date: props.date,
+                today: props.today,
+                isPhone: props.isPhone,
+                weekStart: props.view?.weekStart ?? null,
+                changed: props.draft.changedCount,
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                props.view && props.draft.set(props.view, 2, `${props.view.weekStart.slice(0, 8)}17`, [])
+              }>
+              probe-edit
+            </button>
+            <button type="button" onClick={() => props.onOpenDay("2026-11-18")}>
+              probe-open-day
+            </button>
+            <button type="button" onClick={() => props.onModeChange("usual")}>
+              probe-usual
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+  return { ...actual, RosterView: ProbedRosterView };
+});
 
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
   useLocale: () => ({ t: localeT("sl"), i18n: { language: "sl" } }),
@@ -946,5 +996,321 @@ describe("DeskView with the shared device switch off (U29a S7)", () => {
     renderDesk();
     expect(column(ANA)).toHaveAttribute("data-tap", "book");
     expect(column(BOR)).not.toHaveAttribute("data-tap");
+  });
+});
+
+// Flowko U29b (S1, S13): „Urnik“ is the third desk view on every size (?view=roster, ?rosterMode=week|usual). The
+// day/week reads stop, the chip hides, move mode ends; „today“ comes from roster.week; the draft lives in DeskView
+// (kept across a resize and inside the week) and leaving the week, the view or the mode asks first.
+describe("U29b Urnik routing", () => {
+  const rosterQuery = deskTrpc.rosterWeekQuery;
+  const rosterWeeks = () => rosterQuery.mock.calls.map((c) => (c[0] as { weekStart: string }).weekStart);
+  const probe = () => JSON.parse(screen.getByTestId("probe-state").textContent ?? "{}");
+  const unsaved = () => screen.queryByRole("dialog", { name: "Neshranjene spremembe" });
+
+  function answerRoster(over: Partial<RosterWeekView> = {}) {
+    rosterQuery.mockImplementation((input: { weekStart: string }) => ({
+      data: rosterWeek({ weekStart: input.weekStart, ...over }),
+      isPending: false,
+      error: null,
+      refetch: vi.fn(),
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDeskTrpc();
+    toast.mockReset();
+    window.localStorage.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    isPhone.mockReturnValue(false);
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
+    rosterProbe.on = false;
+    dayQuery.mockImplementation((input: { date: string }) => ({
+      data: deskView({}, input.date),
+      dataUpdatedAt: NOW.getTime(),
+      refetch,
+      isPending: false,
+      error: null,
+    }));
+    answerRoster();
+  });
+  afterEach(() => {
+    rosterProbe.on = false;
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("the toggle offers „Urnik“ on a desktop and on a phone, and choosing it puts view=roster in the URL", async () => {
+    const urls: UrlUpdateEvent[] = [];
+    renderDesk("", (e) => urls.push(e));
+    expect(screen.getByRole("radio", { name: "Urnik" })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Urnik" }));
+    await waitFor(() => expect(urls[urls.length - 1]?.queryString).toContain("view=roster"));
+    expect(await screen.findByTestId("roster-view")).toBeInTheDocument();
+    cleanup();
+    isPhone.mockReturnValue(true);
+    renderDesk();
+    expect(screen.getByRole("radio", { name: "Urnik" })).not.toBeDisabled();
+  });
+
+  it("?view=roster renders Urnik on a phone too (no fallback to the day view)", () => {
+    isPhone.mockReturnValue(true);
+    renderDesk("?view=roster");
+    expect(screen.getByTestId("roster-view")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Urnik" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryAllByTestId(/^desk-column-header-/)).toHaveLength(0);
+    expect(screen.queryByLabelText("Delavec")).toBeNull();
+  });
+
+  it("asks roster.week for the Monday of the date's week; the day and week reads are off", () => {
+    renderDesk("?view=roster&date=2026-11-19");
+    expect(rosterQuery).toHaveBeenCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ enabled: true, refetchInterval: 30000 })
+    );
+    expect(dayQuery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enabled: false }));
+    expect(deskTrpc.weekQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: false })
+    );
+    expect(dayQuery).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enabled: true }));
+    expect(screen.queryAllByTestId(/^desk-column-header-/)).toHaveLength(0);
+  });
+
+  it("outside Urnik roster.week stays off", () => {
+    renderDesk();
+    expect(rosterQuery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enabled: false }));
+    expect(rosterQuery).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: true })
+    );
+  });
+
+  it("hides the actor chip (roster writes record the signed-in user)", () => {
+    renderDesk("?view=roster");
+    expect(screen.queryByTestId("desk-actor-chip")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ste: Olga" })).toBeNull();
+  });
+
+  it("entering Urnik stops move mode", async () => {
+    window.localStorage.setItem("flowko-desk-actor:9", String(OLGA));
+    renderDesk();
+    fireEvent.click(
+      screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
+    );
+    startCalendarMove();
+    expect(screen.getByTestId("desk-move-banner")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Urnik" }));
+    await screen.findByTestId("roster-view");
+    expect(screen.queryByTestId("desk-move-banner")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Dan" }));
+    await waitFor(() => expect(screen.queryByTestId("roster-view")).toBeNull());
+    expect(screen.queryByTestId("desk-move-banner")).toBeNull();
+  });
+
+  it("week mode on a desktop: week arrows and the week label; on a phone: day arrows and the day label", () => {
+    renderDesk("?view=roster&date=2026-11-18");
+    expect(screen.getByRole("button", { name: "Prejšnji teden" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Naslednji teden" })).toBeInTheDocument();
+    expect(screen.getByTestId("pick-date").textContent).toContain("16. november – 22. november 2026");
+    cleanup();
+    isPhone.mockReturnValue(true);
+    renderDesk("?view=roster&date=2026-11-18");
+    expect(screen.getByRole("button", { name: "Naslednji dan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Naslednji teden" })).toBeNull();
+    expect(screen.getByTestId("pick-date").textContent).toContain("sreda, 18. november 2026");
+  });
+
+  it("usual mode: no week or day arrows, no date picker, no „Danes“; only the view toggle", () => {
+    renderDesk("?view=roster&rosterMode=usual");
+    expect(screen.queryByRole("button", { name: "Prejšnji teden" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Naslednji teden" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Prejšnji dan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Naslednji dan" })).toBeNull();
+    expect(screen.queryByTestId("pick-date")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Danes" })).toBeNull();
+    expect(screen.getByRole("radio", { name: "Urnik" })).toHaveAttribute("aria-checked", "true");
+    cleanup();
+    isPhone.mockReturnValue(true);
+    renderDesk("?view=roster&rosterMode=usual");
+    expect(screen.queryByRole("button", { name: "Naslednji dan" })).toBeNull();
+    expect(screen.queryByTestId("pick-date")).toBeNull();
+  });
+
+  it("a WORKER on ?rosterMode=usual gets the week mode (the usual week is the owner's)", () => {
+    rosterProbe.on = true;
+    me.mockReturnValue(businessMe(ANA, "WORKER", false));
+    renderDesk("?view=roster&rosterMode=usual");
+    expect(probe().mode).toBe("week");
+    expect(screen.getByRole("button", { name: "Naslednji teden" })).toBeInTheDocument();
+  });
+
+  it("today comes from roster.week: browser on Sunday 15th 23:30 UTC, business Monday 16th", () => {
+    rosterProbe.on = true;
+    vi.setSystemTime(new Date("2026-11-15T23:30:00Z"));
+    answerRoster({ today: "2026-11-16" });
+    renderDesk("?view=roster");
+    // the browser (TZ=UTC) first guesses Sunday 15th (week of the 9th), then roster.week's today says the 16th
+    expect(rosterWeeks()[0]).toBe("2026-11-09");
+    expect(rosterWeeks()[rosterWeeks().length - 1]).toBe("2026-11-16");
+    expect(screen.getByRole("button", { name: "Danes" })).toBeDisabled();
+    expect(screen.getByTestId("pick-date").textContent).toContain("16. november – 22. november 2026");
+    expect(probe()).toMatchObject({ today: "2026-11-16", date: "2026-11-16", weekStart: "2026-11-16" });
+  });
+
+  it("a dirty draft survives a resize phone ↔ desktop, and pauses the roster poll", () => {
+    rosterProbe.on = true;
+    const { rerender } = renderDesk("?view=roster");
+    fireEvent.click(screen.getByRole("button", { name: "probe-edit" }));
+    expect(probe().changed).toBe(1);
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: false, refetchOnWindowFocus: false })
+    );
+    isPhone.mockReturnValue(true);
+    rerender(deskTree("?view=roster"));
+    expect(probe()).toMatchObject({ isPhone: true, changed: 1 });
+    isPhone.mockReturnValue(false);
+    rerender(deskTree("?view=roster"));
+    expect(probe()).toMatchObject({ isPhone: false, changed: 1 });
+  });
+
+  it("dirty: a week arrow asks; „Ostani“ keeps the week and the draft", async () => {
+    rosterProbe.on = true;
+    renderDesk("?view=roster");
+    fireEvent.click(screen.getByRole("button", { name: "probe-edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji teden" }));
+    const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ostani" }));
+    await waitFor(() => expect(unsaved()).toBeNull());
+    expect(probe()).toMatchObject({ date: "2026-11-16", changed: 1 });
+  });
+
+  it("dirty: „Zavrzi in nadaljuj“ on a week arrow discards and moves to the next week", async () => {
+    rosterProbe.on = true;
+    const urls: UrlUpdateEvent[] = [];
+    renderDesk("?view=roster", (e) => urls.push(e));
+    fireEvent.click(screen.getByRole("button", { name: "probe-edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji teden" }));
+    const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zavrzi in nadaljuj" }));
+    await waitFor(() => expect(urls[urls.length - 1]?.queryString).toContain("date=2026-11-23"));
+    await waitFor(() => expect(probe()).toMatchObject({ date: "2026-11-23", changed: 0 }));
+  });
+
+  it("dirty: Dan/Teden, the mode switch and a day-header tap ask first", async () => {
+    rosterProbe.on = true;
+    renderDesk("?view=roster");
+    fireEvent.click(screen.getByRole("button", { name: "probe-edit" }));
+    for (const ask of [
+      () => fireEvent.click(screen.getByRole("radio", { name: "Dan" })),
+      () => fireEvent.click(screen.getByRole("button", { name: "probe-usual" })),
+      () => fireEvent.click(screen.getByRole("button", { name: "probe-open-day" })),
+    ]) {
+      ask();
+      const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Ostani" }));
+      await waitFor(() => expect(unsaved()).toBeNull());
+      expect(screen.getByTestId("roster-view")).toBeInTheDocument();
+      expect(probe()).toMatchObject({ mode: "week", changed: 1 });
+    }
+  });
+
+  it("dirty: a day-header tap, discarded, opens Dan for that date", async () => {
+    rosterProbe.on = true;
+    const urls: UrlUpdateEvent[] = [];
+    renderDesk("?view=roster", (e) => urls.push(e));
+    fireEvent.click(screen.getByRole("button", { name: "probe-edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "probe-open-day" }));
+    const dialog = await screen.findByRole("dialog", { name: "Neshranjene spremembe" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zavrzi in nadaljuj" }));
+    await waitFor(() => expect(screen.queryByTestId("roster-view")).toBeNull());
+    await waitFor(() => expect(urls[urls.length - 1]?.queryString).toContain("date=2026-11-18"));
+    expect(urls[urls.length - 1]?.queryString).not.toContain("view=roster"); // "day" is the default: no param
+  });
+
+  it("clean: the mode switch runs at once (rosterMode=usual in the URL)", async () => {
+    rosterProbe.on = true;
+    const urls: UrlUpdateEvent[] = [];
+    renderDesk("?view=roster", (e) => urls.push(e));
+    fireEvent.click(screen.getByRole("button", { name: "probe-usual" }));
+    expect(unsaved()).toBeNull();
+    await waitFor(() => expect(urls[urls.length - 1]?.queryString).toContain("rosterMode=usual"));
+    expect(probe().mode).toBe("usual");
+  });
+
+  it("phone, dirty: a day arrow inside the week keeps the draft without asking; crossing the week asks", async () => {
+    rosterProbe.on = true;
+    isPhone.mockReturnValue(true);
+    renderDesk("?view=roster&date=2026-11-21");
+    fireEvent.click(screen.getByRole("button", { name: "probe-edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
+    await waitFor(() => expect(probe().date).toBe("2026-11-22"));
+    expect(unsaved()).toBeNull();
+    expect(probe().changed).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
+    expect(await screen.findByRole("dialog", { name: "Neshranjene spremembe" })).toBeInTheDocument();
+    expect(probe()).toMatchObject({ date: "2026-11-22", changed: 1 });
+  });
+
+  // Flowko U29b (Task 8): the same promises with a real edit through the cell sheet, not the probe's shortcut.
+  async function editCellThroughTheSheet(memberId: number, date: string) {
+    fireEvent.click(screen.getByTestId(`roster-cell-${memberId}-${date}`));
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Prosto" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Uporabi" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  }
+
+  it("a real edit through the cell sheet pauses the roster poll; discarding it starts the poll again", async () => {
+    renderDesk("?view=roster");
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: 30000, refetchOnWindowFocus: true })
+    );
+    await editCellThroughTheSheet(ANA, "2026-11-17");
+    expect(screen.getByTestId("roster-save-bar")).toBeInTheDocument();
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: false, refetchOnWindowFocus: false })
+    );
+    fireEvent.click(within(screen.getByTestId("roster-save-bar")).getByRole("button", { name: "Zavrzi" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Želite zavreči spremembe?" })).getByRole("button", {
+        name: "Zavrzi",
+      })
+    );
+    await waitFor(() => expect(screen.queryByTestId("roster-save-bar")).toBeNull());
+    expect(rosterQuery).toHaveBeenLastCalledWith(
+      { weekStart: "2026-11-16" },
+      expect.objectContaining({ refetchInterval: 30000 })
+    );
+  });
+
+  it("phone, a real edit: a day arrow inside the week keeps it without asking, the crossing asks", async () => {
+    isPhone.mockReturnValue(true);
+    renderDesk("?view=roster&date=2026-11-21");
+    await editCellThroughTheSheet(ANA, "2026-11-21");
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("roster-card-2").querySelector("[data-testid^='roster-cell-2-2026-11-22']")
+      ).toBeTruthy()
+    );
+    expect(unsaved()).toBeNull();
+    expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
+    fireEvent.click(screen.getByRole("button", { name: "Naslednji dan" }));
+    expect(await screen.findByRole("dialog", { name: "Neshranjene spremembe" })).toBeInTheDocument();
+    expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
+  });
+
+  it("a load error offers a retry of roster.week", () => {
+    const retry = vi.fn();
+    rosterQuery.mockReturnValue({ data: undefined, isPending: false, error: new Error("x"), refetch: retry });
+    renderDesk("?view=roster");
+    fireEvent.click(screen.getByRole("button", { name: "Poskusi znova" }));
+    expect(retry).toHaveBeenCalled();
   });
 });

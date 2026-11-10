@@ -615,6 +615,58 @@ describe("createBusinessBooking: duplicate time (D1)", () => {
   });
 });
 
+// Flowko U29b: a service removed between the desk's read and the step insert (D1 e) → service_not_assigned.
+describe("createBusinessBooking: service removed during the write (U29b D1 e)", () => {
+  const p2003 = (meta: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError("Foreign key constraint violated", {
+      code: "P2003",
+      clientVersion: "test",
+      meta,
+    });
+
+  it("P2003 on the step's serviceId foreign key (meta.field_name) → service_not_assigned; no mail", async () => {
+    vi.spyOn(prismock.flowkoBookingStep, "createMany").mockRejectedValueOnce(
+      p2003({ modelName: "FlowkoBookingStep", field_name: "FlowkoBookingStep_serviceId_fkey (index)" })
+    );
+    await expectCode(create(f.users.olga), "service_not_assigned");
+    expect(mailMock).not.toHaveBeenCalled();
+  });
+
+  it("P2003 from the driver adapter naming the constraint → service_not_assigned; no mail", async () => {
+    vi.spyOn(prismock.flowkoBookingStep, "createMany").mockRejectedValueOnce(
+      p2003({
+        modelName: "FlowkoBookingStep",
+        driverAdapterError: {
+          // The shape pinned on Postgres (bookingWriter.integration-test.ts).
+          name: "DriverAdapterError",
+          cause: {
+            originalCode: "23503",
+            kind: "ForeignKeyConstraintViolation",
+            constraint: { index: "FlowkoBookingStep_serviceId_fkey" },
+          },
+        },
+      })
+    );
+    await expectCode(create(f.users.olga), "service_not_assigned");
+    expect(mailMock).not.toHaveBeenCalled();
+  });
+
+  it("any other P2003 is rethrown", async () => {
+    const other = p2003({
+      modelName: "FlowkoBookingStep",
+      field_name: "FlowkoBookingStep_bookingId_fkey (index)",
+    });
+    vi.spyOn(prismock.flowkoBookingStep, "createMany").mockRejectedValueOnce(other);
+    await expect(create(f.users.olga)).rejects.toBe(other);
+  });
+
+  it("a plain error naming the constraint is not mistaken for the race", async () => {
+    const plain = new Error("FlowkoBookingStep_serviceId_fkey");
+    vi.spyOn(prismock.flowkoBookingStep, "createMany").mockRejectedValueOnce(plain);
+    await expect(create(f.users.olga)).rejects.toBe(plain);
+  });
+});
+
 // Flowko U28: no booking in the past (R6), the Google-unavailable flag (R7) and the WORKER actor rule (R9).
 /** Mon 16 Nov 08:07 in Ljubljana: the 08:00 slot is the current one. */
 const DESK_NOW = new Date("2026-11-16T07:07:00Z");

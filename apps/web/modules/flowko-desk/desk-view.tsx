@@ -7,6 +7,10 @@
 // Flowko U29a (S7): the chip only when the owner's „shared device“ switch is on (business.me.sharedDevice); off, the
 // signed-in member acts and no role sees a chip. Rights (canBook) stay with the role. `me` polls with the desk
 // (useDeskBusinessMePoll), so a tablet left open follows a switch saved on another device.
+// Flowko U29b (S1, S13): „Urnik“ (?view=roster, ?rosterMode=week|usual) on every size: the day/week reads stop, the
+// chip and the worker pickers hide, move mode ends on entry, and „today“ comes from roster.week. The Urnik draft and
+// its leave guard live here (keyed by week + mode, so a date inside the week and a resize keep it); a date change
+// into another week, a view change, a mode change and a day-header tap run through the guard.
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -23,10 +27,11 @@ import { ActorChip } from "./ActorChip";
 import { BookingDetailsSheet } from "./BookingDetailsSheet";
 import { BookingSheet } from "./BookingSheet";
 import { ConfirmProblemsDialog } from "./ConfirmProblemsDialog";
-import { DateBar, useDeskParams } from "./DateBar";
+import { DateBar, type DeskViewKind, type RosterModeKind, useDeskParams } from "./DateBar";
 import { DayGrid } from "./DayGrid";
 import type { DeskContextValue } from "./DeskContext";
 import { DeskContext } from "./DeskContext";
+import { RosterView } from "./RosterView";
 import { WeekGrid, mondayOf } from "./WeekGrid";
 import type { DeskBookTarget } from "./WorkerColumn";
 import { WorkerPicker } from "./WorkerPicker";
@@ -34,6 +39,9 @@ import { useDeskActor } from "./useDeskActor";
 import { useDeskBusinessMePoll, useDeskDay, useDeskMembers, useDeskWeek } from "./useDeskData";
 import { useDeskWrites } from "./useDeskWrites";
 import { useMoveMode } from "./useMoveMode";
+import { useRosterWeek } from "./useRosterData";
+import { useRosterDraft } from "./useRosterDraft";
+import { useUnsavedGuard } from "./useUnsavedGuard";
 
 /** Below Tailwind's md (768 px). */
 const PHONE_QUERY = "(max-width: 767px)";
@@ -55,6 +63,17 @@ export default function DeskView() {
   // Flowko U28 (D2): the week view from md up; weekStart = the Monday of the business-zone date (not the browser's
   // or the profile's week start). The worker: ?worker= if it has a column, else the user's own, else the first.
   const weekMode = params.state.view === "week" && !isPhone;
+  // Flowko U29b (S1, D2): Urnik on every size (no phone fallback). The usual week is the owner's (D5): any other
+  // role reading ?rosterMode=usual gets the week mode.
+  const inRoster = params.state.view === "roster";
+  const me = business.status === "member" ? business.me : null;
+  const rosterKind: RosterModeKind =
+    params.state.rosterMode === "usual" && me?.role === "OWNER" ? "usual" : "week";
+  const weekStart = mondayOf(date);
+  // Flowko U29b (S13): outside Urnik the draft is scoped to no week, so leaving Urnik by any path drops it.
+  const draft = useRosterDraft(inRoster ? weekStart : "", rosterKind);
+  const roster = useRosterWeek(weekStart, { enabled: inRoster, paused: draft.dirty });
+  const { guard, dialog: unsavedDialog } = useUnsavedGuard(draft.dirty, draft.discard);
   const members = useDeskMembers();
   const workers = useMemo(() => (members.data ?? []).filter((m) => m.hasColumn), [members.data]);
   const meId = business.status === "member" ? business.me.memberId : null;
@@ -64,18 +83,23 @@ export default function DeskView() {
       workers.find((w) => w.memberId === meId) ??
       workers[0]
     )?.memberId ?? null;
-  const dayQuery = useDeskDay(date, { enabled: !weekMode });
-  const weekQuery = useDeskWeek(mondayOf(date), weekWorker, { enabled: weekMode });
+  const dayQuery = useDeskDay(date, { enabled: !weekMode && !inRoster });
+  const weekQuery = useDeskWeek(weekStart, weekWorker, { enabled: weekMode });
   const day = weekMode ? weekQuery : dayQuery;
   const view = day.view;
 
+  // Flowko U29b (S1): in Urnik only roster.week's `today` counts (a cached day answer never competes with it).
+  const rosterToday = roster.view?.today;
   useEffect(() => {
+    if (inRoster) {
+      if (rosterToday && rosterToday !== today) setToday(rosterToday);
+      return;
+    }
     if (!view) return;
     const businessToday = todayIn(view.timeZone, new Date(view.now));
     if (businessToday !== today) setToday(businessToday);
-  }, [view, today]);
+  }, [inRoster, rosterToday, view, today]);
 
-  const me = business.status === "member" ? business.me : null;
   const session = useMemo(
     () =>
       me
@@ -115,6 +139,27 @@ export default function DeskView() {
   const openDay = (d: string) => {
     params.setView("day");
     params.setDate(d === today ? null : d);
+  };
+  // Flowko U29b (S13): Urnik's in-page switches. A date change inside the shown week runs at once (a phone day
+  // arrow keeps the draft); another week, another view or mode asks first while the draft is dirty.
+  const onDateChange = (next: string | null) => {
+    const apply = () => params.setDate(next);
+    if (inRoster && mondayOf(next ?? today) !== weekStart) guard(apply);
+    else apply();
+  };
+  const onViewChange = (next: DeskViewKind) => {
+    const apply = () => {
+      // Flowko U29b (S1): no booking taps in Urnik, so entering it ends move mode.
+      if (next === "roster" && moving) moveMode.stop();
+      // Flowko U28 (R12): „move me to Thursday“: the week opens on the moving booking's worker.
+      if (next === "week" && moving) params.setWorker(moving.memberId);
+      params.setView(next);
+    };
+    if (inRoster && next !== "roster") guard(apply);
+    else apply();
+  };
+  const onRosterModeChange = (next: RosterModeKind) => {
+    if (next !== rosterKind) guard(() => params.setRosterMode(next));
   };
   // Flowko U28 (R12, R15): on a phone in move mode the one column shown is the moving booking's worker.
   const phoneMemberId = isPhone
@@ -159,89 +204,114 @@ export default function DeskView() {
           <DateBar
             date={date}
             today={today}
-            view={weekMode ? "week" : "day"}
+            view={inRoster ? "roster" : weekMode ? "week" : "day"}
             weekAvailable={!isPhone}
-            onDateChange={params.setDate}
-            onViewChange={(next) => {
-              // Flowko U28 (R12): „move me to Thursday“: the week opens on the moving booking's worker.
-              if (next === "week" && moving) params.setWorker(moving.memberId);
-              params.setView(next);
-            }}
+            rosterMode={rosterKind}
+            onDateChange={onDateChange}
+            onViewChange={onViewChange}
           />
-          {me?.sharedDevice === true && <ActorChip actor={actor} />}
+          {/* Flowko U29b (S1): no chip in Urnik: roster writes record the signed-in user. */}
+          {me?.sharedDevice === true && !inRoster && <ActorChip actor={actor} />}
         </div>
-        {weekMode && workers.length > 0 && (
-          <WorkerPicker workers={workers} value={weekWorker} onChange={params.setWorker} />
-        )}
-        {isPhone && columns.length > 0 && (
-          <label className="text-default flex items-center gap-2 text-sm">
-            <span>{t("flowko_desk_worker")}</span>
-            <select
-              className="border-default bg-default text-emphasis h-9 flex-1 rounded-md border px-2 text-sm"
-              value={phoneMemberId ?? ""}
-              onChange={(e) => params.setWorker(Number(e.target.value))}>
-              {columns.map((c) => (
-                <option key={c.memberId} value={c.memberId}>
-                  {c.locked ? t("flowko_desk_locked_column", { name: c.displayName }) : c.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {moving && (
-          // Flowko U28c (M3): a clearer banner right on top of the grid, naming the worker whose column to tap.
-          <div
-            data-testid="desk-move-banner"
-            role="status"
-            className="bg-semantic-info-subtle text-emphasis border-semantic-info flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-base font-semibold">
-            <span>
-              {movingWorkerName
-                ? t("flowko_desk_move_banner_column", { name: movingWorkerName })
-                : t("flowko_desk_move_banner", { name: moving.customer.name })}
-            </span>
-            <Button color="secondary" onClick={moveMode.stop}>
-              {t("cancel")}
-            </Button>
-          </div>
-        )}
-        {view && weekMode && (
-          <WeekGrid
-            view={view}
-            receivedAt={day.receivedAt}
-            onBook={onBook}
-            canBook={canBook}
-            onOpenDetails={onOpenDetails}
-            onOpenDay={openDay}
-            movingMemberId={moving?.memberId ?? null}
-          />
-        )}
-        {view && !weekMode && (
-          <DayGrid
-            view={view}
-            date={date}
-            receivedAt={day.receivedAt}
-            onlyMemberId={phoneMemberId}
-            onBook={onBook}
-            canBook={canBook}
-            onOpenDetails={onOpenDetails}
-            movingMemberId={moving?.memberId ?? null}
-          />
-        )}
-        {!view && day.error && (
+        {inRoster && !roster.view && roster.error ? (
           <div className="flex flex-col items-center gap-3 py-12">
             <p className="text-default text-sm">{t("flowko_desk_load_error")}</p>
-            <Button color="secondary" onClick={() => void day.refetch()}>
+            <Button color="secondary" onClick={() => void roster.refetch()}>
               {t("try_again")}
             </Button>
           </div>
+        ) : null}
+        {inRoster && (roster.view || !roster.error) && (
+          <RosterView
+            view={roster.view}
+            isPending={roster.isPending}
+            mode={rosterKind}
+            date={date}
+            today={today}
+            isPhone={isPhone}
+            draft={draft}
+            guard={guard}
+            onOpenDay={(d) => guard(() => openDay(d))}
+            onModeChange={onRosterModeChange}
+          />
         )}
-        {!view && !day.error && weekMode && members.data && weekWorker === null && (
-          <p className="text-subtle py-12 text-center text-sm">{t("flowko_desk_no_columns")}</p>
-        )}
-        {!view && !day.error && !(weekMode && members.data && weekWorker === null) && (
-          <p className="text-subtle py-12 text-center text-sm">{t("loading")}</p>
+        {!inRoster && (
+          <>
+            {weekMode && workers.length > 0 && (
+              <WorkerPicker workers={workers} value={weekWorker} onChange={params.setWorker} />
+            )}
+            {isPhone && columns.length > 0 && (
+              <label className="text-default flex items-center gap-2 text-sm">
+                <span>{t("flowko_desk_worker")}</span>
+                <select
+                  className="border-default bg-default text-emphasis h-9 flex-1 rounded-md border px-2 text-sm"
+                  value={phoneMemberId ?? ""}
+                  onChange={(e) => params.setWorker(Number(e.target.value))}>
+                  {columns.map((c) => (
+                    <option key={c.memberId} value={c.memberId}>
+                      {c.locked ? t("flowko_desk_locked_column", { name: c.displayName }) : c.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {moving && (
+              // Flowko U28c (M3): a clearer banner right on top of the grid, naming the worker whose column to tap.
+              <div
+                data-testid="desk-move-banner"
+                role="status"
+                className="bg-semantic-info-subtle text-emphasis border-semantic-info flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-base font-semibold">
+                <span>
+                  {movingWorkerName
+                    ? t("flowko_desk_move_banner_column", { name: movingWorkerName })
+                    : t("flowko_desk_move_banner", { name: moving.customer.name })}
+                </span>
+                <Button color="secondary" onClick={moveMode.stop}>
+                  {t("cancel")}
+                </Button>
+              </div>
+            )}
+            {view && weekMode && (
+              <WeekGrid
+                view={view}
+                receivedAt={day.receivedAt}
+                onBook={onBook}
+                canBook={canBook}
+                onOpenDetails={onOpenDetails}
+                onOpenDay={openDay}
+                movingMemberId={moving?.memberId ?? null}
+              />
+            )}
+            {view && !weekMode && (
+              <DayGrid
+                view={view}
+                date={date}
+                receivedAt={day.receivedAt}
+                onlyMemberId={phoneMemberId}
+                onBook={onBook}
+                canBook={canBook}
+                onOpenDetails={onOpenDetails}
+                movingMemberId={moving?.memberId ?? null}
+              />
+            )}
+            {!view && day.error && (
+              <div className="flex flex-col items-center gap-3 py-12">
+                <p className="text-default text-sm">{t("flowko_desk_load_error")}</p>
+                <Button color="secondary" onClick={() => void day.refetch()}>
+                  {t("try_again")}
+                </Button>
+              </div>
+            )}
+            {!view && !day.error && weekMode && members.data && weekWorker === null && (
+              <p className="text-subtle py-12 text-center text-sm">{t("flowko_desk_no_columns")}</p>
+            )}
+            {!view && !day.error && !(weekMode && members.data && weekWorker === null) && (
+              <p className="text-subtle py-12 text-center text-sm">{t("loading")}</p>
+            )}
+          </>
         )}
       </div>
+      {unsavedDialog}
       {view && bookTarget && (
         <BookingSheet
           key={`${bookTarget.memberId}-${bookTarget.start}`}

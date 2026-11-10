@@ -73,18 +73,22 @@ export default function ServicesView() {
       await reorder.mutateAsync({ serviceIds: ids });
     } catch (error) {
       const code = serviceErrorCode(error);
-      if (code === "bad_service") {
-        // S13: the list was not exactly the business's services (another device added or removed one).
-        showToast(t("flowko_settings_service_order_changed"), "error");
-        await query.refetch();
-      } else {
-        showToast(t(serviceErrorKey(code)), "error");
+      try {
+        if (code === "bad_service") {
+          // S13: the list was not exactly the business's services (another device added or removed one).
+          showToast(t("flowko_settings_service_order_changed"), "error");
+          await query.refetch();
+        } else {
+          showToast(t(serviceErrorKey(code)), "error");
+        }
+      } finally {
+        setReordering(false);
       }
       return;
-    } finally {
-      setReordering(false);
     }
+    // Flowko U29b: the arrows stay off until the refreshed list is in (D1 c); the next move starts from it.
     await invalidate();
+    setReordering(false);
   }
 
   const workersText = (service: OwnerService) => {

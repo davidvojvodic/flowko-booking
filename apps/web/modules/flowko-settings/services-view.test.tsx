@@ -179,6 +179,42 @@ describe("ServicesView: order (S13)", () => {
     expect(mocks.reorder).toHaveBeenCalledWith({ serviceIds: [STRIZENJE.id, FEN.id, BARVANJE.id] });
   });
 
+  // Flowko U29b (D1 c): the arrows stay off until the refreshed list is in, so a second click never starts
+  // from the stale order.
+  it("while the list refresh is pending every arrow is off; a double click sends one reorder", async () => {
+    let resolveRefresh!: () => void;
+    mocks.invalidateList.mockReturnValue(
+      new Promise<void>((done) => {
+        resolveRefresh = done;
+      })
+    );
+    render(<ServicesView />);
+    await act(async () => {
+      fireEvent.click(button("Premakni dol: Striženje"));
+    });
+    await waitFor(() => expect(mocks.invalidateList).toHaveBeenCalled());
+    for (const service of ["Striženje", "Barvanje", "Fen"]) {
+      expect(button(`Premakni gor: ${service}`)).toBeDisabled();
+      expect(button(`Premakni dol: ${service}`)).toBeDisabled();
+    }
+    fireEvent.click(button("Premakni dol: Striženje"));
+    expect(mocks.reorder).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveRefresh();
+    });
+    await waitFor(() => expect(button("Premakni dol: Striženje")).not.toBeDisabled());
+  });
+
+  it("a failed reorder turns the arrows back on", async () => {
+    mocks.reorder.mockRejectedValue(trpcError("boom", "INTERNAL_SERVER_ERROR"));
+    render(<ServicesView />);
+    await act(async () => {
+      fireEvent.click(button("Premakni dol: Barvanje"));
+    });
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalled());
+    expect(button("Premakni dol: Striženje")).not.toBeDisabled();
+  });
+
   it("a stale list (bad_service) refetches and says the list changed", async () => {
     mocks.reorder.mockRejectedValue(trpcError("bad_service"));
     render(<ServicesView />);

@@ -2,6 +2,9 @@
 // "YYYY-MM-DD"; no or a malformed date means today in the business time zone (decided by the caller from the
 // server's clock). Previous/next step by calendar days (DST-safe, roster `addDays`), by seven in the week view.
 // The week toggle is disabled with a hint where the week view is not offered (a phone, D2).
+// Flowko U29b (S1): a third view „Urnik“ (?view=roster) on every size, and ?rosterMode=week|usual. In Urnik the
+// arrows step a week with the week label from md up and a day with the day label on a phone; in the usual week
+// (no dates) the arrows, the date picker and „Danes“ are hidden and only the view toggle stays.
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 
 import { addDays, localDateSchema } from "@calcom/lib/flowkoBusiness/roster";
@@ -11,20 +14,30 @@ import { DatePicker, ToggleGroup } from "@calcom/ui/components/form";
 
 import { mondayOf } from "./WeekGrid";
 
-export const DESK_VIEWS = ["day", "week"] as const;
+// Flowko U29b (S1): "roster" = „Urnik“.
+export const DESK_VIEWS = ["day", "week", "roster"] as const;
 export type DeskViewKind = (typeof DESK_VIEWS)[number];
+/** Flowko U29b (S1, D5): Urnik's „Ta teden“ / „Običajni teden“. */
+export const ROSTER_MODES = ["week", "usual"] as const;
+export type RosterModeKind = (typeof ROSTER_MODES)[number];
 
 export function useDeskParams() {
   const [rawDate, setRawDate] = useQueryState("date", parseAsString);
   const [view, setView] = useQueryState("view", parseAsStringLiteral(DESK_VIEWS).withDefault("day"));
   const [worker, setWorker] = useQueryState("worker", parseAsInteger);
+  // Flowko U29b (S1): an unknown value falls back to "week" (as `view` falls back to "day").
+  const [rosterMode, setRosterMode] = useQueryState(
+    "rosterMode",
+    parseAsStringLiteral(ROSTER_MODES).withDefault("week")
+  );
   const date = rawDate !== null && localDateSchema.safeParse(rawDate).success ? rawDate : null;
   return {
-    state: { date, view, worker },
+    state: { date, view, worker, rosterMode },
     /** null = today (drops the parameter). */
     setDate: (next: string | null) => void setRawDate(next),
     setView: (next: DeskViewKind) => void setView(next),
     setWorker: (next: number | null) => void setWorker(next),
+    setRosterMode: (next: RosterModeKind) => void setRosterMode(next),
   };
 }
 
@@ -66,49 +79,62 @@ export function DateBar(props: {
   view: DeskViewKind;
   /** Flowko U28 (D2): false on a phone: the week toggle is disabled and a hint says why. Default true. */
   weekAvailable?: boolean;
+  /** Flowko U29b (S1): Urnik's mode; "usual" (no dates) hides the arrows, the date picker and „Danes“. */
+  rosterMode?: RosterModeKind;
   onDateChange: (date: string | null) => void;
   onViewChange: (view: DeskViewKind) => void;
 }) {
   const { t, i18n } = useLocale();
   const { date, today, onDateChange } = props;
   const go = (next: string) => onDateChange(next === today ? null : next);
-  const week = props.view === "week";
-  const step = week ? 7 : 1;
   const weekAvailable = props.weekAvailable ?? true;
+  // Flowko U29b (S1): Urnik steps by week where the week view is offered (md up), by day on a phone (D4).
+  const roster = props.view === "roster";
+  const week = props.view === "week" || (roster && weekAvailable);
+  const step = week ? 7 : 1;
+  const dated = !(roster && props.rosterMode === "usual");
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button
-        variant="icon"
-        color="secondary"
-        StartIcon="chevron-left"
-        aria-label={t(week ? "flowko_desk_prev_week" : "flowko_desk_prev_day")}
-        onClick={() => go(addDays(date, -step))}
-      />
-      <Button color="secondary" disabled={date === today} onClick={() => onDateChange(null)}>
-        {t("today")}
-      </Button>
-      <Button
-        variant="icon"
-        color="secondary"
-        StartIcon="chevron-right"
-        aria-label={t(week ? "flowko_desk_next_week" : "flowko_desk_next_day")}
-        onClick={() => go(addDays(date, step))}
-      />
-      <DatePicker
-        date={toPickerDate(date)}
-        minDate={null}
-        onDatesChange={(d) => go(fromPickerDate(d))}
-        label={
-          week ? formatWeekLabel(date, i18n?.language ?? "sl") : formatDateLabel(date, i18n?.language ?? "sl")
-        }
-      />
+      {dated && (
+        <>
+          <Button
+            variant="icon"
+            color="secondary"
+            StartIcon="chevron-left"
+            aria-label={t(week ? "flowko_desk_prev_week" : "flowko_desk_prev_day")}
+            onClick={() => go(addDays(date, -step))}
+          />
+          <Button color="secondary" disabled={date === today} onClick={() => onDateChange(null)}>
+            {t("today")}
+          </Button>
+          <Button
+            variant="icon"
+            color="secondary"
+            StartIcon="chevron-right"
+            aria-label={t(week ? "flowko_desk_next_week" : "flowko_desk_next_day")}
+            onClick={() => go(addDays(date, step))}
+          />
+          <DatePicker
+            date={toPickerDate(date)}
+            minDate={null}
+            onDatesChange={(d) => go(fromPickerDate(d))}
+            label={
+              week
+                ? formatWeekLabel(date, i18n?.language ?? "sl")
+                : formatDateLabel(date, i18n?.language ?? "sl")
+            }
+          />
+        </>
+      )}
       <ToggleGroup
         value={props.view}
         onValueChange={(v) => props.onViewChange(v as DeskViewKind)}
         options={[
           { value: "day", label: t("flowko_desk_view_day") },
           { value: "week", label: t("flowko_desk_view_week"), disabled: !weekAvailable },
+          // Flowko U29b (S1, D2): Urnik on every size.
+          { value: "roster", label: t("flowko_roster_view") },
         ]}
       />
       {!weekAvailable && (

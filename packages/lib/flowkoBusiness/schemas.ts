@@ -200,6 +200,18 @@ export function isReminderChoice(offsets: readonly number[]): boolean {
 
 const profileShape = businessProfileSchema.shape;
 
+// Flowko U29b: the domain after the last "@" is a placeholder when it is `invalid` or any `.invalid` name
+// (RFC 2606/6761: undeliverable), or `sms.cal.com` or one of its subdomains. Local to the business e-mail.
+function isPlaceholderDomain(email: string): boolean {
+  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+  return (
+    domain === "invalid" ||
+    domain.endsWith(".invalid") ||
+    domain === "sms.cal.com" ||
+    domain.endsWith(".sms.cal.com")
+  );
+}
+
 /**
  * The business settings the owner edits (S2). Slug and time zone are not editable. Phone is required (since U27 a
  * customer reschedules by calling); the e-mail is optional and never a placeholder address; at least one weekday
@@ -222,7 +234,10 @@ export const businessSettingsSchema = z.object({
     .toLowerCase()
     .max(254, { message: "email_length" })
     .email({ message: "email_format" })
-    .refine((email) => !isSmsCalEmail(email), { message: "email_placeholder" })
+    // Flowko U29b: also refuses subdomain placeholders (D1 f); isSmsCalEmail stays Cal-wide and untouched.
+    .refine((email) => !(isPlaceholderDomain(email) || isSmsCalEmail(email)), {
+      message: "email_placeholder",
+    })
     .nullable(),
   openingHours: openingHoursSchema.superRefine((hours, ctx) => {
     if (WEEKDAYS.every((day) => hours[day].length === 0)) {

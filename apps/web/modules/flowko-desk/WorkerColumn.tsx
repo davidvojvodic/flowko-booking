@@ -16,7 +16,8 @@ import classNames from "@calcom/ui/classNames";
 import { BookingBlock, bookingSegments, ms } from "./BookingBlock";
 
 const MINUTE_MS = 60_000;
-const HATCH =
+// Flowko U29b: exported for Urnik's absent cells.
+export const HATCH =
   "repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(100, 116, 139, 0.25) 8px, rgba(100, 116, 139, 0.25) 16px)";
 
 export type DeskBookTarget = { memberId: number; start: Ms };
