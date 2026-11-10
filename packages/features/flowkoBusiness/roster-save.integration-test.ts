@@ -5,8 +5,11 @@
 // another writer is detected; a refused row leaves the other rows unwritten; needs_confirm → someone else's save
 // → confirm: true is roster_changed, never a silent overwrite) and Review Focus 5 (a booking holding the worker
 // lock makes the save wait and is counted; 20 rounds of a booking and a save of the same worker's day at once:
-// both settle, no deadlock, and the save's warnings count the booking exactly when it committed first). Runs only
-// with VITEST_MODE=integration against the throwaway DB.
+// both settle, no deadlock, and the save's warnings count the booking exactly when it committed first).
+// Task 4 adds saveUsualWeeks: an all-empty week is SQL NULL ("usualWeek" IS NULL), two saves with one version →
+// one saved and one roster_changed, and a usual-week save racing a week save of the same member (the week save
+// answers roster_changed exactly when the usual-week save committed first; 20 rounds). Runs only with
+// VITEST_MODE=integration against the throwaway DB.
 
 import { addDays, type ShiftEntry, type WeekHours, type WeekPlan } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
@@ -16,7 +19,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
 import { addLoginMember, createBusiness } from "./business";
 import { FlowkoBusinessError } from "./errors";
-import { getRosterWeek, saveRosterWeek, setUsualWeek } from "./roster";
+import { getRosterWeek, saveRosterWeek, saveUsualWeeks, setUsualWeek } from "./roster";
 
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const TZ = "Europe/Ljubljana";
@@ -346,5 +349,172 @@ describe("U29b saveRosterWeek on a real database", () => {
       }
     }
     expect(bookingFirst + saveFirst).toBe(20);
+  }, 60_000);
+});
+
+// Flowko U29b (Task 4): saveUsualWeeks on a real database. Ana's usual week is USUAL after every test.
+describe("U29b saveUsualWeeks on a real database", () => {
+  const ALT: WeekHours = { ...USUAL, tue: [S("09:00", "17:00")], sat: [S("09:00", "12:00")] };
+  const NO_WEEK: WeekHours = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
+  type UsualRow = { memberId: number; version: string; usualWeek: WeekHours | null };
+
+  async function usualVersionOf(memberId: number): Promise<string> {
+    const view = await getRosterWeek(prisma, fx.olga, "2026-11-16", NOW);
+    const member = view.members.find((m) => m.memberId === memberId);
+    if (!member) throw new Error("fixture: member not in view");
+    return member.usualVersion;
+  }
+
+  async function usualRow(memberId: number, usualWeek: WeekHours | null): Promise<UsualRow> {
+    return { memberId, version: await usualVersionOf(memberId), usualWeek };
+  }
+
+  const saveUsual = (actorUserId: number, rows: UsualRow[], confirm = false) =>
+    saveUsualWeeks(prisma, actorUserId, { rows, confirm }, NOW);
+
+  async function usualIsNull(memberId: number): Promise<boolean> {
+    const found = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT count(*)::bigint AS n FROM "FlowkoBusinessMember" WHERE id = ${memberId} AND "usualWeek" IS NULL`;
+    return Number(found[0].n) === 1;
+  }
+
+  async function storedUsual(memberId: number): Promise<unknown> {
+    const found = await prisma.flowkoBusinessMember.findUnique({
+      where: { id: memberId },
+      select: { usualWeek: true },
+    });
+    return found?.usualWeek;
+  }
+
+  it("an all-empty usual week is stored as SQL NULL, never JSON null", async () => {
+    expect(await saveUsual(fx.olga, [await usualRow(fx.m.bor, ALT)])).toEqual({ status: "saved" });
+    expect(await usualIsNull(fx.m.bor)).toBe(false);
+    expect(await storedUsual(fx.m.bor)).toEqual(ALT);
+    expect(await saveUsual(fx.olga, [await usualRow(fx.m.bor, NO_WEEK)])).toEqual({ status: "saved" });
+    expect(await usualIsNull(fx.m.bor)).toBe(true);
+    // null clears to the same form.
+    await saveUsual(fx.olga, [await usualRow(fx.m.bor, ALT)]);
+    expect(await saveUsual(fx.olga, [await usualRow(fx.m.bor, null)])).toEqual({ status: "saved" });
+    expect(await usualIsNull(fx.m.bor)).toBe(true);
+    const view = await getRosterWeek(prisma, fx.olga, "2026-11-16", NOW);
+    expect(view.members.find((m) => m.memberId === fx.m.bor)?.usualWeek).toBeNull();
+  });
+
+  it("two usual-week saves with one version at once: exactly one saved, one roster_changed", async () => {
+    const version = await usualVersionOf(fx.m.bor);
+    const results = await Promise.all([
+      saveOutcome(saveUsual(fx.olga, [{ memberId: fx.m.bor, version, usualWeek: ALT }])),
+      saveOutcome(saveUsual(fx.olga, [{ memberId: fx.m.bor, version, usualWeek: USUAL }])),
+    ]);
+    expect([...results].sort()).toEqual(["roster_changed", "saved"]);
+    expect(await storedUsual(fx.m.bor)).toEqual(results[0] === "saved" ? ALT : USUAL);
+    await saveUsual(fx.olga, [await usualRow(fx.m.bor, null)]);
+  });
+
+  it("rights and all or nothing: a worker (even for herself) and a foreign member are forbidden, nothing written", async () => {
+    const ana = await usualRow(fx.m.ana, ALT);
+    const bea = { memberId: fx.m.bea, version: ana.version, usualWeek: ALT };
+    expect(await codeOf(saveUsual(fx.ana, [ana]))).toBe("forbidden");
+    expect(await codeOf(saveUsual(fx.olga, [ana, bea]))).toBe("forbidden");
+    expect(await codeOf(saveUsual(fx.zala, [ana]))).toBe("forbidden");
+    expect(await storedUsual(fx.m.ana)).toEqual(USUAL);
+    expect(await storedUsual(fx.m.bea)).toBeNull();
+  });
+
+  it("needs_confirm → someone else's usual save → confirm: true is roster_changed", async () => {
+    expect((await book(fx.m.ana, at("2027-06-15", "10:00"))).status).toBe("created"); // a Tuesday under USUAL
+    const row = await usualRow(fx.m.ana, { ...USUAL, tue: AFTERNOON });
+    const asked = await saveUsual(fx.olga, [row]);
+    expect(asked.status).toBe("needs_confirm");
+    expect(await storedUsual(fx.m.ana)).toEqual(USUAL);
+    expect(await saveUsual(fx.olga, [await usualRow(fx.m.ana, ALT)])).toEqual({ status: "saved" });
+    expect(await codeOf(saveUsual(fx.olga, [row], true))).toBe("roster_changed");
+    expect(await storedUsual(fx.m.ana)).toEqual(ALT);
+    expect(await saveUsual(fx.olga, [await usualRow(fx.m.ana, USUAL)])).toEqual({ status: "saved" });
+  });
+
+  it("a usual save committed first makes a waiting week save roster_changed (the week save holds nothing back)", async () => {
+    const WEEK = "2027-06-07";
+    const weekRow = await rowFor(fx.m.ana, WEEK, week({ wed: EARLY }));
+    const release = deferred();
+    const firstHolds = deferred();
+    const first = prisma.$transaction(async (tx) => {
+      const result = await saveUsualWeeks(
+        tx,
+        fx.olga,
+        { rows: [await usualRow(fx.m.ana, ALT)], confirm: true },
+        NOW
+      );
+      firstHolds.resolve();
+      await release.promise;
+      return result;
+    });
+    await Promise.race([firstHolds.promise, first]);
+    let weekDone = false;
+    const weekSave = saveOutcome(save(fx.olga, WEEK, [weekRow])).finally(() => {
+      weekDone = true;
+    });
+    try {
+      await sleep(400);
+      expect(weekDone).toBe(false); // waits on Ana's advisory lock
+    } finally {
+      release.resolve();
+    }
+    expect(await first).toEqual({ status: "saved" });
+    expect(await weekSave).toBe("roster_changed");
+    expect(await rowsOf(fx.m.ana, WEEK)).toEqual([]);
+    expect(await saveUsual(fx.olga, [await usualRow(fx.m.ana, USUAL)])).toEqual({ status: "saved" });
+  });
+
+  it("20 rounds: a usual save and a week save of Ana at once; the week save answers roster_changed exactly when the usual save committed first", async () => {
+    let usualFirst = 0;
+    let weekFirst = 0;
+    for (let round = 0; round < 20; round += 1) {
+      const WEEK = addDays("2027-07-05", 7 * round);
+      const wednesday = addDays(WEEK, 2);
+      const next = round % 2 === 0 ? ALT : USUAL;
+      const previous = round % 2 === 0 ? USUAL : ALT;
+      expect(await storedUsual(fx.m.ana)).toEqual(previous);
+      const usualRowNow = await usualRow(fx.m.ana, next);
+      const weekRowNow = await rowFor(fx.m.ana, WEEK, week({ wed: EARLY }));
+      // Each call runs in its own transaction whose last step records the order: the second transaction can
+      // only proceed after the first committed (both lock the business row), so the record is the commit order.
+      const order: string[] = [];
+      // The start of one of the two is delayed 0…3 ms (alternating) so both orders occur.
+      const usualDelay = round % 2 === 0 ? 0 : (round >> 1) % 4;
+      const weekDelay = round % 2 === 0 ? (round >> 1) % 4 : 0;
+      const usualSave = async () => {
+        await sleep(usualDelay);
+        return prisma.$transaction(async (tx) => {
+          const result = await saveUsualWeeks(tx, fx.olga, { rows: [usualRowNow], confirm: true }, NOW);
+          order.push("usual");
+          return result;
+        });
+      };
+      const weekSave = async () => {
+        await sleep(weekDelay);
+        return prisma.$transaction(async (tx) => {
+          const outcome = await saveOutcome(
+            saveRosterWeek(tx, fx.olga, { weekStart: WEEK, rows: [weekRowNow], confirm: true }, NOW)
+          );
+          order.push("week");
+          return outcome;
+        });
+      };
+      const [usual, weekResult] = await Promise.all([usualSave(), weekSave()]);
+      expect(usual).toEqual({ status: "saved" });
+      if (order[0] === "usual") {
+        // The usual save committed first: the week save re-read the new usual week and refuses.
+        expect(weekResult).toBe("roster_changed");
+        expect(await rowsOf(fx.m.ana, WEEK)).toEqual([]);
+        usualFirst += 1;
+      } else {
+        expect(weekResult).toBe("saved");
+        expect(await rowsOf(fx.m.ana, WEEK)).toEqual([[wednesday, EARLY]]);
+        weekFirst += 1;
+      }
+      expect(await storedUsual(fx.m.ana)).toEqual(next);
+    }
+    expect(usualFirst + weekFirst).toBe(20);
   }, 60_000);
 });

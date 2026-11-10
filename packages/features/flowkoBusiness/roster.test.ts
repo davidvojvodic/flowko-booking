@@ -11,7 +11,12 @@
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
 // The prismock factory runs when @calcom/prisma is first imported; roster.ts takes `db` and never imports it.
 import "@calcom/prisma";
-import type { ShiftEntry, WeekHours, WeekPlan } from "@calcom/lib/flowkoBusiness/roster";
+import type {
+  AddAbsenceResult,
+  ShiftEntry,
+  WeekHours,
+  WeekPlan,
+} from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
@@ -29,6 +34,7 @@ import {
   readUsualWeek,
   removeAbsence,
   saveRosterWeek,
+  saveUsualWeeks,
   setHolidayOpen,
   setHolidaysClosed,
   setRosterWeek,
@@ -140,6 +146,12 @@ async function outcome(promise: Promise<unknown>): Promise<string> {
     }
     throw e;
   }
+}
+
+/** Flowko U29b (S7): the id of an addAbsence answer that must be "saved". */
+function absenceIdOf(result: AddAbsenceResult): number {
+  if (result.status !== "saved") throw new Error("fixture: the absence was not saved");
+  return result.absenceId;
 }
 
 const day = (date: string) => new Date(`${date}T00:00:00Z`);
@@ -811,8 +823,9 @@ describe("absences (H2)", () => {
       { memberId: f.members.ana, startDate: "2026-12-24", endDate: "2027-01-03" },
       NOW
     );
-    expect(created.absenceId).toEqual(expect.any(Number));
-    const stored = await prismock.flowkoAbsence.findUnique({ where: { id: created.absenceId } });
+    // Flowko U29b (S7): the answer is {status: "saved", absenceId} (no booking in range, so no question).
+    expect(created).toEqual({ status: "saved", absenceId: expect.any(Number) });
+    const stored = await prismock.flowkoAbsence.findUnique({ where: { id: absenceIdOf(created) } });
     expect(stored).toMatchObject({ memberId: f.members.ana, createdByUserId: f.users.ana });
     expect(iso(stored?.startDate as Date)).toBe("2026-12-24");
     expect(iso(stored?.endDate as Date)).toBe("2027-01-03");
@@ -820,7 +833,7 @@ describe("absences (H2)", () => {
     const before = memberOf(await getRosterWeek(db, f.users.olga, "2026-12-21", NOW), f.members.ana);
     expect(before.days.map((d) => d.absent)).toEqual([false, false, false, true, true, true, true]);
     expect(before.absences).toEqual([
-      { id: created.absenceId, startDate: "2026-12-24", endDate: "2027-01-03" },
+      { id: absenceIdOf(created), startDate: "2026-12-24", endDate: "2027-01-03" },
     ]);
     const next = memberOf(await getRosterWeek(db, f.users.olga, "2026-12-28", NOW), f.members.ana);
     expect(next.days.map((d) => d.absent)).toEqual(Array(7).fill(true));
@@ -893,18 +906,20 @@ describe("absences (H2)", () => {
       data: { memberId: f.members.ana, startDate: day("2026-10-20"), endDate: day("2026-11-06") },
     });
 
-    expect(await outcome(removeAbsence(db, f.users.ana, borAbsence.absenceId, NOW))).toBe("forbidden");
+    expect(await outcome(removeAbsence(db, f.users.ana, absenceIdOf(borAbsence), NOW))).toBe("forbidden");
     expect(await outcome(removeAbsence(db, f.users.ana, 999999, NOW))).toBe("forbidden");
-    expect(await outcome(removeAbsence(db, f.users.olga, beaAbsence.absenceId, NOW))).toBe("forbidden");
-    expect(await outcome(removeAbsence(db, f.users.rok, anaAbsence.absenceId, NOW))).toBe("forbidden");
+    expect(await outcome(removeAbsence(db, f.users.olga, absenceIdOf(beaAbsence), NOW))).toBe("forbidden");
+    expect(await outcome(removeAbsence(db, f.users.rok, absenceIdOf(anaAbsence), NOW))).toBe("forbidden");
     expect(await outcome(removeAbsence(db, f.users.ana, past.id, NOW))).toBe("bad_absence");
     expect(await outcome(removeAbsence(db, f.users.olga, past.id, NOW))).toBe("bad_absence");
     expect(await prismock.flowkoAbsence.findUnique({ where: { id: past.id } })).not.toBeNull();
 
-    expect(await outcome(removeAbsence(db, f.users.ana, anaAbsence.absenceId, NOW))).toBe("ok");
-    expect(await outcome(removeAbsence(db, f.users.olga, borAbsence.absenceId, NOW))).toBe("ok");
-    expect(await prismock.flowkoAbsence.findUnique({ where: { id: anaAbsence.absenceId } })).toBeNull();
-    expect(await prismock.flowkoAbsence.findUnique({ where: { id: borAbsence.absenceId } })).toBeNull();
+    expect(await outcome(removeAbsence(db, f.users.ana, absenceIdOf(anaAbsence), NOW))).toBe("ok");
+    expect(await outcome(removeAbsence(db, f.users.olga, absenceIdOf(borAbsence), NOW))).toBe("ok");
+    const gone = (absence: AddAbsenceResult) =>
+      prismock.flowkoAbsence.findUnique({ where: { id: absenceIdOf(absence) } });
+    expect(await gone(anaAbsence)).toBeNull();
+    expect(await gone(borAbsence)).toBeNull();
   });
 });
 
@@ -1303,5 +1318,345 @@ describe("saveRosterWeek (U29b S3)", () => {
     const other = raw("22P02");
     vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(other);
     await expect(save(f.users.olga, [row])).rejects.toBe(other);
+  });
+});
+
+// Flowko U29b: saveUsualWeeks (S4/S5/S6, D9) and addAbsence with its booking count (S7, D12); NOW_MON = Mon
+// 2026-11-16 08:07 Ljubljana. Locks and races: roster-save.integration-test.ts.
+describe("saveUsualWeeks (U29b S4)", () => {
+  const NOW_MON = new Date("2026-11-16T07:07:00Z");
+  const TZ = "Europe/Ljubljana";
+  const OFFICE = [S("08:00", "16:00")];
+  const ANA_USUAL: WeekHours = {
+    mon: OFFICE,
+    tue: OFFICE,
+    wed: OFFICE,
+    thu: OFFICE,
+    fri: OFFICE,
+    sat: [],
+    sun: [],
+  };
+  const NO_WEEK: WeekHours = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
+  const at = (date: string, time: string) => new Date(wallClockToMs(date, time, TZ));
+
+  async function usualVersionOfMember(memberId: number): Promise<string> {
+    const view = await getRosterWeek(db, f.users.olga, "2026-11-16", NOW_MON);
+    return memberOf(view, memberId).usualVersion;
+  }
+
+  async function rowFor(memberId: number, usualWeek: WeekHours | null) {
+    return { memberId, version: await usualVersionOfMember(memberId), usualWeek };
+  }
+
+  const save = (
+    actorUserId: number,
+    rows: Array<{ memberId: number; version: string; usualWeek: WeekHours | null }>,
+    confirm = false
+  ) => saveUsualWeeks(db, actorUserId, { rows, confirm }, NOW_MON);
+
+  async function usualOf(memberId: number): Promise<WeekHours | null> {
+    const member = await prismock.flowkoBusinessMember.findUnique({ where: { id: memberId } });
+    return readUsualWeek(member?.usualWeek);
+  }
+
+  async function giveAnaUsualWeek(): Promise<void> {
+    await setUsualWeek(db, f.users.olga, {
+      memberId: f.members.ana,
+      usualWeek: ANA_USUAL,
+      confirmOutsideOpening: false,
+    });
+  }
+
+  async function bookAna(date: string, time: string, status: BookingStatus = BookingStatus.ACCEPTED) {
+    const mirror = await ensureWorkerMirror(prismock as unknown as Prisma.TransactionClient, f.members.ana);
+    seq += 1;
+    await prismock.booking.create({
+      data: {
+        uid: `u29b-usual-${seq}`,
+        title: "Termin",
+        startTime: at(date, time),
+        endTime: new Date(at(date, time).getTime() + 30 * 60_000),
+        eventTypeId: mirror.eventTypeId,
+        userId: f.users.ana,
+        status,
+      },
+    });
+  }
+
+  it("the owner saves Ana and Bor: both usual weeks stored, saved; planned rows are not touched", async () => {
+    await seedRow(f.members.ana, "2026-11-18", [S("12:00", "20:00")]);
+    const bor: WeekHours = { ...ANA_USUAL, sat: [S("09:00", "12:00")] };
+    const rows = [await rowFor(f.members.ana, ANA_USUAL), await rowFor(f.members.bor, bor)];
+    expect(await save(f.users.olga, rows)).toEqual({ status: "saved" });
+    expect(await usualOf(f.members.ana)).toEqual(ANA_USUAL);
+    expect(await usualOf(f.members.bor)).toEqual(bor);
+    expect(await rowsOf(f.members.ana)).toEqual([{ date: "2026-11-18", shifts: [S("12:00", "20:00")] }]);
+  });
+
+  it("an all-empty week is stored as no usual week and read back as null", async () => {
+    await giveAnaUsualWeek();
+    const update = vi.spyOn(prismock.flowkoBusinessMember, "update");
+    expect(await save(f.users.olga, [await rowFor(f.members.ana, NO_WEEK)])).toEqual({ status: "saved" });
+    // SQL NULL (Prisma.DbNull), never JSON null: the CHECK would refuse it (Postgres proof in the integration test).
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { usualWeek: Prisma.DbNull } })
+    );
+    expect(await usualOf(f.members.ana)).toBeNull();
+    const view = await getRosterWeek(db, f.users.olga, "2026-11-16", NOW_MON);
+    expect(memberOf(view, f.members.ana).usualWeek).toBeNull();
+    // null clears too.
+    await giveAnaUsualWeek();
+    expect(await save(f.users.olga, [await rowFor(f.members.ana, null)])).toEqual({ status: "saved" });
+    expect(await usualOf(f.members.ana)).toBeNull();
+  });
+
+  it("rights: a WORKER (even for herself), STAFF, a foreign or missing member and LOCKED are forbidden", async () => {
+    const ana = await rowFor(f.members.ana, ANA_USUAL);
+    const bea = { memberId: f.members.bea, version: ana.version, usualWeek: ANA_USUAL };
+    const missing = { memberId: 999999, version: ana.version, usualWeek: ANA_USUAL };
+    expect(await outcome(save(f.users.ana, [ana]))).toBe("forbidden");
+    expect(await outcome(save(f.users.rok, [ana]))).toBe("forbidden");
+    expect(await outcome(save(f.users.dan, [ana]))).toBe("forbidden");
+    expect(await outcome(save(f.users.zala, [ana]))).toBe("forbidden");
+    expect(await outcome(save(f.users.olga, [ana, bea]))).toBe("forbidden");
+    expect(await outcome(save(f.users.olga, [ana, missing]))).toBe("forbidden");
+    expect(await usualOf(f.members.ana)).toBeNull();
+    expect(await usualOf(f.members.bea)).toBeNull();
+  });
+
+  it("a stale usualVersion is roster_changed and nothing is written, not even the fresh row", async () => {
+    const staleAna = await rowFor(f.members.ana, ANA_USUAL);
+    expect(await save(f.users.olga, [await rowFor(f.members.ana, { ...ANA_USUAL, fri: [] })])).toEqual({
+      status: "saved",
+    });
+    const freshBor = await rowFor(f.members.bor, ANA_USUAL);
+    expect(await outcome(save(f.users.olga, [staleAna, freshBor]))).toBe("roster_changed");
+    expect(await usualOf(f.members.ana)).toEqual({ ...ANA_USUAL, fri: [] });
+    expect(await usualOf(f.members.bor)).toBeNull();
+    expect(await outcome(save(f.users.olga, [{ ...freshBor, version: "" }]))).toBe("roster_changed");
+    // A planned row of the week changes the weekVersion, not the usualVersion: the save still passes.
+    const before = await rowFor(f.members.bor, ANA_USUAL);
+    await seedRow(f.members.bor, "2026-11-18", EARLY);
+    expect(await save(f.users.olga, [before])).toEqual({ status: "saved" });
+  });
+
+  it("bad_roster: no rows, more than 50, a duplicate member, 5 entries in a day, a bad week, a non-string version", async () => {
+    const ana = await rowFor(f.members.ana, ANA_USUAL);
+    const five = [
+      S("08:00", "09:00"),
+      S("09:30", "10:00"),
+      S("10:30", "11:00"),
+      S("11:30", "12:00"),
+      S("13:00", "14:00"),
+    ];
+    expect(await outcome(save(f.users.olga, []))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, Array(51).fill(ana)))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, [ana, { ...ana, usualWeek: NO_WEEK }]))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, [{ ...ana, usualWeek: { ...ANA_USUAL, mon: five } }]))).toBe(
+      "bad_roster"
+    );
+    const unsorted = { ...ANA_USUAL, mon: [S("13:00", "14:00"), S("08:00", "09:00")] };
+    expect(await outcome(save(f.users.olga, [{ ...ana, usualWeek: unsorted }]))).toBe("bad_roster");
+    const missingDay = { mon: OFFICE } as unknown as WeekHours;
+    expect(await outcome(save(f.users.olga, [{ ...ana, usualWeek: missingDay }]))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, [{ ...ana, version: 7 as unknown as string }]))).toBe("bad_roster");
+    expect(await usualOf(f.members.ana)).toBeNull();
+    // Four entries are the most a day takes.
+    const four = { ...ANA_USUAL, mon: five.slice(0, 4) };
+    expect(await save(f.users.olga, [{ ...ana, usualWeek: four }])).toEqual({ status: "saved" });
+  });
+
+  it("Review Focus 3: Tue 13–17 leaves a Tue 10:00 booking newly outside, on every future Tuesday → needs_confirm", async () => {
+    await giveAnaUsualWeek();
+    await bookAna("2026-11-17", "10:00");
+    await bookAna("2026-12-08", "10:00"); // three weeks later: still counted (R8)
+    await bookAna("2026-12-15", "10:00", BookingStatus.CANCELLED); // not holding: not counted
+    const tue = [S("13:00", "17:00")];
+    const rows = [
+      await rowFor(f.members.ana, { ...ANA_USUAL, tue }),
+      await rowFor(f.members.bor, ANA_USUAL), // nothing to report: not listed
+    ];
+    expect(await save(f.users.olga, rows)).toEqual({
+      status: "needs_confirm",
+      warnings: [{ memberId: f.members.ana, outsideOpening: [], bookingsNewlyOutside: 2 }],
+    });
+    expect(await usualOf(f.members.ana)).toEqual(ANA_USUAL);
+    expect(await usualOf(f.members.bor)).toBeNull();
+
+    expect(await save(f.users.olga, rows, true)).toEqual({ status: "saved" });
+    expect(await usualOf(f.members.ana)).toEqual({ ...ANA_USUAL, tue });
+    expect(await usualOf(f.members.bor)).toEqual(ANA_USUAL);
+  });
+
+  it("Review Focus 3: Tue 09–12 keeps the booking inside → saved without a question", async () => {
+    await giveAnaUsualWeek();
+    await bookAna("2026-11-17", "10:00");
+    const row = await rowFor(f.members.ana, { ...ANA_USUAL, tue: [S("09:00", "12:00")] });
+    expect(await save(f.users.olga, [row])).toEqual({ status: "saved" });
+  });
+
+  it("a booking on a date with a planned row or an absence, or on an unchanged weekday, is not counted", async () => {
+    await giveAnaUsualWeek();
+    await bookAna("2026-11-17", "10:00"); // Tue with a planned row
+    await bookAna("2026-12-08", "10:00"); // Tue under an absence
+    await bookAna("2026-11-18", "10:00"); // Wed: unchanged weekday
+    await bookAna("2026-11-10", "10:00"); // a past Tuesday
+    await seedRow(f.members.ana, "2026-11-17", OFFICE);
+    // The absence covers a booked day, so it asks first; the test confirms it.
+    const absence = { memberId: f.members.ana, startDate: "2026-12-07", endDate: "2026-12-09", confirm: true };
+    await addAbsence(db, f.users.olga, absence, NOW_MON);
+    const row = await rowFor(f.members.ana, { ...ANA_USUAL, tue: [S("13:00", "17:00")] });
+    expect(await save(f.users.olga, [row])).toEqual({ status: "saved" });
+  });
+
+  it("changed weekdays outside the opening hours are listed by weekday (Saturday closed)", async () => {
+    const business = await prismock.flowkoBusiness.findUnique({ where: { id: f.a } });
+    const hours = business?.openingHours as Record<string, unknown>;
+    await prismock.flowkoBusiness.update({ where: { id: f.a }, data: { openingHours: { ...hours, sat: [] } } });
+    const row = await rowFor(f.members.ana, { ...ANA_USUAL, sat: [S("09:00", "12:00")] });
+    expect(await save(f.users.olga, [row])).toEqual({
+      status: "needs_confirm",
+      warnings: [{ memberId: f.members.ana, outsideOpening: ["sat"], bookingsNewlyOutside: 0 }],
+    });
+    expect(await usualOf(f.members.ana)).toBeNull();
+    expect(await save(f.users.olga, [row], true)).toEqual({ status: "saved" });
+  });
+
+  it("rosterTx: P2028 (interactive transaction timeout or closed) is roster_conflict", async () => {
+    const row = await rowFor(f.members.ana, ANA_USUAL);
+    const timeout = new Prisma.PrismaClientKnownRequestError("Transaction already closed", {
+      code: "P2028",
+      clientVersion: "6",
+    });
+    vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(timeout);
+    expect(await outcome(save(f.users.olga, [row]))).toBe("roster_conflict");
+    // The same mapping serves the week save.
+    vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(timeout);
+    const weekView = await getRosterWeek(db, f.users.olga, "2026-11-16", NOW_MON);
+    const weekRow = {
+      memberId: f.members.bor,
+      version: memberOf(weekView, f.members.bor).weekVersion,
+      days: week({ mon: EARLY }),
+    };
+    const weekSave = saveRosterWeek(
+      db,
+      f.users.olga,
+      { weekStart: "2026-11-16", rows: [weekRow], confirm: false },
+      NOW_MON
+    );
+    expect(await outcome(weekSave)).toBe("roster_conflict");
+  });
+});
+
+describe("addAbsence with a booking count (U29b S7, D12)", () => {
+  const NOW_MON = new Date("2026-11-16T07:07:00Z");
+  const TZ = "Europe/Ljubljana";
+  const at = (date: string, time: string) => new Date(wallClockToMs(date, time, TZ));
+
+  async function bookingOf(
+    memberId: number,
+    userId: number,
+    start: Date,
+    minutes = 30,
+    status: BookingStatus = BookingStatus.ACCEPTED
+  ): Promise<void> {
+    const mirror = await ensureWorkerMirror(prismock as unknown as Prisma.TransactionClient, memberId);
+    seq += 1;
+    await prismock.booking.create({
+      data: {
+        uid: `u29b-abs-${seq}`,
+        title: "Termin",
+        startTime: start,
+        endTime: new Date(start.getTime() + minutes * 60_000),
+        eventTypeId: mirror.eventTypeId,
+        userId,
+        status,
+      },
+    });
+  }
+
+  const add = (actor: number, memberId: number, startDate: string, endDate: string, confirm?: boolean) =>
+    addAbsence(db, actor, { memberId, startDate, endDate, ...(confirm === undefined ? {} : { confirm }) }, NOW_MON);
+
+  async function absencesOf(memberId: number): Promise<number> {
+    return prismock.flowkoAbsence.count({ where: { memberId } });
+  }
+
+  it("no booking in the range → saved at once with the id", async () => {
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-19", "10:00")); // outside 17–18 Nov
+    const result = await add(f.users.ana, f.members.ana, "2026-11-17", "2026-11-18");
+    expect(result).toEqual({ status: "saved", absenceId: expect.any(Number) });
+    expect(await absencesOf(f.members.ana)).toBe(1);
+  });
+
+  it("Ana's Tue 10:00 booking inside 17–18 Nov → needs_confirm with the count, no row; confirm: true saves", async () => {
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-17", "10:00"));
+    expect(await add(f.users.olga, f.members.ana, "2026-11-17", "2026-11-18")).toEqual({
+      status: "needs_confirm",
+      bookings: 1,
+    });
+    expect(await absencesOf(f.members.ana)).toBe(0);
+    expect(await add(f.users.olga, f.members.ana, "2026-11-17", "2026-11-18", false)).toEqual({
+      status: "needs_confirm",
+      bookings: 1,
+    });
+    expect(await add(f.users.olga, f.members.ana, "2026-11-17", "2026-11-18", true)).toEqual({
+      status: "saved",
+      absenceId: expect.any(Number),
+    });
+    expect(await absencesOf(f.members.ana)).toBe(1);
+    // The booking itself is untouched.
+    expect(await prismock.booking.count({ where: { userId: f.users.ana } })).toBe(1);
+  });
+
+  it("a past booking, a booking of another member, a cancelled one and one the day after are not counted", async () => {
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-16", "07:00")); // ended before now (08:07)
+    await bookingOf(f.members.bor, f.users.bor, at("2026-11-17", "10:00")); // another member
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-17", "11:00"), 30, BookingStatus.CANCELLED);
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-19", "00:00")); // the day after the range
+    expect(await add(f.users.ana, f.members.ana, "2026-11-16", "2026-11-18")).toEqual({
+      status: "saved",
+      absenceId: expect.any(Number),
+    });
+    // A booking that started before now but is still running counts.
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-16", "07:45"), 60);
+    expect(await add(f.users.ana, f.members.ana, "2026-11-16", "2026-11-16")).toEqual({
+      status: "needs_confirm",
+      bookings: 1,
+    });
+  });
+
+  it("rights: a worker for herself, the owner for anyone; a worker for a colleague and STAFF are forbidden", async () => {
+    await bookingOf(f.members.bor, f.users.bor, at("2026-11-17", "10:00"));
+    expect(await outcome(add(f.users.ana, f.members.ana, "2026-11-17", "2026-11-17"))).toBe("ok");
+    expect(await outcome(add(f.users.ana, f.members.bor, "2026-11-17", "2026-11-17"))).toBe("forbidden");
+    expect(await outcome(add(f.users.rok, f.members.ana, "2026-11-17", "2026-11-17"))).toBe("forbidden");
+    expect(await outcome(add(f.users.zala, f.members.bor, "2026-11-17", "2026-11-17"))).toBe("forbidden");
+    expect(await absencesOf(f.members.bor)).toBe(0);
+  });
+
+  it("the date rules stay bad_absence, before any count", async () => {
+    await bookingOf(f.members.ana, f.users.ana, at("2026-11-17", "10:00"));
+    expect(await outcome(add(f.users.ana, f.members.ana, "2026-11-18", "2026-11-17"))).toBe("bad_absence");
+    expect(await outcome(add(f.users.ana, f.members.ana, "2026-11-10", "2026-11-15"))).toBe("bad_absence");
+    expect(await outcome(add(f.users.ana, f.members.ana, "2026-11-17", "x"))).toBe("bad_absence");
+    expect(await absencesOf(f.members.ana)).toBe(0);
+  });
+
+  it("DST: 31 Oct 2027 (a 25 hour day) counts a booking at 23:30 local and not one at 00:15 on 1 Nov", async () => {
+    await bookingOf(f.members.ana, f.users.ana, at("2027-10-31", "23:30"), 20);
+    await bookingOf(f.members.ana, f.users.ana, at("2027-11-01", "00:15"), 20);
+    await bookingOf(f.members.ana, f.users.ana, at("2027-10-30", "23:30"), 20); // the evening before
+    expect(await add(f.users.ana, f.members.ana, "2027-10-31", "2027-10-31")).toEqual({
+      status: "needs_confirm",
+      bookings: 1,
+    });
+    // The 01:00 local hour that happens twice is inside the day too.
+    await bookingOf(f.members.ana, f.users.ana, new Date("2027-10-31T00:30:00Z"), 20); // 02:30 CEST
+    await bookingOf(f.members.ana, f.users.ana, new Date("2027-10-31T01:30:00Z"), 20); // 02:30 CET
+    expect(await add(f.users.ana, f.members.ana, "2027-10-31", "2027-10-31")).toEqual({
+      status: "needs_confirm",
+      bookings: 3,
+    });
   });
 });
