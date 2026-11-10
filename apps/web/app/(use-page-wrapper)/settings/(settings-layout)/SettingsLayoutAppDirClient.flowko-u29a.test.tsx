@@ -51,7 +51,7 @@ describe("settings tabs (U29a)", () => {
     session.role = "USER";
   });
 
-  it("the owner gets „Podjetje“ first, with the profile and the services", () => {
+  it("the owner gets „Podjetje“ first, with the profile, the services and the staff", () => {
     mockBusinessMe.mockReturnValue(me("OWNER"));
     const tabs = render();
     expect(names(tabs)).toEqual(["flowko_settings_section", ...BEFORE]);
@@ -61,6 +61,8 @@ describe("settings tabs (U29a)", () => {
     expect(section.children).toEqual([
       { name: "flowko_settings_profile", href: "/settings/podjetje/profil" },
       { name: "flowko_settings_services", href: "/settings/podjetje/storitve" },
+      // Flowko U29c: the Delavci page (Task 7), deliberate
+      { name: "flowko_workers_title", href: "/settings/podjetje/delavci" },
     ]);
     // the owner keeps Out of office (U27)
     expect(myAccountChildren(tabs)).toContain("out_of_office");
