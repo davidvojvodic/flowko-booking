@@ -542,12 +542,9 @@ export async function setUsualWeek(
     const target = await targetOrFail(tx, access, input.memberId);
     if (!mayManageBusiness(access) || !mayEditRoster(access, target)) fail("forbidden");
 
-    let usualWeek: WeekHours | null = null;
-    if (input.usualWeek !== null) {
-      const parsed = weekHoursSchema.safeParse(input.usualWeek);
-      if (!parsed.success) fail("bad_roster");
-      usualWeek = parsed.data;
-    }
+    // Flowko U29b final review (RIGHTS-1): the same validation as the editor's save, ≤ 4 entries a day, so no writer
+    // can store a day the savers (which check all seven weekdays) would refuse.
+    const usualWeek = saveUsualWeekOrFail(input.usualWeek);
 
     if (usualWeek !== null) {
       const business = await loadBusiness(tx, access.businessId);
@@ -589,9 +586,8 @@ export async function setRosterWeek(
     if (!mayEditRoster(access, target)) fail("forbidden");
 
     const monday = mondayOrFail(input.weekStart);
-    const parsed = weekPlanSchema.safeParse(input.days);
-    if (!parsed.success) fail("bad_roster");
-    const plan = parsed.data;
+    // Flowko U29b final review (RIGHTS-1): weekPlanSchema and at most four entries a day, as in the editor's save.
+    const plan = savePlanOrFail(input.days);
     const business = await loadBusiness(tx, access.businessId);
     const today = todayIn(business.timeZone, now);
     checkWeekWindow(monday, today);
@@ -963,7 +959,8 @@ export async function addAbsence(
   input: { memberId: number; startDate: LocalDate; endDate: LocalDate; confirm?: boolean },
   now: Date
 ): Promise<AddAbsenceResult> {
-  return withFlowkoTx(db, async (tx) => {
+  // Flowko U29b final review (DATA-2): rosterTx, so a lock failure (40P01, P2028, P2034) answers roster_conflict.
+  return rosterTx(db, async (tx) => {
     const access = await requireBusinessAccess(tx, actorUserId);
     const target = await targetOrFail(tx, access, input.memberId);
     if (!mayEditRoster(access, target)) fail("forbidden");
@@ -974,6 +971,11 @@ export async function addAbsence(
     const business = await loadBusiness(tx, access.businessId);
     const today = todayIn(business.timeZone, now);
     if (endDate < today || startDate > addDays(today, WINDOW_DAYS)) fail("bad_absence");
+
+    // Flowko U29b final review (DATA-2): the booking writer decides under this worker's advisory lock (and reads the
+    // absences only there), so take it before counting: a booking that committed first is counted, a later one waits
+    // and sees the absence. Column members always have a user.
+    if (target.userId !== null) await lockWorkerAdvisory(tx, target.userId);
 
     if (input.confirm !== true) {
       const range = {
@@ -1045,6 +1047,10 @@ export async function setHolidayOpen(
   await withFlowkoTx(db, async (tx) => {
     const access = await requireBusinessAccess(tx, actorUserId);
     if (!mayManageBusiness(access)) fail("forbidden");
+
+    // Flowko U29b final review (DATA-1): openHolidays is a read-modify-write of one list; two taps in flight (one per
+    // day header, or two devices) must not lose one. The business row lock only (no advisory lock: no lock cycle).
+    await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${access.businessId} FOR UPDATE`;
 
     const date = dateOrFail(input.date, "bad_roster");
     if (typeof input.open !== "boolean") fail("bad_roster");

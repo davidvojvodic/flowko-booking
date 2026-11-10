@@ -8,7 +8,9 @@
 // both settle, no deadlock, and the save's warnings count the booking exactly when it committed first).
 // Task 4 adds saveUsualWeeks: an all-empty week is SQL NULL ("usualWeek" IS NULL), two saves with one version →
 // one saved and one roster_changed, and a usual-week save racing a week save of the same member (the week save
-// answers roster_changed exactly when the usual-week save committed first; 20 rounds). Runs only with
+// answers roster_changed exactly when the usual-week save committed first; 20 rounds). The final review fixes add
+// setHolidayOpen (DATA-1: concurrent toggles of different dates all persist) and addAbsence (DATA-2: a booking
+// holding the worker lock makes the absence wait and is then counted). Runs only with
 // VITEST_MODE=integration against the throwaway DB.
 
 import { addDays, type ShiftEntry, type WeekHours, type WeekPlan } from "@calcom/lib/flowkoBusiness/roster";
@@ -19,7 +21,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
 import { addLoginMember, createBusiness } from "./business";
 import { FlowkoBusinessError } from "./errors";
-import { getRosterWeek, saveRosterWeek, saveUsualWeeks, setUsualWeek } from "./roster";
+import {
+  addAbsence,
+  getRosterWeek,
+  saveRosterWeek,
+  saveUsualWeeks,
+  setHolidayOpen,
+  setUsualWeek,
+} from "./roster";
 
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const TZ = "Europe/Ljubljana";
@@ -517,4 +526,107 @@ describe("U29b saveUsualWeeks on a real database", () => {
     }
     expect(usualFirst + weekFirst).toBe(20);
   }, 60_000);
+});
+
+describe("U29b final review fixes on a real database", () => {
+  it("DATA-1: concurrent setHolidayOpen of different dates all persist (no lost update), 5 rounds", async () => {
+    const dates = ["2026-12-25", "2026-12-26", "2027-01-01", "2027-02-08"];
+    const member = await prisma.flowkoBusinessMember.findUniqueOrThrow({
+      where: { id: fx.m.ana },
+      select: { businessId: true },
+    });
+    const stored = async () =>
+      (
+        await prisma.flowkoBusiness.findUniqueOrThrow({
+          where: { id: member.businessId },
+          select: { openHolidays: true },
+        })
+      ).openHolidays;
+    for (let round = 0; round < 5; round += 1) {
+      await Promise.all(dates.map((date) => setHolidayOpen(prisma, fx.olga, { date, open: true }, NOW)));
+      expect([...(await stored())].sort()).toEqual(dates);
+      // Close two of them at once: the other two stay.
+      await Promise.all(
+        dates.slice(0, 2).map((date) => setHolidayOpen(prisma, fx.olga, { date, open: false }, NOW))
+      );
+      expect([...(await stored())].sort()).toEqual(dates.slice(2));
+      await Promise.all(
+        dates.slice(2).map((date) => setHolidayOpen(prisma, fx.olga, { date, open: false }, NOW))
+      );
+      expect(await stored()).toEqual([]);
+    }
+  }, 60_000);
+
+  it("DATA-2: a booking holding the worker lock makes addAbsence wait, then the absence counts it", async () => {
+    const release = deferred();
+    const bookingHolds = deferred();
+    const booking = prisma.$transaction(async (tx) => {
+      const result = await createBusinessBooking(
+        tx,
+        fx.olga,
+        {
+          workerMemberId: fx.m.ana,
+          serviceIds: [fx.mens],
+          start: at("2026-12-29", "10:00"),
+          customer: { name: "Marija Novak", phone: "041 123 456", email: `marija-${RUN}@example.com` },
+          confirmOverride: false,
+        },
+        NOW,
+        quiet
+      );
+      bookingHolds.resolve();
+      await release.promise;
+      return result;
+    });
+    await Promise.race([bookingHolds.promise, booking]);
+    let done = false;
+    const adding = addAbsence(
+      prisma,
+      fx.olga,
+      { memberId: fx.m.ana, startDate: "2026-12-29", endDate: "2026-12-29" },
+      NOW
+    ).finally(() => {
+      done = true;
+    });
+    try {
+      await sleep(400);
+      expect(done).toBe(false); // waits on Ana's advisory lock, held by the booking
+    } finally {
+      release.resolve();
+    }
+    expect((await booking).status).toBe("created");
+    // The booking committed first, so the count sees it: the owner is asked, nothing is written.
+    expect(await adding).toEqual({ status: "needs_confirm", bookings: 1 });
+    expect(await prisma.flowkoAbsence.count({ where: { memberId: fx.m.ana } })).toBe(0);
+  }, 30_000);
+
+  it("DATA-2: an absence holding the worker lock makes a booking wait, and the booking then sees the absence", async () => {
+    // The mirror image: the absence transaction commits first; the booking, deciding under the same lock, refuses.
+    const release = deferred();
+    const absenceHolds = deferred();
+    const absence = prisma.$transaction(async (tx) => {
+      const result = await addAbsence(
+        tx,
+        fx.olga,
+        { memberId: fx.m.bor, startDate: "2026-12-30", endDate: "2026-12-30" },
+        NOW
+      );
+      absenceHolds.resolve();
+      await release.promise;
+      return result;
+    });
+    await Promise.race([absenceHolds.promise, absence]);
+    let done = false;
+    const booking = book(fx.m.bor, at("2026-12-30", "10:00")).finally(() => {
+      done = true;
+    });
+    try {
+      await sleep(400);
+      expect(done).toBe(false); // waits on Bor's advisory lock, held by the absence
+    } finally {
+      release.resolve();
+    }
+    expect((await absence).status).toBe("saved");
+    expect((await booking).status).not.toBe("created");
+  }, 30_000);
 });

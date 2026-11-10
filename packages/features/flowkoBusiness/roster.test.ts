@@ -1660,3 +1660,115 @@ describe("addAbsence with a booking count (U29b S7, D12)", () => {
     });
   });
 });
+
+describe("final review fixes (U29b: RIGHTS-1, DATA-1, DATA-2)", () => {
+  const sqlOf = (call: unknown[]) => (call[0] as unknown as TemplateStringsArray).join("?");
+
+  describe("RIGHTS-1: the U26 writers keep the editor's four-shifts-a-day cap", () => {
+    const FIVE = [
+      S("07:00", "08:00"),
+      S("09:00", "10:00"),
+      S("11:00", "12:00"),
+      S("13:00", "14:00"),
+      S("15:00", "16:00"),
+    ];
+    const FOUR = FIVE.slice(0, 4);
+
+    it("setRosterWeek: 5 entries on a day is bad_roster and writes nothing; 4 are saved", async () => {
+      const set = (mon: ShiftEntry[]) =>
+        outcome(
+          setRosterWeek(
+            db,
+            f.users.olga,
+            {
+              memberId: f.members.ana,
+              weekStart: "2026-11-16",
+              days: week({ mon }),
+              confirmOutsideOpening: true,
+            },
+            NOW
+          )
+        );
+      expect(await set(FIVE)).toBe("bad_roster");
+      expect(await rowsOf(f.members.ana)).toEqual([]);
+      expect(await set(FOUR)).toBe("ok");
+      expect(await rowsOf(f.members.ana)).toEqual([{ date: "2026-11-16", shifts: FOUR }]);
+    });
+
+    it("setUsualWeek: 5 entries on a weekday is bad_roster and the stored week stays; 4 are saved", async () => {
+      const set = (mon: ShiftEntry[]) =>
+        outcome(
+          setUsualWeek(db, f.users.olga, {
+            memberId: f.members.ana,
+            usualWeek: { ...MON_FRI_EARLY, mon },
+            confirmOutsideOpening: true,
+          })
+        );
+      expect(await set(FIVE)).toBe("bad_roster");
+      const stored = async () =>
+        (await prismock.flowkoBusinessMember.findUnique({ where: { id: f.members.ana } }))?.usualWeek;
+      expect(readUsualWeek(await stored())).toBeNull();
+      expect(await set(FOUR)).toBe("ok");
+      expect(readUsualWeek(await stored())).toEqual({ ...MON_FRI_EARLY, mon: FOUR });
+    });
+  });
+
+  describe("DATA-1: setHolidayOpen locks the business row before it reads openHolidays", () => {
+    it("one FOR UPDATE on the business id, before the update", async () => {
+      const executeRaw = vi.spyOn(prismock, "$executeRaw");
+      const update = vi.spyOn(prismock.flowkoBusiness, "update");
+      await setHolidayOpen(db, f.users.olga, { date: "2026-12-25", open: true }, NOW);
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      expect(sqlOf(executeRaw.mock.calls[0])).toMatch(/SELECT 1 FROM "FlowkoBusiness" WHERE "id" = \? FOR UPDATE/);
+      expect(executeRaw.mock.calls[0][1]).toBe(f.a);
+      expect(executeRaw.mock.invocationCallOrder[0]).toBeLessThan(update.mock.invocationCallOrder[0]);
+    });
+
+    it("a refused caller takes no lock", async () => {
+      const executeRaw = vi.spyOn(prismock, "$executeRaw");
+      expect(await outcome(setHolidayOpen(db, f.users.ana, { date: "2026-12-25", open: true }, NOW))).toBe(
+        "forbidden"
+      );
+      expect(executeRaw).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("DATA-2: addAbsence takes the member's worker advisory lock before it counts", () => {
+    const NOW_MON = new Date("2026-11-16T07:07:00Z");
+    const run = (actor: number, memberId: number, confirm?: boolean) =>
+      addAbsence(
+        db,
+        actor,
+        { memberId, startDate: "2026-11-17", endDate: "2026-11-17", ...(confirm === undefined ? {} : { confirm }) },
+        NOW_MON
+      );
+
+    it("the advisory lock of the member's user precedes the count and the insert", async () => {
+      const executeRaw = vi.spyOn(prismock, "$executeRaw");
+      const count = vi.spyOn(prismock.booking, "findMany");
+      const create = vi.spyOn(prismock.flowkoAbsence, "create");
+      await run(f.users.olga, f.members.ana);
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      expect(sqlOf(executeRaw.mock.calls[0])).toMatch(/pg_advisory_xact_lock/);
+      expect(executeRaw.mock.calls[0].slice(1)).toEqual([27027, f.users.ana]);
+      expect(executeRaw.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0]);
+      if (count.mock.invocationCallOrder.length > 0)
+        expect(executeRaw.mock.invocationCallOrder[0]).toBeLessThan(count.mock.invocationCallOrder[0]);
+    });
+
+    it("the confirm: true path takes it too; a refused actor takes none", async () => {
+      const executeRaw = vi.spyOn(prismock, "$executeRaw");
+      await run(f.users.olga, f.members.ana, true);
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      executeRaw.mockClear();
+      expect(await outcome(run(f.users.rok, f.members.ana))).toBe("forbidden");
+      expect(executeRaw).not.toHaveBeenCalled();
+    });
+
+    it("a lock failure (deadlock, timeout) answers roster_conflict, not a 500", async () => {
+      const timeout = new Prisma.PrismaClientKnownRequestError("timed out", { code: "P2028", clientVersion: "x" });
+      vi.spyOn(prismock, "$executeRaw").mockRejectedValueOnce(timeout);
+      expect(await outcome(run(f.users.olga, f.members.ana))).toBe("roster_conflict");
+    });
+  });
+});
