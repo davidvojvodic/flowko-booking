@@ -5,6 +5,8 @@ import {
   copyRosterWeek,
   getRosterWeek,
   removeAbsence,
+  saveRosterWeek,
+  saveUsualWeeks,
   setHolidayOpen,
   setHolidaysClosed,
   setRosterWeek,
@@ -20,6 +22,8 @@ import type {
   TCopyWeekInput,
   TRemoveAbsenceInput,
   TRosterWeekInput,
+  TSaveUsualWeeksInput,
+  TSaveWeekInput,
   TSetHolidayOpenInput,
   TSetHolidaysClosedInput,
   TSetUsualWeekInput,
@@ -91,9 +95,35 @@ export async function addAbsenceHandler({ ctx, input }: Opts<TAddAbsenceInput>) 
     addAbsence(
       prisma,
       ctx.user.id,
-      { memberId: input.memberId, startDate: input.startDate, endDate: input.endDate },
+      // Flowko U29b: confirm answers a needs_confirm booking count (S7)
+      {
+        memberId: input.memberId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        confirm: input.confirm,
+      },
       new Date()
     )
+  );
+}
+
+// Flowko U29b (S17): the roster editor's saves; the services own rights, locks, versions and warnings.
+export async function saveWeekHandler({ ctx, input }: Opts<TSaveWeekInput>) {
+  await limited(ctx);
+  return guarded(() =>
+    saveRosterWeek(
+      prisma,
+      ctx.user.id,
+      { weekStart: input.weekStart, rows: input.rows, confirm: input.confirm },
+      new Date()
+    )
+  );
+}
+
+export async function saveUsualWeeksHandler({ ctx, input }: Opts<TSaveUsualWeeksInput>) {
+  await limited(ctx);
+  return guarded(() =>
+    saveUsualWeeks(prisma, ctx.user.id, { rows: input.rows, confirm: input.confirm }, new Date())
   );
 }
 
