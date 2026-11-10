@@ -8,7 +8,7 @@
 // `onOpenDay` (a day header's date → Dan) and `onModeChange` already run through DeskView's guard; they are not
 // wrapped again here (a second guard would ask twice). A phone day arrow inside the week is DeskView's, unguarded.
 // Absences are Task 9 (the cell sheet's `children`).
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { RosterWeekView } from "@calcom/features/flowkoBusiness/roster";
 import { type RosterWarning, addDays, weekdayOf } from "@calcom/lib/flowkoBusiness/roster";
@@ -63,6 +63,9 @@ export function RosterView(props: {
   // The week + mode the „changed meanwhile“ alert belongs to (S14); a new edit or another week hides it.
   const [staleScope, setStaleScope] = useState<string | null>(null);
 
+  // Flowko U29b (Task 8 fix 1, D7): the week + mode shown now, for a save or copy that finishes after the user moved on.
+  const scopeRef = useRef("");
+
   if (!view) {
     return (
       <div data-testid="roster-view">
@@ -74,6 +77,9 @@ export function RosterView(props: {
   // S13: while edits are open the view is the snapshot they started from (the poll is paused anyway).
   const shown = draft.snapshot ?? view;
   const scope = `${shown.weekStart}|${mode}`;
+  scopeRef.current = scope;
+  // A save or a copy is running: no new edit starts, and „Shrani“ waits (S14).
+  const locked = saving || copying;
   // S9: a WORKER's own row is pinned first; the owner's and STAFF's rows stay in position order.
   const me = business.status === "member" ? business.me : null;
   const layout = buildRosterLayout({
@@ -114,6 +120,7 @@ export function RosterView(props: {
   /** S14: one save (confirm = false) or its resend after the warnings (confirm = true). */
   async function send(confirm: boolean) {
     if (!draft.snapshot) return;
+    const startedIn = scope;
     setSaving(true);
     try {
       const result =
@@ -125,7 +132,8 @@ export function RosterView(props: {
             })
           : await saveUsualWeeks.mutateAsync({ rows: draft.usualRows(), confirm });
       if (result.status === "needs_confirm") {
-        setWarnings(result.warnings);
+        // The warnings are about the week the save started in; another week is showing now: drop them.
+        if (scopeRef.current === startedIn) setWarnings(result.warnings);
         return;
       }
       setWarnings(null);
@@ -201,19 +209,19 @@ export function RosterView(props: {
           layout={layout}
           date={props.date}
           onOpenDay={props.onOpenDay}
-          onSelect={saving ? undefined : (cell) => setSelected({ memberId: cell.memberId, key: cell.key })}
+          onSelect={locked ? undefined : (cell) => setSelected({ memberId: cell.memberId, key: cell.key })}
         />
       ) : (
         <RosterGrid
           layout={layout}
           onOpenDay={props.onOpenDay}
-          onSelect={saving ? undefined : (cell) => setSelected({ memberId: cell.memberId, key: cell.key })}
+          onSelect={locked ? undefined : (cell) => setSelected({ memberId: cell.memberId, key: cell.key })}
         />
       )}
       {draft.dirty && (
         <RosterSaveBar
           count={draft.changedCount}
-          busy={saving}
+          busy={locked}
           usualNote={mode === "usual"}
           onSave={() => void send(false)}
           onDiscard={draft.discard}

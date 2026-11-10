@@ -71,9 +71,12 @@ export function useRosterDraft(weekStart: string, mode: RosterMode) {
     () => (raw.scope === scope ? raw : { scope, snapshot: null, cells: {} }),
     [raw, scope]
   );
+  // Flowko U29b (Task 8 fix 1): a change belongs to the week + mode its callback was made for. A save or copy that
+  // finishes after the user moved on calls the old callbacks; they find another scope in the state and do nothing,
+  // so a newer week's edits are never wiped or filled by an older week's async flow (D7).
   const update = useCallback(
     (change: (current: DraftState) => DraftState) =>
-      setRaw((prev) => change(prev.scope === scope ? prev : { scope, snapshot: null, cells: {} })),
+      setRaw((prev) => (prev.scope === scope ? change(prev) : prev)),
     [scope]
   );
 

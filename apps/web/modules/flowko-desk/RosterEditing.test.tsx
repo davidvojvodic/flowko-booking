@@ -80,9 +80,9 @@ async function applyChoice(memberId: number, key: string, choice: "Prosto" | "Ob
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
 
-const deferred = () => {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
+const deferred = <T = void>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
     resolve = done;
   });
   return { promise, resolve };
@@ -382,6 +382,99 @@ describe("RosterView editing: the save flow (S14, S16)", () => {
     await waitFor(() => expect(deskTrpc.saveWeek).toHaveBeenCalled());
     expect(deskTrpc.saveWeek.mock.calls[0][0].rows).toHaveLength(1);
     expect(deskTrpc.saveWeek.mock.calls[0][0].rows[0].memberId).toBe(CENE);
+  });
+});
+
+describe("RosterView editing: a save or copy of an older week (Task 8 fix 1, D7)", () => {
+  const NEXT = "2026-11-23";
+  const NEXT_TUE = "2026-11-24";
+
+  const nextView = () => rosterWeek({ weekStart: NEXT, today: DATE });
+
+  /** Harness whose week the test changes with `rerender`, as DeskView does after „Zavrzi in nadaljuj“. */
+  function renderSwitching() {
+    const utils = render(<Harness view={rosterWeek()} date={DATE} />);
+    const toNextWeek = () => utils.rerender(<Harness view={nextView()} date={NEXT} />);
+    return { toNextWeek };
+  }
+
+  it("a save still running when the week changes does not wipe the new week's draft", async () => {
+    const save = deferred<{ status: "saved" }>();
+    deskTrpc.saveWeek.mockReturnValueOnce(save.promise);
+    const { toNextWeek } = renderSwitching();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(deskTrpc.saveWeek).toHaveBeenCalledTimes(1));
+    toNextWeek();
+    expect(captured.draft?.dirty).toBe(false);
+    // Cells are not tappable while the save runs, so the edit goes straight into the draft (the hook's promise).
+    act(() => captured.draft?.set(nextView(), ANA, NEXT_TUE, []));
+    expect(captured.draft?.changedCount).toBe(1);
+    await act(async () => {
+      save.resolve({ status: "saved" });
+    });
+    await waitFor(() => expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalled());
+    expect(captured.draft?.changedCount).toBe(1);
+    expect(cell(ANA, NEXT_TUE).getAttribute("data-changed")).toBe("true");
+    expect(screen.getByTestId("roster-save-count").textContent).toBe("1 sprememba");
+  });
+
+  it("a needs_confirm of an older week's save opens no dialog over the new week", async () => {
+    const save = deferred<unknown>();
+    deskTrpc.saveWeek.mockReturnValueOnce(save.promise);
+    const { toNextWeek } = renderSwitching();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(deskTrpc.saveWeek).toHaveBeenCalledTimes(1));
+    toNextWeek();
+    act(() => captured.draft?.set(nextView(), ANA, NEXT_TUE, []));
+    await act(async () => {
+      save.resolve({
+        status: "needs_confirm",
+        warnings: [{ memberId: ANA, outsideOpening: [TUE], bookingsNewlyOutside: 1 }],
+      });
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(captured.draft?.changedCount).toBe(1);
+  });
+
+  it("while a copy is fetching, cells are not tappable and „Shrani“ waits", async () => {
+    const fetching = deferred<RosterWeekView>();
+    deskTrpc.fetchRosterWeek.mockReturnValueOnce(fetching.promise);
+    renderRoster();
+    await applyChoice(ANA, TUE, "Prosto");
+    fireEvent.click(screen.getByRole("button", { name: "Kopiraj prejšnji teden" }));
+    await waitFor(() => expect(deskTrpc.fetchRosterWeek).toHaveBeenCalled());
+    expect(cell(ANA, TUE).tagName).toBe("DIV");
+    expect(saveButton().disabled).toBe(true);
+    await act(async () => {
+      fetching.resolve(rosterWeek({ weekStart: "2026-11-09" }));
+    });
+    await waitFor(() => expect(cell(ANA, TUE).tagName).toBe("BUTTON"));
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it("a copy still fetching when the week changes fills nothing in the new week", async () => {
+    const fetching = deferred<RosterWeekView>();
+    deskTrpc.fetchRosterWeek.mockReturnValueOnce(fetching.promise);
+    const { toNextWeek } = renderSwitching();
+    fireEvent.click(screen.getByRole("button", { name: "Kopiraj prejšnji teden" }));
+    await waitFor(() => expect(deskTrpc.fetchRosterWeek).toHaveBeenCalledWith({ weekStart: "2026-11-09" }));
+    toNextWeek();
+    const previous = rosterWeek({ weekStart: "2026-11-09" });
+    await act(async () => {
+      fetching.resolve({
+        ...previous,
+        members: previous.members.map((m) =>
+          m.memberId === ANA
+            ? { ...m, days: m.days.map((d) => ({ ...d, source: "planned" as const, entries: [] })) }
+            : m
+        ),
+      });
+    });
+    expect(captured.draft?.dirty).toBe(false);
+    expect(screen.queryByTestId("roster-save-bar")).toBeNull();
+    expect(cell(ANA, NEXT_TUE).getAttribute("data-changed")).toBeNull();
   });
 });
 

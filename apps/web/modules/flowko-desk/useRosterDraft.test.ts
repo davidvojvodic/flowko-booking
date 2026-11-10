@@ -200,6 +200,33 @@ describe("useRosterDraft (U29b S13)", () => {
   });
 });
 
+describe("useRosterDraft: callbacks of an older week (Task 8 fix 1, D7)", () => {
+  it("discard() and copyPreviousWeek() taken for week A do nothing to week B's draft", () => {
+    const base = rosterWeek();
+    const nextBase = rosterWeek({ weekStart: "2026-11-23" });
+    const { result, rerender } = weekDraft();
+    const old = result.current; // the callbacks an in-flight save or copy still holds
+    rerender({ weekStart: "2026-11-23", mode: "week" });
+    act(() => result.current.set(nextBase, ANA, "2026-11-24", []));
+    expect(result.current.changedCount).toBe(1);
+    act(() => old.discard());
+    expect(result.current.changedCount).toBe(1);
+    act(() => old.copyPreviousWeek(base, rosterWeek({ weekStart: "2026-11-09" }), [BOR]));
+    expect(result.current.changedCount).toBe(1);
+    expect(result.current.isChanged(ANA, "2026-11-24")).toBe(true);
+    expect(result.current.isChanged(BOR, "2026-11-25")).toBe(false);
+  });
+
+  it("the current callbacks still work after a week change", () => {
+    const nextBase = rosterWeek({ weekStart: "2026-11-23" });
+    const { result, rerender } = weekDraft();
+    rerender({ weekStart: "2026-11-23", mode: "week" });
+    act(() => result.current.set(nextBase, ANA, "2026-11-24", []));
+    act(() => result.current.discard());
+    expect(result.current.dirty).toBe(false);
+  });
+});
+
 describe("useRosterDraft copyPreviousWeek (U29b S15)", () => {
   // Today is Wednesday the 18th: Monday 16th and Tuesday 17th are past and never touched.
   const base = rosterWeek({ today: "2026-11-18" });
