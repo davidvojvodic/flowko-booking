@@ -5,16 +5,21 @@
 // opening cap (G6, changed days only), the usual week and its clear (SQL NULL), copy (G5), absences (H2) and the
 // holiday settings (H1). Prismock ignores unique keys and CHECKs: roster.integration-test.ts repeats the
 // week-scope, upsert and clear tests on Postgres.
+// Flowko U29b: saveRosterWeek (S3) with NOW = Mon 2026-11-16 08:07 Ljubljana: rights per row (Review Focus 1),
+// input, window, stale versions, past days, the warnings (Review Focus 3) and the 40P01 mapping; its locks and
+// races are proven in roster-save.integration-test.ts.
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
 // The prismock factory runs when @calcom/prisma is first imported; roster.ts takes `db` and never imports it.
 import "@calcom/prisma";
 import type { ShiftEntry, WeekHours, WeekPlan } from "@calcom/lib/flowkoBusiness/roster";
+import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import { Prisma } from "@calcom/prisma/client";
-import { FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
+import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addLoginMember, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
+import { ensureWorkerMirror } from "./mirror";
 import { usualVersionOf, weekVersionOf } from "./rosterVersion";
 import {
   addAbsence,
@@ -23,6 +28,7 @@ import {
   type RosterWeekView,
   readUsualWeek,
   removeAbsence,
+  saveRosterWeek,
   setHolidayOpen,
   setHolidaysClosed,
   setRosterWeek,
@@ -1061,5 +1067,241 @@ describe("getRosterWeek: today, window and versions (U29b S2)", () => {
     const v4 = await read();
     expect(v4.weekVersion).not.toBe(v3.weekVersion);
     expect(v4.usualVersion).not.toBe(v3.usualVersion);
+  });
+});
+
+describe("saveRosterWeek (U29b S3)", () => {
+  // Flowko U29b: NOW_MON = Mon 2026-11-16 08:07 in Ljubljana; WEEK = the week of 16 Nov (Tue 17, Sat 21).
+  // Prismock ignores the locks ($executeRaw); roster-save.integration-test.ts proves them on Postgres.
+  const NOW_MON = new Date("2026-11-16T07:07:00Z");
+  const WEEK = "2026-11-16";
+  const TZ = "Europe/Ljubljana";
+  const OFFICE = [S("08:00", "16:00")];
+  const ANA_USUAL: WeekHours = {
+    mon: OFFICE,
+    tue: OFFICE,
+    wed: OFFICE,
+    thu: OFFICE,
+    fri: OFFICE,
+    sat: [],
+    sun: [],
+  };
+  const at = (date: string, time: string) => new Date(wallClockToMs(date, time, TZ));
+
+  async function versionOf(memberId: number, weekStart = WEEK, now = NOW_MON): Promise<string> {
+    return memberOf(await getRosterWeek(db, f.users.olga, weekStart, now), memberId).weekVersion;
+  }
+
+  async function rowFor(memberId: number, days: WeekPlan, weekStart = WEEK, now = NOW_MON) {
+    return { memberId, version: await versionOf(memberId, weekStart, now), days };
+  }
+
+  const save = (
+    actorUserId: number,
+    rows: Array<{ memberId: number; version: string; days: WeekPlan }>,
+    confirm = false,
+    weekStart = WEEK,
+    now = NOW_MON
+  ) => saveRosterWeek(db, actorUserId, { weekStart, rows, confirm }, now);
+
+  async function anaBookingTue10(): Promise<number> {
+    await setUsualWeek(db, f.users.olga, {
+      memberId: f.members.ana,
+      usualWeek: ANA_USUAL,
+      confirmOutsideOpening: false,
+    });
+    const mirror = await ensureWorkerMirror(prismock as unknown as Prisma.TransactionClient, f.members.ana);
+    const booking = await prismock.booking.create({
+      data: {
+        uid: `u29b-save-${seq}`,
+        title: "Termin",
+        startTime: at("2026-11-17", "10:00"),
+        endTime: at("2026-11-17", "11:00"),
+        eventTypeId: mirror.eventTypeId,
+        userId: f.users.ana,
+        status: BookingStatus.ACCEPTED,
+      },
+      select: { id: true },
+    });
+    return booking.id;
+  }
+
+  it("the owner saves Ana and Bor: both weeks stored, saved", async () => {
+    const rows = [
+      await rowFor(f.members.ana, week({ mon: EARLY, tue: [] })),
+      await rowFor(f.members.bor, week({ wed: EARLY })),
+    ];
+    expect(await save(f.users.olga, rows)).toEqual({ status: "saved" });
+    expect(await rowsOf(f.members.ana)).toEqual([
+      { date: "2026-11-16", shifts: EARLY },
+      { date: "2026-11-17", shifts: [] },
+    ]);
+    expect(await rowsOf(f.members.bor)).toEqual([{ date: "2026-11-18", shifts: EARLY }]);
+    const written = await prismock.flowkoRosterDay.findMany({ where: { memberId: f.members.bor } });
+    expect(written.map((r) => r.updatedByUserId)).toEqual([f.users.olga]);
+  });
+
+  it("a worker saves her own row; the version answered by the read is accepted again after the save", async () => {
+    const first = await rowFor(f.members.ana, week({ thu: EARLY }));
+    expect(await save(f.users.ana, [first])).toEqual({ status: "saved" });
+    const second = await rowFor(f.members.ana, week({ thu: [] }));
+    expect(await save(f.users.ana, [second])).toEqual({ status: "saved" });
+    expect(await rowsOf(f.members.ana)).toEqual([{ date: "2026-11-19", shifts: [] }]);
+  });
+
+  it("Review Focus 1: a refused row (colleague, staff, foreign, missing) is forbidden and nothing is written", async () => {
+    const ana = await rowFor(f.members.ana, week({ mon: EARLY }));
+    const bor = await rowFor(f.members.bor, week({ mon: EARLY }));
+    const bea = { memberId: f.members.bea, version: ana.version, days: week({ mon: EARLY }) };
+    const missing = { memberId: 999999, version: ana.version, days: week({ mon: EARLY }) };
+    // A worker with her own row and a colleague's: the own row (lower id) passes, the colleague's refuses all.
+    expect(await outcome(save(f.users.ana, [ana, bor]))).toBe("forbidden");
+    expect(await outcome(save(f.users.ana, [bor]))).toBe("forbidden");
+    expect(await outcome(save(f.users.rok, [ana]))).toBe("forbidden"); // STAFF
+    expect(await outcome(save(f.users.zala, [ana]))).toBe("forbidden"); // owner of B, member of A
+    expect(await outcome(save(f.users.olga, [ana, bea]))).toBe("forbidden"); // owner of A, member of B
+    expect(await outcome(save(f.users.olga, [ana, missing]))).toBe("forbidden");
+    expect(await outcome(save(f.users.dan, [ana]))).toBe("forbidden"); // LOCKED login: no access
+    expect(await rowsOf(f.members.ana)).toEqual([]);
+    expect(await rowsOf(f.members.bor)).toEqual([]);
+    expect(await rowsOf(f.members.bea)).toEqual([]);
+  });
+
+  it("bad_roster: no rows, more than 50, a duplicate member, 5 entries in a day, unsorted entries, a non-Monday", async () => {
+    const ana = await rowFor(f.members.ana, week({ mon: EARLY }));
+    const five = [
+      S("08:00", "09:00"),
+      S("09:30", "10:00"),
+      S("10:30", "11:00"),
+      S("11:30", "12:00"),
+      S("13:00", "14:00"),
+    ];
+    const four = five.slice(0, 4);
+    expect(await outcome(save(f.users.olga, []))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, Array(51).fill(ana)))).toBe("bad_roster");
+    const twice = { ...ana, days: week({ tue: EARLY }) };
+    expect(await outcome(save(f.users.olga, [ana, twice]))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, [{ ...ana, days: week({ mon: five }) }]))).toBe("bad_roster");
+    const unsorted = [S("13:00", "14:00"), S("08:00", "09:00")];
+    expect(await outcome(save(f.users.olga, [{ ...ana, days: week({ mon: unsorted }) }]))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, [{ ...ana, days: { ...week(), extra: [] } as WeekPlan }]))).toBe(
+      "bad_roster"
+    );
+    const numericVersion = { ...ana, version: 7 as unknown as string };
+    expect(await outcome(save(f.users.olga, [numericVersion]))).toBe("bad_roster");
+    expect(await outcome(save(f.users.olga, [ana], false, "2026-11-17"))).toBe("bad_roster");
+    expect(await rowsOf(f.members.ana)).toEqual([]);
+    // Four entries are the most a day takes.
+    expect(await save(f.users.olga, [{ ...ana, days: week({ mon: four }) }])).toEqual({ status: "saved" });
+  });
+
+  it("week_out_of_range: a past week and a week beyond the window; the last writable Monday is accepted", async () => {
+    const past = await rowFor(f.members.ana, week({ mon: EARLY }), "2026-11-09");
+    expect(await outcome(save(f.users.olga, [past], false, "2026-11-09"))).toBe("week_out_of_range");
+    const beyond = await rowFor(f.members.ana, week({ mon: EARLY }), "2027-11-29");
+    expect(await outcome(save(f.users.olga, [beyond], false, "2027-11-29"))).toBe("week_out_of_range");
+    expect(await rowsOf(f.members.ana)).toEqual([]);
+    const last = await rowFor(f.members.ana, week({ mon: EARLY }), "2027-11-22");
+    expect(await save(f.users.olga, [last], false, "2027-11-22")).toEqual({ status: "saved" });
+  });
+
+  it("a stale version is roster_changed and nothing is written, not even the fresh rows", async () => {
+    const staleAna = await rowFor(f.members.ana, week({ mon: EARLY }));
+    expect(await save(f.users.olga, [await rowFor(f.members.ana, week({ tue: EARLY }))])).toEqual({
+      status: "saved",
+    });
+    const freshBor = await rowFor(f.members.bor, week({ wed: EARLY }));
+    expect(await outcome(save(f.users.olga, [staleAna, freshBor]))).toBe("roster_changed");
+    expect(await rowsOf(f.members.ana)).toEqual([{ date: "2026-11-17", shifts: EARLY }]);
+    expect(await rowsOf(f.members.bor)).toEqual([]);
+    // A version that was never answered never matches.
+    expect(await outcome(save(f.users.olga, [{ ...freshBor, version: "" }]))).toBe("roster_changed");
+    expect(await rowsOf(f.members.bor)).toEqual([]);
+  });
+
+  it("days before today are never written (now = Wed 18 Nov 08:00): Mon/Tue keep their rows, Wed follows", async () => {
+    const WED = new Date("2026-11-18T07:00:00Z");
+    await seedRow(f.members.ana, "2026-11-16", EARLY);
+    await seedRow(f.members.ana, "2026-11-17", []);
+    const LATE = [S("12:00", "20:00")];
+    const row = await rowFor(f.members.ana, week({ mon: LATE, tue: LATE, wed: LATE }), WEEK, WED);
+    expect(await save(f.users.olga, [row], false, WEEK, WED)).toEqual({ status: "saved" });
+    expect(await rowsOf(f.members.ana)).toEqual([
+      { date: "2026-11-16", shifts: EARLY },
+      { date: "2026-11-17", shifts: [] },
+      { date: "2026-11-18", shifts: LATE },
+    ]);
+    // A past day outside the opening hours asks for nothing (it is not written).
+    const early = [S("05:00", "06:00")];
+    const pastOutside = await rowFor(f.members.ana, week({ mon: early, wed: LATE }), WEEK, WED);
+    expect(await save(f.users.olga, [pastOutside], false, WEEK, WED)).toEqual({ status: "saved" });
+    expect((await rowsOf(f.members.ana))[0]).toEqual({ date: "2026-11-16", shifts: EARLY });
+  });
+
+  it("Review Focus 3: Tue 13–17 leaves Ana's Tue 10:00 booking newly outside → needs_confirm, nothing written", async () => {
+    const bookingId = await anaBookingTue10();
+    const before = await prismock.booking.findUnique({ where: { id: bookingId } });
+    const ana = await rowFor(f.members.ana, week({ tue: [S("13:00", "17:00")] }));
+    const bor = await rowFor(f.members.bor, week({ tue: EARLY })); // nothing to report: not in the warnings
+    expect(await save(f.users.olga, [ana, bor])).toEqual({
+      status: "needs_confirm",
+      warnings: [{ memberId: f.members.ana, outsideOpening: [], bookingsNewlyOutside: 1 }],
+    });
+    expect(await rowsOf(f.members.ana)).toEqual([]);
+    expect(await rowsOf(f.members.bor)).toEqual([]);
+
+    expect(await save(f.users.olga, [ana, bor], true)).toEqual({ status: "saved" });
+    expect(await rowsOf(f.members.ana)).toEqual([{ date: "2026-11-17", shifts: [S("13:00", "17:00")] }]);
+    expect(await rowsOf(f.members.bor)).toEqual([{ date: "2026-11-17", shifts: EARLY }]);
+    expect(await prismock.booking.findUnique({ where: { id: bookingId } })).toEqual(before);
+  });
+
+  it("Review Focus 3: Tue 09–12 keeps the booking inside → saved without a question", async () => {
+    await anaBookingTue10();
+    const ana = await rowFor(f.members.ana, week({ tue: [S("09:00", "12:00")] }));
+    expect(await save(f.users.olga, [ana])).toEqual({ status: "saved" });
+  });
+
+  it("Ana Sat 21 Nov 09–12 with Saturday closed → needs_confirm with the date, nothing written", async () => {
+    const business = await prismock.flowkoBusiness.findUnique({ where: { id: f.a } });
+    const hours = business?.openingHours as Record<string, unknown>;
+    await prismock.flowkoBusiness.update({
+      where: { id: f.a },
+      data: { openingHours: { ...hours, sat: [] } },
+    });
+    const ana = await rowFor(f.members.ana, week({ sat: [S("09:00", "12:00")] }));
+    expect(await save(f.users.olga, [ana])).toEqual({
+      status: "needs_confirm",
+      warnings: [{ memberId: f.members.ana, outsideOpening: ["2026-11-21"], bookingsNewlyOutside: 0 }],
+    });
+    expect(await rowsOf(f.members.ana)).toEqual([]);
+  });
+
+  it("rosterTx: a deadlock (P2010 with meta code 40P01) is roster_conflict; any other P2010 is rethrown", async () => {
+    const raw = (code: string) =>
+      new Prisma.PrismaClientKnownRequestError(`Raw query failed. Code: \`${code}\``, {
+        code: "P2010",
+        clientVersion: "6",
+        meta: { code, message: "deadlock detected" },
+      });
+    // The pg driver-adapter form, as Postgres 16 raised it for two crossed advisory locks (measured in Task 3).
+    const adapter = new Prisma.PrismaClientKnownRequestError("Raw query failed. Code: `40P01`", {
+      code: "P2010",
+      clientVersion: "6",
+      meta: {
+        driverAdapterError: {
+          name: "DriverAdapterError",
+          cause: { originalCode: "40P01", kind: "postgres", code: "40P01", message: "deadlock detected" },
+        },
+      },
+    });
+    const row = await rowFor(f.members.ana, week({ mon: EARLY }));
+    vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(raw("40P01"));
+    expect(await outcome(save(f.users.olga, [row]))).toBe("roster_conflict");
+    vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(adapter);
+    expect(await outcome(save(f.users.olga, [row]))).toBe("roster_conflict");
+    const other = raw("22P02");
+    vi.spyOn(prismock.flowkoRosterDay, "createMany").mockRejectedValueOnce(other);
+    await expect(save(f.users.olga, [row])).rejects.toBe(other);
   });
 });

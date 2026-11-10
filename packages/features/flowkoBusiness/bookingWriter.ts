@@ -45,14 +45,16 @@ import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { ensureWorkerMirror } from "./mirror";
 import { loadBusinessDay } from "./roster";
+// Flowko U29b: the advisory lock lives in workerLock.ts (the roster savers take it too); re-exported unchanged.
+import { lockWorkerAdvisory } from "./workerLock";
+
+export { lockWorkerAdvisory };
 
 type Tx = Prisma.TransactionClient;
 
 const log = logger.getSubLogger({ prefix: ["flowko-business-booking-writer"] });
 
 const MINUTE_MS = 60_000;
-/** W2: the advisory-lock namespace of the booking writer; the second key is the worker's user id. */
-const WORKER_LOCK_NAMESPACE = 27027;
 /** W1: the customer's attendee locale (Slovene business). */
 const ATTENDEE_LOCALE = "sl";
 /** M3: the language of the stored title when the worker has none. */
@@ -90,12 +92,6 @@ export type WriterDeps = {
   googleBusy?: typeof googleBusyFor;
   sendMails?: boolean;
 };
-
-/** W2: the worker's transaction-scoped advisory lock; two desks writing one worker's day queue here. */
-export async function lockWorkerAdvisory(tx: Tx, userId: number): Promise<void> {
-  // $executeRaw, not $queryRaw: the function returns void, which the query path cannot deserialize.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WORKER_LOCK_NAMESPACE}::integer, ${userId}::integer)`;
-}
 
 /** D1: true for a unique violation of Booking.idempotencyKey, in the classic and in the driver-adapter form. */
 export function isIdempotencyKeyConflict(error: unknown): boolean {

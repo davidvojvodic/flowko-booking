@@ -34,7 +34,9 @@ export type FlowkoBusinessErrorCode =
   // business (case-insensitive), a service the editor rules refuse, settings changed since the form loaded them.
   | "service_name_taken"
   | "bad_service"
-  | "settings_changed";
+  | "settings_changed"
+  // Flowko U29b: a roster row changed since the editor read it (the content-hash version differs, D8/D9).
+  | "roster_changed";
 
 export class FlowkoBusinessError extends Error {
   constructor(readonly code: FlowkoBusinessErrorCode) {

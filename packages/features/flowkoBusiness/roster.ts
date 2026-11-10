@@ -15,6 +15,9 @@ import {
   localDateSchema,
   type MemberDaySource,
   resolveMemberDay,
+  ROSTER_MAX_SHIFTS_PER_DAY, // Flowko U29b
+  type RosterSaveResult, // Flowko U29b
+  type RosterWarning, // Flowko U29b
   type ShiftEntry,
   shiftsOutsideOpening,
   todayIn,
@@ -30,7 +33,8 @@ import {
   shiftDaySchema,
   WEEKDAYS,
 } from "@calcom/lib/flowkoBusiness/schemas";
-import type { Interval, LocalDate } from "@calcom/lib/flowkoSalon";
+// Flowko U29b: dayBounds for the save's booking range.
+import { dayBounds, type Interval, type LocalDate } from "@calcom/lib/flowkoSalon";
 import { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import {
@@ -42,8 +46,12 @@ import {
 } from "./access";
 import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError, type FlowkoBusinessErrorCode } from "./errors";
+// Flowko U29b: what a save would newly leave outside (S5).
+import { mirrorBookingsOfMembers, weekRowImpact } from "./rosterImpact";
 // Flowko U29b: content hashes for the week read.
 import { usualVersionOf, weekVersionOf } from "./rosterVersion";
+// Flowko U29b: the booking writer's worker lock (S6).
+import { lockWorkerAdvisory } from "./workerLock";
 
 /** G7: a week may be written up to its Monday ≤ today + 371 days; absences start and holidays open likewise. */
 const WINDOW_DAYS = 371;
@@ -52,6 +60,8 @@ const MAX_ABSENCE_SPAN_DAYS = 365;
 const DAY_MS = 86_400_000;
 const MAX_INT4 = 2_147_483_647;
 const COLUMN_ROLES: FlowkoBusinessRole[] = [FlowkoBusinessRole.OWNER, FlowkoBusinessRole.WORKER];
+/** Flowko U29b (S3): the most rows one save takes (the copyWeek precedent). */
+const MAX_SAVE_ROWS = 50;
 
 export type RosterWeekView = {
   businessId: number;
@@ -225,13 +235,32 @@ function checkOpeningCap(
   }
 }
 
+/**
+ * Flowko U29b (S6): a raw query Postgres ended as a deadlock: P2010 with the SQLSTATE 40P01 in its meta, in the
+ * classic form (`meta.code`) and in the pg driver-adapter form this client uses (`meta.driverAdapterError.cause`
+ * with `code`/`originalCode`, measured on Postgres 16 with two crossed advisory locks).
+ */
+function isRawDeadlock(e: Prisma.PrismaClientKnownRequestError): boolean {
+  if (e.code !== "P2010") return false;
+  const meta = (e.meta ?? {}) as {
+    code?: unknown;
+    driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } };
+  };
+  const cause = meta.driverAdapterError?.cause;
+  return meta.code === "40P01" || cause?.code === "40P01" || cause?.originalCode === "40P01";
+}
+
 /** Runs a roster write; a unique violation (two writers of one member-week) is roster_conflict, never a 500. */
 async function rosterTx<T>(db: FlowkoDb, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   try {
     return await withFlowkoTx(db, fn);
   } catch (e) {
     // Flowko U26 (final review M2): P2002 = unique violation, P2034 = write conflict or deadlock.
-    if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === "P2002" || e.code === "P2034"))
+    // Flowko U29b (S6): a deadlock on a lock statement ($executeRaw) arrives as P2010 with meta code 40P01.
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      (e.code === "P2002" || e.code === "P2034" || isRawDeadlock(e))
+    )
       fail("roster_conflict");
     throw e;
   }
@@ -248,6 +277,17 @@ async function storedWeek(
     select: { date: true, shifts: true },
   });
   return new Map(rows.map((row) => [fromDbDate(row.date), row.shifts]));
+}
+
+/** Flowko U29b: raw stored shifts by member, then by date; every asked member has a (possibly empty) map. */
+function rawRowsByMember(
+  memberIds: number[],
+  rows: Array<{ memberId: number; date: Date; shifts: unknown }>
+): Map<number, Map<LocalDate, unknown>> {
+  const byMember = new Map<number, Map<LocalDate, unknown>>();
+  for (const id of memberIds) byMember.set(id, new Map());
+  for (const row of rows) byMember.get(row.memberId)?.set(fromDbDate(row.date), row.shifts);
+  return byMember;
 }
 
 /**
@@ -276,6 +316,27 @@ async function replaceWeek(
       : [{ memberId, date: toDbDate(date), shifts, updatedByUserId: actorUserId }];
   });
   if (data.length > 0) await tx.flowkoRosterDay.createMany({ data });
+}
+
+/**
+ * Flowko U29b (Ruling R7): a member's content-hash versions (S2) over the week's seven dates, past days included:
+ * the stored rows read with readShifts, the usual week with readUsualWeek. getRosterWeek answers them and the
+ * savers recompute them after their locks through this one helper, so the read and the check never drift.
+ * `storedRows` = the member's raw stored shifts by date; dates outside `dates` are ignored.
+ */
+export function memberRosterVersions(
+  member: { status: FlowkoMemberStatus; usualWeek: unknown },
+  dates: LocalDate[],
+  storedRows: Map<LocalDate, unknown>
+): { weekVersion: string; usualVersion: string } {
+  const usualWeek = readUsualWeek(member.usualWeek);
+  const rows = dates.flatMap((date): Array<[string, ShiftEntry[]]> =>
+    storedRows.has(date) ? [[date, readShifts(storedRows.get(date))]] : []
+  );
+  return {
+    weekVersion: weekVersionOf({ status: member.status, usualWeek, rows }),
+    usualVersion: usualVersionOf({ status: member.status, usualWeek }),
+  };
 }
 
 /** G7: the last Monday a week write accepts: the last Monday <= today + 371 (the bound of checkWeekWindow). */
@@ -338,6 +399,7 @@ export async function getRosterWeek(
 
   const planned = new Map<string, ShiftEntry[]>();
   for (const row of rows) planned.set(`${row.memberId}|${fromDbDate(row.date)}`, readShifts(row.shifts));
+  const storedRows = rawRowsByMember(memberIds, rows); // Flowko U29b: the versions' input (R7)
   const today = todayIn(business.timeZone, now); // Flowko U29b
 
   const dayInput = {
@@ -362,6 +424,8 @@ export async function getRosterWeek(
     })),
     members: members.map((m) => {
       const usualWeek = readUsualWeek(m.usualWeek);
+      // Flowko U29b (R7): the same helper the savers re-check with after their locks.
+      const versions = memberRosterVersions(m, dates, storedRows.get(m.id) ?? new Map());
       const own = absences
         .filter((a) => a.memberId === m.id)
         .map((a) => ({ id: a.id, startDate: fromDbDate(a.startDate), endDate: fromDbDate(a.endDate) }));
@@ -371,15 +435,8 @@ export async function getRosterWeek(
         deskOnly: m.user !== null && isFlowkoDeskEmail(m.user.email),
         status: m.status,
         usualWeek,
-        weekVersion: weekVersionOf({
-          status: m.status,
-          usualWeek,
-          rows: dates.flatMap((date): Array<[string, ShiftEntry[]]> => {
-            const shifts = planned.get(`${m.id}|${date}`);
-            return shifts ? [[date, shifts]] : [];
-          }),
-        }),
-        usualVersion: usualVersionOf({ status: m.status, usualWeek }),
+        weekVersion: versions.weekVersion,
+        usualVersion: versions.usualVersion,
         days: dates.map((date) => {
           const absent = own.some((a) => a.startDate <= date && date <= a.endDate);
           const day = resolveMemberDay(
@@ -555,6 +612,159 @@ export async function setRosterWeek(
       actorUserId,
       today
     );
+  });
+}
+
+/** Flowko U29b (S3): one row of an all-or-nothing week save: the member, the version read with it, the week. */
+export type SaveRosterWeekRow = { memberId: number; version: string; days: WeekPlan };
+export type SaveRosterWeekInput = { weekStart: LocalDate; rows: SaveRosterWeekRow[]; confirm: boolean };
+
+/**
+ * Flowko U29b (S3): the rows of a save, 1..50 with distinct member ids, in ascending member id (the lock and
+ * rights order); anything else is bad_roster.
+ */
+function saveRowsOrFail<R extends { memberId: number }>(rows: unknown): R[] {
+  if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_SAVE_ROWS) fail("bad_roster");
+  const list = rows as R[];
+  if (list.some((row) => typeof row !== "object" || row === null)) fail("bad_roster");
+  if (new Set(list.map((row) => row.memberId)).size !== list.length) fail("bad_roster");
+  return [...list].sort((a, b) => a.memberId - b.memberId);
+}
+
+/** Flowko U29b (S3): a week plan of the editor: weekPlanSchema and at most four entries per day, else bad_roster. */
+function savePlanOrFail(days: unknown): WeekPlan {
+  const parsed = weekPlanSchema.safeParse(days);
+  if (!parsed.success) fail("bad_roster");
+  const plan = parsed.data;
+  if (WEEKDAYS.some((wd) => (plan[wd]?.length ?? 0) > ROSTER_MAX_SHIFTS_PER_DAY)) fail("bad_roster");
+  return plan;
+}
+
+/**
+ * Flowko U29b (S6): the locks of an all-or-nothing roster save, in the booking writer's order: each row's worker
+ * advisory lock in ascending user id, then the business row FOR UPDATE. A booking racing the save either commits
+ * first (and the save, re-reading after these locks, counts it) or waits for the save; no deadlock.
+ */
+async function lockForRosterSave(
+  tx: Prisma.TransactionClient,
+  businessId: number,
+  userIds: Array<number | null>
+): Promise<void> {
+  const present = userIds.filter((id): id is number => id !== null);
+  const ordered = Array.from(new Set(present)).sort((a, b) => a - b);
+  for (const userId of ordered) await lockWorkerAdvisory(tx, userId);
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
+}
+
+/**
+ * Flowko U29b (S3, D8): saves one week of one or more members, all or nothing. Order: access → Monday and window
+ * (week_out_of_range) → each row in ascending member id: the member of the business and mayEditRoster (else
+ * forbidden; a worker only her own row) → the plan (weekPlanSchema, ≤ 4 entries a day, a version string; else
+ * bad_roster) → locks (S6) → re-read inside the transaction (members, the week's rows, absences, business) →
+ * each row's weekVersion against the one it carries (roster_changed, nothing written) → warnings (S5) as
+ * needs_confirm unless `confirm` (nothing written) → replaceWeek per row. The version, the warnings and `today`
+ * come only from the reads after the locks; the reads before them serve the rights check. Days before today are
+ * never written, whatever the row says (U26 M1). Any refusal of any row writes nothing.
+ */
+export async function saveRosterWeek(
+  db: FlowkoDb,
+  actorUserId: number,
+  input: SaveRosterWeekInput,
+  now: Date
+): Promise<RosterSaveResult> {
+  return rosterTx(db, async (tx) => {
+    const access = await requireBusinessAccess(tx, actorUserId);
+    const monday = mondayOrFail(input.weekStart);
+    const preLock = await loadBusiness(tx, access.businessId);
+    checkWeekWindow(monday, todayIn(preLock.timeZone, now));
+
+    const rows = saveRowsOrFail<SaveRosterWeekRow>(input.rows);
+    const userIds: Array<number | null> = [];
+    for (const row of rows) {
+      const target = await targetOrFail(tx, access, row.memberId);
+      if (!mayEditRoster(access, target)) fail("forbidden");
+      userIds.push(target.userId);
+    }
+    const plans = rows.map((row) => {
+      if (typeof row.version !== "string") fail("bad_roster");
+      return savePlanOrFail(row.days);
+    });
+
+    await lockForRosterSave(tx, access.businessId, userIds);
+
+    // S6: everything below reads after the locks.
+    const business = await loadBusiness(tx, access.businessId);
+    const today = todayIn(business.timeZone, now);
+    const dates = datesOfWeek(monday);
+    const sunday = dates[6];
+    const memberIds = rows.map((row) => row.memberId);
+    const members = await tx.flowkoBusinessMember.findMany({
+      where: { id: { in: memberIds }, businessId: access.businessId },
+      select: { id: true, status: true, usualWeek: true },
+    });
+    const storedRows = rawRowsByMember(
+      memberIds,
+      await tx.flowkoRosterDay.findMany({
+        where: { memberId: { in: memberIds }, date: { gte: toDbDate(monday), lte: toDbDate(sunday) } },
+        select: { memberId: true, date: true, shifts: true },
+      })
+    );
+    const memberById = new Map(members.map((m) => [m.id, m]));
+    for (const row of rows) {
+      const member = memberById.get(row.memberId);
+      // A member gone since the rights check is a changed roster too.
+      if (!member) fail("roster_changed");
+      const { weekVersion } = memberRosterVersions(member, dates, storedRows.get(row.memberId) ?? new Map());
+      if (weekVersion !== row.version) fail("roster_changed");
+    }
+
+    if (input.confirm !== true) {
+      const absences = await tx.flowkoAbsence.findMany({
+        where: {
+          memberId: { in: memberIds },
+          startDate: { lte: toDbDate(sunday) },
+          endDate: { gte: toDbDate(monday) },
+        },
+        select: { memberId: true, startDate: true, endDate: true },
+      });
+      // The week's bookings; weekRowImpact keeps those starting on a changed date (local start date).
+      const range = {
+        from: new Date(dayBounds(monday, business.timeZone).start),
+        to: new Date(dayBounds(sunday, business.timeZone).end),
+      };
+      const bookings = await mirrorBookingsOfMembers(tx, memberIds, range, now);
+      const warnings: RosterWarning[] = [];
+      rows.forEach((row, i) => {
+        const member = memberById.get(row.memberId);
+        if (!member) return;
+        const own = absences
+          .filter((a) => a.memberId === row.memberId)
+          .map((a) => ({ startDate: fromDbDate(a.startDate), endDate: fromDbDate(a.endDate) }));
+        const stored = new Map<LocalDate, ShiftEntry[]>();
+        storedRows.get(row.memberId)?.forEach((raw, date) => stored.set(date, readShifts(raw)));
+        const impact = weekRowImpact({
+          timeZone: business.timeZone,
+          opening: business.openingHours,
+          usualWeek: readUsualWeek(member.usualWeek),
+          stored,
+          absentDates: new Set(dates.filter((d) => own.some((a) => a.startDate <= d && d <= a.endDate))),
+          draft: plans[i],
+          dates,
+          today,
+          bookings: bookings.get(row.memberId) ?? [],
+        });
+        if (impact.outsideOpening.length > 0 || impact.bookingsNewlyOutside > 0) {
+          warnings.push({ memberId: row.memberId, ...impact });
+        }
+      });
+      if (warnings.length > 0) return { status: "needs_confirm", warnings };
+    }
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const plan = plans[i];
+      await replaceWeek(tx, rows[i].memberId, dates, WEEKDAYS.map((wd) => plan[wd]), actorUserId, today);
+    }
+    return { status: "saved" };
   });
 }
 
