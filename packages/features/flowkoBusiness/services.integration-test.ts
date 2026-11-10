@@ -309,7 +309,7 @@ describe("U29a services on a real database", () => {
   });
 });
 
-// Flowko U29c: P2 — the business row FOR UPDATE first in saveService, reorderServices and removeService. A fresh
+// Flowko U29c: P2 — the business row FOR NO KEY UPDATE first in saveService, reorderServices and removeService. A fresh
 // business (template services only), so the rounds cannot touch the fixture above.
 describe("U29c services: the business row lock", () => {
   async function freshBusiness(label: string): Promise<{ businessId: number; owner: number }> {
@@ -394,5 +394,155 @@ describe("U29c services: the business row lock", () => {
     expect(results).toEqual(["ok", "ok"]);
     const positions = await positionsOf(businessId);
     expect(new Set(positions).size).toBe(positions.length);
+  });
+
+  // Final review DATA-1: FOR UPDATE on the business row conflicts with FOR KEY SHARE, which a booking's step insert
+  // takes on the service row and its action insert on the business row (FK checks). removeService (delete = FOR
+  // UPDATE on the service row, case-only rename = the same through the unique index) holding the business lock
+  // then deadlocked with the writer: 40P01. FOR NO KEY UPDATE is compatible with FOR KEY SHARE.
+  describe("DATA-1: a booking's KEY SHARE locks never deadlock with the business lock", () => {
+    async function bookableBusiness(label: string) {
+      const { businessId, owner } = await freshBusiness(label);
+      await prisma.flowkoBusiness.update({ where: { id: businessId }, data: { openHolidays: [] } });
+      const ana = await addLoginMember(
+        prisma,
+        businessId,
+        await realUser(`Ana${label}`),
+        FlowkoBusinessRole.WORKER
+      );
+      await setUsualWeek(prisma, owner, {
+        memberId: ana.memberId,
+        usualWeek: week([{ from: "08:00", to: "16:00" }]),
+        confirmOutsideOpening: false,
+      });
+      return { businessId, owner, ana: ana.memberId };
+    }
+    const bookingFor = (ana: number, serviceId: number, start: Date, who: string): CreateBookingInput => ({
+      workerMemberId: ana,
+      serviceIds: [serviceId],
+      start,
+      customer: { name: "Marija Novak", phone: "041 123 456", email: `${who}-${RUN}@example.com` },
+      confirmOverride: false,
+    });
+
+    /**
+     * The writer's position by hand: this transaction holds FOR KEY SHARE on the service row (the step insert's FK
+     * check) while `owner` write starts, holds the business lock and waits on that service row; then the action
+     * insert (FOR KEY SHARE on the business row) must go through. Before the fix: 40P01 on one side after ~1 s.
+     */
+    async function writerHoldsServiceThenInsertsAction(
+      serviceId: number,
+      bookingId: number,
+      businessId: number,
+      ownerWrite: () => Promise<unknown>
+    ) {
+      let ownerSide: Promise<unknown> | undefined;
+      const writerSide = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT 1 FROM "FlowkoService" WHERE "id" = ${serviceId} FOR KEY SHARE`;
+          ownerSide = ownerWrite();
+          ownerSide.catch(() => undefined); // judged below through allSettled
+          await sleep(400); // the owner side now holds the business lock and waits on the service row
+          await tx.flowkoBookingAction.create({
+            data: { bookingId, businessId, action: "CREATED", actorName: "test" },
+          });
+        },
+        { timeout: 30_000 }
+      );
+      // The tx callback has run by the time it settles, so `ownerSide` is set (the owner write waits on the tx).
+      const [writer] = await Promise.allSettled([writerSide]);
+      const [owner] = await Promise.allSettled([ownerSide ?? Promise.resolve()]);
+      return [writer, owner];
+    }
+
+    async function firstBooking(label: string) {
+      const { businessId, owner, ana } = await bookableBusiness(label);
+      const anchor = await saveService(prisma, owner, { ...plain(`Anker ${label}`), workerMemberIds: [ana] });
+      const booked = await createBusinessBooking(
+        prisma,
+        owner,
+        bookingFor(ana, anchor.serviceId, at(TUE, "09:00"), `anker-${label}`),
+        NOW,
+        quiet
+      );
+      if (booked.status !== "created")
+        throw new Error(`fixture: expected created, got ${JSON.stringify(booked)}`);
+      return { businessId, owner, ana, bookingId: booked.bookingId };
+    }
+
+    it("removeService while a booking holds KEY SHARE on the service: both finish, the service is gone", async () => {
+      const { businessId, owner, ana, bookingId } = await firstBooking("DetRem");
+      const victim = await saveService(prisma, owner, { ...plain("Za odstranitev"), workerMemberIds: [ana] });
+      const settled = await writerHoldsServiceThenInsertsAction(victim.serviceId, bookingId, businessId, () =>
+        removeService(prisma, owner, victim.serviceId)
+      );
+      expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+      expect(await prisma.flowkoService.findUnique({ where: { id: victim.serviceId } })).toBeNull();
+    });
+
+    it("a case-only rename while a booking holds KEY SHARE on the service: both finish, the name changed", async () => {
+      const { businessId, owner, ana, bookingId } = await firstBooking("DetRen");
+      const target = await saveService(prisma, owner, {
+        ...plain(`striženje ${RUN}`),
+        workerMemberIds: [ana],
+      });
+      const settled = await writerHoldsServiceThenInsertsAction(target.serviceId, bookingId, businessId, () =>
+        saveService(prisma, owner, {
+          ...plain(`Striženje ${RUN}`),
+          id: target.serviceId,
+          workerMemberIds: [ana],
+        })
+      );
+      expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+      const row = await prisma.flowkoService.findUnique({
+        where: { id: target.serviceId },
+        select: { name: true },
+      });
+      expect(row?.name).toBe(`Striženje ${RUN}`);
+    });
+
+    it("20 rounds: a booking writer racing removeService of its service: no deadlock, no 500", async () => {
+      const { owner, ana } = await bookableBusiness("RaceRem");
+      const outcomes = { created: 0, gone: 0 };
+      for (let round = 0; round < 20; round += 1) {
+        const victim = await saveService(prisma, owner, {
+          ...plain(`Runda ${round}`),
+          workerMemberIds: [ana],
+        });
+        // A distinct Tuesday per round, so a committed booking never blocks the next round's slot.
+        const day = new Date(Date.parse(`${TUE}T00:00:00Z`) + round * 7 * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const [booking, removal] = await Promise.allSettled([
+          createBusinessBooking(
+            prisma,
+            owner,
+            bookingFor(ana, victim.serviceId, at(day, "09:00"), `race-${round}`),
+            NOW,
+            quiet
+          ),
+          removeService(prisma, owner, victim.serviceId),
+        ]);
+        const text = (r: PromiseSettledResult<unknown>) =>
+          r.status === "rejected"
+            ? `${String(r.reason)} ${JSON.stringify((r.reason as { meta?: unknown })?.meta)}`
+            : "";
+        expect(`${text(booking)}${text(removal)}`, `round ${round}`).not.toMatch(/40P01|deadlock/i);
+        expect(removal.status, `round ${round}: removal ${text(removal)}`).toBe("fulfilled");
+        if (booking.status === "fulfilled") {
+          expect(booking.value.status, `round ${round}`).toBe("created");
+          outcomes.created += 1;
+        } else {
+          expect(booking.reason, `round ${round}: ${text(booking)}`).toBeInstanceOf(FlowkoBusinessError);
+          expect((booking.reason as FlowkoBusinessError).code, `round ${round}`).toBe("service_not_assigned");
+          outcomes.gone += 1;
+        }
+        expect(
+          await prisma.flowkoService.findUnique({ where: { id: victim.serviceId } }),
+          `round ${round}`
+        ).toBeNull();
+      }
+      expect(outcomes.created + outcomes.gone).toBe(20);
+    }, 180_000);
   });
 });

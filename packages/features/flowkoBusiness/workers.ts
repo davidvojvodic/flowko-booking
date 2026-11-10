@@ -121,9 +121,12 @@ export async function listWorkers(
   return { members: rows };
 }
 
-/** Flowko U29c: the business row lock every member add and reorder takes first (re-taking it in one tx is a no-op). */
+/**
+ * Flowko U29c: the business row lock every member add and reorder takes first (re-taking it in one tx is a no-op).
+ * FOR NO KEY UPDATE: still serialises the creators, but a booking's FOR KEY SHARE FK check does not wait behind it.
+ */
 async function lockBusiness(tx: Prisma.TransactionClient, businessId: number): Promise<void> {
-  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR NO KEY UPDATE`;
 }
 
 /** Flowko U29c: one comparison key per name: trimmed, Unicode-composed (NFC), lower-cased by Slovene rules. */

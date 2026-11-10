@@ -85,13 +85,14 @@ export function displayNameOrThrow(displayName: string): string {
 }
 
 /**
- * Members are listed in the order they joined. Flowko U29c: takes the business row lock itself (re-taking it in
- * the same transaction is a no-op), so every member creator is serialised, and returns max(position) + 1 (0 when
+ * Members are listed in the order they joined. Flowko U29c: takes the business row lock itself (FOR NO KEY UPDATE,
+ * so a booking's FOR KEY SHARE FK check never waits behind it; re-taking it in the same transaction is a no-op),
+ * so every member creator is serialised, and returns max(position) + 1 (0 when
  * the business has no member), which stays right when the positions are not exactly 0..n-1. The lock is a raw
  * statement: prismock ignores it, real locking is proven in workers.integration-test.ts.
  */
 export async function nextPosition(tx: Tx, businessId: number): Promise<number> {
-  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR UPDATE`;
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR NO KEY UPDATE`;
   const last = await tx.flowkoBusinessMember.findFirst({
     where: { businessId },
     orderBy: { position: "desc" },
