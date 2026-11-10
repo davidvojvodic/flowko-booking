@@ -12,6 +12,7 @@ import type { BusinessSettingsView } from "@calcom/features/flowkoBusiness/setti
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
 import type { OpeningHours } from "@calcom/lib/flowkoBusiness/schemas";
+import type { WorkerListBooking, WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
 
 export const OPENING: OpeningHours = {
   mon: [{ from: "08:00", to: "20:00" }],
@@ -135,3 +136,59 @@ export const KVAR: OwnerService = {
 
 /** Out of position order on purpose: the page sorts by position. */
 export const SERVICES_VIEW: OwnerServicesView = { services: [BARVANJE, FEN, STRIZENJE], members: MEMBERS };
+
+// Flowko U29c (Task 6): the owner's „Delavci“ list as viewer.flowko.workers.list returns it, in position order:
+// Ana (OWNER, me), Bor (WORKER, desk-only), Cene (STAFF, no login), Dan (WORKER, LOCKED, 2 bookings), Eva (WORKER,
+// login, ACTIVE), Fran (STAFF, login, ACTIVE). Never a uid or an e-mail (the server does not send them).
+export const CENE = 14;
+export const EVA = 15;
+export const FRAN = 16;
+
+export const DAN_BOOKINGS: WorkerListBooking[] = [
+  {
+    bookingId: 501,
+    date: "2026-11-17",
+    from: "10:00",
+    to: "11:00",
+    services: ["Striženje", "Fen"],
+    customerName: "Ana Testna",
+  },
+  {
+    bookingId: 502,
+    date: "2027-01-05",
+    from: "09:30",
+    to: "10:15",
+    services: ["Barvanje"],
+    customerName: "Jan Novak",
+  },
+];
+
+const worker = (
+  over: Partial<WorkerListRow> & Pick<WorkerListRow, "memberId" | "displayName">
+): WorkerListRow => ({
+  role: "WORKER",
+  status: "ACTIVE",
+  noLogin: false,
+  isMe: false,
+  futureCount: 0,
+  futureBookings: [],
+  moreBookings: 0,
+  ...over,
+});
+
+export const WORKERS_VIEW: { members: WorkerListRow[] } = {
+  members: [
+    worker({ memberId: ANA, displayName: "Ana", role: "OWNER", isMe: true }),
+    worker({ memberId: BOR, displayName: "Bor", noLogin: true }),
+    worker({ memberId: CENE, displayName: "Cene", role: "STAFF", noLogin: true }),
+    worker({
+      memberId: DAN,
+      displayName: "Dan",
+      status: "LOCKED",
+      futureCount: 2,
+      futureBookings: DAN_BOOKINGS,
+    }),
+    worker({ memberId: EVA, displayName: "Eva" }),
+    worker({ memberId: FRAN, displayName: "Fran", role: "STAFF" }),
+  ],
+};
