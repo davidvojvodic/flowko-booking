@@ -5206,5 +5206,17 @@
   "flowko_roster_unsaved_title": "Unsaved changes",
   "flowko_roster_unsaved_body": "Your roster changes are not saved yet. If you continue, they are lost.",
   "flowko_roster_unsaved_stay": "Stay",
-  "flowko_roster_unsaved_discard": "Discard and continue"
+  "flowko_roster_unsaved_discard": "Discard and continue",
+  "flowko_roster_mode_week": "This week",
+  "flowko_roster_mode_usual": "Usual week",
+  "flowko_roster_off": "Off",
+  "flowko_roster_open_day": "Open this day",
+  "flowko_roster_close_day": "Close this day",
+  "flowko_roster_holiday_off_hint": "Holidays stay open because closing on public holidays is switched off in the business settings.",
+  "flowko_roster_holiday_off_link": "Open business settings",
+  "flowko_roster_holiday_dirty_hint": "Save or discard your roster changes first.",
+  "flowko_roster_differs_usual": "Differs from the usual week",
+  "flowko_roster_holiday_error": "The day could not be changed. The roster is refreshed; try again.",
+  "flowko_roster_prev_weekday": "Previous weekday",
+  "flowko_roster_next_weekday": "Next weekday"
 }

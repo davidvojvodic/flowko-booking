@@ -5276,5 +5276,17 @@
   "flowko_roster_unsaved_title": "Neshranjene spremembe",
   "flowko_roster_unsaved_body": "Spremembe urnika še niso shranjene. Če nadaljujete, se izgubijo.",
   "flowko_roster_unsaved_stay": "Ostani",
-  "flowko_roster_unsaved_discard": "Zavrzi in nadaljuj"
+  "flowko_roster_unsaved_discard": "Zavrzi in nadaljuj",
+  "flowko_roster_mode_week": "Ta teden",
+  "flowko_roster_mode_usual": "Običajni teden",
+  "flowko_roster_off": "Prosto",
+  "flowko_roster_open_day": "Odpri ta dan",
+  "flowko_roster_close_day": "Zapri ta dan",
+  "flowko_roster_holiday_off_hint": "Prazniki ostanejo odprti, ker je zapiranje ob praznikih v nastavitvah podjetja izklopljeno.",
+  "flowko_roster_holiday_off_link": "Odpri nastavitve podjetja",
+  "flowko_roster_holiday_dirty_hint": "Najprej shranite ali zavrzite spremembe urnika.",
+  "flowko_roster_differs_usual": "Drugače kot običajni teden",
+  "flowko_roster_holiday_error": "Dneva ni bilo mogoče spremeniti. Urnik je osvežen; poskusite znova.",
+  "flowko_roster_prev_weekday": "Prejšnji dan v tednu",
+  "flowko_roster_next_weekday": "Naslednji dan v tednu"
 }

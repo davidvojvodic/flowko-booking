@@ -65,7 +65,8 @@ export function weekRanges(
   });
 }
 
-function formatDayLabel(date: string, language: string): string {
+// Flowko U29b: exported for Urnik's day headers.
+export function formatDayLabel(date: string, language: string): string {
   return new Intl.DateTimeFormat(language, {
     weekday: "short",
     day: "numeric",
