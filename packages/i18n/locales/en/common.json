@@ -5253,5 +5253,6 @@
   "flowko_roster_absence_confirm_title": "Bookings during the absence",
   "flowko_roster_absence_bookings_one": "{{count}} booking in this period stays",
   "flowko_roster_absence_bookings_other": "{{count}} bookings in this period stay",
-  "flowko_roster_absence_confirm_add": "Add anyway"
+  "flowko_roster_absence_confirm_add": "Add anyway",
+  "flowko_roster_cell_changed": "Unsaved"
 }

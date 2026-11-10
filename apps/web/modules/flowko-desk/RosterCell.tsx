@@ -57,6 +57,20 @@ export function RosterCell(props: {
     : model.entries.length === 0
       ? t("flowko_roster_off")
       : model.entries.map((entry) => `${entry.from}–${entry.to}`).join(", ");
+  // Flowko U29b final review (UI-4): the accessible name replaces the content for assistive technology, so it states the
+  // state too: unsaved (draft), differs from the usual week (the dot's text), or follows the usual week.
+  const state = model.changed
+    ? t("flowko_roster_cell_changed")
+    : model.differsFromUsual
+      ? t("flowko_roster_differs_usual")
+      : model.source === "usual"
+        ? t("flowko_roster_cell_usual")
+        : null;
+  const accessibleName = props.label
+    ? `${props.label}: ${summary}${state ? `, ${state}` : ""}${
+        model.changed && model.differsFromUsual ? `, ${t("flowko_roster_differs_usual")}` : ""
+      }`
+    : undefined;
   const content = (
     <>
       {model.absent ? (
@@ -90,11 +104,14 @@ export function RosterCell(props: {
       type="button"
       {...common}
       // Flowko U29b (Task 8): the visible value alone does not say whose day it is.
-      aria-label={props.label ? `${props.label}: ${summary}` : undefined}
+      aria-label={accessibleName}
       onClick={() => props.onSelect?.(model)}>
       {content}
     </button>
   ) : (
-    <div {...common}>{content}</div>
+    // Flowko U29b final review (UI-4): a read-only cell also names its worker and day (a labelled group; no table roles).
+    <div {...common} role={accessibleName ? "group" : undefined} aria-label={accessibleName}>
+      {content}
+    </div>
   );
 }

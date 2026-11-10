@@ -5329,5 +5329,6 @@
   "flowko_roster_absence_bookings_two": "{{count}} termina v tem času ostaneta",
   "flowko_roster_absence_bookings_few": "{{count}} termini v tem času ostanejo",
   "flowko_roster_absence_bookings_other": "{{count}} terminov v tem času ostane",
-  "flowko_roster_absence_confirm_add": "Vseeno dodaj"
+  "flowko_roster_absence_confirm_add": "Vseeno dodaj",
+  "flowko_roster_cell_changed": "Neshranjeno"
 }

@@ -47,6 +47,13 @@ describe("RosterSaveBar (S13, S14)", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
+  it("orders the buttons „Shrani“ then „Zavrzi“ (D7)", () => {
+    bar();
+    const save = screen.getByRole("button", { name: "Shrani" });
+    const discard = screen.getByRole("button", { name: "Zavrzi" });
+    expect(save.compareDocumentPosition(discard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("while saving „Shrani“ is off and „Zavrzi“ too", () => {
     bar({ busy: true });
     expect((screen.getByRole("button", { name: "Shrani" }) as HTMLButtonElement).disabled).toBe(true);
@@ -90,7 +97,8 @@ describe("RosterSaveBar (S13, S14)", () => {
     expect(el.className).toContain("inset-x-2");
     expect(el.className).toContain("bottom-20");
     expect(el.className).toContain("z-40");
-    expect(el.className).toContain("pwa:bottom-[max(7rem,_calc(5rem_+_env(safe-area-inset-bottom)))]");
+    expect(el.className).not.toMatch(/(^|\s)pwa:bottom/);
+    expect(el.className).toContain("max-md:pwa:bottom-[max(7rem,_calc(5rem_+_env(safe-area-inset-bottom)))]");
     expect(el.className).toContain("md:sticky");
     expect(el.className).toContain("md:bottom-0");
     expect(el.closest('[data-testid="desk-grid-scroll"]')).toBeNull();

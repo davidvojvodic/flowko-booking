@@ -5,12 +5,12 @@
 // range and removed whole. No reason (sick leave is health data). Absences are saved at once, not through the draft:
 // both actions are off, with a hint, while the week has unsaved edits (the refresh would drop them). After a save
 // the roster and the desk are refreshed, then the sheet closes (`onDone`). Errors are toasts (rosterErrors).
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
-import { ConfirmationDialogContent, Dialog } from "@calcom/ui/components/dialog";
+import { ConfirmationContent, Dialog, DialogContent } from "@calcom/ui/components/dialog";
 import { TextField } from "@calcom/ui/components/form";
 import { showToast } from "@calcom/ui/components/toast";
 
@@ -38,7 +38,11 @@ export function AbsenceSection(props: {
   const invalidate = useInvalidateRoster();
   const [endDate, setEndDate] = useState(props.date);
   const [bookings, setBookings] = useState<number | null>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
+  // Only the resend (not the first add that opened the dialog) puts the dialog in its pending state: a disabled
+  // „Prekliči“ cannot take the focus the dialog opens with (final review UI-3).
+  const [resending, setResending] = useState(false);
 
   const covering = props.absences.filter((a) => a.startDate <= props.date && props.date <= a.endDate);
   const day = (date: string) => formatDayLabel(date, language);
@@ -131,16 +135,30 @@ export function AbsenceSection(props: {
       )}
       {props.dirty && <p className="text-subtle text-xs">{t("flowko_roster_absence_dirty_hint")}</p>}
       <Dialog open={bookings !== null} onOpenChange={(open) => !open && setBookings(null)}>
-        <ConfirmationDialogContent
-          variety="warning"
-          title={t("flowko_roster_absence_confirm_title")}
-          confirmBtnText={t("flowko_roster_absence_confirm_add")}
-          cancelBtnText={t("cancel")}
-          isPending={busy}
-          onConfirm={() => void add(true)}>
-          <p>{t("flowko_roster_absence_bookings", { count: bookings ?? 0 })}</p>
-          <p className="mt-1">{t("flowko_roster_warnings_unchanged")}</p>
-        </ConfirmationDialogContent>
+        <DialogContent
+          type="creation"
+          ref={confirmRef}
+          // Flowko U29b final review (UI-3): open on „Prekliči“, not „Vseeno dodaj“ (the UnsavedChangesDialog pattern).
+          onOpenAutoFocus={(event) => {
+            const stay = confirmRef.current?.querySelector<HTMLElement>('[data-testid="dialog-rejection"]');
+            if (!stay) return;
+            event.preventDefault();
+            stay.focus();
+          }}>
+          <ConfirmationContent
+            variety="warning"
+            title={t("flowko_roster_absence_confirm_title")}
+            confirmBtnText={t("flowko_roster_absence_confirm_add")}
+            cancelBtnText={t("cancel")}
+            isPending={busy && resending}
+            onConfirm={() => {
+              setResending(true);
+              void add(true).finally(() => setResending(false));
+            }}>
+            <p>{t("flowko_roster_absence_bookings", { count: bookings ?? 0 })}</p>
+            <p className="mt-1">{t("flowko_roster_warnings_unchanged")}</p>
+          </ConfirmationContent>
+        </DialogContent>
       </Dialog>
     </section>
   );

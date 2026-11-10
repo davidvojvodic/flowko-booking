@@ -121,6 +121,16 @@ describe("AbsenceSection: add (S7, D12)", () => {
     expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledTimes(1);
   });
 
+  it("the confirm opens with „Prekliči“ focused, not „Vseeno dodaj“ (final review UI-3)", async () => {
+    deskTrpc.addAbsence.mockResolvedValueOnce({ status: "needs_confirm", bookings: 1 });
+    section();
+    fireEvent.click(addButton());
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Prekliči" }))
+    );
+  });
+
   it("„Prekliči“ saves nothing and leaves the sheet open", async () => {
     deskTrpc.addAbsence.mockResolvedValueOnce({ status: "needs_confirm", bookings: 1 });
     section();

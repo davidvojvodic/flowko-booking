@@ -103,4 +103,61 @@ describe("RosterCell (U29b Task 7)", () => {
     fireEvent.click(screen.getByRole("button"));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ memberId: 2, key: "2026-11-16" }));
   });
+
+  describe("accessible name (final review UI-4)", () => {
+    const named = (over: Partial<RosterCellModel>, editable = true) => {
+      render(
+        <RosterCell
+          model={model({ editable, ...over })}
+          closed={false}
+          onSelect={vi.fn()}
+          label="Ana, torek, 17. 11."
+        />
+      );
+    };
+
+    it("a plain planned cell: worker, day and value only", () => {
+      named({});
+      expect(screen.getByRole("button", { name: "Ana, torek, 17. 11.: 08:00–16:00" })).toBeTruthy();
+    });
+
+    it("a changed cell says it is unsaved", () => {
+      named({ changed: true, source: "draft" });
+      expect(screen.getByRole("button", { name: "Ana, torek, 17. 11.: 08:00–16:00, Neshranjeno" })).toBeTruthy();
+    });
+
+    it("a day that differs from the usual week says so", () => {
+      named({ differsFromUsual: true });
+      expect(
+        screen.getByRole("button", {
+          name: "Ana, torek, 17. 11.: 08:00–16:00, Drugače kot običajni teden",
+        })
+      ).toBeTruthy();
+    });
+
+    it("a changed day that also differs says both", () => {
+      named({ changed: true, differsFromUsual: true, source: "draft" });
+      expect(
+        screen.getByRole("button", {
+          name: "Ana, torek, 17. 11.: 08:00–16:00, Neshranjeno, Drugače kot običajni teden",
+        })
+      ).toBeTruthy();
+    });
+
+    it("a day that follows the usual week says so", () => {
+      named({ source: "usual" });
+      expect(screen.getByRole("button", { name: "Ana, torek, 17. 11.: 08:00–16:00, Običajno" })).toBeTruthy();
+    });
+
+    it("a read-only cell also carries worker and day and its state (not a button)", () => {
+      named({ source: "usual" }, false);
+      expect(screen.queryByRole("button")).toBeNull();
+      expect(screen.getByRole("group", { name: "Ana, torek, 17. 11.: 08:00–16:00, Običajno" })).toBeTruthy();
+    });
+
+    it("without a label nothing is named", () => {
+      render(<RosterCell model={model()} closed={false} />);
+      expect(screen.queryByRole("group")).toBeNull();
+    });
+  });
 });

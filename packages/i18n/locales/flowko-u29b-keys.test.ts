@@ -66,6 +66,7 @@ const U29B_KEYS = [
   "flowko_roster_absence_confirm_title",
   "flowko_roster_absence_bookings",
   "flowko_roster_absence_confirm_add",
+  "flowko_roster_cell_changed",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.

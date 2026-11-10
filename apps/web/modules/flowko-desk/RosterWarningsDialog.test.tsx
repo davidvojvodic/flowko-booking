@@ -114,4 +114,10 @@ describe("RosterWarningsDialog (S14)", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onConfirm).not.toHaveBeenCalled();
   });
+
+  it("opens with „Prekliči“ focused, not „Vseeno shrani“ (final review UI-3)", () => {
+    dialog();
+    const d = screen.getByRole("dialog");
+    expect(document.activeElement).toBe(within(d).getByRole("button", { name: "Prekliči" }));
+  });
 });
