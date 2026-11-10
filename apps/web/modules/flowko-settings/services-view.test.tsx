@@ -287,8 +287,8 @@ describe("ServicesView: the sheet", () => {
 
 // Flowko U29c (P1, P8): the refresh after a write is checked. services.list is the probe (invalidated with
 // throwOnError; the other S17 queries use a plain invalidate). A failed probe shows an inline notice above the list
-// with „Osveži“; nothing is blocked (saves carry no version, a stale reorder answers bad_service + refetch). A
-// reorder that went through says „Shranjeno“.
+// with „Osveži“; only the order arrows are off until a refresh succeeds (the stale list's order must not be sent
+// as the new order); saves carry no version. A reorder that went through says „Shranjeno“.
 describe("ServicesView: the refresh after a write (P1, P8)", () => {
   const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
   const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.";
@@ -322,14 +322,27 @@ describe("ServicesView: the refresh after a write (P1, P8)", () => {
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Shranjeno", "success"));
   });
 
-  it("a failed refresh after a reorder → the inline notice with „Osveži“; arrows and „Nova storitev“ stay usable", async () => {
+  it("a failed refresh after a reorder → the inline notice (role alert) with „Osveži“; „Nova storitev“ stays usable", async () => {
     await reorderWithFailingRefresh();
     expect(notice()).toHaveTextContent(NOTICE_TEXT);
+    expect(notice()).toHaveAttribute("role", "alert");
     expect(button("Osveži")).toBeInTheDocument();
-    expect(button("Premakni dol: Striženje")).not.toBeDisabled();
-    expect(button("Premakni gor: Fen")).not.toBeDisabled();
     expect(button("Nova storitev")).not.toBeDisabled();
     expect(mocks.toast).toHaveBeenCalledWith("Shranjeno", "success");
+  });
+
+  it("while the notice is up every order arrow is off; a successful „Osveži“ turns them back on", async () => {
+    await reorderWithFailingRefresh();
+    for (const b of screen.getAllByRole("button", { name: /^Premakni (gor|dol): / }))
+      expect(b).toBeDisabled();
+    mocks.invalidateList.mockReset();
+    mocks.invalidateList.mockResolvedValue(undefined);
+    await act(async () => {
+      fireEvent.click(button("Osveži"));
+    });
+    await waitFor(() => expect(notice()).toBeNull());
+    expect(button("Premakni dol: Striženje")).not.toBeDisabled();
+    expect(button("Premakni gor: Fen")).not.toBeDisabled();
   });
 
   it("„Osveži“ runs the probe again; when it answers the notice is gone", async () => {

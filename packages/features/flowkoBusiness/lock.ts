@@ -13,8 +13,10 @@
 // unlock take the booking writer's worker advisory lock (any member with a user, desk-only included), then the
 // member row FOR NO KEY UPDATE, so a racing booking either commits first (and is counted) or is refused
 // worker_locked, and two lock/unlock calls cannot leave member status and User.locked disagreeing. Unlock refuses a
-// member that is not LOCKED (member_not_locked): it never clears a Cal-admin lock. Lock failures are
-// member_conflict (memberTx). Light imports only: the Vault set-up script `require`s this module in the container.
+// member that is not LOCKED (member_not_locked): it never clears a Cal-admin lock of an ACTIVE member; unlocking a
+// LOCKED member clears User.locked whoever set it (C14: Flowko keeps no flag to tell the two locks apart). Lock
+// failures are member_conflict (memberTx). Light imports only: the Vault set-up script `require`s this module in
+// the container.
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 import type { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";

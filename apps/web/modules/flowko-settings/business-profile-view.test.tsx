@@ -375,6 +375,7 @@ describe("BusinessProfileView: the refresh after a save (P1)", () => {
   it("a failed refresh → the notice with „Osveži“, „Shrani“ off, the saved toast kept, no „changed“ warning", async () => {
     await saveWithFailingRefresh();
     expect(notice()).toHaveTextContent(NOTICE_TEXT);
+    expect(notice()).toHaveAttribute("role", "alert");
     expect(screen.getByRole("button", { name: "Osveži" })).toBeInTheDocument();
     expect(saveButton()).toBeDisabled();
     expect(mocks.toast).toHaveBeenCalledWith("Nastavitve so shranjene.", "success");

@@ -31,7 +31,7 @@ export function WorkerBookings(props: {
 
   if (props.bookings.length === 0 && props.more === 0) {
     return (
-      <p data-testid="flowko-worker-no-bookings" className="text-subtle mt-3 text-sm">
+      <p data-testid="flowko-worker-no-bookings" className="text-subtle mt-3 w-full text-sm">
         {t("flowko_workers_no_bookings")}
       </p>
     );

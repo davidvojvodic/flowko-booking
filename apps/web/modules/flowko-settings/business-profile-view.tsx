@@ -253,6 +253,7 @@ function ProfileForm(props: {
       {refreshFailed && (
         <div
           data-testid="flowko-settings-refresh-failed"
+          role="alert"
           className="border-subtle border-x px-4 pt-6 sm:px-6">
           <Alert
             severity="warning"

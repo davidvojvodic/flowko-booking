@@ -8,7 +8,7 @@
 //  - „Odkleni“: no dialog (W9). Order arrows: send the whole new order (W5), „Shranjeno“ (P8); bad_member = the
 //    order changed meanwhile (text + refetch). „Dodaj brez prijave“: AddDeskWorkerForm (W4).
 // Errors per procedure as W10. A failed refresh after a saved write never undoes it: an inline „Osveži“ notice
-// (P1), nothing blocked. The booking dates use the browser's current year only to decide whether to print the year.
+// (P1), only the order arrows stay off until a refresh succeeds. The booking dates use the browser's current year only to decide whether to print the year.
 "use client";
 
 import type { WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
@@ -273,7 +273,7 @@ export default function WorkersView() {
   return (
     <div className={BOX}>
       {refreshFailed && (
-        <div data-testid="flowko-workers-refresh-failed" className="mb-4">
+        <div data-testid="flowko-workers-refresh-failed" role="alert" className="mb-4">
           <Alert
             severity="warning"
             title={t("flowko_settings_refresh_failed")}
@@ -293,6 +293,7 @@ export default function WorkersView() {
             isFirst={index === 0}
             isLast={index === members.length - 1}
             busy={busy}
+            arrowsOff={refreshFailed}
             preparing={preparing === row.memberId}
             retryGoogle={retryGoogle.includes(row.memberId)}
             currentYear={currentYear}

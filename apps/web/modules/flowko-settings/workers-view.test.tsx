@@ -232,6 +232,8 @@ describe("WorkersView: the list", () => {
     data = withRow(DAN, { futureCount: 0, futureBookings: [] });
     render(<WorkersView />);
     expect(inRow(DAN).getByText("Ni prihodnjih terminov.")).toBeInTheDocument();
+    // UI-1: the text takes its own line under the row (a flex-wrap child without w-full shared the first line).
+    expect(screen.getByTestId("flowko-worker-no-bookings").className).toContain("w-full");
     expect(inRow(DAN).queryByRole("link")).toBeNull();
   });
 
@@ -478,7 +480,8 @@ describe("WorkersView: unlock (W9)", () => {
     expect(
       screen.getByText("Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite Osveži.")
     ).toBeInTheDocument();
-    // nothing is blocked
+    expect(screen.getByTestId("flowko-workers-refresh-failed")).toHaveAttribute("role", "alert");
+    // the actions are not blocked
     expect(inRow(EVA).getByRole("button", { name: "Zakleni" })).toBeEnabled();
     await click(screen.getByRole("button", { name: "Osveži" }));
     await waitFor(() => expect(screen.queryByTestId("flowko-workers-refresh-failed")).toBeNull());
@@ -512,6 +515,20 @@ describe("WorkersView: order (W5, W6, P8)", () => {
     );
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Shranjeno", "success"));
     expect(mocks.invalidateList).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+  });
+
+  it("a failed refresh after a reorder turns every arrow off (a stale order is never sent); „Zakleni“ works; „Osveži“ turns them on", async () => {
+    mocks.invalidateList.mockRejectedValueOnce(new Error("network"));
+    render(<WorkersView />);
+    await click(screen.getByRole("button", { name: "Premakni dol: Bor" }));
+    await waitFor(() => expect(screen.getByTestId("flowko-workers-refresh-failed")).toBeInTheDocument());
+    expect(mocks.toast).toHaveBeenCalledWith("Shranjeno", "success");
+    for (const b of screen.getAllByRole("button", { name: /^Premakni (gor|dol): / }))
+      expect(b).toBeDisabled();
+    expect(inRow(EVA).getByRole("button", { name: "Zakleni" })).toBeEnabled();
+    await click(screen.getByRole("button", { name: "Osveži" }));
+    await waitFor(() => expect(screen.queryByTestId("flowko-workers-refresh-failed")).toBeNull());
+    expect(screen.getByRole("button", { name: "Premakni dol: Bor" })).toBeEnabled();
   });
 
   it("moving up sends the swapped list too", async () => {

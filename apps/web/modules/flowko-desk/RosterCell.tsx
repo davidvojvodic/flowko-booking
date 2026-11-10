@@ -100,7 +100,7 @@ export function RosterCell(props: {
           data-testid="roster-differs"
           aria-label={t("flowko_roster_differs_usual")}
           // Flowko U29c (P6): the pale `bg-attention` was nearly invisible on white.
-          className="bg-semantic-attention-emphasis absolute right-1 top-1 h-2.5 w-2.5 rounded-full ring-1 ring-[var(--cal-bg)]"
+          className="bg-semantic-attention-emphasis absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full ring-1 ring-[var(--cal-bg)]"
         />
       )}
     </>

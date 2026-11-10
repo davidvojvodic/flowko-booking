@@ -38,8 +38,9 @@ export default function ServicesView() {
 
   // S17: the catalogue here, the desk's service list and its free starts.
   // Flowko U29c (P1): services.list is the probe (invalidated with throwOnError, so it rejects when its refetch
-  // fails); the other two only run alongside. A failed probe raises the inline notice; nothing is blocked (saves
-  // carry no version, a stale reorder answers bad_service + refetch). A saved write is never undone by it.
+  // fails); the other two only run alongside. A failed probe raises the inline notice; only the order arrows are off
+  // until a refresh succeeds (a stale list's order would be sent as the new order); saves carry no version.
+  // A saved write is never undone by it.
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const probeList = () =>
@@ -130,7 +131,7 @@ export default function ServicesView() {
   return (
     <div className={BOX}>
       {refreshFailed && (
-        <div data-testid="flowko-settings-refresh-failed" className="mb-4">
+        <div data-testid="flowko-settings-refresh-failed" role="alert" className="mb-4">
           <Alert
             severity="warning"
             title={t("flowko_settings_refresh_failed")}
@@ -193,7 +194,7 @@ export default function ServicesView() {
                     color="minimal"
                     StartIcon="arrow-up"
                     aria-label={t("flowko_settings_service_move_up", { name: service.name })}
-                    disabled={index === 0 || reordering}
+                    disabled={index === 0 || reordering || refreshFailed}
                     onClick={() => void move(index, -1)}
                   />
                   <Button
@@ -202,7 +203,7 @@ export default function ServicesView() {
                     color="minimal"
                     StartIcon="arrow-down"
                     aria-label={t("flowko_settings_service_move_down", { name: service.name })}
-                    disabled={index === services.length - 1 || reordering}
+                    disabled={index === services.length - 1 || reordering || refreshFailed}
                     onClick={() => void move(index, 1)}
                   />
                   <Button
