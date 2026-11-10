@@ -38,9 +38,11 @@ export type FlowkoBusinessErrorCode =
   // Flowko U29b: a roster row changed since the editor read it (the content-hash version differs, D8/D9).
   | "roster_changed"
   // Flowko U29c: the owner's Delavci writes: a worker name already used in the business (case-insensitive), and a
-  // member write that lost a lock race, timed out or deadlocked (retryable; Task 4 adds member_not_locked).
+  // member write that lost a lock race, timed out or deadlocked (retryable), and an unlock of a member that is not
+  // LOCKED (W3: never clears a Cal-admin lock of an ACTIVE member).
   | "member_name_taken"
-  | "member_conflict";
+  | "member_conflict"
+  | "member_not_locked";
 
 export class FlowkoBusinessError extends Error {
   constructor(readonly code: FlowkoBusinessErrorCode) {
