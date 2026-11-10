@@ -68,7 +68,7 @@ const cases: Case[] = [
     mutation: false,
     service: m.getRosterWeek,
     run: () => handlers.weekHandler({ ctx, input: { weekStart: WEEK } }),
-    args: [m.prisma, 7, WEEK],
+    args: [m.prisma, 7, WEEK, expect.any(Date)],
   },
   {
     name: "setUsualWeek",

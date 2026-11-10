@@ -42,7 +42,7 @@ async function guarded<T>(run: () => Promise<T>): Promise<T> {
 }
 
 export async function weekHandler({ ctx, input }: Opts<TRosterWeekInput>) {
-  return guarded(() => getRosterWeek(prisma, ctx.user.id, input.weekStart));
+  return guarded(() => getRosterWeek(prisma, ctx.user.id, input.weekStart, new Date()));
 }
 
 export async function setUsualWeekHandler({ ctx, input }: Opts<TSetUsualWeekInput>) {

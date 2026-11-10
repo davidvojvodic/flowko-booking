@@ -94,7 +94,7 @@ describe("U26 roster services on a real database", () => {
     await setRosterWeek(prisma, workerUserId, { ...input, days: { ...NULL_WEEK, tue: [] } }, NOW);
     expect(await datesOf(workerMemberId)).toEqual(["2026-11-08", "2026-11-10", "2026-11-16"]);
 
-    const view = await getRosterWeek(prisma, ownerUserId, "2026-11-09");
+    const view = await getRosterWeek(prisma, ownerUserId, "2026-11-09", NOW);
     const ana = view.members.find((m) => m.memberId === workerMemberId);
     expect(ana?.days.slice(0, 2).map((d) => [d.source, d.entries])).toEqual([
       ["none", []],
@@ -145,7 +145,7 @@ describe("U26 roster services on a real database", () => {
     const cleared = await prisma.$queryRaw<Array<{ n: bigint }>>`
       SELECT count(*)::bigint AS n FROM "FlowkoBusinessMember" WHERE id = ${workerMemberId} AND "usualWeek" IS NULL`;
     expect(Number(cleared[0].n)).toBe(1);
-    const view = await getRosterWeek(prisma, ownerUserId, "2026-11-30");
+    const view = await getRosterWeek(prisma, ownerUserId, "2026-11-30", NOW);
     const ana = view.members.find((m) => m.memberId === workerMemberId);
     expect(ana?.usualWeek).toBeNull();
     expect(ana?.days.map((d) => d.source)).toEqual(Array(7).fill("none"));

@@ -42,6 +42,8 @@ import {
 } from "./access";
 import { type FlowkoDb, withFlowkoTx } from "./db";
 import { FlowkoBusinessError, type FlowkoBusinessErrorCode } from "./errors";
+// Flowko U29b: content hashes for the week read.
+import { usualVersionOf, weekVersionOf } from "./rosterVersion";
 
 /** G7: a week may be written up to its Monday ≤ today + 371 days; absences start and holidays open likewise. */
 const WINDOW_DAYS = 371;
@@ -55,6 +57,10 @@ export type RosterWeekView = {
   businessId: number;
   timeZone: string;
   weekStart: LocalDate;
+  /** Flowko U29b: today in the business time zone (the editor never reads the browser clock for it). */
+  today: LocalDate;
+  /** Flowko U29b: the last Monday that a week write accepts (the last Monday <= today + 371, G7). */
+  lastWritableWeekStart: LocalDate;
   holidaysClosed: boolean;
   /** opening = the weekday's opening hours (the cap of G6); holiday.open false = closed that day (H1). */
   days: Array<{ date: LocalDate; opening: ShiftEntry[]; holiday: { name: string; open: boolean } | null }>;
@@ -64,6 +70,10 @@ export type RosterWeekView = {
     deskOnly: boolean;
     status: FlowkoMemberStatus;
     usualWeek: WeekHours | null;
+    /** Flowko U29b: content hash of the status, the usual week and the stored rows of the week (rosterVersion.ts). */
+    weekVersion: string;
+    /** Flowko U29b: content hash of the status and the usual week. */
+    usualVersion: string;
     days: Array<{ date: LocalDate; source: MemberDaySource; entries: ShiftEntry[]; absent: boolean }>;
     /** Absences overlapping the week. */
     absences: Array<{ id: number; startDate: LocalDate; endDate: LocalDate }>;
@@ -185,11 +195,12 @@ async function targetOrFail(
   db: FlowkoDb,
   access: BusinessAccess,
   memberId: number
-): Promise<MemberRef & { usualWeek: unknown }> {
+): Promise<MemberRef & { usualWeek: unknown; userId: number | null }> {
   if (!Number.isInteger(memberId) || memberId <= 0 || memberId > MAX_INT4) fail("forbidden");
   const member = await db.flowkoBusinessMember.findUnique({
     where: { id: memberId },
-    select: { id: true, businessId: true, role: true, status: true, usualWeek: true },
+    // Flowko U29b: userId for the worker advisory lock of the all-or-nothing savers.
+    select: { id: true, businessId: true, role: true, status: true, usualWeek: true, userId: true },
   });
   if (!member || member.businessId !== access.businessId) fail("forbidden");
   return {
@@ -198,6 +209,7 @@ async function targetOrFail(
     role: member.role,
     status: member.status,
     usualWeek: member.usualWeek,
+    userId: member.userId,
   };
 }
 
@@ -266,11 +278,22 @@ async function replaceWeek(
   if (data.length > 0) await tx.flowkoRosterDay.createMany({ data });
 }
 
-/** The week view of the actor's business: any business access may read; any Monday (past included). */
+/** G7: the last Monday a week write accepts: the last Monday <= today + 371 (the bound of checkWeekWindow). */
+function lastWritableMonday(today: LocalDate): LocalDate {
+  const bound = addDays(today, WINDOW_DAYS);
+  return addDays(bound, -WEEKDAYS.indexOf(weekdayOf(bound)));
+}
+
+/**
+ * The week view of the actor's business: any business access may read; any Monday (past included).
+ * Flowko U29b: `now` gives `today` and the last writable Monday; every member carries the content hashes
+ * (`weekVersion`, `usualVersion`) the all-or-nothing savers compare.
+ */
 export async function getRosterWeek(
   db: FlowkoDb,
   actorUserId: number,
-  weekStart: LocalDate
+  weekStart: LocalDate,
+  now: Date
 ): Promise<RosterWeekView> {
   const access = await requireBusinessAccess(db, actorUserId);
   const monday = mondayOrFail(weekStart);
@@ -315,6 +338,7 @@ export async function getRosterWeek(
 
   const planned = new Map<string, ShiftEntry[]>();
   for (const row of rows) planned.set(`${row.memberId}|${fromDbDate(row.date)}`, readShifts(row.shifts));
+  const today = todayIn(business.timeZone, now); // Flowko U29b
 
   const dayInput = {
     openingHours: business.openingHours,
@@ -328,6 +352,8 @@ export async function getRosterWeek(
     businessId: access.businessId,
     timeZone: business.timeZone,
     weekStart: monday,
+    today,
+    lastWritableWeekStart: lastWritableMonday(today),
     holidaysClosed: business.holidaysClosed,
     days: dates.map((date) => ({
       date,
@@ -345,6 +371,15 @@ export async function getRosterWeek(
         deskOnly: m.user !== null && isFlowkoDeskEmail(m.user.email),
         status: m.status,
         usualWeek,
+        weekVersion: weekVersionOf({
+          status: m.status,
+          usualWeek,
+          rows: dates.flatMap((date): Array<[string, ShiftEntry[]]> => {
+            const shifts = planned.get(`${m.id}|${date}`);
+            return shifts ? [[date, shifts]] : [];
+          }),
+        }),
+        usualVersion: usualVersionOf({ status: m.status, usualWeek }),
         days: dates.map((date) => {
           const absent = own.some((a) => a.startDate <= date && date <= a.endDate);
           const day = resolveMemberDay(
