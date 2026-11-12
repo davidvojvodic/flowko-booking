@@ -1,6 +1,7 @@
 // Flowko U29c: the transaction wrapper of the member writes (add desk-only, reorder; lock/unlock in lock.ts).
 // A lock wait beyond Prisma's 5 s interactive-transaction limit (P2028), a write conflict or deadlock (P2034) and
-// a deadlock on a raw lock statement (P2010 with 40P01) are one retryable answer, member_conflict, never a 500.
+// a deadlock on a raw lock statement (P2010 with 40P01) and a deadlock on a Prisma statement (the bare pg
+// DriverAdapterError with 40P01, U29d) are one retryable answer, member_conflict, never a 500.
 // The 40P01 matcher lives here once (roster.ts's rosterTx imports it); this file imports only ./db and ./errors.
 import { Prisma } from "@calcom/prisma/client";
 import { type FlowkoDb, withFlowkoTx } from "./db";
@@ -20,6 +21,19 @@ export function isRawDeadlock(e: Prisma.PrismaClientKnownRequestError): boolean 
   return meta.code === "40P01" || cause?.code === "40P01" || cause?.originalCode === "40P01";
 }
 
+/**
+ * U29d DATA-2: a deadlock whose victim is a non-raw Prisma statement (Prisma 6.16 with the pg driver adapter maps
+ * kind "postgres" to no Prisma error) reaches the caller as the bare `DriverAdapterError` with the SQLSTATE in
+ * `cause.code` / `cause.originalCode`.
+ */
+export function isAdapterDeadlock(e: unknown): boolean {
+  if (!(e instanceof Error) || e.name !== "DriverAdapterError") return false;
+  const cause = (e as { cause?: unknown }).cause;
+  if (typeof cause !== "object" || cause === null) return false;
+  const { code, originalCode } = cause as { code?: unknown; originalCode?: unknown };
+  return code === "40P01" || originalCode === "40P01";
+}
+
 /** Runs a member write in a transaction (joins the caller's when `db` is one); lock failures are member_conflict. */
 export async function memberTx<T>(
   db: FlowkoDb,
@@ -33,6 +47,7 @@ export async function memberTx<T>(
       (e.code === "P2028" || e.code === "P2034" || isRawDeadlock(e))
     )
       throw new FlowkoBusinessError("member_conflict");
+    if (isAdapterDeadlock(e)) throw new FlowkoBusinessError("member_conflict");
     throw e;
   }
 }

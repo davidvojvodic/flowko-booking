@@ -6,6 +6,9 @@
 // the real adapter meta of the users e-mail violation and its mapping outside the transaction); Review Focus 6
 // (accept vs addDeskWorker vs createInvite in one business, 20 rounds -> no deadlock, positions distinct); C6 with
 // a locked mixed-case user. Runs only with VITEST_MODE=integration against the throwaway DB.
+// Flowko U29d final review: DATA-1 / SPEC-1 (Review Focus 2: 20 rounds each of a brand-new accept and of a
+// conversion racing the owner's resend and revoke -> exactly one side wins, the row and the users agree) and SPEC-2
+// (`_` in an address is no ILIKE wildcard, in both accepts).
 // Flowko U29d (Task 4, D2, C9): the desk-only conversion on Postgres: Review Focus 3 (the same member and user row,
 // the member row byte-equal with its updatedAt, roster day, absence, service, mirror and booking kept, only the
 // user's identity fields changed, the BookingDenormalized trigger follows, the old booking keeps the desk
@@ -28,7 +31,15 @@ import { createBusiness, createDeskOnlyWorker } from "./business";
 import type { GoogleDisconnect } from "./disconnectGoogle";
 import { FlowkoBusinessError } from "./errors";
 import { acceptInvite, readInviteForAcceptPage } from "./inviteAccept";
-import { createInvite, type InviteDeps, type InviteMailArgs, inviteUniqueConflictCode } from "./invites";
+import { hashInviteToken } from "./inviteToken";
+import {
+  createInvite,
+  type InviteDeps,
+  type InviteMailArgs,
+  inviteUniqueConflictCode,
+  resendInvite,
+  revokeInvite,
+} from "./invites";
 import { lockMember } from "./lock";
 import { setUsualWeek } from "./roster";
 import { addDeskWorker } from "./workers";
@@ -116,6 +127,81 @@ async function usualWeekIsNull(memberId: number): Promise<boolean> {
     SELECT "usualWeek" IS NULL AS none FROM "FlowkoBusinessMember" WHERE "id" = ${memberId}`;
   return rows[0].none;
 }
+
+/**
+ * DATA-1 / SPEC-1 (plan Review Focus 2): one round of an accept racing the owner's resend (a new link, no mail) or
+ * revoke of the same invite, started with a small alternating delay so both orders occur. Each side is `ok` or its
+ * FlowkoBusinessError code (anything else throws); `link` is the resend's new link when the resend won.
+ */
+async function raceAcceptWith(
+  change: "resend" | "revoke",
+  args: { owner: number; inviteId: number; token: string; name: string; round: number }
+): Promise<{ pair: [string, string]; link: string | null }> {
+  const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const jitter = (args.round % 5) * 2;
+  let link: string | null = null;
+  const pair = await Promise.all([
+    delay(args.round % 2 === 0 ? 0 : jitter).then(() =>
+      codeOf(
+        acceptInvite(
+          { db: prisma, hashPassword: fastHash },
+          { token: args.token, name: args.name, password: PASSWORD },
+          NOW
+        )
+      )
+    ),
+    delay(args.round % 2 === 0 ? jitter : 0).then(() =>
+      codeOf(
+        change === "resend"
+          ? resendInvite(deps(), args.owner, { inviteId: args.inviteId, sendMail: false }, NOW).then(
+              (answer) => {
+                link = answer.link;
+              }
+            )
+          : revokeInvite(prisma, args.owner, { inviteId: args.inviteId }, NOW)
+      )
+    ),
+  ]);
+  return { pair: pair as [string, string], link };
+}
+
+/**
+ * The invite row after a raceAcceptWith round: accept won -> used, not revoked; the change won -> unused, and either
+ * revoked (revoke) or rotated to the resend's new token, which is open on the page (resend).
+ */
+async function expectRaceEndState(
+  change: "resend" | "revoke",
+  race: { pair: [string, string]; link: string | null },
+  inviteId: number,
+  oldToken: string
+): Promise<"accepted" | "changed"> {
+  const row = await prisma.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: inviteId } });
+  if (race.pair[0] === "ok") {
+    expect(row.usedAt).not.toBeNull();
+    expect(row.revokedAt).toBeNull();
+    expect(row.tokenHash).toBe(hashInviteToken(oldToken));
+    return "accepted";
+  }
+  expect(row.usedAt).toBeNull();
+  if (change === "revoke") {
+    expect(row.revokedAt).toEqual(NOW);
+    expect(row.tokenHash).toBe(hashInviteToken(oldToken));
+  } else {
+    expect(row.revokedAt).toBeNull();
+    expect(race.link).not.toBeNull();
+    const fresh = tokenOf(race.link ?? "");
+    expect(row.tokenHash).toBe(hashInviteToken(fresh));
+    expect(await readInviteForAcceptPage(prisma, fresh, NOW)).toMatchObject({ state: "open" });
+  }
+  expect(await readInviteForAcceptPage(prisma, oldToken, NOW)).toEqual({ state: "invalid" });
+  return "changed";
+}
+
+/** Exactly one side wins: [ok, invite_gone] or [invite_invalid, ok]; never both ok, never member_conflict. */
+const RACE_OUTCOMES = [
+  ["ok", "invite_gone"],
+  ["invite_invalid", "ok"],
+];
 
 let a: { owner: number; businessId: number };
 beforeAll(async () => {
@@ -274,6 +360,7 @@ describe("U29d brand-new accept on a real database", () => {
     const business = await freshBusiness("Blind");
     const token = await newInvite(business, "Slepa");
     await prisma.user.create({ data: { email: email("Slepa"), username: `slepa-${RUN}`, name: "S" } });
+    const blindReads = { count: 0 };
     const blinded = new Proxy(prisma, {
       get(target, prop, receiver) {
         if (prop !== "$transaction") return Reflect.get(target, prop, receiver);
@@ -286,7 +373,10 @@ describe("U29d brand-new accept on a real database", () => {
                   if (txProp !== "user" && txProp !== "secondaryEmail") return model;
                   return new Proxy(model as object, {
                     get(m, op, r) {
-                      if (op === "findFirst") return async () => null;
+                      // C6 reads with findMany since SPEC-2 (findFirst kept blind too); counted, so the test
+                      // fails if the blinding no longer reaches C6.
+                      if (op === "findFirst") return async () => (blindReads.count++, null);
+                      if (op === "findMany") return async () => (blindReads.count++, []);
                       return Reflect.get(m, op, r);
                     },
                   });
@@ -305,6 +395,7 @@ describe("U29d brand-new accept on a real database", () => {
         )
       )
     ).toBe("email_has_login");
+    expect(blindReads.count).toBeGreaterThan(0);
     expect(
       await prisma.flowkoBusinessMember.count({
         where: { businessId: business.businessId, displayName: "Slepa" },
@@ -338,6 +429,66 @@ describe("U29d brand-new accept on a real database", () => {
       expect(results.slice().sort()).toEqual(["email_has_login", "ok"]);
       expect(await prisma.user.count({ where: { email: mail } })).toBe(1);
     }
+  });
+
+  for (const change of ["resend", "revoke"] as const) {
+    it(`Review Focus 2 (DATA-1): ${ROUNDS} rounds of a brand-new accept vs ${change} -> exactly one wins`, async () => {
+      const tally = { accepted: 0, changed: 0 };
+      for (let round = 0; round < ROUNDS; round++) {
+        const label = `Tek${change}${round}`;
+        const answer = await createInvite(
+          deps(),
+          a.owner,
+          { kind: "new", name: label, email: email(label), role: "WORKER" },
+          NOW
+        );
+        const token = tokenOf(answer.link);
+        const race = await raceAcceptWith(change, {
+          owner: a.owner,
+          inviteId: answer.inviteId,
+          token,
+          name: label,
+          round,
+        });
+        expect(RACE_OUTCOMES).toContainEqual(race.pair);
+        tally[await expectRaceEndState(change, race, answer.inviteId, token)] += 1;
+        const won = race.pair[0] === "ok" ? 1 : 0;
+        expect(await prisma.user.count({ where: { email: email(label) } })).toBe(won);
+        expect(
+          await prisma.flowkoBusinessMember.count({ where: { businessId: a.businessId, displayName: label } })
+        ).toBe(won);
+      }
+      expect(tally.accepted + tally.changed).toBe(ROUNDS);
+    });
+  }
+
+  it("SPEC-2 on Postgres: `_` in the invited address is no wildcard; the exact address in another case is a login", async () => {
+    // The invite is made first (C6 at create is invites.integration-test.ts); the logins appear before the accept.
+    const tokenFree = await newInvite(a, "Ana_f", "WORKER", email("ana_f"));
+    await prisma.user.create({ data: { email: email("anaxf"), username: `anaxf-${RUN}`, name: "X" } });
+    const tokenTaken = await newInvite(a, "Ana_g", "WORKER", email("ana_g"));
+    await prisma.user.create({
+      data: { email: email("ana_g").toUpperCase(), username: `anag-${RUN}`, name: "G" },
+    });
+    expect(
+      await codeOf(
+        acceptInvite(
+          { db: prisma, hashPassword: fastHash },
+          { token: tokenTaken, name: "Ana_g", password: PASSWORD },
+          NOW
+        )
+      )
+    ).toBe("email_has_login");
+    expect(
+      await codeOf(
+        acceptInvite(
+          { db: prisma, hashPassword: fastHash },
+          { token: tokenFree, name: "Ana_f", password: PASSWORD },
+          NOW
+        )
+      )
+    ).toBe("ok");
+    expect(await prisma.user.count({ where: { email: email("ana_f") } })).toBe(1);
   });
 
   it(`Review Focus 6: ${ROUNDS} rounds of accept vs addDeskWorker vs createInvite -> no deadlock, distinct positions`, async () => {
@@ -400,7 +551,9 @@ describe("U29d desk-only conversion on a real database (D2, C9)", () => {
   });
 
   /** A desk-only WORKER with a service and a usual week, and its open invite; answers the ids and the raw token. */
-  async function deskWithInvite(label: string): Promise<{ memberId: number; userId: number; token: string }> {
+  async function deskWithInvite(
+    label: string
+  ): Promise<{ memberId: number; userId: number; token: string; inviteId: number }> {
     const desk = await createDeskOnlyWorker(prisma, conv.businessId, label);
     await prisma.flowkoServiceWorker.create({ data: { serviceId: mens, memberId: desk.memberId } });
     await setUsualWeek(prisma, conv.owner, {
@@ -414,7 +567,7 @@ describe("U29d desk-only conversion on a real database (D2, C9)", () => {
       { kind: "member", memberId: desk.memberId, email: email(label) },
       NOW
     );
-    return { ...desk, token: tokenOf(answer.link) };
+    return { ...desk, token: tokenOf(answer.link), inviteId: answer.inviteId };
   }
 
   function book(memberId: number, start: Date) {
@@ -631,11 +784,72 @@ describe("U29d desk-only conversion on a real database (D2, C9)", () => {
     }
   });
 
+  for (const change of ["resend", "revoke"] as const) {
+    it(`Review Focus 2 (DATA-1): ${ROUNDS} rounds of a conversion vs ${change} -> exactly one wins`, async () => {
+      const tally = { accepted: 0, changed: 0 };
+      for (let round = 0; round < ROUNDS; round++) {
+        const label = `Pre${change}${round}`;
+        const desk = await deskWithInvite(label);
+        const race = await raceAcceptWith(change, {
+          owner: conv.owner,
+          inviteId: desk.inviteId,
+          token: desk.token,
+          name: label,
+          round,
+        });
+        expect(RACE_OUTCOMES).toContainEqual(race.pair);
+        tally[await expectRaceEndState(change, race, desk.inviteId, desk.token)] += 1;
+        const user = await userOf(desk.userId);
+        if (race.pair[0] === "ok") {
+          expect(user.email).toBe(email(label));
+          expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(1);
+        } else {
+          expect(user.email.endsWith("@flowko.invalid")).toBe(true);
+          expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(0);
+        }
+        expect(await prisma.user.count({ where: { email: email(label) } })).toBe(
+          race.pair[0] === "ok" ? 1 : 0
+        );
+      }
+      expect(tally.accepted + tally.changed).toBe(ROUNDS);
+    });
+  }
+
+  it("SPEC-2 on Postgres: a conversion's `_` address is no wildcard; the exact address in another case is a login", async () => {
+    const free = await deskWithInvite("Ana_h");
+    await prisma.user.create({ data: { email: email("anaxh"), username: `anaxh-${RUN}`, name: "X" } });
+    const taken = await deskWithInvite("Ana_i");
+    await prisma.user.create({
+      data: { email: email("ana_i").toUpperCase(), username: `anai-${RUN}`, name: "I" },
+    });
+    expect(
+      await codeOf(
+        acceptInvite(
+          { db: prisma, hashPassword: fastHash },
+          { token: taken.token, name: "Ana_i", password: PASSWORD },
+          NOW
+        )
+      )
+    ).toBe("email_has_login");
+    expect((await userOf(taken.userId)).email.endsWith("@flowko.invalid")).toBe(true);
+    expect(
+      await codeOf(
+        acceptInvite(
+          { db: prisma, hashPassword: fastHash },
+          { token: free.token, name: "Ana_h", password: PASSWORD },
+          NOW
+        )
+      )
+    ).toBe("ok");
+    expect((await userOf(free.userId)).email).toBe(email("ana_h"));
+  });
+
   it("a users e-mail violation inside the conversion is email_has_login, mapped after the rollback; the user stays desk-only", async () => {
     const desk = await deskWithInvite("Slepa2");
     await prisma.user.create({ data: { email: email("Slepa2"), username: `slepa2-${RUN}`, name: "S" } });
     const deskBefore = await userOf(desk.userId);
     // C6 is blinded inside the transaction, so the users UPDATE itself hits users_email_key.
+    const blindReads = { count: 0 };
     const blinded = new Proxy(prisma, {
       get(target, prop, receiver) {
         if (prop !== "$transaction") return Reflect.get(target, prop, receiver);
@@ -648,7 +862,10 @@ describe("U29d desk-only conversion on a real database (D2, C9)", () => {
                   if (txProp !== "user" && txProp !== "secondaryEmail") return model;
                   return new Proxy(model as object, {
                     get(m, op, r) {
-                      if (op === "findFirst") return async () => null;
+                      // C6 reads with findMany since SPEC-2 (findFirst kept blind too); counted, so the test
+                      // fails if the blinding no longer reaches C6.
+                      if (op === "findFirst") return async () => (blindReads.count++, null);
+                      if (op === "findMany") return async () => (blindReads.count++, []);
                       return Reflect.get(m, op, r);
                     },
                   });
@@ -667,6 +884,7 @@ describe("U29d desk-only conversion on a real database (D2, C9)", () => {
         )
       )
     ).toBe("email_has_login");
+    expect(blindReads.count).toBeGreaterThan(0);
     expect(await userOf(desk.userId)).toEqual(deskBefore);
     expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(0);
     expect(await readInviteForAcceptPage(prisma, desk.token, NOW)).toMatchObject({

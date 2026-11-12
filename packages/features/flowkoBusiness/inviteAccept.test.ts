@@ -23,6 +23,7 @@ import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { acceptInvite, readInviteForAcceptPage } from "./inviteAccept";
 import { createInvite, type InviteDeps, type InviteMailArgs } from "./invites";
+import { lockMember, unlockMember } from "./lock";
 import { readUsualWeek } from "./roster";
 import { listWorkers } from "./workers";
 
@@ -161,27 +162,62 @@ async function counts() {
 
 // prismock never matches an object filter on User.email / SecondaryEmail.email (single-column @@unique, its
 // composite-key branch), so `{ equals, mode: "insensitive" }` finds nothing there. This shim answers exactly that
-// query shape case-insensitively (as Postgres does); every other findFirst passes through (invites.test.ts ruling 1).
+// query shape (findFirst and findMany) as Postgres's ILIKE does; every other call passes through (invites.test.ts
+// ruling 1).
 // The real query runs on Postgres in inviteAccept.integration-test.ts.
 function insensitiveEmailShim() {
   for (const model of [prismock.user, prismock.secondaryEmail] as unknown as Array<{
     findFirst: (args?: { where?: Record<string, unknown> }) => Promise<unknown>;
-    findMany: (args?: { where?: Record<string, unknown> }) => Promise<Array<{ id: number; email: string }>>;
+    findMany: (args?: {
+      where?: Record<string, unknown>;
+      select?: Record<string, boolean>;
+    }) => Promise<Array<Record<string, unknown> & { id: number; email: string }>>;
   }>) {
-    const original = model.findFirst.bind(model);
-    vi.spyOn(model, "findFirst").mockImplementation(async (args) => {
-      const filter = args?.where?.email as { equals?: unknown; mode?: unknown } | undefined;
+    const originalFirst = model.findFirst.bind(model);
+    const originalMany = model.findMany.bind(model);
+    // Postgres compiles `{ equals, mode: "insensitive" }` to `ILIKE $1` with the value unescaped (SPEC-2): `_` is
+    // any one character, `%` any run, `\` escapes. The shim matches the same way, so a unit case sees the wildcard.
+    const literal = (c: string) => c.replace(/[.*+?^$|()[\]{}\\]/g, "\\$&");
+    const ilike = (pattern: string) => {
+      const source = pattern.replace(
+        /\\(.)|([_%])|([^\\_%])/g,
+        (_m, escaped?: string, wild?: string, plain?: string) =>
+          wild === "_" ? "." : wild === "%" ? ".*" : literal(escaped ?? plain ?? "")
+      );
+      return new RegExp(`^${source}$`, "i");
+    };
+    const matches = async (where: Record<string, unknown> | undefined) => {
+      const filter = where?.email as { equals?: unknown; mode?: unknown } | undefined;
       if (
         !filter ||
         typeof filter !== "object" ||
         filter.mode !== "insensitive" ||
         typeof filter.equals !== "string"
       )
-        return original(args);
-      const { email: _email, ...rest } = args?.where ?? {};
-      const wanted = filter.equals.toLowerCase();
-      const hit = (await model.findMany({ where: rest })).find((row) => row.email.toLowerCase() === wanted);
-      return hit ? { id: hit.id } : null;
+        return null;
+      const { email: _email, ...rest } = where ?? {};
+      const pattern = ilike(filter.equals);
+      return (await originalMany({ where: rest })).filter((row) => pattern.test(row.email));
+    };
+    const picked = (row: Record<string, unknown>, select?: Record<string, boolean>) =>
+      select
+        ? Object.fromEntries(
+            Object.keys(select)
+              .filter((k) => select[k])
+              .map((k) => [k, row[k]])
+          )
+        : row;
+    vi.spyOn(model, "findFirst").mockImplementation(async (args) => {
+      const hits = await matches(args?.where);
+      if (hits === null) return originalFirst(args);
+      return hits[0] ? { id: hits[0].id } : null;
+    });
+    vi.spyOn(model, "findMany").mockImplementation(async (args) => {
+      const hits = await matches(args?.where);
+      if (hits === null) return originalMany(args);
+      return hits.map((row) => picked(row, args?.select)) as Array<
+        Record<string, unknown> & { id: number; email: string }
+      >;
     });
   }
 }
@@ -694,6 +730,25 @@ describe("acceptInvite, a desk-only member's conversion (D2, C9)", () => {
       bookings: await prismock.booking.findMany({ where: { userId: f.deskUsers.mojca } }),
     };
   }
+
+  it("I10 (SPEC-3): the owner's lock kills the open invite and an unlock revives it; the invite row never changes", async () => {
+    const { token, inviteId } = await inviteMojca();
+    const row = () => prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: inviteId } });
+    const before = await row();
+    const disconnectGoogle = vi.fn(async () => "none" as const);
+    await lockMember({ db, disconnectGoogle }, f.users.olga, f.members.mojca, NOW);
+    expect(disconnectGoogle).not.toHaveBeenCalled();
+    expect((await userRow(f.deskUsers.mojca)).locked).toBe(false);
+    expect(await readInviteForAcceptPage(db, token, NOW)).toEqual({ state: "invalid" });
+    expect(await row()).toEqual(before);
+    await unlockMember(db, f.users.olga, f.members.mojca, NOW);
+    expect(await readInviteForAcceptPage(db, token, NOW)).toMatchObject({ state: "open", kind: "member" });
+    expect(await row()).toEqual(before);
+    expect(
+      await acceptInvite({ db, hashPassword: hasher() }, { token, name: "Mojca", password: PASSWORD }, NOW)
+    ).toEqual({ status: "accepted", email: "mojca@example.si" });
+    expect((await row()).usedAt).toEqual(NOW);
+  });
 
   it("turns the same member and the same user into a login; the member row and its column data are untouched", async () => {
     await giveMojcaData();

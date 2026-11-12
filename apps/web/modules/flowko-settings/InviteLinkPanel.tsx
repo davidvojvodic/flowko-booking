@@ -4,7 +4,8 @@
 // disabled, which a phone cannot select), „Kopiraj povezavo“ (a fresh click writes the clipboard; a refusal says so
 // and selects the field), the once-only line, the C10 hint (brand-new WORKER: the owner's usual week; desk-only
 // worker: everything stays; STAFF: none) and „Zapri“. The link lives only in the caller's state: closing the panel
-// or leaving the page drops it, it is never logged and never auto-copied. The title takes the focus on open.
+// or leaving the page drops it, it is never logged and never auto-copied. The title takes the focus on open and is
+// described by the lines, so a screen reader hears „not sent, copy the link“ too (U29d UI-5).
 "use client";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -30,6 +31,7 @@ export function InviteLinkPanel(props: { panel: InvitePanelData; onClose: () => 
   const { t } = useLocale();
   const titleId = useId();
   const fieldId = useId();
+  const linesId = useId();
   const titleRef = useRef<HTMLHeadingElement>(null);
   const fieldRef = useRef<HTMLInputElement>(null);
   const { panel } = props;
@@ -57,10 +59,12 @@ export function InviteLinkPanel(props: { panel: InvitePanelData; onClose: () => 
         id={titleId}
         ref={titleRef}
         tabIndex={-1}
+        // UI-5: the title takes the focus, so it carries the lines (mail sent / not sent) as its description.
+        aria-describedby={linesId}
         className="text-emphasis break-words text-base font-semibold focus:outline-none">
         {t("flowko_invite_panel_title", { name: panel.name, interpolation: { escapeValue: false } })}
       </h2>
-      <div className="mt-3 flex flex-col gap-2">
+      <div id={linesId} className="mt-3 flex flex-col gap-2">
         {panel.lines.map((line) =>
           line.tone === "warning" ? (
             <Alert key={line.text} severity="warning" title={line.text} />

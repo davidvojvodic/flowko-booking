@@ -522,6 +522,14 @@ describe("Invites: the invite form (U2)", () => {
     ).toBeInTheDocument();
     expect(within(panel()).queryByText(/je poslano na/)).toBeNull();
     expect(linkField().value).toBe(LINK);
+    // UI-5: the focused title carries the lines as its description, so a screen reader hears the warning.
+    const title = within(panel()).getByRole("heading", { name: "Povabilo: Hana" });
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(title).toHaveAccessibleDescription(
+      expect.stringContaining(
+        "Povabila po e-pošti ni bilo mogoče poslati. Kopirajte povezavo in jo pošljite sami."
+      )
+    );
   });
 
   it("a second click while the invite runs sends once", async () => {

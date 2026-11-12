@@ -65,6 +65,9 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
   const [formError, setFormError] = useState<FormError | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  // UI-3: the server HTML's submit stays disabled until hydration, so a tap or Enter before it never submits natively.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const busy = useRef(false);
   const csrf = useRef("");
   const [csrfRound, refreshCsrf] = useReducer((n: number) => n + 1, 0);
@@ -220,6 +223,8 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
       <FormProvider {...form}>
         <form
           className="stack-y-6"
+          // UI-3: never a native GET (the password would land in the URL, the history and the edge log).
+          method="post"
           noValidate
           data-testid="flowko-invite-accept-form"
           onSubmit={(event) => {
@@ -280,7 +285,7 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
             type="submit"
             color="primary"
             loading={submitting}
-            disabled={submitting}
+            disabled={!mounted || submitting}
             className="w-full justify-center">
             {t("flowko_invite_accept_submit")}
           </Button>

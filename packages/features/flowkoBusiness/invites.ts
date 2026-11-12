@@ -70,22 +70,29 @@ type Minted = {
   business: { name: string; email: string | null; timeZone: string };
 };
 
-/** C6 (I4): a user with this e-mail (case-insensitive, locked users included) or a secondary e-mail with it. */
+/**
+ * C6 (I4): a user with this e-mail (case-insensitive, locked users included) or a secondary e-mail with it.
+ * `mode: "insensitive"` compiles to `ILIKE` with the value unescaped, so `_` and `%` in an address would be
+ * wildcards (U29d SPEC-2: a false email_has_login and a cross-tenant oracle on other users' addresses). The query
+ * only narrows; the answer is an exact lower-case compare here. No `take`: a cut could drop the exact match.
+ */
 export async function emailHasFlowkoLogin(tx: Tx, email: string): Promise<boolean> {
-  const user = await tx.user.findFirst({
+  const wanted = email.toLowerCase();
+  const exact = (rows: Array<{ email: string }>) => rows.some((row) => row.email.toLowerCase() === wanted);
+  const users = await tx.user.findMany({
     // `locked` in the where opts out of Cal's excludeLockedUsers extension (nameSpace.ts pattern).
     where: {
       email: { equals: email, mode: "insensitive" },
       OR: [{ locked: false }, { locked: true }],
     },
-    select: { id: true },
+    select: { email: true },
   });
-  if (user) return true;
-  const secondary = await tx.secondaryEmail.findFirst({
+  if (exact(users)) return true;
+  const secondary = await tx.secondaryEmail.findMany({
     where: { email: { equals: email, mode: "insensitive" } },
-    select: { id: true },
+    select: { email: true },
   });
-  return secondary !== null;
+  return exact(secondary);
 }
 
 const USERS_EMAIL_INDEX = "users_email_key";
@@ -345,8 +352,17 @@ export async function createInvite(
   return answerFor(minted, link, mail);
 }
 
-/** Locks an open invite of the actor's business for a change (resend, new link, revoke). */
+/**
+ * Locks an open invite of the actor's business for a change (resend, new link, revoke). The business is checked on
+ * an unlocked read first (lock.ts managedMemberOrThrow pattern), so a foreign or missing id is `forbidden` before any
+ * row lock; the locked re-read keeps the check (businessId never changes) and decides used / revoked.
+ */
 async function lockedInviteOrThrow(tx: Tx, businessId: number, inviteId: number) {
+  const owner = await tx.flowkoBusinessInvite.findUnique({
+    where: { id: inviteId },
+    select: { businessId: true },
+  });
+  if (!owner || owner.businessId !== businessId) throw new FlowkoBusinessError("forbidden");
   await tx.$executeRaw`SELECT 1 FROM "FlowkoBusinessInvite" WHERE "id" = ${inviteId} FOR UPDATE`;
   const invite = await tx.flowkoBusinessInvite.findUnique({
     where: { id: inviteId },

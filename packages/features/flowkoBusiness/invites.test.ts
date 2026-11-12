@@ -168,28 +168,62 @@ function keysDeep(value: unknown, out: Set<string> = new Set()): Set<string> {
 
 // prismock treats an object filter on a field with a single-column @@unique (User.email, SecondaryEmail.email) as a
 // composite-key lookup and never matches it (`match.js` uniqueFields branch), so `{ equals, mode: "insensitive" }`
-// finds nothing there. This shim answers exactly that query shape the way Postgres does (case-insensitive equality,
-// the rest of the where unchanged); every other findFirst passes through. The real query runs on Postgres in
+// finds nothing there. This shim answers exactly that query shape (findFirst and findMany) the way Postgres does
+// (ILIKE, the rest of the where unchanged); every other call passes through. The real query runs on Postgres in
 // invites.integration-test.ts ("C6 on Postgres").
 function insensitiveEmailShim() {
   for (const model of [prismock.user, prismock.secondaryEmail] as unknown as Array<{
     findFirst: (args?: { where?: Record<string, unknown> }) => Promise<unknown>;
-    findMany: (args?: { where?: Record<string, unknown> }) => Promise<Array<{ id: number; email: string }>>;
+    findMany: (args?: {
+      where?: Record<string, unknown>;
+      select?: Record<string, boolean>;
+    }) => Promise<Array<Record<string, unknown> & { id: number; email: string }>>;
   }>) {
-    const original = model.findFirst.bind(model);
-    vi.spyOn(model, "findFirst").mockImplementation(async (args) => {
-      const filter = args?.where?.email as { equals?: unknown; mode?: unknown } | undefined;
+    const originalFirst = model.findFirst.bind(model);
+    const originalMany = model.findMany.bind(model);
+    // Postgres compiles `{ equals, mode: "insensitive" }` to `ILIKE $1` with the value unescaped (SPEC-2): `_` is
+    // any one character, `%` any run, `\` escapes. The shim matches the same way, so a unit case sees the wildcard.
+    const literal = (c: string) => c.replace(/[.*+?^$|()[\]{}\\]/g, "\\$&");
+    const ilike = (pattern: string) => {
+      const source = pattern.replace(
+        /\\(.)|([_%])|([^\\_%])/g,
+        (_m, escaped?: string, wild?: string, plain?: string) =>
+          wild === "_" ? "." : wild === "%" ? ".*" : literal(escaped ?? plain ?? "")
+      );
+      return new RegExp(`^${source}$`, "i");
+    };
+    const matches = async (where: Record<string, unknown> | undefined) => {
+      const filter = where?.email as { equals?: unknown; mode?: unknown } | undefined;
       if (
         !filter ||
         typeof filter !== "object" ||
         filter.mode !== "insensitive" ||
         typeof filter.equals !== "string"
       )
-        return original(args);
-      const { email: _email, ...rest } = args?.where ?? {};
-      const wanted = filter.equals.toLowerCase();
-      const hit = (await model.findMany({ where: rest })).find((row) => row.email.toLowerCase() === wanted);
-      return hit ? { id: hit.id } : null;
+        return null;
+      const { email: _email, ...rest } = where ?? {};
+      const pattern = ilike(filter.equals);
+      return (await originalMany({ where: rest })).filter((row) => pattern.test(row.email));
+    };
+    const picked = (row: Record<string, unknown>, select?: Record<string, boolean>) =>
+      select
+        ? Object.fromEntries(
+            Object.keys(select)
+              .filter((k) => select[k])
+              .map((k) => [k, row[k]])
+          )
+        : row;
+    vi.spyOn(model, "findFirst").mockImplementation(async (args) => {
+      const hits = await matches(args?.where);
+      if (hits === null) return originalFirst(args);
+      return hits[0] ? { id: hits[0].id } : null;
+    });
+    vi.spyOn(model, "findMany").mockImplementation(async (args) => {
+      const hits = await matches(args?.where);
+      if (hits === null) return originalMany(args);
+      return hits.map((row) => picked(row, args?.select)) as Array<
+        Record<string, unknown> & { id: number; email: string }
+      >;
     });
   }
 }
@@ -405,6 +439,24 @@ describe("createInvite, a brand-new person (I3)", () => {
     expect(await emailHasFlowkoLogin(tx, "second@example.si")).toBe(true);
     expect(await emailHasFlowkoLogin(tx, "david+u29d-a@example.si")).toBe(false);
     expect(await emailHasFlowkoLogin(tx, "nobody@example.si")).toBe(false);
+  });
+
+  it("SPEC-2: `_` and `%` in the address are literal characters, never ILIKE wildcards", async () => {
+    const userId = await makeUser("Wild");
+    await prismock.user.update({ where: { id: userId }, data: { email: "anaxb@x.si" } });
+    await prismock.secondaryEmail.create({ data: { userId, email: "bojanxbx@x.si" } });
+    const tx = prismock as unknown as Prisma.TransactionClient;
+    expect(await emailHasFlowkoLogin(tx, "ana_b@x.si")).toBe(false);
+    expect(await emailHasFlowkoLogin(tx, "a%@x.si")).toBe(false);
+    expect(await emailHasFlowkoLogin(tx, "bojan_b_@x.si")).toBe(false);
+    expect(await emailHasFlowkoLogin(tx, "____b@x.si")).toBe(false);
+    const { deps } = mailer();
+    expect(await codeOf(createInvite(deps, f.users.olga, { ...newAna, email: "ana_b@x.si" }, NOW))).toBe(
+      "ok"
+    );
+    await prismock.user.update({ where: { id: userId }, data: { email: "ANA_B@X.SI" } });
+    expect(await emailHasFlowkoLogin(tx, "ana_b@x.si")).toBe(true);
+    expect(await emailHasFlowkoLogin(tx, "anaxb@x.si")).toBe(false);
   });
 
   it("refuses a name used by any member (case and space variants) as member_name_taken; empty / 81 chars bad_member", async () => {
@@ -815,6 +867,37 @@ describe("resendInvite and new link (I6)", () => {
     const first = await createInvite(deps, f.users.olga, newAna, NOW);
     const answer = await resendInvite(deps, f.users.olga, { inviteId: first.inviteId, sendMail: true }, NOW);
     expect(answer.mail).toBe("not_sent");
+  });
+});
+
+// U29d RIGHTS-2: the businessId check runs on an unlocked read before the invite row lock (lock.ts pattern), so an
+// owner can never row-lock another business's invite, not even for the milliseconds before `forbidden`.
+describe("resend and revoke take no lock on a foreign or missing invite (RIGHTS-2)", () => {
+  const sqlOf = (call: unknown[]) => (call[0] as unknown as TemplateStringsArray).join("?");
+
+  it("a foreign or missing invite is forbidden and $executeRaw is never called; an own one takes the row lock", async () => {
+    const { deps } = mailer();
+    const foreign = await createInvite(deps, f.users.zala, newAna, NOW);
+    const executeRaw = vi.spyOn(prismock, "$executeRaw");
+    for (const inviteId of [foreign.inviteId, 999_999]) {
+      expect(await codeOf(resendInvite(deps, f.users.olga, { inviteId, sendMail: true }, NOW))).toBe(
+        "forbidden"
+      );
+      expect(await codeOf(resendInvite(deps, f.users.olga, { inviteId, sendMail: false }, NOW))).toBe(
+        "forbidden"
+      );
+      expect(await codeOf(revokeInvite(db, f.users.olga, { inviteId }, NOW))).toBe("forbidden");
+    }
+    expect(executeRaw).not.toHaveBeenCalled();
+
+    const own = await createInvite(deps, f.users.olga, newAna, NOW);
+    executeRaw.mockClear();
+    await revokeInvite(db, f.users.olga, { inviteId: own.inviteId }, NOW);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(sqlOf(executeRaw.mock.calls[0])).toMatch(
+      /SELECT 1 FROM "FlowkoBusinessInvite" WHERE "id" = \? FOR UPDATE/
+    );
+    expect(executeRaw.mock.calls[0][1]).toBe(own.inviteId);
   });
 });
 

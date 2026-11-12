@@ -6,6 +6,7 @@
 // matcher that maps them (outside the transaction); create vs addDeskWorker with one name under the business row
 // lock (a pending invite does not reserve its name, Open 7); C6 case-insensitive with a locked user and a
 // secondary e-mail. Runs only with VITEST_MODE=integration against the throwaway DB.
+// Flowko U29d final review SPEC-2: `_` in an address is no ILIKE wildcard at create and resend.
 import prisma from "@calcom/prisma";
 import type { MailSendOutcome } from "@calcom/emails/templates/_base-email";
 import { Prisma } from "@calcom/prisma/client";
@@ -539,6 +540,49 @@ describe("U29d invite service on a real database", () => {
         },
       })
     ).toBe(0);
+  });
+
+  it("SPEC-2 on Postgres: `_` in an address is no ILIKE wildcard at create and resend; another case of it is a login", async () => {
+    const { deps, sendInvite } = mailer();
+    await realUser("Anaxb", email("anaxb"));
+    // ana_b- / ____b- would match anaxb- as ILIKE patterns: neither has a login.
+    for (const address of [email("ana_b"), email("____b")]) {
+      expect(
+        await codeOf(
+          createInvite(
+            deps,
+            a.owner,
+            { kind: "new", name: address.slice(0, 5), email: address, role: "WORKER" },
+            NOW
+          )
+        )
+      ).toBe("ok");
+    }
+    expect(sendInvite).toHaveBeenCalledTimes(2);
+    // The exact address in upper case (a user) and in mixed case (a secondary e-mail) is a login.
+    await realUser("Anac", email("ANA_C"));
+    const owner2 = await realUser("Anad");
+    await prisma.secondaryEmail.create({ data: { userId: owner2, email: email("Ana_D") } });
+    for (const address of [email("ana_c"), email("ana_d")]) {
+      expect(
+        await codeOf(
+          createInvite(deps, a.owner, { kind: "new", name: "Cd", email: address, role: "WORKER" }, NOW)
+        )
+      ).toBe("email_has_login");
+    }
+    // Resend: a login that only matches as a pattern appears after the create; the resend still goes out.
+    const { inviteId } = await createInvite(
+      deps,
+      a.owner,
+      { kind: "new", name: "Anae", email: email("ana_e"), role: "WORKER" },
+      NOW
+    );
+    await realUser("Anaxe", email("anaxe"));
+    expect(await codeOf(resendInvite(deps, a.owner, { inviteId, sendMail: false }, NOW))).toBe("ok");
+    await realUser("Anae", email("ANA_E"));
+    expect(await codeOf(resendInvite(deps, a.owner, { inviteId, sendMail: false }, NOW))).toBe(
+      "email_has_login"
+    );
   });
 
   it("rights on Postgres: another business's owner is forbidden on all three, nothing written", async () => {

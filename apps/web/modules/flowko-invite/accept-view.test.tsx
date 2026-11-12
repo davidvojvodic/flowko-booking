@@ -7,6 +7,7 @@
 import { WEBAPP_URL, WEBSITE_PRIVACY_POLICY_URL } from "@calcom/lib/constants";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localeT } from "../flowko-settings/settings.fixture";
 import AcceptView from "./accept-view";
@@ -55,9 +56,9 @@ function fakeFetch(url: string, init?: RequestInit) {
 const csrfCalls = () => calls.filter((c) => c.url === "/api/csrf").length;
 const posts = () => calls.filter((c) => c.url === "/api/flowko/pridruzi");
 
-function renderView() {
+function view() {
   // the root layout provides the TooltipProvider Cal's PasswordField needs
-  return render(
+  return (
     <TooltipProvider>
       <AcceptView
         token={TOKEN}
@@ -68,6 +69,10 @@ function renderView() {
       />
     </TooltipProvider>
   );
+}
+
+function renderView() {
+  return render(view());
 }
 
 const passwordInput = () => screen.getByLabelText("Geslo") as HTMLInputElement;
@@ -127,6 +132,19 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(passwordInput().getAttribute("autocomplete")).toBe("new-password");
+  });
+
+  it("UI-3: the server HTML posts natively (never a GET with the password) and its submit is disabled until hydration", async () => {
+    const html = renderToString(view());
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const form = doc.querySelector('[data-testid="flowko-invite-accept-form"]') as HTMLFormElement;
+    expect(form.getAttribute("method")).toBe("post");
+    const button = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    // After the mount (hydration) the button is enabled.
+    await ready();
+    expect((screen.getByRole("button", { name: "Pridruži se" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("fetches a CSRF token on mount, without the browser cache", async () => {
