@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import BaseEmail, { MailTransportError } from "./_base-email";
+// Flowko U29d: the invite mail's outcomes
+import FlowkoInviteEmail from "./flowko-invite-email";
 
 const { sentPayloads, sendMailError, killSwitch } = vi.hoisted(() => ({
   sentPayloads: [] as Record<string, unknown>[],
@@ -685,5 +687,74 @@ describe("MailTransportError.definitelyNotSent", () => {
       expect(logged).not.toContain("booker@example.si");
       consoleErrorSpy.mockRestore();
     }
+  });
+});
+
+// Flowko U29d Task 6 (E2): the invite mail reports what really happened, through the real template. The service
+// (Task 2) maps all three results below to `mail: "not_sent"`; only "sent" counts as sent.
+describe("FlowkoInviteEmail outcomes", () => {
+  const args = {
+    to: "ana@example.si",
+    name: "Ana",
+    businessName: "Frizerstvo & Co",
+    replyTo: "info@frizerstvo-co.si",
+    link: "https://booking.example.com/auth/pridruzi/TOKEN",
+    expiresDate: "pon., 23. 11. 2026",
+    expiresTime: "08:07",
+  };
+
+  beforeEach(() => {
+    sentPayloads.length = 0;
+    sendMailError.current = null;
+    killSwitch.current = false;
+    vi.stubEnv("INTEGRATION_TEST_MODE", "false");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("resolves to sent when the mail server accepts, with Reply-To and the raw business name", async () => {
+    await expect(new FlowkoInviteEmail(args).sendEmailOrThrow()).resolves.toBe("sent");
+    expect(sentPayloads).toHaveLength(1);
+    expect(sentPayloads[0]).toMatchObject({
+      to: [{ name: "", address: "ana@example.si" }],
+      replyTo: [{ name: "", address: "info@frizerstvo-co.si" }],
+    });
+    expect((sentPayloads[0].from as { name: string }).name).toBe("Frizerstvo & Co");
+  });
+
+  it("resolves to skipped_kill_switch and sends nothing when the kill switch is on", async () => {
+    killSwitch.current = true;
+
+    await expect(new FlowkoInviteEmail(args).sendEmailOrThrow()).resolves.toBe("skipped_kill_switch");
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("resolves to skipped_locked and sends nothing when the recipient belongs to a locked user", async () => {
+    lockedLookup.addresses.mockResolvedValue(new Set(["ana@example.si"]));
+
+    await expect(new FlowkoInviteEmail(args).sendEmailOrThrow()).resolves.toBe("skipped_locked");
+    expect(sentPayloads).toHaveLength(0);
+  });
+
+  it("rethrows a MailTransportError that names neither the address nor the token", async () => {
+    sendMailError.current = Object.assign(
+      new Error("Can't send mail - all recipients were rejected: 550 5.1.1 <ana@example.si>: no user"),
+      { code: "EENVELOPE", responseCode: 550, command: "RCPT TO", rejected: ["ana@example.si"] }
+    );
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const error = await new FlowkoInviteEmail(args).sendEmailOrThrow().then(
+      () => null,
+      (e: unknown) => e
+    );
+    const logged = JSON.stringify(consoleErrorSpy.mock.calls);
+
+    expect(error).toBeInstanceOf(MailTransportError);
+    expect((error as MailTransportError).message).not.toContain("ana@example.si");
+    expect(logged).not.toContain("ana@example.si");
+    expect(logged).not.toContain("TOKEN");
   });
 });

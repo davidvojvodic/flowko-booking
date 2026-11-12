@@ -5294,5 +5294,12 @@
   "flowko_workers_error_forbidden": "You are not allowed to do this.",
   "flowko_workers_error_owner_cannot_be_locked": "The owner cannot be locked.",
   "flowko_workers_error_member_not_locked": "This person is not locked. The list is refreshed.",
-  "flowko_workers_error_member_conflict": "Someone else was changing this at the same time. Try again."
+  "flowko_workers_error_member_conflict": "Someone else was changing this at the same time. Try again.",
+  "flowko_invite_mail_subject": "Invitation to {{businessName}}",
+  "flowko_invite_mail_intro": "{{businessName}} invites you to join its calendar in Flowko.",
+  "flowko_invite_mail_cta": "Accept invite",
+  "flowko_invite_mail_expiry": "The link is valid until {{date}} at {{time}} and works only once.",
+  "flowko_invite_mail_link_text": "If the button does not work, open this link: {{link}}",
+  "flowko_invite_mail_ignore": "If you did not expect this invite, ignore this message.",
+  "flowko_invite_mail_reply": "You can reply to this message; the reply goes to the salon."
 }

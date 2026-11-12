@@ -5374,5 +5374,12 @@
   "flowko_workers_error_forbidden": "Za to nimate dovoljenja.",
   "flowko_workers_error_owner_cannot_be_locked": "Lastnika ni mogoče zakleniti.",
   "flowko_workers_error_member_not_locked": "Ta oseba ni zaklenjena. Seznam je osvežen.",
-  "flowko_workers_error_member_conflict": "Hkrati je shranjeval še nekdo. Poskusite znova."
+  "flowko_workers_error_member_conflict": "Hkrati je shranjeval še nekdo. Poskusite znova.",
+  "flowko_invite_mail_subject": "Povabilo v salon {{businessName}}",
+  "flowko_invite_mail_intro": "Salon {{businessName}} vas vabi, da se pridružite njegovemu koledarju v aplikaciji Flowko.",
+  "flowko_invite_mail_cta": "Sprejmi povabilo",
+  "flowko_invite_mail_expiry": "Povezava velja do {{date}} ob {{time}} in deluje samo enkrat.",
+  "flowko_invite_mail_link_text": "Če gumb ne deluje, odprite to povezavo: {{link}}",
+  "flowko_invite_mail_ignore": "Če povabila ne pričakujete, sporočilo prezrite.",
+  "flowko_invite_mail_reply": "Na to sporočilo lahko odgovorite; odgovor prejme salon."
 }
