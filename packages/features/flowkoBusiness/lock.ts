@@ -132,8 +132,12 @@ async function managedMemberOrThrow(
   });
   // A missing member answers like another business's one (same FORBIDDEN).
   if (!member || member.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
-  // Flowko U29c: a login member as setMemberLock defines it (a user with a non-desk e-mail); a member's user and
-  // a desk user's placeholder e-mail never change, so this pre-transaction read stays true.
+  // Flowko U29c: a login member as setMemberLock defines it (a user with a non-desk e-mail); a member's user never
+  // changes. Flowko U29d (D4): a desk user's placeholder e-mail changes once, when the worker accepts an invite
+  // (inviteAccept.ts, under the worker advisory lock and the member row lock, as lock/unlock take them). So this
+  // pre-transaction read can be stale: setMemberLock re-reads inside the transaction and sets User.locked right; only
+  // the Google disconnect after it is skipped for a conversion that commits in between (harmless: a just-converted
+  // login has no Google grants yet).
   const loginMember = member.userId !== null && member.user !== null && !isFlowkoDeskEmail(member.user.email);
   return { id: member.id, userId: member.userId, loginMember };
 }

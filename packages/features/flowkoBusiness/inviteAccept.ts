@@ -8,8 +8,12 @@
 // invite is used. A users e-mail unique violation aborts the Postgres transaction, so it is mapped after it
 // (email_has_login). Never a Team, Membership, Profile, Host, Schedule, Credential or VerificationToken row; never
 // Cal's UserCreationService or signup token path. The raw token never leaves this module (only its hash is read).
-// The desk-only conversion (an invite with a member, D2) comes with U29d Task 4; until then it is refused as
-// invite_invalid. Server only.
+// Flowko U29d (D2, C9): an invite with a member converts that desk-only worker in place: invite row FOR UPDATE ->
+// the worker's advisory lock (the booking writer's) -> member row FOR NO KEY UPDATE (never the business row) ->
+// re-read -> C6 -> the SAME user row gets the real e-mail, the name, the password and the login fields. The member
+// row is not written (label, position, usual week, created date stay) and nothing that hangs on the member or user
+// id moves (roster, absences, services, mirror, bookings). This is the one Flowko writer that replaces a desk
+// placeholder e-mail (deskEmailGuard.ts stays unchanged; source pin inviteAccept.guard.test.ts). Server only.
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 import { usualWeekForCopy } from "@calcom/lib/flowkoBusiness/roster";
 import type { PrismaClient } from "@calcom/prisma";
@@ -20,6 +24,7 @@ import { FlowkoBusinessError } from "./errors";
 import { hashInviteToken, isInviteTokenShape } from "./inviteToken";
 import { emailHasFlowkoLogin, inviteUniqueConflictCode } from "./invites";
 import { memberTx } from "./memberTx";
+import { lockWorkerAdvisory } from "./workerLock";
 import { lockBusinessRow, nameKey } from "./workers";
 
 type Tx = Prisma.TransactionClient;
@@ -38,6 +43,35 @@ const isOpen = (invite: OpenFields, now: Date): boolean =>
   invite.usedAt === null && invite.revokedAt === null && invite.expiresAt.getTime() > now.getTime();
 
 const invalid = () => new FlowkoBusinessError("invite_invalid");
+
+type DeskMemberFields = {
+  businessId: number;
+  role: FlowkoBusinessRole;
+  status: FlowkoMemberStatus;
+  user: { email: string; locked: boolean } | null;
+};
+
+/**
+ * Flowko U29d (D2): a member invite is usable only while its member is an ACTIVE WORKER of the invite's business
+ * whose user is unlocked and still on the desk placeholder (not yet converted). The page, the pre-read and the
+ * re-read under the locks share this rule.
+ */
+const isConvertibleMember = (member: DeskMemberFields | null, businessId: number): boolean =>
+  member !== null &&
+  member.businessId === businessId &&
+  member.role === FlowkoBusinessRole.WORKER &&
+  member.status === FlowkoMemberStatus.ACTIVE &&
+  member.user !== null &&
+  !member.user.locked &&
+  isFlowkoDeskEmail(member.user.email);
+
+/** The member fields isConvertibleMember reads (the user through the relation: no excludeLockedUsers). */
+const DESK_MEMBER_SELECT = {
+  businessId: true,
+  role: true,
+  status: true,
+  user: { select: { email: true, locked: true } },
+} as const;
 
 /**
  * A1 (loader): side-effect free. Answers exactly `{ state: "invalid" }` (no other key) for a malformed or unknown
@@ -62,29 +96,12 @@ export async function readInviteForAcceptPage(
       revokedAt: true,
       expiresAt: true,
       business: { select: { name: true } },
-      member: {
-        select: {
-          businessId: true,
-          role: true,
-          status: true,
-          user: { select: { email: true, locked: true } },
-        },
-      },
+      member: { select: DESK_MEMBER_SELECT },
     },
   });
   if (!invite || !invite.business || !isOpen(invite, now)) return { state: "invalid" };
-  if (invite.memberId !== null) {
-    const member = invite.member;
-    if (
-      !member ||
-      member.businessId !== invite.businessId ||
-      member.role !== FlowkoBusinessRole.WORKER ||
-      member.status !== FlowkoMemberStatus.ACTIVE ||
-      !member.user ||
-      member.user.locked ||
-      !isFlowkoDeskEmail(member.user.email)
-    )
-      return { state: "invalid" };
+  if (invite.memberId !== null && !isConvertibleMember(invite.member, invite.businessId)) {
+    return { state: "invalid" };
   }
   return {
     state: "open",
@@ -201,11 +218,98 @@ async function acceptBrandNew(
 }
 
 /**
+ * Flowko U29d (D2, C9), inside the transaction: invite row FOR UPDATE -> re-read (same business, same hash, this
+ * member, WORKER, open; else invite_invalid) -> the member's user id (a member's userId never changes) -> the
+ * worker's advisory lock (the booking writer's and lock/unlock's, so a booking or a lock of this worker finishes
+ * first) -> member row FOR NO KEY UPDATE (never the business row: the roster savers take advisory -> business) ->
+ * re-read member + user (ACTIVE WORKER of the business, user unlocked and still on the desk placeholder; else
+ * invite_invalid) -> C6 (email_has_login) -> the same user row gets the real e-mail, the name, the password
+ * (upsert) and the login fields -> the invite is used (guarded update, count 1). The member row is never written.
+ */
+async function convertDeskMember(
+  tx: Tx,
+  pre: PreRead & { memberId: number },
+  name: string,
+  passwordHash: string,
+  now: Date
+): Promise<{ status: "accepted"; email: string }> {
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusinessInvite" WHERE "id" = ${pre.id} FOR UPDATE`;
+  const invite = await tx.flowkoBusinessInvite.findUnique({
+    where: { id: pre.id },
+    select: {
+      businessId: true,
+      email: true,
+      role: true,
+      memberId: true,
+      tokenHash: true,
+      usedAt: true,
+      revokedAt: true,
+      expiresAt: true,
+    },
+  });
+  if (
+    !invite ||
+    invite.businessId !== pre.businessId ||
+    invite.tokenHash !== pre.tokenHash ||
+    invite.memberId !== pre.memberId ||
+    invite.role !== FlowkoBusinessRole.WORKER ||
+    !isOpen(invite, now)
+  )
+    throw invalid();
+
+  const target = await tx.flowkoBusinessMember.findUnique({
+    where: { id: pre.memberId },
+    select: { userId: true },
+  });
+  if (!target || target.userId === null) throw invalid();
+  const userId = target.userId;
+  await lockWorkerAdvisory(tx, userId);
+  await tx.$executeRaw`SELECT 1 FROM "FlowkoBusinessMember" WHERE "id" = ${pre.memberId} FOR NO KEY UPDATE`;
+  const member = await tx.flowkoBusinessMember.findUnique({
+    where: { id: pre.memberId },
+    select: { userId: true, ...DESK_MEMBER_SELECT },
+  });
+  if (!member || member.userId !== userId || !isConvertibleMember(member, invite.businessId)) throw invalid();
+
+  if (await emailHasFlowkoLogin(tx, invite.email)) throw new FlowkoBusinessError("email_has_login");
+
+  // C9: only the identity fields of the same user row; the placeholder e-mail is replaced here and nowhere else.
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      email: invite.email,
+      name,
+      password: { upsert: { create: { hash: passwordHash }, update: { hash: passwordHash } } },
+      // As the brand-new accept: set with the password in one write; a hand-copied link proves no mailbox.
+      emailVerified: now,
+      identityProvider: IdentityProvider.CAL,
+      identityProviderId: null,
+      completedOnboarding: true,
+    },
+    select: { id: true },
+  });
+  const used = await tx.flowkoBusinessInvite.updateMany({
+    where: {
+      id: pre.id,
+      tokenHash: pre.tokenHash,
+      usedAt: null,
+      revokedAt: null,
+      expiresAt: { gt: now },
+    },
+    data: { usedAt: now },
+  });
+  if (used.count !== 1) throw invalid();
+  return { status: "accepted", email: invite.email };
+}
+
+/**
  * A3: accepts an invite with the invitee's (editable) name and password. invite_invalid for every unusable token
  * (one code, no oracle; a dead token is answered before any bcrypt work); bad_member for a name that is empty or
  * longer than 80 characters after trim; email_has_login when the address meanwhile has a Flowko login (C6);
  * member_name_taken when the name is a member's; member_conflict for a lost lock race (retryable). The caller
  * (the public route) checks the password rules first. Answers the e-mail the new login signs in with.
+ * Flowko U29d (D2): an invite with a member converts that desk-only worker (convertDeskMember); its name is the
+ * user's name only (the column label stays, Open 8), so no member-name check applies there.
  */
 export async function acceptInvite(
   deps: AcceptDeps,
@@ -216,14 +320,24 @@ export async function acceptInvite(
   const tokenHash = hashInviteToken(input.token);
   const found = await deps.db.flowkoBusinessInvite.findUnique({
     where: { tokenHash },
-    select: { id: true, businessId: true, memberId: true, usedAt: true, revokedAt: true, expiresAt: true },
+    select: {
+      id: true,
+      businessId: true,
+      memberId: true,
+      usedAt: true,
+      revokedAt: true,
+      expiresAt: true,
+      member: { select: DESK_MEMBER_SELECT },
+    },
   });
   if (!found || !isOpen(found, now)) throw invalid();
-  // U29d Task 4 builds the desk-only conversion (D2); until then a member invite is not accepted.
-  if (found.memberId !== null) throw invalid();
+  // Flowko U29d (D2): a member invite whose member can no longer be converted is dead too (no bcrypt work).
+  if (found.memberId !== null && !isConvertibleMember(found.member, found.businessId)) throw invalid();
   const name = displayNameOrThrow(input.name);
 
   const passwordHash = await deps.hashPassword(input.password);
   const pre: PreRead = { id: found.id, businessId: found.businessId, tokenHash };
-  return acceptTx(deps.db, (tx) => acceptBrandNew(tx, pre, name, passwordHash, now));
+  const memberId = found.memberId;
+  if (memberId === null) return acceptTx(deps.db, (tx) => acceptBrandNew(tx, pre, name, passwordHash, now));
+  return acceptTx(deps.db, (tx) => convertDeskMember(tx, { ...pre, memberId }, name, passwordHash, now));
 }

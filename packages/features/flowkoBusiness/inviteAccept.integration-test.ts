@@ -6,18 +6,31 @@
 // the real adapter meta of the users e-mail violation and its mapping outside the transaction); Review Focus 6
 // (accept vs addDeskWorker vs createInvite in one business, 20 rounds -> no deadlock, positions distinct); C6 with
 // a locked mixed-case user. Runs only with VITEST_MODE=integration against the throwaway DB.
+// Flowko U29d (Task 4, D2, C9): the desk-only conversion on Postgres: Review Focus 3 (the same member and user row,
+// the member row byte-equal with its updatedAt, roster day, absence, service, mirror and booking kept, only the
+// user's identity fields changed, the BookingDenormalized trigger follows, the old booking keeps the desk
+// userPrimaryEmail); Review Focus 6 (20 rounds conversion vs lockMember and 20 rounds conversion vs a booking of
+// that worker: no deadlock, status and User.locked agree); a users e-mail violation inside the conversion mapped
+// after the rollback; a deleted member's invite is gone with it (cascade).
 import { hashPassword } from "@calcom/lib/auth/hashPassword";
+import type { ShiftEntry, WeekHours } from "@calcom/lib/flowkoBusiness/roster";
+import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import prisma from "@calcom/prisma";
 import type { MailSendOutcome } from "@calcom/emails/templates/_base-email";
 import { Prisma } from "@calcom/prisma/client";
-import { IdentityProvider } from "@calcom/prisma/enums";
+import { FlowkoMemberStatus, IdentityProvider } from "@calcom/prisma/enums";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { verifyPassword } from "../auth/lib/verifyPassword";
 import { UserRepository } from "../users/repositories/UserRepository";
-import { createBusiness } from "./business";
+import { getBusinessAccess, listMembers } from "./access";
+import { createBusinessBooking, type WriterDeps } from "./bookingWriter";
+import { createBusiness, createDeskOnlyWorker } from "./business";
+import type { GoogleDisconnect } from "./disconnectGoogle";
 import { FlowkoBusinessError } from "./errors";
 import { acceptInvite, readInviteForAcceptPage } from "./inviteAccept";
 import { createInvite, type InviteDeps, type InviteMailArgs, inviteUniqueConflictCode } from "./invites";
+import { lockMember } from "./lock";
+import { setUsualWeek } from "./roster";
 import { addDeskWorker } from "./workers";
 
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -357,5 +370,323 @@ describe("U29d brand-new accept on a real database", () => {
     });
     expect(members).toHaveLength(1 + 2 * ROUNDS);
     expect(new Set(members.map((m) => m.position)).size).toBe(members.length);
+  });
+});
+
+describe("U29d desk-only conversion on a real database (D2, C9)", () => {
+  const TZ = "Europe/Ljubljana";
+  const at = (date: string, time: string) => new Date(wallClockToMs(date, time, TZ));
+  const quiet: WriterDeps = { googleBusy: async () => ({ busy: [], unavailable: false }), sendMails: false };
+  const noGoogle = vi.fn(async (): Promise<GoogleDisconnect> => "none");
+  // 24 distinct hourly slots (Tue to Thu, 08:00 to 15:00), in the week after NOW.
+  const SLOTS = ["2026-11-17", "2026-11-18", "2026-11-19"].flatMap((date) =>
+    ["08", "09", "10", "11", "12", "13", "14", "15"].map((h) => at(date, `${h}:00`))
+  );
+  const hours: ShiftEntry[] = [{ from: "08:00", to: "16:00" }];
+  const WEEK: WeekHours = { mon: hours, tue: hours, wed: hours, thu: hours, fri: hours, sat: [], sun: [] };
+
+  let conv: { owner: number; businessId: number };
+  let mens: number;
+
+  beforeAll(async () => {
+    conv = await freshBusiness("Pret");
+    await prisma.flowkoBusiness.update({ where: { id: conv.businessId }, data: { openHolidays: [] } });
+    const service = await prisma.flowkoService.findFirstOrThrow({
+      where: { businessId: conv.businessId },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
+    mens = service.id;
+  });
+
+  /** A desk-only WORKER with a service and a usual week, and its open invite; answers the ids and the raw token. */
+  async function deskWithInvite(label: string): Promise<{ memberId: number; userId: number; token: string }> {
+    const desk = await createDeskOnlyWorker(prisma, conv.businessId, label);
+    await prisma.flowkoServiceWorker.create({ data: { serviceId: mens, memberId: desk.memberId } });
+    await setUsualWeek(prisma, conv.owner, {
+      memberId: desk.memberId,
+      usualWeek: WEEK,
+      confirmOutsideOpening: false,
+    });
+    const answer = await createInvite(
+      deps(),
+      conv.owner,
+      { kind: "member", memberId: desk.memberId, email: email(label) },
+      NOW
+    );
+    return { ...desk, token: tokenOf(answer.link) };
+  }
+
+  function book(memberId: number, start: Date) {
+    return createBusinessBooking(
+      prisma,
+      conv.owner,
+      {
+        workerMemberId: memberId,
+        serviceIds: [mens],
+        start,
+        customer: { name: "Ana Testna", phone: "041 123 456", email: null },
+        confirmOverride: false,
+      },
+      NOW,
+      quiet
+    );
+  }
+
+  /** The user row read past Cal's excludeLockedUsers. */
+  const userOf = (id: number) =>
+    prisma.user.findFirstOrThrow({ where: { id, OR: [{ locked: false }, { locked: true }] } });
+
+  async function denormEmail(bookingId: number): Promise<string | null> {
+    const rows = await prisma.$queryRaw<Array<{ userEmail: string | null }>>`
+      SELECT "userEmail" FROM "BookingDenormalized" WHERE "id" = ${bookingId}`;
+    return rows[0]?.userEmail ?? null;
+  }
+
+  /** FLOWKO.md's U25 post-deploy check: members whose lock flag differs from their user's (desk aside). */
+  async function lockDisagreements(): Promise<number> {
+    const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*) FROM "FlowkoBusinessMember" m JOIN users u ON u.id = m."userId"
+      WHERE (m.status = 'LOCKED') <> u.locked AND u.email NOT LIKE '%@flowko.invalid'`;
+    return Number(rows[0].count);
+  }
+
+  it("Review Focus 3: the same member and user; member row (updatedAt too) and its column data unchanged; identity fields only", async () => {
+    const desk = await deskWithInvite("Pretvorba");
+    const booked = await book(desk.memberId, SLOTS[0]);
+    if (booked.status !== "created") throw new Error(`booking not created: ${booked.status}`);
+    await prisma.flowkoRosterDay.create({
+      data: {
+        memberId: desk.memberId,
+        date: new Date("2026-11-25T00:00:00Z"),
+        shifts: [{ from: "09:00", to: "17:00" }],
+      },
+    });
+    await prisma.flowkoAbsence.create({
+      data: {
+        memberId: desk.memberId,
+        startDate: new Date("2026-12-01T00:00:00Z"),
+        endDate: new Date("2026-12-02T00:00:00Z"),
+      },
+    });
+    const deskUser = await userOf(desk.userId);
+    const snapshot = async () => ({
+      member: await prisma.flowkoBusinessMember.findUniqueOrThrow({ where: { id: desk.memberId } }),
+      rosterDays: await prisma.flowkoRosterDay.findMany({ where: { memberId: desk.memberId } }),
+      absences: await prisma.flowkoAbsence.findMany({ where: { memberId: desk.memberId } }),
+      services: await prisma.flowkoServiceWorker.findMany({ where: { memberId: desk.memberId } }),
+      mirror: await prisma.flowkoWorkerMirror.findUnique({ where: { memberId: desk.memberId } }),
+      bookings: await prisma.booking.findMany({
+        where: { userId: desk.userId },
+        select: { id: true, userId: true, eventTypeId: true, userPrimaryEmail: true, status: true },
+      }),
+    });
+    const before = await snapshot();
+    expect(before.mirror).not.toBeNull();
+    expect(before.bookings).toHaveLength(1);
+    expect(await denormEmail(booked.bookingId)).toBe(deskUser.email);
+    const counts = async () => ({
+      users: await prisma.user.count({ where: { OR: [{ locked: false }, { locked: true }] } }),
+      members: await prisma.flowkoBusinessMember.count(),
+      memberships: await prisma.membership.count({ where: { userId: desk.userId } }),
+      profiles: await prisma.profile.count({ where: { userId: desk.userId } }),
+    });
+    const countsBefore = await counts();
+
+    const answer = await acceptInvite(
+      { db: prisma, hashPassword },
+      { token: desk.token, name: "  Pretvorba B  ", password: PASSWORD },
+      NOW
+    );
+
+    expect(answer).toEqual({ status: "accepted", email: email("Pretvorba") });
+    // Every row on the member or user id is as it was; the member row was never written (updatedAt unchanged).
+    expect(await snapshot()).toEqual(before);
+    expect(before.member.displayName).toBe("Pretvorba");
+    expect(before.bookings[0].userPrimaryEmail).toBe(deskUser.email); // D5
+    expect(await counts()).toEqual(countsBefore);
+    // The users UPDATE fires the BookingDenormalized trigger in the same transaction.
+    expect(await denormEmail(booked.bookingId)).toBe(email("Pretvorba"));
+
+    const user = await userOf(desk.userId);
+    expect(user).toMatchObject({
+      id: desk.userId,
+      email: email("Pretvorba"),
+      name: "Pretvorba B",
+      username: null,
+      emailVerified: NOW,
+      identityProvider: IdentityProvider.CAL,
+      identityProviderId: null,
+      completedOnboarding: true,
+      locked: false,
+      // untouched: the desk-only defaults
+      timeZone: deskUser.timeZone,
+      locale: deskUser.locale,
+      timeFormat: deskUser.timeFormat,
+      weekStart: deskUser.weekStart,
+      defaultScheduleId: deskUser.defaultScheduleId,
+      createdDate: deskUser.createdDate,
+    });
+    expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(1);
+
+    // The credentials lookup finds the same user with any case, and the bcrypt hash verifies.
+    const found = await new UserRepository(prisma).findByEmailAndIncludeProfilesAndPassword({
+      email: email("Pretvorba").toUpperCase(),
+    });
+    expect(found?.id).toBe(desk.userId);
+    expect(await verifyPassword(PASSWORD, found?.password?.hash ?? "")).toBe(true);
+
+    expect(await getBusinessAccess(prisma, desk.userId)).toEqual({
+      businessId: conv.businessId,
+      memberId: desk.memberId,
+      userId: desk.userId,
+      role: "WORKER",
+    });
+    expect(
+      (await listMembers(prisma, conv.businessId)).find((m) => m.memberId === desk.memberId)
+    ).toMatchObject({
+      deskOnly: false,
+    });
+    expect(await readInviteForAcceptPage(prisma, desk.token, NOW)).toEqual({ state: "invalid" });
+    // A second invite of the now-login member is refused (not desk-only any more).
+    expect(
+      await codeOf(
+        createInvite(
+          deps(),
+          conv.owner,
+          { kind: "member", memberId: desk.memberId, email: email("Pretvorba-2") },
+          NOW
+        )
+      )
+    ).toBe("member_not_desk_only");
+  });
+
+  it(`Review Focus 6: ${ROUNDS} rounds of a conversion racing lockMember: no deadlock, status and User.locked agree`, async () => {
+    const tally = { convertedThenLocked: 0, lockedFirst: 0 };
+    for (let round = 0; round < ROUNDS; round += 1) {
+      const desk = await deskWithInvite(`Zaklep${round}`);
+      const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+      const [accepted, locked] = await Promise.all([
+        delay(round % 2 === 0 ? 0 : (round % 5) * 3).then(() =>
+          codeOf(
+            acceptInvite(
+              { db: prisma, hashPassword: fastHash },
+              { token: desk.token, name: `Zaklep${round}`, password: PASSWORD },
+              NOW
+            )
+          )
+        ),
+        delay(round % 2 === 0 ? (round % 5) * 3 : 0).then(() =>
+          codeOf(lockMember({ db: prisma, disconnectGoogle: noGoogle }, conv.owner, desk.memberId, NOW))
+        ),
+      ]);
+      expect(locked).toBe("ok");
+      expect(["ok", "invite_invalid"]).toContain(accepted);
+      const member = await prisma.flowkoBusinessMember.findUniqueOrThrow({ where: { id: desk.memberId } });
+      const user = await userOf(desk.userId);
+      expect(member.status).toBe(FlowkoMemberStatus.LOCKED);
+      if (accepted === "ok") {
+        // Converted first: the lock re-read the real e-mail inside its transaction and locked the login.
+        tally.convertedThenLocked += 1;
+        expect(user.email).toBe(email(`Zaklep${round}`));
+        expect(user.locked).toBe(true);
+      } else {
+        // Locked first: the conversion re-read LOCKED under the locks and wrote nothing.
+        tally.lockedFirst += 1;
+        expect(user.email.endsWith("@flowko.invalid")).toBe(true);
+        expect(user.locked).toBe(false);
+        expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(0);
+      }
+      expect(await lockDisagreements()).toBe(0);
+    }
+    expect(tally.convertedThenLocked + tally.lockedFirst).toBe(ROUNDS);
+  });
+
+  it(`Review Focus 6: ${ROUNDS} rounds of a conversion racing a booking of that worker: no deadlock, the booking keeps the user id`, async () => {
+    for (let round = 0; round < ROUNDS; round += 1) {
+      const desk = await deskWithInvite(`Termin${round}`);
+      const [accepted, booked] = await Promise.all([
+        codeOf(
+          acceptInvite(
+            { db: prisma, hashPassword: fastHash },
+            { token: desk.token, name: `Termin${round}`, password: PASSWORD },
+            NOW
+          )
+        ),
+        codeOf(book(desk.memberId, SLOTS[round % SLOTS.length])),
+      ]);
+      expect([accepted, booked]).toEqual(["ok", "ok"]);
+      const bookings = await prisma.booking.findMany({
+        where: { userId: desk.userId },
+        select: { id: true, eventTypeId: true },
+      });
+      expect(bookings).toHaveLength(1);
+      const mirror = await prisma.flowkoWorkerMirror.findUniqueOrThrow({
+        where: { memberId: desk.memberId },
+      });
+      expect(bookings[0].eventTypeId).toBe(mirror.eventTypeId);
+      expect((await userOf(desk.userId)).email).toBe(email(`Termin${round}`));
+      // Whichever committed first, the denormalized row ends with the real address (insert or update trigger).
+      expect(await denormEmail(bookings[0].id)).toBe(email(`Termin${round}`));
+    }
+  });
+
+  it("a users e-mail violation inside the conversion is email_has_login, mapped after the rollback; the user stays desk-only", async () => {
+    const desk = await deskWithInvite("Slepa2");
+    await prisma.user.create({ data: { email: email("Slepa2"), username: `slepa2-${RUN}`, name: "S" } });
+    const deskBefore = await userOf(desk.userId);
+    // C6 is blinded inside the transaction, so the users UPDATE itself hits users_email_key.
+    const blinded = new Proxy(prisma, {
+      get(target, prop, receiver) {
+        if (prop !== "$transaction") return Reflect.get(target, prop, receiver);
+        return (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+          target.$transaction((tx) =>
+            fn(
+              new Proxy(tx, {
+                get(txTarget, txProp, txReceiver) {
+                  const model = Reflect.get(txTarget, txProp, txReceiver);
+                  if (txProp !== "user" && txProp !== "secondaryEmail") return model;
+                  return new Proxy(model as object, {
+                    get(m, op, r) {
+                      if (op === "findFirst") return async () => null;
+                      return Reflect.get(m, op, r);
+                    },
+                  });
+                },
+              })
+            )
+          );
+      },
+    });
+    expect(
+      await codeOf(
+        acceptInvite(
+          { db: blinded as typeof prisma, hashPassword: fastHash },
+          { token: desk.token, name: "Slepa2", password: PASSWORD },
+          NOW
+        )
+      )
+    ).toBe("email_has_login");
+    expect(await userOf(desk.userId)).toEqual(deskBefore);
+    expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(0);
+    expect(await readInviteForAcceptPage(prisma, desk.token, NOW)).toMatchObject({
+      state: "open",
+      kind: "member",
+    });
+  });
+
+  it("a deleted member takes its invite with it (cascade): the link is invalid", async () => {
+    const desk = await deskWithInvite("Odsel");
+    await prisma.flowkoBusinessMember.delete({ where: { id: desk.memberId } });
+    expect(await readInviteForAcceptPage(prisma, desk.token, NOW)).toEqual({ state: "invalid" });
+    expect(
+      await codeOf(
+        acceptInvite(
+          { db: prisma, hashPassword: fastHash },
+          { token: desk.token, name: "Odsel", password: PASSWORD },
+          NOW
+        )
+      )
+    ).toBe("invite_invalid");
   });
 });

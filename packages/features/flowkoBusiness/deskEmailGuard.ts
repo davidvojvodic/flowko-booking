@@ -2,6 +2,9 @@
 // A desk-only worker's address is generated, unique and undeliverable; if it could be changed to a real one, or a
 // real user could take one, Cal's mail filters (Task 4) and the access rules would be working from wrong facts.
 // Server only. Shared by the profile, secondary-e-mail and admin-user handlers; refusal = BAD_REQUEST, no write.
+// Flowko U29d (D3/D4): a placeholder is replaced only by the invite accept (inviteAccept.ts, C9: the desk-only
+// worker's own user row gets the invited real address, once), never by a user or admin edit; these checks are
+// unchanged and that writer does not pass through them (source pin inviteAccept.guard.test.ts).
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 import { TRPCError } from "@trpc/server";
 

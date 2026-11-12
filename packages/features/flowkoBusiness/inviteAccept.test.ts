@@ -6,6 +6,9 @@
 // dead token, C6 inside the accept, the name rules, the P2002 / lock-failure mapping outside the transaction, and
 // no Team / Membership / Profile / Host / Schedule / VerificationToken row. Locks, real unique violations and
 // races: inviteAccept.integration-test.ts.
+// Flowko U29d (Task 4, D2, C9): the desk-only conversion keeps the member and user ids, the member row (no write)
+// and every row on them (roster day, absence, service, mirror, booking); only the user's identity fields change;
+// a LOCKED member, a locked user, an already converted user or a gone member is one invalid answer, without bcrypt.
 import prismock from "@calcom/testing/lib/__mocks__/prisma";
 // The prismock factory runs when @calcom/prisma is first imported; inviteAccept.ts takes `db` and never imports it.
 import "@calcom/prisma";
@@ -14,12 +17,14 @@ import type { PrismaClient } from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole, FlowkoMemberStatus, IdentityProvider } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getBusinessAccess, listMembers } from "./access";
 import { addLoginMember, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { acceptInvite, readInviteForAcceptPage } from "./inviteAccept";
 import { createInvite, type InviteDeps, type InviteMailArgs } from "./invites";
 import { readUsualWeek } from "./roster";
+import { listWorkers } from "./workers";
 
 const db = prismock as unknown as PrismaClient;
 const NOW = new Date("2026-11-16T07:07:00Z"); // Mon 08:07 in Ljubljana
@@ -54,6 +59,8 @@ type Fixture = {
   b: number;
   users: Record<"olga" | "ana" | "zala", number>;
   members: Record<"olga" | "ana" | "mojca" | "lara", number>;
+  // Flowko U29d (Task 4): the desk-only members' placeholder users (the conversion keeps these ids).
+  deskUsers: Record<"mojca" | "lara", number>;
 };
 
 async function setUp(): Promise<Fixture> {
@@ -92,6 +99,7 @@ async function setUp(): Promise<Fixture> {
       mojca: mojca.memberId,
       lara: lara.memberId,
     },
+    deskUsers: { mojca: mojca.userId, lara: lara.userId },
   };
 }
 
@@ -535,32 +543,6 @@ describe("acceptInvite, a brand-new member (A3, A4)", () => {
     });
   });
 
-  it("a desk-only member's invite is not taken by the brand-new path (invite_invalid, nothing written)", async () => {
-    const answer = await createInvite(
-      inviteDeps(),
-      f.users.olga,
-      { kind: "member", memberId: f.members.mojca, email: "mojca@example.si" },
-      NOW
-    );
-    const before = await counts();
-    const memberBefore = await prismock.flowkoBusinessMember.findUniqueOrThrow({
-      where: { id: f.members.mojca },
-    });
-    expect(
-      await codeOf(
-        acceptInvite(
-          { db, hashPassword: hasher() },
-          { token: tokenOf(answer.link), name: "Mojca", password: PASSWORD },
-          NOW
-        )
-      )
-    ).toBe("invite_invalid");
-    expect(await counts()).toEqual(before);
-    expect(await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: f.members.mojca } })).toEqual(
-      memberBefore
-    );
-  });
-
   describe("unique violations and lock failures, mapped outside the transaction", () => {
     const known = (code: string, meta: Record<string, unknown> = {}) =>
       new Prisma.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
@@ -615,5 +597,406 @@ describe("acceptInvite, a brand-new member (A3, A4)", () => {
         ).toBe("member_conflict");
       }
     });
+  });
+});
+
+describe("acceptInvite, a desk-only member's conversion (D2, C9)", () => {
+  const MEMBER_WRITES = [
+    "create",
+    "createMany",
+    "update",
+    "updateMany",
+    "upsert",
+    "delete",
+    "deleteMany",
+  ] as const;
+  function spyMemberWrites() {
+    const model = prismock.flowkoBusinessMember as unknown as Record<string, (...args: unknown[]) => unknown>;
+    return MEMBER_WRITES.map((name) => vi.spyOn(model, name));
+  }
+
+  /** An open invite of Mojca (desk-only WORKER of business A), made by the owner; answers the raw token. */
+  async function inviteMojca(mail = " Mojca@Example.SI "): Promise<{ token: string; inviteId: number }> {
+    const answer = await createInvite(
+      inviteDeps(),
+      f.users.olga,
+      { kind: "member", memberId: f.members.mojca, email: mail },
+      NOW
+    );
+    return { token: tokenOf(answer.link), inviteId: answer.inviteId };
+  }
+
+  /** The user row with its password, read past Cal's excludeLockedUsers (prismock ignores the extension). */
+  const userRow = (id: number) =>
+    prismock.user.findFirstOrThrow({
+      where: { id, OR: [{ locked: false }, { locked: true }] },
+      include: { password: true },
+    });
+
+  /** Mojca's column data: a roster day, an absence, a service, a mirror and a booking (all on her ids). */
+  async function giveMojcaData(): Promise<void> {
+    await prismock.flowkoBusinessMember.update({
+      where: { id: f.members.mojca },
+      data: { usualWeek: OWNER_WEEK },
+    });
+    await prismock.flowkoRosterDay.create({
+      data: {
+        memberId: f.members.mojca,
+        date: new Date("2026-11-25T00:00:00Z"),
+        shifts: [e("09:00", "17:00")],
+      },
+    });
+    await prismock.flowkoAbsence.create({
+      data: {
+        memberId: f.members.mojca,
+        startDate: new Date("2026-12-01T00:00:00Z"),
+        endDate: new Date("2026-12-03T00:00:00Z"),
+      },
+    });
+    const service = await prismock.flowkoService.findFirstOrThrow({ where: { businessId: f.a } });
+    await prismock.flowkoServiceWorker.create({ data: { serviceId: service.id, memberId: f.members.mojca } });
+    const schedule = await prismock.schedule.create({
+      data: { userId: f.deskUsers.mojca, name: "Mojca", timeZone: "Europe/Ljubljana" },
+    });
+    const eventType = await prismock.eventType.create({
+      data: { title: "Mojca", slug: `mojca-${seq}`, length: 30, userId: f.deskUsers.mojca, hidden: true },
+    });
+    await prismock.flowkoWorkerMirror.create({
+      data: {
+        businessId: f.a,
+        memberId: f.members.mojca,
+        eventTypeId: eventType.id,
+        scheduleId: schedule.id,
+      },
+    });
+    const desk = await userRow(f.deskUsers.mojca);
+    await prismock.booking.create({
+      data: {
+        uid: `mojca-booking-${seq}`,
+        title: "Striženje",
+        startTime: new Date("2026-11-25T09:00:00Z"),
+        endTime: new Date("2026-11-25T09:30:00Z"),
+        userId: f.deskUsers.mojca,
+        userPrimaryEmail: desk.email,
+        eventTypeId: eventType.id,
+      },
+    });
+  }
+
+  /** Everything the conversion must keep: the member row and every row that hangs on Mojca's member or user id. */
+  async function mojcaSnapshot() {
+    return {
+      member: await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: f.members.mojca } }),
+      rosterDays: await prismock.flowkoRosterDay.findMany({ where: { memberId: f.members.mojca } }),
+      absences: await prismock.flowkoAbsence.findMany({ where: { memberId: f.members.mojca } }),
+      services: await prismock.flowkoServiceWorker.findMany({ where: { memberId: f.members.mojca } }),
+      mirror: await prismock.flowkoWorkerMirror.findUnique({ where: { memberId: f.members.mojca } }),
+      bookings: await prismock.booking.findMany({ where: { userId: f.deskUsers.mojca } }),
+    };
+  }
+
+  it("turns the same member and the same user into a login; the member row and its column data are untouched", async () => {
+    await giveMojcaData();
+    const { token, inviteId } = await inviteMojca();
+    const deskEmail = (await userRow(f.deskUsers.mojca)).email;
+    const before = await mojcaSnapshot();
+    const beforeCounts = await counts();
+    const memberWrites = spyMemberWrites();
+    // The arguments are copied at call time: prismock rewrites the nested write in place.
+    const userWrites: Array<{ where: unknown; data: Record<string, unknown> }> = [];
+    const realUpdate = prismock.user.update.bind(prismock.user);
+    vi.spyOn(prismock.user, "update").mockImplementation(((args: Parameters<typeof realUpdate>[0]) => {
+      userWrites.push(structuredClone(args) as (typeof userWrites)[number]);
+      return realUpdate(args);
+    }) as never);
+    const hashPassword = hasher();
+
+    const answer = await acceptInvite(
+      { db, hashPassword },
+      { token, name: "  Mojca Novak  ", password: PASSWORD },
+      NOW
+    );
+
+    expect(answer).toEqual({ status: "accepted", email: "mojca@example.si" });
+    expect(hashPassword).toHaveBeenCalledTimes(1);
+    for (const spy of memberWrites) expect(spy).not.toHaveBeenCalled();
+    // The member row (displayName „Mojca“, position, usualWeek, createdAt, status) and every row on its ids.
+    expect(await mojcaSnapshot()).toEqual(before);
+    expect(before.rosterDays).toHaveLength(1);
+    expect(before.absences).toHaveLength(1);
+    expect(before.services).toHaveLength(1);
+    expect(before.mirror).not.toBeNull();
+    expect(before.bookings).toHaveLength(1);
+    // D5: the old booking keeps the desk address it was written with.
+    expect(before.bookings[0].userPrimaryEmail).toBe(deskEmail);
+    // No new user, no new member: only the password row is new.
+    expect(await counts()).toEqual({ ...beforeCounts, passwords: beforeCounts.passwords + 1 });
+
+    const user = await userRow(f.deskUsers.mojca);
+    expect(user).toMatchObject({
+      id: f.deskUsers.mojca,
+      email: "mojca@example.si",
+      name: "Mojca Novak",
+      username: null,
+      emailVerified: NOW,
+      identityProvider: IdentityProvider.CAL,
+      identityProviderId: null,
+      completedOnboarding: true,
+      locked: false,
+      locale: "sl",
+      timeZone: "Europe/Ljubljana",
+    });
+    // One write of the user row, by id, with the password as an upsert. prismock stores the upsert's create
+    // branch without its userId (a prismock gap), so the stored row is proven on Postgres
+    // (inviteAccept.integration-test.ts) and the update branch below.
+    expect(userWrites).toHaveLength(1);
+    const [written] = userWrites;
+    expect(written.where).toEqual({ id: f.deskUsers.mojca });
+    expect(written.data).toEqual({
+      email: "mojca@example.si",
+      name: "Mojca Novak",
+      password: { upsert: { create: { hash: HASH }, update: { hash: HASH } } },
+      emailVerified: NOW,
+      identityProvider: IdentityProvider.CAL,
+      identityProviderId: null,
+      completedOnboarding: true,
+    });
+
+    const row = await prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: inviteId } });
+    expect(row.usedAt).toEqual(NOW);
+    expect(row.revokedAt).toBeNull();
+    expect(JSON.stringify(answer)).not.toContain(token);
+  });
+
+  it("after it the member is a login member everywhere: listMembers, listWorkers (invite gone) and access", async () => {
+    const { token } = await inviteMojca();
+    const listed = await listWorkers(db, f.users.olga, NOW);
+    expect(listed.members.find((m) => m.memberId === f.members.mojca)).toMatchObject({
+      noLogin: true,
+      invite: { expired: false },
+    });
+    expect(await getBusinessAccess(db, f.deskUsers.mojca)).toBeNull();
+
+    await acceptInvite({ db, hashPassword: hasher() }, { token, name: "Mojca", password: PASSWORD }, NOW);
+
+    const view = (await listMembers(db, f.a)).find((m) => m.memberId === f.members.mojca);
+    expect(view).toMatchObject({ deskOnly: false, userId: f.deskUsers.mojca, displayName: "Mojca" });
+    const after = await listWorkers(db, f.users.olga, NOW);
+    expect(after.members.find((m) => m.memberId === f.members.mojca)).toMatchObject({
+      noLogin: false,
+      invite: null,
+      status: "ACTIVE",
+    });
+    expect(after.invites).toEqual([]);
+    expect(await getBusinessAccess(db, f.deskUsers.mojca)).toEqual({
+      businessId: f.a,
+      memberId: f.members.mojca,
+      userId: f.deskUsers.mojca,
+      role: FlowkoBusinessRole.WORKER,
+    });
+    expect(await readInviteForAcceptPage(db, token, NOW)).toEqual({ state: "invalid" });
+  });
+
+  it("the edited name changes User.name only (Open 8): the column label stays, no member-name check applies", async () => {
+    const { token } = await inviteMojca();
+    // „Lara“ is another member's label; the conversion writes no label, so it is no clash.
+    await acceptInvite({ db, hashPassword: hasher() }, { token, name: "Lara", password: PASSWORD }, NOW);
+    expect((await userRow(f.deskUsers.mojca)).name).toBe("Lara");
+    expect(
+      (await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: f.members.mojca } })).displayName
+    ).toBe("Mojca");
+  });
+
+  it("an existing password row of the placeholder user is replaced (upsert), never a second one", async () => {
+    await prismock.userPassword.create({ data: { userId: f.deskUsers.mojca, hash: "$2a$12$old" } });
+    const { token } = await inviteMojca();
+    const passwords = await prismock.userPassword.count();
+    await acceptInvite({ db, hashPassword: hasher() }, { token, name: "Mojca", password: PASSWORD }, NOW);
+    expect(await prismock.userPassword.count()).toBe(passwords);
+    expect((await userRow(f.deskUsers.mojca)).password?.hash).toBe(HASH);
+  });
+
+  it("invalid (page) and invite_invalid (accept, no bcrypt, nothing written) when the member is LOCKED, the user is locked, already converted or gone", async () => {
+    const cases: Array<[string, () => Promise<unknown>]> = [
+      [
+        "member LOCKED",
+        () =>
+          prismock.flowkoBusinessMember.update({
+            where: { id: f.members.mojca },
+            data: { status: FlowkoMemberStatus.LOCKED, lockedAt: NOW },
+          }),
+      ],
+      [
+        "user locked",
+        () => prismock.user.update({ where: { id: f.deskUsers.mojca }, data: { locked: true } }),
+      ],
+      [
+        "already converted (the e-mail is no desk e-mail)",
+        () =>
+          prismock.user.update({
+            where: { id: f.deskUsers.mojca },
+            data: { email: "mojca.prej@example.si" },
+          }),
+      ],
+      ["member gone", () => prismock.flowkoBusinessMember.delete({ where: { id: f.members.mojca } })],
+    ];
+    for (const [label, breakIt] of cases) {
+      vi.restoreAllMocks();
+      insensitiveEmailShim();
+      f = await setUp();
+      const { token, inviteId } = await inviteMojca();
+      await breakIt();
+      expect(await readInviteForAcceptPage(db, token, NOW), label).toEqual({ state: "invalid" });
+      const before = await counts();
+      const userBefore = await prismock.user.findFirst({
+        where: { id: f.deskUsers.mojca, OR: [{ locked: false }, { locked: true }] },
+      });
+      const hashPassword = hasher();
+      expect(
+        await codeOf(acceptInvite({ db, hashPassword }, { token, name: "Mojca", password: PASSWORD }, NOW)),
+        label
+      ).toBe("invite_invalid");
+      expect(hashPassword, label).not.toHaveBeenCalled();
+      expect(await counts(), label).toEqual(before);
+      expect(
+        await prismock.user.findFirst({
+          where: { id: f.deskUsers.mojca, OR: [{ locked: false }, { locked: true }] },
+        }),
+        label
+      ).toEqual(userBefore);
+      expect(
+        (await prismock.flowkoBusinessInvite.findUnique({ where: { id: inviteId } }))?.usedAt ?? null,
+        label
+      ).toBeNull();
+    }
+  });
+
+  it("is single use: a second accept is invite_invalid without bcrypt; a rotated token is invite_invalid", async () => {
+    const { token, inviteId } = await inviteMojca();
+    const { resendInvite } = await import("./invites");
+    const rotated = await resendInvite(inviteDeps(), f.users.olga, { inviteId, sendMail: false }, NOW);
+    const hashPassword = hasher();
+    expect(
+      await codeOf(acceptInvite({ db, hashPassword }, { token, name: "Mojca", password: PASSWORD }, NOW))
+    ).toBe("invite_invalid");
+    expect(hashPassword).not.toHaveBeenCalled();
+
+    const fresh = tokenOf(rotated.link);
+    await acceptInvite(
+      { db, hashPassword: hasher() },
+      { token: fresh, name: "Mojca", password: PASSWORD },
+      NOW
+    );
+    const before = await counts();
+    const again = hasher();
+    expect(
+      await codeOf(
+        acceptInvite({ db, hashPassword: again }, { token: fresh, name: "Mojca", password: PASSWORD }, NOW)
+      )
+    ).toBe("invite_invalid");
+    expect(again).not.toHaveBeenCalled();
+    expect(await counts()).toEqual(before);
+  });
+
+  it("C6 inside the conversion: the e-mail meanwhile has a (locked) user or a secondary e-mail -> email_has_login, the user stays desk-only", async () => {
+    for (const [mail, claim] of [
+      [
+        "mojca.a@example.si",
+        () =>
+          prismock.user.create({
+            data: { email: "MOJCA.A@example.si", username: "mojca-a", name: "X", locked: true },
+          }),
+      ],
+      [
+        "mojca.b@example.si",
+        async () =>
+          prismock.secondaryEmail.create({
+            data: { userId: await makeUser("Druga"), email: "Mojca.B@Example.SI" },
+          }),
+      ],
+    ] as const) {
+      vi.restoreAllMocks();
+      insensitiveEmailShim();
+      f = await setUp();
+      const { token, inviteId } = await inviteMojca(mail);
+      await claim();
+      const userBefore = await userRow(f.deskUsers.mojca);
+      const before = await counts();
+      expect(
+        await codeOf(
+          acceptInvite({ db, hashPassword: hasher() }, { token, name: "Mojca", password: PASSWORD }, NOW)
+        )
+      ).toBe("email_has_login");
+      expect(await userRow(f.deskUsers.mojca)).toEqual(userBefore);
+      expect(await counts()).toEqual(before);
+      expect(
+        (await prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: inviteId } })).usedAt
+      ).toBeNull();
+    }
+  });
+
+  it("the name rules: empty or 81 characters is bad_member before bcrypt", async () => {
+    const { token } = await inviteMojca();
+    const hashPassword = hasher();
+    for (const name of ["", "   ", "x".repeat(81)]) {
+      expect(await codeOf(acceptInvite({ db, hashPassword }, { token, name, password: PASSWORD }, NOW))).toBe(
+        "bad_member"
+      );
+    }
+    expect(hashPassword).not.toHaveBeenCalled();
+  });
+
+  it("a users e-mail P2002 on the update is email_has_login; P2028 and a raw 40P01 are member_conflict", async () => {
+    const known = (code: string, meta: Record<string, unknown> = {}) =>
+      new Prisma.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+    const failures: Array<[Prisma.PrismaClientKnownRequestError, string]> = [
+      [
+        known("P2002", {
+          modelName: "User",
+          driverAdapterError: { cause: { constraint: { fields: ["email"] } } },
+        }),
+        "email_has_login",
+      ],
+      [known("P2028"), "member_conflict"],
+      [known("P2010", { driverAdapterError: { cause: { originalCode: "40P01" } } }), "member_conflict"],
+    ];
+    for (const [failure, code] of failures) {
+      vi.restoreAllMocks();
+      insensitiveEmailShim();
+      f = await setUp();
+      const { token } = await inviteMojca();
+      vi.spyOn(prismock.user, "update").mockRejectedValueOnce(failure);
+      expect(
+        await codeOf(
+          acceptInvite({ db, hashPassword: hasher() }, { token, name: "Mojca", password: PASSWORD }, NOW)
+        )
+      ).toBe(code);
+    }
+  });
+
+  it("creates no user, member, Team, Membership, Profile, Host, Schedule, VerificationToken or service row", async () => {
+    const { token } = await inviteMojca();
+    const before = await counts();
+    await acceptInvite({ db, hashPassword: hasher() }, { token, name: "Mojca", password: PASSWORD }, NOW);
+    expect(await counts()).toEqual({ ...before, passwords: before.passwords + 1 });
+  });
+
+  it("a brand-new invite and a member invite of one business are each taken by their own path", async () => {
+    const member = await inviteMojca();
+    const fresh = await invite("WORKER", "nova@example.si", "Nova");
+    await acceptInvite(
+      { db, hashPassword: hasher() },
+      { token: member.token, name: "Mojca", password: PASSWORD },
+      NOW
+    );
+    await acceptInvite(
+      { db, hashPassword: hasher() },
+      { token: fresh.token, name: "Nova", password: PASSWORD },
+      NOW
+    );
+    expect(
+      await prismock.flowkoBusinessMember.count({ where: { businessId: f.a, displayName: "Nova" } })
+    ).toBe(1);
+    expect((await userRow(f.deskUsers.mojca)).email).toBe("mojca@example.si");
   });
 });
