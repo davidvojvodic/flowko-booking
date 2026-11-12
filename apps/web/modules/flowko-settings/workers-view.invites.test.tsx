@@ -352,7 +352,7 @@ describe("Invites: the invite form (U2)", () => {
     expect(form().getByText("Povabi s prijavo")).toBeInTheDocument();
     expect(
       form().getByText(
-        "Oseba dobi e-pošto s povezavo, s katero si nastavi geslo. Povezava velja 7 dni in deluje enkrat."
+        "Oseba dobi e-poštno sporočilo s povezavo, s katero si nastavi geslo. Povezava velja 7 dni in deluje samo enkrat."
       )
     ).toBeInTheDocument();
     expect(form().getByRole("radiogroup", { name: "Vloga" })).toBeInTheDocument();
@@ -398,8 +398,11 @@ describe("Invites: the invite form (U2)", () => {
   );
 
   it.each([
-    ["email_has_login", "Ta e-pošta že ima račun Flowko."],
-    ["invite_pending", "Za to e-pošto povabilo že čaka. Uporabite „Pošlji znova“ ali „Nova povezava“."],
+    ["email_has_login", "Račun Flowko s tem e-poštnim naslovom že obstaja."],
+    [
+      "invite_pending",
+      "Za ta e-poštni naslov povabilo že čaka. Uporabite „Pošlji znova“ ali „Nova povezava“.",
+    ],
     ["invite_bad_email", "Vnesite veljaven e-poštni naslov."],
   ])(
     "%s: inline on the e-mail field, aria-invalid + description, values kept, no toast",
@@ -465,7 +468,7 @@ describe("Invites: the invite form (U2)", () => {
     expect(within(panel()).getByText("Povabilo je poslano na hana@example.si.")).toBeInTheDocument();
     expect(
       within(panel()).getByText(
-        "Ko oseba sprejme povabilo, dobi vaš običajni teden. Storitve ji dodelite v Storitvah, ko se pridruži."
+        "Ko oseba sprejme povabilo, dobi enak običajni teden, kot ga imate vi. Storitve ji dodelite v Storitvah, ko se pridruži."
       )
     ).toBeInTheDocument();
     expect(
@@ -657,7 +660,7 @@ describe("Invites: row actions (D1, U3, U4)", () => {
     expect(within(dialog()).getByText("Povabi: Bor")).toBeInTheDocument();
     expect(
       within(dialog()).getByText(
-        "Vpišite e-pošto. Bor dobi povezavo za prijavo; stolpec, urnik, termini in storitve ostanejo."
+        "Vpišite e-pošto. Bor dobi povezavo, s katero si nastavi geslo. Stolpec, urnik, termini in storitve ostanejo, kot so."
       )
     ).toBeInTheDocument();
     const email = within(dialog()).getByLabelText("E-pošta") as HTMLInputElement;
@@ -692,8 +695,11 @@ describe("Invites: row actions (D1, U3, U4)", () => {
   });
 
   it.each([
-    ["email_has_login", "Ta e-pošta že ima račun Flowko."],
-    ["invite_pending", "Za to e-pošto povabilo že čaka. Uporabite „Pošlji znova“ ali „Nova povezava“."],
+    ["email_has_login", "Račun Flowko s tem e-poštnim naslovom že obstaja."],
+    [
+      "invite_pending",
+      "Za ta e-poštni naslov povabilo že čaka. Uporabite „Pošlji znova“ ali „Nova povezava“.",
+    ],
   ])("dialog: %s stays inline, the dialog stays open, the value is kept", async (code, text) => {
     data = WORKERS_VIEW;
     mocks.invite.mockRejectedValue(trpcError(code));
@@ -750,7 +756,7 @@ describe("Invites: row actions (D1, U3, U4)", () => {
     expect(linkField().value).toBe(LINK);
     expect(
       within(panel()).getByText(
-        "Ko oseba sprejme povabilo, dobi vaš običajni teden. Storitve ji dodelite v Storitvah, ko se pridruži."
+        "Ko oseba sprejme povabilo, dobi enak običajni teden, kot ga imate vi. Storitve ji dodelite v Storitvah, ko se pridruži."
       )
     ).toBeInTheDocument();
     expect(mocks.invalidateList).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
@@ -763,10 +769,10 @@ describe("Invites: row actions (D1, U3, U4)", () => {
     await waitFor(() => expect(mocks.resend).toHaveBeenCalledWith({ inviteId: BOR_INVITE, sendMail: true }));
     await screen.findByTestId("flowko-invite-panel");
     expect(within(panel()).getByText("Povabilo: Bor")).toBeInTheDocument();
-    expect(within(panel()).getByText("E-pošta je bila poslana")).toBeInTheDocument();
     expect(
-      within(panel()).getByText("Nova povezava je pripravljena. Prejšnja ne deluje več.")
+      within(panel()).getByText("Novo povabilo je poslano. Prejšnja povezava ne deluje več.")
     ).toBeInTheDocument();
+    expect(within(panel()).queryByText("Nova povezava je pripravljena. Prejšnja ne deluje več.")).toBeNull();
     expect(
       within(panel()).getByText("Stolpec, urnik, termini in storitve ostanejo, kot so.")
     ).toBeInTheDocument();
@@ -878,7 +884,7 @@ describe("Invites: row actions (D1, U3, U4)", () => {
   });
 
   it.each([
-    ["email_has_login", "BAD_REQUEST", "Ta e-pošta že ima račun Flowko."],
+    ["email_has_login", "BAD_REQUEST", "Račun Flowko s tem e-poštnim naslovom že obstaja."],
     ["forbidden", "FORBIDDEN", "Za to nimate dovoljenja."],
     ["Too many", "TOO_MANY_REQUESTS", "Preveč zahtev. Poskusite znova čez trenutek."],
     ["boom", "INTERNAL_SERVER_ERROR", "Nekaj je šlo narobe."],

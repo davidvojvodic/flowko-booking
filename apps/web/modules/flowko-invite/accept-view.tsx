@@ -1,10 +1,11 @@
 "use client";
 
 // Flowko U29d (A5, A7): the invitee's form on /auth/pridruzi/<token>. Slovene only; phone-safe (AuthContainer). The
-// e-mail is fixed (read-only, the owner typed it; „Obrnite se na salon.“ under it), the name is prefilled and
-// editable (1..80), the password shows Cal's live hints (caplow / min / num; at most 72 UTF-8 bytes, bcrypt reads no
-// more) and is repeated. The heading and the privacy line are translated on the server (escapeValue false, React
-// escapes; never through ServerTrans, which would parse tags in a salon name). Submit posts
+// e-mail is fixed (read-only, the owner typed it; „E-poštnega naslova ni mogoče spremeniti. Če ni pravi, se
+// obrnite na salon.“ under it), the name is prefilled and editable (1..80), the password shows Cal's live hints
+// (caplow / min / num; at most 72 UTF-8 bytes, bcrypt reads no more) and is repeated. The heading and the privacy
+// line are translated on the server (escapeValue false, React escapes; never through ServerTrans, which would parse
+// tags in a salon name). Submit posts
 // {token, name, password, csrfToken} to /api/flowko/pridruzi; on 201 the credentials provider signs in and a full
 // load opens /koledar (U14). If that sign-in fails the account exists and the invite is used: the page says so and
 // links to the login, it never posts the token again. Every answer and every fetch failure is shown in Slovene,
@@ -182,7 +183,7 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
       } else if (code === "email_has_login") {
         setFormError({ key: "flowko_invite_error_email_has_login", contactSalon: true });
       } else if (code === "member_name_taken") {
-        form.setError("name", { type: "server", message: t("flowko_workers_error_member_name_taken") });
+        form.setError("name", { type: "server", message: t("flowko_invite_accept_name_taken") });
       } else if (code === "bad_member") {
         form.setError("name", { type: "server", message: t("flowko_workers_error_bad_name") });
       } else if (code === "password_requirements_error") {
@@ -238,7 +239,7 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
             <Label htmlFor={emailId}>{t("email")}</Label>
             <Input id={emailId} type="email" value={email} readOnly autoComplete="username" />
             <p className="text-subtle mt-1 text-sm" data-testid="flowko-invite-email-hint">
-              {t("flowko_invite_accept_contact_salon")}
+              {t("flowko_invite_accept_email_hint")}
             </p>
           </div>
           <TextField

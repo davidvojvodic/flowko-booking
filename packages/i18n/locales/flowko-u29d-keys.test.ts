@@ -42,6 +42,7 @@ const U29D_KEYS = [
   "flowko_invite_new_link",
   "flowko_invite_new_link_ready",
   "flowko_invite_resent",
+  "flowko_invite_resent_no_address",
   "flowko_invite_revoke",
   "flowko_invite_revoked",
   // Errors (U4).
@@ -62,6 +63,8 @@ const U29D_KEYS = [
   "flowko_invite_accept_signed_in_body",
   "flowko_invite_accept_created",
   "flowko_invite_accept_contact_salon",
+  "flowko_invite_accept_email_hint",
+  "flowko_invite_accept_name_taken",
   "flowko_invite_accept_password_too_long",
   // The invite mail (Task 6).
   "flowko_invite_mail_subject",
@@ -93,8 +96,8 @@ const keysInFile = (keys: Record<string, string>): string[] =>
   Object.keys(keys).filter((key) => key.startsWith("flowko_invite_"));
 
 describe("U29d invite keys", () => {
-  it("lists 52 keys, each once", () => {
-    expect(U29D_KEYS).toHaveLength(52);
+  it("lists 55 keys, each once", () => {
+    expect(U29D_KEYS).toHaveLength(55);
     expect(new Set(U29D_KEYS).size).toBe(U29D_KEYS.length);
   });
 

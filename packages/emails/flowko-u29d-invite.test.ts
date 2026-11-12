@@ -63,7 +63,7 @@ const STRINGS = {
     cta: "Sprejmi povabilo",
     expiry: "Povezava velja do pon., 23. 11. 2026 ob 08:07 in deluje samo enkrat.",
     linkText: `Če gumb ne deluje, odprite to povezavo: ${LINK}`,
-    ignore: "Če povabila ne pričakujete, sporočilo prezrite.",
+    ignore: "Če tega povabila niste pričakovali, sporočilo prezrite.",
     reply: "Na to sporočilo lahko odgovorite; odgovor prejme salon.",
   },
   en: {
@@ -213,7 +213,7 @@ describe("U29d invite mail strings", () => {
       "Povezava velja do {{date}} ob {{time}} in deluje samo enkrat."
     );
     expect(sl.flowko_invite_mail_link_text).toBe("Če gumb ne deluje, odprite to povezavo: {{link}}");
-    expect(sl.flowko_invite_mail_ignore).toBe("Če povabila ne pričakujete, sporočilo prezrite.");
+    expect(sl.flowko_invite_mail_ignore).toBe("Če tega povabila niste pričakovali, sporočilo prezrite.");
     expect(sl.flowko_invite_mail_reply).toBe("Na to sporočilo lahko odgovorite; odgovor prejme salon.");
     expect(en.flowko_invite_mail_subject).toBe("Invitation to {{businessName}}");
     expect(en.flowko_invite_mail_intro).toBe("{{businessName}} invites you to join its calendar in Flowko.");

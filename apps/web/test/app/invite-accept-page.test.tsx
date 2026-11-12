@@ -134,7 +134,7 @@ describe("/auth/pridruzi/<token> (Flowko U29d A1, A6, A7)", () => {
     expect((screen.getByLabelText("E-pošta") as HTMLInputElement).readOnly).toBe(true);
     expect((screen.getByLabelText("Ime") as HTMLInputElement).value).toBe("Hana");
     expect(screen.getByTestId("flowko-invite-privacy").textContent).toBe(
-      "Vaše podatke obdeluje salon Flowko Test, Flowko pa je njegov obdelovalec. Obvestilo o zasebnosti"
+      "Upravljavec vaših podatkov je salon Flowko Test, Flowko pa je njegov obdelovalec. Obvestilo o zasebnosti"
     );
     const link = screen.getByRole("link", { name: "Obvestilo o zasebnosti" });
     expect(link.getAttribute("href")).toBe(WEBSITE_PRIVACY_POLICY_URL);
@@ -223,7 +223,7 @@ describe("/auth/pridruzi/<token> (Flowko U29d A1, A6, A7)", () => {
       markups[cause] = container.innerHTML;
       expect(screen.getByRole("heading", { level: 2 }).textContent, cause).toBe("Povezava ne deluje");
       expect(screen.getByTestId("flowko-invite-invalid").textContent, cause).toBe(
-        "Povezava je potekla, je bila že uporabljena ali je preklicana. Za novo se obrnite na salon."
+        "Povezava je potekla, je bila že uporabljena ali je bila preklicana. Za novo se obrnite na salon."
       );
       expect(screen.queryByRole("textbox"), cause).toBeNull();
       for (const secret of ["Flowko Test", "Gone Salon", "@", "Mojca", "Hana"]) {

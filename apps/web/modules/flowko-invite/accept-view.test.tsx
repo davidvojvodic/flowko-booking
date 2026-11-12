@@ -65,7 +65,7 @@ function view() {
         email={EMAIL}
         name="Hana"
         title="Pridružite se salonu Flowko Test"
-        privacy="Vaše podatke obdeluje salon Flowko Test, Flowko pa je njegov obdelovalec."
+        privacy="Upravljavec vaših podatkov je salon Flowko Test, Flowko pa je njegov obdelovalec."
       />
     </TooltipProvider>
   );
@@ -121,11 +121,13 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
     expect(email.value).toBe(EMAIL);
     expect(email.readOnly).toBe(true);
     expect(email.disabled).toBe(false);
-    expect(screen.getByTestId("flowko-invite-email-hint").textContent).toBe("Obrnite se na salon.");
+    expect(screen.getByTestId("flowko-invite-email-hint").textContent).toBe(
+      "E-poštnega naslova ni mogoče spremeniti. Če ni pravi, se obrnite na salon."
+    );
     expect(nameInput().value).toBe("Hana");
     expect(nameInput().maxLength).toBe(80);
     expect(screen.getByTestId("flowko-invite-privacy").textContent).toBe(
-      "Vaše podatke obdeluje salon Flowko Test, Flowko pa je njegov obdelovalec. Obvestilo o zasebnosti"
+      "Upravljavec vaših podatkov je salon Flowko Test, Flowko pa je njegov obdelovalec. Obvestilo o zasebnosti"
     );
     const link = screen.getByRole("link", { name: "Obvestilo o zasebnosti" });
     expect(link.getAttribute("href")).toBe(WEBSITE_PRIVACY_POLICY_URL);
@@ -252,7 +254,7 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
 
     expect(await screen.findByText("Povezava ne deluje")).toBeTruthy();
     expect(screen.getByTestId("flowko-invite-invalid").textContent).toBe(
-      "Povezava je potekla, je bila že uporabljena ali je preklicana. Za novo se obrnite na salon."
+      "Povezava je potekla, je bila že uporabljena ali je bila preklicana. Za novo se obrnite na salon."
     );
     expect(screen.queryByRole("button", { name: "Pridruži se" })).toBeNull();
     expect(document.body.textContent).not.toContain("Flowko Test");
@@ -265,12 +267,14 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
     await fill();
     await submit();
 
-    await waitFor(() => expect(alertText()).toBe("Ta e-pošta že ima račun Flowko. Obrnite se na salon."));
+    await waitFor(() =>
+      expect(alertText()).toBe("Račun Flowko s tem e-poštnim naslovom že obstaja. Obrnite se na salon.")
+    );
     expect(mocks.signIn).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["member_name_taken", "V podjetju je že oseba s tem imenom."],
+    ["member_name_taken", "V salonu je že oseba s tem imenom. Vnesite drugačno ime."],
     ["bad_member", "Vnesite ime (največ 80 znakov)."],
   ])("%s is shown inline on the name field, the values kept", async (code, text) => {
     mocks.posts.push({ status: 400, body: { code } });

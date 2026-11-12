@@ -429,8 +429,8 @@ export default function WorkersView() {
         lines = [ready, { tone: "warning", text: t("flowko_invite_not_sent") }];
       else if (target.email !== null)
         lines = [{ tone: "info", text: t("flowko_invite_resent", { email: target.email, ...RAW }) }];
-      // A desk-only member's address never reaches the page: say that the mail went and that the old link is dead.
-      else lines = [{ tone: "info", text: t("email_sent") }, ready];
+      // A desk-only member's address never reaches the page: one line says the mail went and the old link is dead.
+      else lines = [{ tone: "info", text: t("flowko_invite_resent_no_address") }];
       showPanel(answer, target, lines);
       await refresh();
     }, undefined);
