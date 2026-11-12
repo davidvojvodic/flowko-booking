@@ -173,6 +173,8 @@ const worker = (
   futureCount: 0,
   futureBookings: [],
   moreBookings: 0,
+  // Flowko U29d: no open invite by default (WorkerListRow.invite, Task 2 type change).
+  invite: null,
   ...over,
 });
 

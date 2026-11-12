@@ -3,6 +3,10 @@
 // noLogin are computed there). The bookings are the member's business bookings only (the mirror), and only for
 // a LOCKED column member: date, local start and end, service names and the customer's name; never a uid, an
 // e-mail or a phone number.
+// Flowko U29d: a desk-only member's open invite (`invite`) carries its id and business-local expiry only, never the
+// invitee's e-mail; only the pending brand-new invites (workers.list `invites`, PendingInvite in ./invites) carry
+// an e-mail: the address the owner typed. No token, hash or creator anywhere.
+import type { MemberInvite } from "./invites";
 
 /** How many future bookings a LOCKED member's row lists; the rest is counted in `moreBookings`. */
 export const WORKER_BOOKINGS_SHOWN = 50;
@@ -36,4 +40,6 @@ export type WorkerListRow = {
    * bookings listed (never negative).
    */
   moreBookings: number;
+  /** Flowko U29d: the member's open invite (desk-only worker, C9), or null. No e-mail. */
+  invite: MemberInvite | null;
 };

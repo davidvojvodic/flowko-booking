@@ -201,8 +201,9 @@ export function isReminderChoice(offsets: readonly number[]): boolean {
 const profileShape = businessProfileSchema.shape;
 
 // Flowko U29b: the domain after the last "@" is a placeholder when it is `invalid` or any `.invalid` name
-// (RFC 2606/6761: undeliverable), or `sms.cal.com` or one of its subdomains. Local to the business e-mail.
-function isPlaceholderDomain(email: string): boolean {
+// (RFC 2606/6761: undeliverable), or `sms.cal.com` or one of its subdomains.
+// Flowko U29d: exported; the business e-mail and the invitee's e-mail share it (inviteEmailSchema).
+export function isPlaceholderDomain(email: string): boolean {
   const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
   return (
     domain === "invalid" ||
@@ -211,6 +212,23 @@ function isPlaceholderDomain(email: string): boolean {
     domain.endsWith(".sms.cal.com")
   );
 }
+
+/**
+ * A real, deliverable e-mail address: trimmed, lower-cased (sign-in looks up the lower-cased address on a
+ * case-sensitive unique), at most 254 characters, an e-mail shape, never a placeholder domain (the desk domain and
+ * every `.invalid`, `sms.cal.com` and its subdomains). Flowko U29b's business e-mail rule; Flowko U29d: also the
+ * invitee's e-mail (I3, Global "E-mail rule").
+ */
+export const inviteEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254, { message: "email_length" })
+  .email({ message: "email_format" })
+  // Flowko U29b: also refuses subdomain placeholders (D1 f); isSmsCalEmail stays Cal-wide and untouched.
+  .refine((email) => !(isPlaceholderDomain(email) || isSmsCalEmail(email)), {
+    message: "email_placeholder",
+  });
 
 /**
  * The business settings the owner edits (S2). Slug and time zone are not editable. Phone is required (since U27 a
@@ -228,17 +246,8 @@ export const businessSettingsSchema = z.object({
     .unwrap()
     .refine(hasNoControlCharacter, { message: "control_character" })
     .nullable(),
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .max(254, { message: "email_length" })
-    .email({ message: "email_format" })
-    // Flowko U29b: also refuses subdomain placeholders (D1 f); isSmsCalEmail stays Cal-wide and untouched.
-    .refine((email) => !(isPlaceholderDomain(email) || isSmsCalEmail(email)), {
-      message: "email_placeholder",
-    })
-    .nullable(),
+  // Flowko U29d: the same chain as the invitee's e-mail (inviteEmailSchema), plus null = no business e-mail.
+  email: inviteEmailSchema.nullable(),
   openingHours: openingHoursSchema.superRefine((hours, ctx) => {
     if (WEEKDAYS.every((day) => hours[day].length === 0)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "no_open_day" });
