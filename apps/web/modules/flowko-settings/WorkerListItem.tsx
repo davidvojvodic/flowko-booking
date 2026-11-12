@@ -5,6 +5,11 @@
 // (whose future bookings are listed under the row), plus „Prekini povezavo z Googlom“ on a row whose last lock could not
 // remove the Google connection (this browser session only). The row wraps (flex-wrap) so a phone never scrolls
 // sideways.
+// Flowko U29d (U1, D1, I10): the status precedence is LOCKED > „Povabljen“ (open invite) > „Povabilo je poteklo“
+// (expired invite) > no login > active. An ACTIVE desk-only WORKER without an invite gets „Povabi“ (C9; never a
+// STAFF member without login, Open 9); with an invite its row shows the validity line (no e-mail: the address
+// never reaches a member row) and „Pošlji znova“ / „Nova povezava“ / „Prekliči povabilo“ in place of „Povabi“.
+// A LOCKED row hides all of it (its invite is inert until an unlock); „Zakleni“ / „Odkleni“ stay.
 "use client";
 
 import type { WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
@@ -12,6 +17,12 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Badge } from "@calcom/ui/components/badge";
 import { Button } from "@calcom/ui/components/button";
 import { useId } from "react";
+import {
+  InviteActions,
+  type InviteActionHandlers,
+  InviteStatusBadge,
+  InviteValidity,
+} from "./PendingInvites";
 import { WorkerBookings } from "./WorkerBookings";
 
 export type ArrowDirection = "up" | "down";
@@ -36,6 +47,10 @@ export function WorkerListItem(props: {
   onLock: () => void;
   onUnlock: () => void;
   onRetryGoogle: () => void;
+  /** Flowko U29d: „Povabi“ (desk-only worker without an open invite). */
+  onInvite: () => void;
+  /** Flowko U29d: the actions on this row's open invite. */
+  invite: InviteActionHandlers;
   /** The caller keeps the arrow buttons to put the focus back after a move. */
   arrowRef: (direction: ArrowDirection, element: HTMLElement | null) => void;
 }) {
@@ -48,6 +63,9 @@ export function WorkerListItem(props: {
     : row.noLogin
       ? "flowko_workers_status_no_login"
       : "flowko_workers_status_active";
+  // Flowko U29d: the invite shows only on an ACTIVE row (a LOCKED member's invite is inert, I10).
+  const invite = locked ? null : row.invite;
+  const mayInvite = !locked && row.invite === null && row.role === "WORKER" && row.noLogin;
 
   return (
     <li
@@ -59,7 +77,12 @@ export function WorkerListItem(props: {
         </span>
         {row.isMe && <span className="text-subtle text-sm">{t("flowko_workers_you")}</span>}
         <Badge variant="gray">{t(roleKey(row.role))}</Badge>
-        <Badge variant={locked ? "orange" : "blue"}>{t(statusKey)}</Badge>
+        {invite ? (
+          <InviteStatusBadge invite={invite} />
+        ) : (
+          <Badge variant={locked ? "orange" : "blue"}>{t(statusKey)}</Badge>
+        )}
+        {invite && <InviteValidity invite={invite} currentYear={props.currentYear} className="w-full" />}
       </div>
       <div className="flex flex-wrap items-center gap-1">
         <Button
@@ -85,6 +108,25 @@ export function WorkerListItem(props: {
         {props.retryGoogle && locked && (
           <Button type="button" color="secondary" disabled={props.busy} onClick={props.onRetryGoogle}>
             {t("flowko_workers_retry_google")}
+          </Button>
+        )}
+        {invite && (
+          <InviteActions
+            busy={props.busy}
+            describedBy={nameId}
+            onResend={props.invite.onResend}
+            onNewLink={props.invite.onNewLink}
+            onRevoke={props.invite.onRevoke}
+          />
+        )}
+        {mayInvite && (
+          <Button
+            type="button"
+            color="secondary"
+            aria-describedby={nameId}
+            disabled={props.busy}
+            onClick={props.onInvite}>
+            {t("invite")}
           </Button>
         )}
         {row.role !== "OWNER" &&

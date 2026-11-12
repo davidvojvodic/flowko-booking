@@ -11,6 +11,7 @@ import type {
 import type { BusinessSettingsView } from "@calcom/features/flowkoBusiness/settings";
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
+import type { PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
 import type { OpeningHours } from "@calcom/lib/flowkoBusiness/schemas";
 import type { WorkerListBooking, WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
 
@@ -178,7 +179,10 @@ const worker = (
   ...over,
 });
 
-export const WORKERS_VIEW: { members: WorkerListRow[] } = {
+// Flowko U29d: workers.list answers { members, invites } (I9); `invites` = open invites of brand-new people.
+export type WorkersViewData = { members: WorkerListRow[]; invites: PendingInvite[] };
+
+export const WORKERS_VIEW: WorkersViewData = {
   members: [
     worker({ memberId: ANA, displayName: "Ana", role: "OWNER", isMe: true }),
     worker({ memberId: BOR, displayName: "Bor", noLogin: true }),
@@ -192,5 +196,54 @@ export const WORKERS_VIEW: { members: WorkerListRow[] } = {
     }),
     worker({ memberId: EVA, displayName: "Eva" }),
     worker({ memberId: FRAN, displayName: "Fran", role: "STAFF" }),
+  ],
+  invites: [],
+};
+
+// Flowko U29d (Task 7): the same list with open invites (U1). Bor (desk-only) has an open invite valid until Mon
+// 23 Nov 08:07, Gaja (desk-only, added after Fran) an expired one; pending brand-new invites for Hana (WORKER, open)
+// and Iva (STAFF, expired). NOW in the tests is Mon 2026-11-16 07:07Z (08:07 Ljubljana).
+export const GAJA = 17;
+export const BOR_INVITE = 71;
+export const GAJA_INVITE = 72;
+export const HANA_INVITE = 73;
+export const IVA_INVITE = 74;
+
+export const WORKERS_VIEW_INVITES: WorkersViewData = {
+  members: [
+    ...WORKERS_VIEW.members.map((m) =>
+      m.memberId === BOR
+        ? {
+            ...m,
+            invite: { inviteId: BOR_INVITE, expiresDate: "2026-11-23", expiresTime: "08:07", expired: false },
+          }
+        : m
+    ),
+    worker({
+      memberId: GAJA,
+      displayName: "Gaja",
+      noLogin: true,
+      invite: { inviteId: GAJA_INVITE, expiresDate: "2026-11-15", expiresTime: "17:30", expired: true },
+    }),
+  ],
+  invites: [
+    {
+      inviteId: HANA_INVITE,
+      name: "Hana",
+      email: "hana@example.si",
+      role: "WORKER",
+      expiresDate: "2026-11-20",
+      expiresTime: "09:15",
+      expired: false,
+    },
+    {
+      inviteId: IVA_INVITE,
+      name: "Iva",
+      email: "iva@example.si",
+      role: "STAFF",
+      expiresDate: "2026-11-14",
+      expiresTime: "18:00",
+      expired: true,
+    },
   ],
 };

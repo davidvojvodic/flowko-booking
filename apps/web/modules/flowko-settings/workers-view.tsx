@@ -9,8 +9,18 @@
 //    order changed meanwhile (text + refetch). „Dodaj brez prijave“: AddDeskWorkerForm (W4).
 // Errors per procedure as W10. A failed refresh after a saved write never undoes it: an inline „Osveži“ notice
 // (P1), only the order arrows stay off until a refresh succeeds. The booking dates use the browser's current year only to decide whether to print the year.
+// Flowko U29d (U1–U5, D1): invites. The list answer also carries `invites` (brand-new people, „Povabljeni“ under the
+// member list; never member rows, never in a reorder) and each desk-only member's open invite (on its row, no
+// e-mail). „Povabi s prijavo“ (InviteForm, above „Dodaj brez prijave“) and „Povabi“ on a desk-only WORKER row
+// (InviteMemberDialog) create an invite; „Pošlji znova“ / „Nova povezava“ mint a new link (the old one dies);
+// „Prekliči povabilo“ revokes without a dialog. Create, resend and new link go through the vanilla client
+// (utils.client…mutate) so no answer with a link stays in the MutationCache; the link is shown once in
+// InviteLinkPanel (one at a time, dropped on „Zapri“, on leaving the page and when its invite is revoked). Every
+// invite write runs in exclusive() and ends with the checked refresh; invite_gone / member_not_desk_only also
+// refresh. Strings with a name, an address or a date opt out of i18next's escaping (React escapes once).
 "use client";
 
+import type { InviteLinkAnswer, InviteRole, PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
 import type { WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
@@ -21,7 +31,11 @@ import { showToast } from "@calcom/ui/components/toast";
 import { refreshAfterSave } from "@calcom/web/lib/flowko/refreshAfterSave";
 import { useEffect, useRef, useState } from "react";
 import { AddDeskWorkerForm, type AddWorkerResult } from "./AddDeskWorkerForm";
+import { InviteForm, type InviteFormResult } from "./InviteForm";
+import { type InvitePanelData, type InvitePanelLine, InviteLinkPanel } from "./InviteLinkPanel";
+import { InviteMemberDialog, type InviteMemberResult } from "./InviteMemberDialog";
 import { LockWorkerDialog } from "./LockWorkerDialog";
+import { PendingInvites } from "./PendingInvites";
 import { type ArrowDirection, WorkerListItem } from "./WorkerListItem";
 
 const BOX = "border-subtle rounded-b-xl border border-t-0 px-4 py-8 sm:px-6";
@@ -33,6 +47,12 @@ const WORKER_CODES = [
   "member_conflict",
   "bad_member",
   "member_name_taken",
+  // Flowko U29d (U4).
+  "email_has_login",
+  "invite_bad_email",
+  "invite_pending",
+  "invite_gone",
+  "member_not_desk_only",
 ] as const;
 type WorkerCode = (typeof WORKER_CODES)[number] | "TOO_MANY_REQUESTS" | "unknown";
 
@@ -55,6 +75,13 @@ function errorKey(code: WorkerCode): string {
     case "member_not_locked":
     case "member_conflict":
       return `flowko_workers_error_${code}`;
+    // Flowko U29d (U4).
+    case "email_has_login":
+    case "invite_bad_email":
+    case "invite_pending":
+    case "invite_gone":
+    case "member_not_desk_only":
+      return `flowko_invite_error_${code}`;
     case "TOO_MANY_REQUESTS":
       return "flowko_settings_error_TOO_MANY_REQUESTS";
     default:
@@ -64,6 +91,29 @@ function errorKey(code: WorkerCode): string {
 
 type FocusRequest = { memberId: number; direction: ArrowDirection; after: number | null };
 
+/** Flowko U29d: the invite an action targets; `email` is null for a desk-only member's invite (never listed). */
+type InviteTarget = { inviteId: number; name: string; email: string | null; hint: InvitePanelData["hint"] };
+
+const memberInviteTarget = (row: WorkerListRow, inviteId: number): InviteTarget => ({
+  inviteId,
+  name: row.displayName,
+  email: null,
+  hint: "desk_worker",
+});
+
+const pendingInviteTarget = (invite: PendingInvite): InviteTarget => ({
+  inviteId: invite.inviteId,
+  name: invite.name,
+  email: invite.email,
+  hint: invite.role === "WORKER" ? "new_worker" : null,
+});
+
+/** U4: these answers mean the list on screen is stale. */
+const refreshesList = (code: WorkerCode) => code === "invite_gone" || code === "member_not_desk_only";
+
+/** Names, addresses and dates are printed by React (escaped once); i18next must not escape them too. */
+const RAW = { interpolation: { escapeValue: false } } as const;
+
 export default function WorkersView() {
   const { t } = useLocale();
   const utils = trpc.useUtils();
@@ -72,6 +122,8 @@ export default function WorkersView() {
   const unlock = trpc.viewer.flowko.workers.unlock.useMutation();
   const addDeskOnly = trpc.viewer.flowko.workers.addDeskOnly.useMutation();
   const reorder = trpc.viewer.flowko.workers.reorder.useMutation();
+  // Flowko U29d: revoke answers no link, so a mutation hook is fine; invite / resendInvite use utils.client (U3).
+  const revokeInvite = trpc.viewer.flowko.workers.revokeInvite.useMutation();
 
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -82,6 +134,11 @@ export default function WorkersView() {
   const [retrying, setRetrying] = useState(false);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const arrows = useRef(new Map<string, HTMLElement | null>());
+  // Flowko U29d: the one link panel (its key remounts it when a new link replaces the old one) and the member
+  // whose „Povabi“ dialog is open.
+  const [panel, setPanel] = useState<{ key: number; data: InvitePanelData } | null>(null);
+  const panelKey = useRef(0);
+  const [inviteFor, setInviteFor] = useState<number | null>(null);
 
   // P1: workers.list is the probe (invalidated with throwOnError, so it rejects when its refetch fails); the desk's
   // member and service lists only run alongside. A saved write is never undone by a failed refresh.
@@ -268,7 +325,139 @@ export default function WorkersView() {
     }, "failed");
   }
 
+  // Flowko U29d: invites (U1–U4, D1).
+  function showPanel(
+    answer: InviteLinkAnswer,
+    target: Omit<InviteTarget, "inviteId" | "email">,
+    lines: InvitePanelLine[]
+  ) {
+    panelKey.current += 1;
+    setPanel({
+      key: panelKey.current,
+      data: { inviteId: answer.inviteId, name: target.name, link: answer.link, lines, hint: target.hint },
+    });
+  }
+  const closePanelOf = (inviteId: number) =>
+    setPanel((open) => (open?.data.inviteId === inviteId ? null : open));
+
+  /** The mail line after a create: sent to the address the owner just typed, or not sent (copy the link). */
+  const createdLine = (answer: InviteLinkAnswer, email: string): InvitePanelLine =>
+    answer.mail === "sent"
+      ? { tone: "info", text: t("flowko_invite_sent", { email, ...RAW }) }
+      : { tone: "warning", text: t("flowko_invite_not_sent") };
+
+  async function inviteNew(input: {
+    name: string;
+    email: string;
+    role: InviteRole;
+  }): Promise<InviteFormResult> {
+    return exclusive<InviteFormResult>(async () => {
+      let answer: InviteLinkAnswer;
+      try {
+        answer = await utils.client.viewer.flowko.workers.invite.mutate({ kind: "new", ...input });
+      } catch (error) {
+        const code = workerErrorCode(error);
+        if (code === "bad_member") return "bad_name";
+        if (
+          code === "member_name_taken" ||
+          code === "invite_bad_email" ||
+          code === "email_has_login" ||
+          code === "invite_pending"
+        ) {
+          return code;
+        }
+        showToast(t(errorKey(code)), "error");
+        return "failed";
+      }
+      showPanel(answer, { name: input.name, hint: input.role === "WORKER" ? "new_worker" : null }, [
+        createdLine(answer, input.email),
+      ]);
+      await refresh();
+      return "ok";
+    }, "failed");
+  }
+
+  async function inviteMember(row: WorkerListRow, email: string): Promise<InviteMemberResult> {
+    return exclusive<InviteMemberResult>(async () => {
+      let answer: InviteLinkAnswer;
+      try {
+        answer = await utils.client.viewer.flowko.workers.invite.mutate({
+          kind: "member",
+          memberId: row.memberId,
+          email,
+        });
+      } catch (error) {
+        const code = workerErrorCode(error);
+        if (code === "invite_bad_email" || code === "email_has_login" || code === "invite_pending")
+          return code;
+        showToast(t(errorKey(code)), "error");
+        if (refreshesList(code)) {
+          setInviteFor(null);
+          await refresh();
+        }
+        return "failed";
+      }
+      setInviteFor(null);
+      showPanel(answer, { name: row.displayName, hint: "desk_worker" }, [createdLine(answer, email)]);
+      await refresh();
+      return "ok";
+    }, "failed");
+  }
+
+  /** „Pošlji znova“ (sendMail) or „Nova povezava“: the same invite gets a new link; the old one dies (I6). */
+  async function newLink(target: InviteTarget, sendMail: boolean) {
+    await exclusive(async () => {
+      let answer: InviteLinkAnswer;
+      try {
+        answer = await utils.client.viewer.flowko.workers.resendInvite.mutate({
+          inviteId: target.inviteId,
+          sendMail,
+        });
+      } catch (error) {
+        const code = workerErrorCode(error);
+        showToast(t(errorKey(code)), "error");
+        if (refreshesList(code)) {
+          closePanelOf(target.inviteId);
+          await refresh();
+        }
+        return;
+      }
+      const ready: InvitePanelLine = { tone: "info", text: t("flowko_invite_new_link_ready") };
+      let lines: InvitePanelLine[];
+      if (!sendMail) lines = [ready];
+      else if (answer.mail !== "sent")
+        lines = [ready, { tone: "warning", text: t("flowko_invite_not_sent") }];
+      else if (target.email !== null)
+        lines = [{ tone: "info", text: t("flowko_invite_resent", { email: target.email, ...RAW }) }];
+      // A desk-only member's address never reaches the page: say that the mail went and that the old link is dead.
+      else lines = [{ tone: "info", text: t("email_sent") }, ready];
+      showPanel(answer, target, lines);
+      await refresh();
+    }, undefined);
+  }
+
+  async function revoke(target: InviteTarget) {
+    await exclusive(async () => {
+      try {
+        await revokeInvite.mutateAsync({ inviteId: target.inviteId });
+      } catch (error) {
+        const code = workerErrorCode(error);
+        showToast(t(errorKey(code)), "error");
+        if (refreshesList(code)) {
+          closePanelOf(target.inviteId);
+          await refresh();
+        }
+        return;
+      }
+      // That link is dead now: it leaves the screen.
+      closePanelOf(target.inviteId);
+      showToast(t("flowko_invite_revoked", { name: target.name, ...RAW }), "success");
+      await refresh();
+    }, undefined);
+  }
+
   const dialogRow = dialogFor === null ? undefined : members.find((m) => m.memberId === dialogFor);
+  const inviteRow = inviteFor === null ? undefined : members.find((m) => m.memberId === inviteFor);
 
   return (
     <div className={BOX}>
@@ -301,18 +490,43 @@ export default function WorkersView() {
             onLock={() => void startLock(row)}
             onUnlock={() => void unlockMember(row)}
             onRetryGoogle={() => void lockMember(row)}
+            onInvite={() => setInviteFor(row.memberId)}
+            invite={{
+              onResend: () => row.invite && void newLink(memberInviteTarget(row, row.invite.inviteId), true),
+              onNewLink: () =>
+                row.invite && void newLink(memberInviteTarget(row, row.invite.inviteId), false),
+              onRevoke: () => row.invite && void revoke(memberInviteTarget(row, row.invite.inviteId)),
+            }}
             arrowRef={(direction, element) => {
               arrows.current.set(`${row.memberId}:${direction}`, element);
             }}
           />
         ))}
       </ul>
+      <PendingInvites
+        invites={query.data.invites}
+        busy={busy}
+        currentYear={currentYear}
+        onResend={(invite) => void newLink(pendingInviteTarget(invite), true)}
+        onNewLink={(invite) => void newLink(pendingInviteTarget(invite), false)}
+        onRevoke={(invite) => void revoke(pendingInviteTarget(invite))}
+      />
+      {panel && <InviteLinkPanel key={panel.key} panel={panel.data} onClose={() => setPanel(null)} />}
+      <InviteForm disabled={busy} onInvite={inviteNew} />
       <AddDeskWorkerForm disabled={busy} onAdd={addWorker} />
       {dialogRow && (
         <LockWorkerDialog
           row={dialogRow}
           onClose={() => setDialogFor(null)}
           onConfirm={() => void lockMember(dialogRow)}
+        />
+      )}
+      {inviteRow && (
+        <InviteMemberDialog
+          row={inviteRow}
+          disabled={busy}
+          onInvite={(email) => inviteMember(inviteRow, email)}
+          onClose={() => setInviteFor(null)}
         />
       )}
     </div>

@@ -3,10 +3,26 @@
 // no login > active), order arrows, „Zakleni“ / „Odkleni“, a LOCKED member's bookings as links to that day. „Zakleni“
 // refreshes the list first and opens the dialog with the FRESH count (no dialog when the refresh fails); unlock has
 // no dialog; errors per procedure (W10); „Dodaj brez prijave“ at the bottom.
+// Flowko U29d (Task 7, U5): the trpc mock gains the invite calls (useUtils().client for invite / resendInvite,
+// revokeInvite.useMutation), the list answer gains `invites`, the no-e-mail pin is narrowed to the member rows
+// (the invite form and „Povabljeni“ legitimately show addresses; C12 is about members), the uid pin stays on the
+// whole view, and the add-form queries are scoped to that form (the invite form also has an „Ime“ field). The
+// invite behaviour itself is tested in workers-view.invites.test.tsx.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkersView from "./workers-view";
-import { ANA, BOR, CENE, DAN, DAN_BOOKINGS, EVA, FRAN, localeT, WORKERS_VIEW } from "./settings.fixture";
+import {
+  ANA,
+  BOR,
+  CENE,
+  DAN,
+  DAN_BOOKINGS,
+  EVA,
+  FRAN,
+  localeT,
+  WORKERS_VIEW,
+  WORKERS_VIEW_INVITES,
+} from "./settings.fixture";
 
 const mocks = vi.hoisted(() => ({
   lang: "sl" as "sl" | "en",
@@ -19,6 +35,9 @@ const mocks = vi.hoisted(() => ({
   unlock: vi.fn(),
   add: vi.fn(),
   reorder: vi.fn(),
+  invite: vi.fn(),
+  resend: vi.fn(),
+  revoke: vi.fn(),
   toast: vi.fn(),
 }));
 
@@ -29,6 +48,17 @@ vi.mock("@calcom/ui/components/toast", () => ({ showToast: (...args: unknown[]) 
 vi.mock("@calcom/trpc/react", () => ({
   trpc: {
     useUtils: () => ({
+      // Flowko U29d: the link-minting calls use the vanilla client (no answer kept in the MutationCache, U3).
+      client: {
+        viewer: {
+          flowko: {
+            workers: {
+              invite: { mutate: (i: unknown) => mocks.invite(i) },
+              resendInvite: { mutate: (i: unknown) => mocks.resend(i) },
+            },
+          },
+        },
+      },
       viewer: {
         flowko: {
           workers: { list: { invalidate: mocks.invalidateList } },
@@ -50,6 +80,9 @@ vi.mock("@calcom/trpc/react", () => ({
           },
           reorder: {
             useMutation: () => ({ mutateAsync: (i: unknown) => mocks.reorder(i), isPending: false }),
+          },
+          revokeInvite: {
+            useMutation: () => ({ mutateAsync: (i: unknown) => mocks.revoke(i), isPending: false }),
           },
         },
       },
@@ -86,6 +119,7 @@ const queryResult = (over: Record<string, unknown> = {}) => ({
 
 const withRow = (memberId: number, patch: Record<string, unknown>) => ({
   members: WORKERS_VIEW.members.map((m) => (m.memberId === memberId ? { ...m, ...patch } : m)),
+  invites: WORKERS_VIEW.invites,
 });
 
 beforeEach(() => {
@@ -253,9 +287,20 @@ describe("WorkersView: the list", () => {
     expect(inRow(DAN).getByText(text)).toBeInTheDocument();
   });
 
-  it("renders no uid and no e-mail", () => {
+  // Flowko U29d (U5): split. C12 (members' accounts never shown): no uid anywhere in the view, no e-mail in a
+  // member row, also when invites are open (a desk-only member's invite carries no address).
+  it("renders no uid anywhere and no e-mail in a member row", () => {
     const { container } = render(<WorkersView />);
-    expect(container.innerHTML).not.toMatch(/uid|@/i);
+    expect(container.innerHTML).not.toMatch(/uid/i);
+    for (const r of rows()) expect(r.innerHTML).not.toMatch(/@/);
+  });
+
+  it("with open invites: still no uid anywhere and no e-mail in any member row", () => {
+    data = WORKERS_VIEW_INVITES;
+    const { container } = render(<WorkersView />);
+    expect(container.innerHTML).not.toMatch(/uid/i);
+    expect(rows()).toHaveLength(WORKERS_VIEW_INVITES.members.length);
+    for (const r of rows()) expect(r.innerHTML).not.toMatch(/@/);
   });
 });
 
@@ -560,6 +605,7 @@ describe("WorkersView: order (W5, W6, P8)", () => {
     mocks.invalidateList.mockImplementation(async () => {
       version += 1;
       data = {
+        invites: [],
         members: [ANA, CENE, BOR, DAN, EVA, FRAN].map(
           (id) => WORKERS_VIEW.members.find((m) => m.memberId === id) as (typeof WORKERS_VIEW.members)[number]
         ),
@@ -574,6 +620,7 @@ describe("WorkersView: order (W5, W6, P8)", () => {
     mocks.invalidateList.mockImplementation(async () => {
       version += 1;
       data = {
+        invites: [],
         members: [ANA, BOR, CENE, DAN, FRAN, EVA].map(
           (id) => WORKERS_VIEW.members.find((m) => m.memberId === id) as (typeof WORKERS_VIEW.members)[number]
         ),
@@ -621,13 +668,15 @@ describe("WorkersView: order (W5, W6, P8)", () => {
 });
 
 describe("WorkersView: add without login (W4, W10)", () => {
-  const field = () => screen.getByLabelText("Ime") as HTMLInputElement;
-  const submit = () => click(screen.getByRole("button", { name: "Dodaj" }));
+  // Flowko U29d (U5): scoped to the add form (the invite form above it also has an „Ime“ field).
+  const form = () => within(screen.getByTestId("flowko-worker-add-form"));
+  const field = () => form().getByLabelText("Ime") as HTMLInputElement;
+  const submit = () => click(form().getByRole("button", { name: "Dodaj" }));
   const type = (value: string) => fireEvent.change(field(), { target: { value } });
 
   it("has a title, a labelled field limited to 80 characters and an „Dodaj“ button", () => {
     render(<WorkersView />);
-    expect(screen.getByText("Dodaj brez prijave")).toBeInTheDocument();
+    expect(form().getByText("Dodaj brez prijave")).toBeInTheDocument();
     expect(field()).toHaveAttribute("maxlength", "80");
   });
 
