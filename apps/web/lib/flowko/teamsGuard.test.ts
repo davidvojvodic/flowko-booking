@@ -75,6 +75,11 @@ const FLOWKO_PATHS = [
   /^packages\/trpc\/server\/routers\/viewer\/flowko\//,
   // Flowko U26: the page that serves viewer.flowko.* (/api/trpc/flowko/[trpc]).
   /^apps\/web\/pages\/api\/trpc\/flowko\//,
+  // Flowko U29d: the invite accept page (/auth/pridruzi/<token>), its POST route (/api/flowko/pridruzi) and the
+  // accept page's client modules.
+  /^apps\/web\/app\/\(use-page-wrapper\)\/auth\/pridruzi\//,
+  /^apps\/web\/app\/api\/flowko\//,
+  /^apps\/web\/modules\/flowko-invite\//,
   /^packages\/prisma\/migrations\/[^/]*flowko[^/]*\/migration\.sql$/,
 ];
 
@@ -121,6 +126,25 @@ describe("Teams guard", () => {
     const flowkoPage = "apps/web/pages/api/trpc/flowko/[trpc].ts";
     expect(files).toContain(flowkoPage);
     expect(FLOWKO_PATHS.some((p) => p.test(flowkoPage))).toBe(true);
+    // Flowko U29d: the invite accept page, its POST route and its client modules are scanned and covered.
+    for (const file of [
+      "apps/web/app/(use-page-wrapper)/auth/pridruzi/[token]/page.tsx",
+      "apps/web/app/api/flowko/pridruzi/route.ts",
+      "apps/web/modules/flowko-invite/accept-view.tsx",
+      "apps/web/modules/flowko-invite/InviteInvalid.tsx",
+      "apps/web/modules/flowko-invite/InviteSignedIn.tsx",
+    ]) {
+      expect(files).toContain(file);
+      expect(FLOWKO_PATHS.some((p) => p.test(file))).toBe(true);
+    }
+    // ...and nothing else under auth/ or api/ is taken for Flowko code by them
+    for (const file of [
+      "apps/web/app/(use-page-wrapper)/auth/login/page.tsx",
+      "apps/web/app/api/auth/reset-password/route.ts",
+      "apps/web/app/api/cancel/route.ts",
+    ]) {
+      expect(FLOWKO_PATHS.some((p) => p.test(file))).toBe(false);
+    }
   });
 
   it("Flowko code never writes Team, Membership, Host, HostGroup or Profile, sets teamId / parentId or imports their repositories", () => {
