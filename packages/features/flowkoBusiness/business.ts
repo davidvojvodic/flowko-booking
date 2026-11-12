@@ -38,6 +38,17 @@ const DEFAULT_SLOT_GRID_MINUTES = 15;
 const DEFAULT_SELF_CANCEL_HOURS = 24;
 const DISPLAY_NAME_MAX_LENGTH = 80;
 
+/**
+ * Flowko U29d: the Slovene user defaults every Flowko-made user gets (Cal's column defaults are London / 12 h /
+ * Sunday): the desk-only placeholder (createDeskOnlyWorker) and the invited login (inviteAccept.ts).
+ */
+export const FLOWKO_USER_DEFAULTS = {
+  timeZone: BUSINESS_TIME_ZONE,
+  locale: "sl",
+  timeFormat: 24,
+  weekStart: "Monday",
+} as const;
+
 const SLUG_ERRORS: Record<SlugProblem, "name_invalid" | "name_reserved" | "name_taken"> = {
   invalid: "name_invalid",
   reserved: "name_reserved",
@@ -253,10 +264,7 @@ export async function createDeskOnlyWorker(
         email: makeDeskEmail(),
         username: null,
         name,
-        timeZone: BUSINESS_TIME_ZONE,
-        locale: "sl",
-        timeFormat: 24,
-        weekStart: "Monday",
+        ...FLOWKO_USER_DEFAULTS, // Flowko U29d: shared with the invited login, same values
         emailVerified: null,
         completedOnboarding: true,
       },

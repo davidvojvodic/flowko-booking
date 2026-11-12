@@ -16,6 +16,7 @@ import {
   type MemberDaySource,
   resolveMemberDay,
   type AddAbsenceResult, // Flowko U29b
+  isWeekWithoutShifts, // Flowko U29d: shared with usualWeekForCopy
   ROSTER_MAX_SHIFTS_PER_DAY, // Flowko U29b
   type RosterSaveResult, // Flowko U29b
   type RosterWarning, // Flowko U29b
@@ -771,8 +772,9 @@ function saveUsualWeekOrFail(usualWeek: unknown): WeekHours | null {
   return parsed.data;
 }
 
-/** Flowko U29b (S4): "no usual week" has one stored form, SQL NULL: a week with no shift on any day is that. */
-const isWeekWithoutShifts = (week: WeekHours): boolean => WEEKDAYS.every((wd) => week[wd].length === 0);
+// Flowko U29b (S4): "no usual week" has one stored form, SQL NULL: a week with no shift on any day is that.
+// Flowko U29d: the rule moved to @calcom/lib/flowkoBusiness/roster (isWeekWithoutShifts, shared with the accept's
+// usual-week copy); imported above, behaviour unchanged.
 
 export type SaveUsualWeeksRow = { memberId: number; version: string; usualWeek: WeekHours | null };
 export type SaveUsualWeeksInput = { rows: SaveUsualWeeksRow[]; confirm: boolean };

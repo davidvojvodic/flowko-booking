@@ -184,6 +184,24 @@ export function businessDayRules(
 /** One saved row may hold at most this many shifts per day (server check `bad_roster`, mirrored by the editor). */
 export const ROSTER_MAX_SHIFTS_PER_DAY = 4;
 
+/** Flowko U29d: "no usual week" has one stored form, SQL NULL: a week with no shift on any day is that (U29b S4). */
+export const isWeekWithoutShifts = (week: WeekHours): boolean => WEEKDAYS.every((wd) => week[wd].length === 0);
+
+/**
+ * Flowko U29d (A4, C10): the owner's stored usual week as a brand-new worker gets it on accept: the week as stored
+ * when it passes the editor rules (weekHoursSchema, at most ROSTER_MAX_SHIFTS_PER_DAY shifts a day) and has at
+ * least one shift; anything else (none, Prisma.DbNull, prismock's `{}`, a bad shape, too many shifts, an empty
+ * week) is null = no usual week. Never throws.
+ */
+export function usualWeekForCopy(raw: unknown): WeekHours | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const parsed = weekHoursSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  const week = parsed.data;
+  if (WEEKDAYS.some((wd) => week[wd].length > ROSTER_MAX_SHIFTS_PER_DAY)) return null;
+  return isWeekWithoutShifts(week) ? null : week;
+}
+
 /**
  * What a save would newly leave outside, per member with something to report: the dates (week save) or weekdays
  * (usual-week save) whose entries hit the opening hours, and the bookings newly outside the member's shifts.
