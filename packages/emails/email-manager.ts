@@ -789,3 +789,21 @@ export const sendAttendeeReminderEmail = async (
     booker
   ).sendEmailOrThrow();
 };
+
+/**
+ * Flowko U29d Task 5 PLACEHOLDER: the API handler (viewer.flowko.workers.invite / resendInvite) wires this sender
+ * into the invite service, which already turns any throw into `mail: "not_sent"`. Task 6 replaces this body with the
+ * real FlowkoInviteEmail send (E1, `sendEmailOrThrow`); until then it sends nothing and always throws, so no invite
+ * mail can leave by accident.
+ */
+export const sendFlowkoInviteEmail = async (_args: {
+  to: string;
+  name: string;
+  businessName: string;
+  replyTo: string | null;
+  link: string;
+  expiresDate: string;
+  expiresTime: string;
+}): Promise<MailSendOutcome> => {
+  throw new Error("flowko_invite_mail_not_built");
+};
