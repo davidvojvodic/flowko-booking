@@ -10,7 +10,11 @@
 // business-local expiry only, never the invitee's e-mail) and the pending brand-new invites in `invites`, which
 // are the only place the answer carries an e-mail (the address the owner typed). Never a token, its hash or the
 // creator. The business row lock and the name key are exported for the invite service (invites.ts).
+// Flowko U29e (E9): renameMember. The owner renames any member (displayName; User.name too for a desk-only worker),
+// under the business row lock and the member row lock.
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
+// Flowko U29e (E9): the rename writes User.name only for a desk placeholder address.
+import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 // Flowko U29d: invite list types and the business-local expiry.
 import { inviteExpiry, type MemberInvite, type PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
 // Flowko U29e (RIGHTS-1): the name key lives in the shared member-name rule (default-ignorables folded).
@@ -200,6 +204,65 @@ export async function addDeskWorker(
 
     const { memberId } = await createDeskOnlyWorker(tx, access.businessId, name);
     return { memberId };
+  });
+}
+
+/**
+ * Flowko U29e (E9, R6-R8): the owner renames any member of the business (own row, LOCKED and desk-only included).
+ * One memberTx: access + owner right (forbidden) -> the name rule (displayNameOrThrow, bad_member) -> the target by
+ * id without a lock (missing or another business's = forbidden, before any lock) -> business row FOR NO KEY UPDATE ->
+ * member row FOR NO KEY UPDATE -> re-read (a desk-only conversion may have committed meanwhile) -> an unchanged
+ * trimmed name answers saved with no write -> the name key against every OTHER member (member_name_taken; a
+ * case-only change of one's own name passes) -> displayName. User.name is written too only when the re-read user
+ * e-mail is a desk placeholder (desk-only: nobody owns that User.name; new titles and organizer names follow);
+ * a login member's User.name is their own account name and stays. The e-mail is read through the member relation
+ * (Cal's excludeLockedUsers does not apply) and the user write carries no e-mail key (inviteAccept.guard.test.ts).
+ * Open member invites keep their name copy (R6). A lost lock race is member_conflict.
+ */
+export async function renameMember(
+  db: FlowkoDb,
+  actorUserId: number,
+  input: { memberId: number; displayName: string }
+): Promise<{ status: "saved" }> {
+  return memberTx(db, async (tx) => {
+    const access = await requireBusinessAccess(tx, actorUserId);
+    if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
+    const name = displayNameOrThrow(input.displayName);
+
+    const target = await tx.flowkoBusinessMember.findUnique({
+      where: { id: input.memberId },
+      select: { businessId: true },
+    });
+    if (!target || target.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
+
+    await lockBusinessRow(tx, access.businessId);
+    await tx.$executeRaw`SELECT 1 FROM "FlowkoBusinessMember" WHERE "id" = ${input.memberId} FOR NO KEY UPDATE`;
+    const member = await tx.flowkoBusinessMember.findUnique({
+      where: { id: input.memberId },
+      select: {
+        id: true,
+        businessId: true,
+        userId: true,
+        displayName: true,
+        user: { select: { email: true } },
+      },
+    });
+    if (!member || member.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
+    if (member.displayName === name) return { status: "saved" as const };
+
+    const others = await tx.flowkoBusinessMember.findMany({
+      where: { businessId: access.businessId, id: { not: member.id } },
+      select: { displayName: true },
+    });
+    const key = nameKey(name);
+    if (others.some((m) => nameKey(m.displayName) === key))
+      throw new FlowkoBusinessError("member_name_taken");
+
+    await tx.flowkoBusinessMember.update({ where: { id: member.id }, data: { displayName: name } });
+    if (member.userId !== null && member.user !== null && isFlowkoDeskEmail(member.user.email)) {
+      await tx.user.update({ where: { id: member.userId }, data: { name } });
+    }
+    return { status: "saved" as const };
   });
 }
 

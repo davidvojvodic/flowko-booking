@@ -1,11 +1,13 @@
 // Flowko U29c: viewer.flowko.workers.* (W11), the owner's "Delavci" page (pattern: U29a services router, lazy
 // handler import). Rights live in the services (owner only). Flowko U29d (S1): invite, resendInvite and revokeInvite.
+// Flowko U29e (E9): rename.
 import authedProcedure from "../../../../procedures/authedProcedure";
 import { router } from "../../../../trpc";
 import {
   ZAddDeskOnlyInput,
   ZInviteInput,
   ZLockMemberInput,
+  ZRenameMemberInput,
   ZReorderWorkersInput,
   ZResendInviteInput,
   ZRevokeInviteInput,
@@ -39,5 +41,9 @@ export const workersRouter = router({
   }),
   revokeInvite: authedProcedure.input(ZRevokeInviteInput).mutation(async ({ ctx, input }) => {
     return (await load()).revokeInviteHandler({ ctx, input });
+  }),
+  // Flowko U29e (E9): the owner renames a member.
+  rename: authedProcedure.input(ZRenameMemberInput).mutation(async ({ ctx, input }) => {
+    return (await load()).renameHandler({ ctx, input });
   }),
 });

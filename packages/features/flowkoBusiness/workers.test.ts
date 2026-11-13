@@ -16,7 +16,10 @@ import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWor
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { ensureWorkerMirror } from "./mirror";
-import { addDeskWorker, listWorkers, reorderWorkers } from "./workers";
+// Flowko U29e: the rename reads (desk member list, Urnik) to prove the new name shows everywhere.
+import { listDeskMembers } from "./desk";
+import { getRosterWeek } from "./roster";
+import { addDeskWorker, listWorkers, renameMember, reorderWorkers } from "./workers";
 
 const db = prismock as unknown as FlowkoDb;
 const tx = prismock as unknown as Prisma.TransactionClient;
@@ -725,5 +728,249 @@ describe("listWorkers moreBookings (Task 2 review carry)", () => {
     expect(dan?.futureCount).toBe(1);
     expect(dan?.futureBookings).toHaveLength(2);
     expect(dan?.moreBookings).toBe(0);
+  });
+});
+
+// Flowko U29e (E9, R6-R8): the owner renames a member. Locks and races: workers.integration-test.ts.
+describe("renameMember (E9 workers.rename)", () => {
+  const userIdOf = async (memberId: number): Promise<number> =>
+    (await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } })).userId as number;
+  const memberRow = (id: number) => prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id } });
+  const userRow = (id: number) => prismock.user.findUniqueOrThrow({ where: { id } });
+  /** Every member row and every user row, whole (prismock writes no updatedAt, so equal rows = nothing written). */
+  const everything = async () => ({
+    members: await prismock.flowkoBusinessMember.findMany({ orderBy: { id: "asc" } }),
+    users: await prismock.user.findMany({ orderBy: { id: "asc" } }),
+  });
+  /** Spies on the two writes a rename may make; restored by the caller. */
+  function spyWrites() {
+    const member = vi.spyOn(prismock.flowkoBusinessMember, "update");
+    const user = vi.spyOn(prismock.user, "update");
+    member.mockClear();
+    user.mockClear();
+    return {
+      member,
+      user,
+      restore: () => {
+        member.mockRestore();
+        user.mockRestore();
+      },
+    };
+  }
+
+  it("a desk-only worker: displayName and User.name both change, the e-mail stays; answers saved", async () => {
+    const userId = await userIdOf(f.members.mojca);
+    const before = await userRow(userId);
+    expect(before.name).toBe("Mojca");
+    expect(
+      await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "  Mojca Nova  " })
+    ).toEqual({ status: "saved" });
+    expect((await memberRow(f.members.mojca)).displayName).toBe("Mojca Nova");
+    const after = await userRow(userId);
+    expect(after).toEqual({ ...before, name: "Mojca Nova" });
+    expect(after.email).toBe(before.email);
+    expect(after.email.endsWith("@flowko.invalid")).toBe(true);
+  });
+
+  it("a login worker, a login staff member and the owner's own row: only displayName, the user row is untouched", async () => {
+    for (const [memberId, userId, next] of [
+      [f.members.ana, f.users.ana, "Ana Kovač"],
+      [f.members.rok, f.users.rok, "Rok Recepcija"],
+      [f.members.olga, f.users.olga, "Olga Lastnica"],
+    ] as const) {
+      const before = await userRow(userId);
+      expect(await renameMember(db, f.users.olga, { memberId, displayName: next })).toEqual({
+        status: "saved",
+      });
+      expect((await memberRow(memberId)).displayName).toBe(next);
+      expect(await userRow(userId)).toEqual(before);
+    }
+  });
+
+  it("a converted member (desk user that now has a real e-mail): only displayName, User.name stays the person's", async () => {
+    const userId = await userIdOf(f.members.mojca);
+    await prismock.user.update({
+      where: { id: userId },
+      data: { email: "mojca.prava@example.com", name: "Mojca Vpisana" },
+    });
+    const before = await userRow(userId);
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Mojca S." });
+    expect((await memberRow(f.members.mojca)).displayName).toBe("Mojca S.");
+    expect(await userRow(userId)).toEqual(before);
+  });
+
+  it("staff without a login: displayName only, no user write", async () => {
+    const writes = spyWrites();
+    try {
+      await renameMember(db, f.users.olga, { memberId: f.members.sara, displayName: "Sara Blagajna" });
+      expect(writes.user).not.toHaveBeenCalled();
+      expect(writes.member).toHaveBeenCalledTimes(1);
+    } finally {
+      writes.restore();
+    }
+    expect((await memberRow(f.members.sara)).displayName).toBe("Sara Blagajna");
+  });
+
+  it("a LOCKED member can be renamed (status kept)", async () => {
+    const before = await userRow(f.users.dan);
+    await renameMember(db, f.users.olga, { memberId: f.members.dan, displayName: "Dan Stari" });
+    expect(await memberRow(f.members.dan)).toMatchObject({
+      displayName: "Dan Stari",
+      status: FlowkoMemberStatus.LOCKED,
+    });
+    expect(await userRow(f.users.dan)).toEqual(before);
+  });
+
+  it("a case-only change of one's own name passes (self is not a duplicate), the owner's and another member's", async () => {
+    await renameMember(db, f.users.olga, { memberId: f.members.olga, displayName: "OLGA" });
+    expect((await memberRow(f.members.olga)).displayName).toBe("OLGA");
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "mojca" });
+    expect((await memberRow(f.members.mojca)).displayName).toBe("mojca");
+    expect((await userRow(await userIdOf(f.members.mojca))).name).toBe("mojca");
+  });
+
+  it("an unchanged name (after trim) answers saved and writes nothing", async () => {
+    const before = await everything();
+    const writes = spyWrites();
+    try {
+      for (const displayName of ["Mojca", "  Mojca "]) {
+        expect(await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName })).toEqual({
+          status: "saved",
+        });
+      }
+      expect(writes.member).not.toHaveBeenCalled();
+      expect(writes.user).not.toHaveBeenCalled();
+    } finally {
+      writes.restore();
+    }
+    expect(await everything()).toEqual(before);
+  });
+
+  it("another member's name in any case, NFC or invisible-character variant is member_name_taken, nothing written", async () => {
+    await renameMember(db, f.users.olga, { memberId: f.members.sara, displayName: "\u010Caja" }); // composed
+    const before = await everything();
+    for (const displayName of [
+      "Ana",
+      " ana ",
+      "ANA",
+      "Dan", // LOCKED
+      "C\u030Caja", // decomposed C-caron against the composed one
+      "Ana\u200D",
+      "A\u00ADna",
+      "olga",
+      "ROK",
+    ]) {
+      expect(await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName }))).toBe(
+        "member_name_taken"
+      );
+    }
+    expect(await everything()).toEqual(before);
+    // A name used only in another business is free; so is a name freed by an earlier rename.
+    expect(
+      await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Bea" }))
+    ).toBe("ok");
+    expect(
+      await outcome(renameMember(db, f.users.olga, { memberId: f.members.ana, displayName: "Sara" }))
+    ).toBe("ok");
+  });
+
+  it("an empty name, 81 characters and a refused character are bad_member, nothing written", async () => {
+    const before = await everything();
+    for (const displayName of ["", "   ", "x".repeat(81), "A\u0000", "Ana\u200B", "Ana\u202E", "\u200D"]) {
+      expect(await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName }))).toBe(
+        "bad_member"
+      );
+    }
+    expect(await everything()).toEqual(before);
+    expect(
+      await outcome(
+        renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "y".repeat(80) })
+      )
+    ).toBe("ok");
+  });
+
+  it("is the owner's: a worker, a staff member, a locked member, a stranger, a foreign owner and a missing id are forbidden, nothing written", async () => {
+    const before = await everything();
+    const writes = spyWrites();
+    try {
+      for (const actor of [f.users.ana, f.users.rok, f.users.dan, f.users.zala]) {
+        expect(
+          await outcome(renameMember(db, actor, { memberId: f.members.mojca, displayName: "Nova" }))
+        ).toBe("forbidden");
+      }
+      // The owner of A cannot reach B's member; a missing id answers the same.
+      for (const memberId of [f.members.bea, f.members.zala, 999_999]) {
+        expect(await outcome(renameMember(db, f.users.olga, { memberId, displayName: "Nova" }))).toBe(
+          "forbidden"
+        );
+      }
+      // A worker cannot rename herself either.
+      expect(
+        await outcome(renameMember(db, f.users.ana, { memberId: f.members.ana, displayName: "Ana Nova" }))
+      ).toBe("forbidden");
+      expect(writes.member).not.toHaveBeenCalled();
+      expect(writes.user).not.toHaveBeenCalled();
+    } finally {
+      writes.restore();
+    }
+    expect(await everything()).toEqual(before);
+    const stranger = await makeUser("Nobody");
+    expect(
+      await outcome(renameMember(db, stranger, { memberId: f.members.mojca, displayName: "Nova" }))
+    ).toBe("forbidden");
+  });
+
+  it("answers a lost lock race (P2028, P2034, P2010 with 40P01 in both meta forms) as member_conflict", async () => {
+    const raw = (code: string, meta: Record<string, unknown>) =>
+      new Prisma.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+    const failures = [
+      raw("P2028", {}),
+      raw("P2034", {}),
+      raw("P2010", { code: "40P01", message: "deadlock detected" }),
+      raw("P2010", {
+        driverAdapterError: { cause: { originalCode: "40P01", kind: "postgres", code: "40P01" } },
+      }),
+    ];
+    for (const failure of failures) {
+      vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(failure);
+      expect(
+        await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Nova" }))
+      ).toBe("member_conflict");
+    }
+    const other = raw("P2010", { code: "22P02" });
+    vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(other);
+    await expect(
+      renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Nova" })
+    ).rejects.toBe(other);
+  });
+
+  it("afterwards Delavci, the desk's member list and Urnik show the new name", async () => {
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Mojca Nova" });
+    const { members } = await listWorkers(db, f.users.olga, NOW);
+    expect(members.find((m) => m.memberId === f.members.mojca)?.displayName).toBe("Mojca Nova");
+    const desk = await listDeskMembers(db, f.users.ana);
+    expect(desk.find((m) => m.memberId === f.members.mojca)?.displayName).toBe("Mojca Nova");
+    const roster = await getRosterWeek(db, f.users.olga, "2026-11-16", NOW);
+    expect(roster.members.find((m) => m.memberId === f.members.mojca)?.displayName).toBe("Mojca Nova");
+    expect(JSON.stringify([members, desk, roster])).not.toContain('"Mojca"');
+  });
+
+  it("an open member invite keeps the name it was sent with (R6)", async () => {
+    const invite = await prismock.flowkoBusinessInvite.create({
+      data: {
+        businessId: f.a,
+        email: "mojca@example.com",
+        name: "Mojca",
+        role: FlowkoBusinessRole.WORKER,
+        memberId: f.members.mojca,
+        tokenHash: "c".repeat(64),
+        expiresAt: new Date(NOW.getTime() + 86_400_000),
+        createdByUserId: f.users.olga,
+      },
+    });
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Mojca Nova" });
+    expect(await prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: invite.id } })).toEqual(
+      invite
+    );
   });
 });
