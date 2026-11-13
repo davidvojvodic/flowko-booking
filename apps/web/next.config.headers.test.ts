@@ -223,6 +223,9 @@ describe("next.config headers(): framing protection (U13-08)", () => {
     "/auth/error",
     "/auth/forgot-password/abc",
     "/auth/logout",
+    // Flowko U29d: the invite accept page (S2)
+    "/auth/pridruzi/x",
+    "/auth/pridruzi/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
     "/signup",
     "/login",
     "/sl/auth/login",

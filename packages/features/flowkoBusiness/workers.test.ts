@@ -370,15 +370,32 @@ describe("listWorkers (W1 workers.list)", () => {
     expect([...starts].sort()).toEqual(starts);
   });
 
+  // Flowko U29d: narrowed to the member rows (the pending brand-new invites carry the e-mail the owner typed);
+  // a desk-only member's open invite adds its expiry keys, never an e-mail. answer.invites has its own exact set.
   it("returns no uid, e-mail, phone or user id anywhere (deep key scan and value scan)", async () => {
     await bookingOn(f.members.dan, { start: at("2026-11-17", "10:00"), customers: ["Ana Testna"] });
     await bookingOn(f.members.ana, { start: at("2026-11-17", "11:00") });
+    const invite = (memberId: number | null, email: string, name: string, hash: string) =>
+      prismock.flowkoBusinessInvite.create({
+        data: {
+          businessId: f.a,
+          email,
+          name,
+          role: FlowkoBusinessRole.WORKER,
+          memberId,
+          tokenHash: hash.repeat(64),
+          expiresAt: new Date(NOW.getTime() + 86_400_000),
+          createdByUserId: f.users.olga,
+        },
+      });
+    await invite(f.members.mojca, "mojca.real@example.si", "Mojca", "a");
+    await invite(null, "hana@example.si", "Hana", "b");
     const answer = await listWorkers(db, f.users.olga, NOW);
-    const keys = keysDeep(answer);
+    const keys = keysDeep(answer.members);
     for (const banned of ["uid", "email", "phone", "phoneNumber", "userId", "user", "username"]) {
       expect(keys.has(banned)).toBe(false);
     }
-    const json = JSON.stringify(answer);
+    const json = JSON.stringify(answer.members);
     expect(json).not.toContain("@");
     expect(json).not.toContain("041 123 456");
     expect(json).not.toContain("u29c-wk-");
@@ -388,12 +405,16 @@ describe("listWorkers (W1 workers.list)", () => {
         "customerName",
         "date",
         "displayName",
+        "expired",
+        "expiresDate",
+        "expiresTime",
         "from",
         "futureBookings",
         "futureCount",
+        "invite",
+        "inviteId",
         "isMe",
         "memberId",
-        "members",
         "moreBookings",
         "noLogin",
         "role",
@@ -402,6 +423,26 @@ describe("listWorkers (W1 workers.list)", () => {
         "to",
       ].sort()
     );
+    expect(Object.keys(answer).sort()).toEqual(["invites", "members"]);
+    expect([...keysDeep(answer.invites)].sort()).toEqual(
+      ["email", "expired", "expiresDate", "expiresTime", "inviteId", "name", "role"].sort()
+    );
+    const all = keysDeep(answer);
+    for (const banned of [
+      "token",
+      "tokenHash",
+      "createdByUserId",
+      "uid",
+      "phone",
+      "userId",
+      "user",
+      "username",
+    ]) {
+      expect(all.has(banned)).toBe(false);
+    }
+    const whole = JSON.stringify(answer);
+    expect(whole).not.toContain("a".repeat(64));
+    expect(whole).not.toContain("b".repeat(64));
   });
 });
 

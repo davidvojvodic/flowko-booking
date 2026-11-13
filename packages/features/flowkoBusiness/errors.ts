@@ -42,7 +42,17 @@ export type FlowkoBusinessErrorCode =
   // LOCKED (W3: never clears a Cal-admin lock of an ACTIVE member).
   | "member_name_taken"
   | "member_conflict"
-  | "member_not_locked";
+  | "member_not_locked"
+  // Flowko U29d: invites. The e-mail already has a Flowko login (C6: a user, locked included, or a secondary
+  // e-mail); the invitee's e-mail is not a real address; an open invite already exists for that e-mail or member;
+  // the invite is used or revoked (owner side); the public accept's one answer for unknown, expired, used, revoked
+  // or ineligible (no oracle); the member is no longer an ACTIVE desk-only worker.
+  | "email_has_login"
+  | "invite_bad_email"
+  | "invite_pending"
+  | "invite_gone"
+  | "invite_invalid"
+  | "member_not_desk_only";
 
 export class FlowkoBusinessError extends Error {
   constructor(readonly code: FlowkoBusinessErrorCode) {

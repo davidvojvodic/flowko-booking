@@ -52,6 +52,30 @@ describe("memberTx (U29c)", () => {
     expect(await codeOf(adapter({ originalCode: "40P01" }))).toBe("member_conflict");
   });
 
+  // U29d DATA-2: a deadlock whose victim is a non-raw Prisma statement reaches the caller as the bare pg
+  // driver-adapter error (Prisma 6.16 `engineType = "client"` maps kind "postgres" to nothing and rethrows it).
+  const driverAdapterError = (cause: Record<string, unknown>) =>
+    Object.assign(new Error("driver adapter error"), { name: "DriverAdapterError", cause });
+
+  it("maps a bare pg DriverAdapterError with 40P01 (code or originalCode) to member_conflict (U29d DATA-2)", async () => {
+    expect(await codeOf(driverAdapterError({ kind: "postgres", code: "40P01", originalCode: "40P01" }))).toBe(
+      "member_conflict"
+    );
+    expect(await codeOf(driverAdapterError({ kind: "postgres", code: "40P01" }))).toBe("member_conflict");
+    expect(await codeOf(driverAdapterError({ kind: "postgres", originalCode: "40P01" }))).toBe(
+      "member_conflict"
+    );
+  });
+
+  it("rethrows a bare DriverAdapterError with any other SQLSTATE (23505) or no cause untouched (U29d DATA-2)", async () => {
+    const unique = driverAdapterError({ kind: "postgres", code: "23505", originalCode: "23505" });
+    await expect(memberTx(db, async () => Promise.reject(unique))).rejects.toBe(unique);
+    const noCause = Object.assign(new Error("driver adapter error"), { name: "DriverAdapterError" });
+    await expect(memberTx(db, async () => Promise.reject(noCause))).rejects.toBe(noCause);
+    const otherName = Object.assign(new Error("x"), { cause: { code: "40P01" } });
+    await expect(memberTx(db, async () => Promise.reject(otherName))).rejects.toBe(otherName);
+  });
+
   it("rethrows any other P2010, any other Prisma code and any other error untouched", async () => {
     const other = known("P2010", { code: "22P02" });
     await expect(memberTx(db, async () => Promise.reject(other))).rejects.toBe(other);

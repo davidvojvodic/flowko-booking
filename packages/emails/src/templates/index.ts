@@ -20,6 +20,8 @@ export { DailyVideoDownloadRecordingEmail } from "./DailyVideoDownloadRecordingE
 export { DailyVideoDownloadTranscriptEmail } from "./DailyVideoDownloadTranscriptEmail";
 export { DisabledAppEmail } from "./DisabledAppEmail";
 export { FeedbackEmail } from "./FeedbackEmail";
+// Flowko U29d: the invite mail of a salon owner
+export { FlowkoInviteEmail } from "./FlowkoInviteEmail";
 export { ForgotPasswordEmail } from "./ForgotPasswordEmail";
 export { MonthlyDigestEmail } from "./MonthlyDigestEmail";
 export { NoShowFeeChargedEmail } from "./NoShowFeeChargedEmail";

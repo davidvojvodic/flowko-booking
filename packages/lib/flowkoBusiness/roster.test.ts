@@ -9,6 +9,7 @@ import {
   resolveMemberDay,
   shiftsOutsideOpening,
   todayIn,
+  usualWeekForCopy, // Flowko U29d
   weekDates,
   weekdayOf,
   weekHoursSchema,
@@ -231,5 +232,57 @@ describe("schemas", () => {
     expect(
       weekPlanSchema.safeParse({ ...emptyPlan(), mon: [e("07:00", "12:00"), e("11:00", "14:00")] }).success
     ).toBe(false);
+  });
+});
+
+// Flowko U29d (A4): the owner's usual week a brand-new worker gets on accept: as stored when it passes the editor
+// rules (weekHoursSchema, at most ROSTER_MAX_SHIFTS_PER_DAY a day, at least one shift), else none (null).
+describe("usualWeekForCopy", () => {
+  const week = () => ({
+    mon: [e("08:00", "12:00"), e("13:00", "16:00")],
+    tue: [e("08:00", "16:00")],
+    wed: [],
+    thu: [e("09:00", "17:00")],
+    fri: [e("08:00", "14:00")],
+    sat: [],
+    sun: [],
+  });
+  const empty = () => ({ mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] });
+
+  it("answers null for none, the DbNull prismock stores, a bad shape, too many shifts and a week without shifts", () => {
+    expect(usualWeekForCopy(null)).toBeNull();
+    expect(usualWeekForCopy(undefined)).toBeNull();
+    expect(usualWeekForCopy({})).toBeNull();
+    // Prisma.DbNull is a class instance with no weekday keys (client-safe code cannot import it).
+    expect(usualWeekForCopy(new (class DbNull {})())).toBeNull();
+    expect(usualWeekForCopy([])).toBeNull();
+    expect(usualWeekForCopy("week")).toBeNull();
+    expect(usualWeekForCopy({ ...week(), extra: [] })).toBeNull();
+    const { sun: _sun, ...missing } = week();
+    expect(usualWeekForCopy(missing)).toBeNull();
+    expect(usualWeekForCopy({ ...week(), mon: [e("12:00", "13:00"), e("12:30", "14:00")] })).toBeNull();
+    expect(
+      usualWeekForCopy({
+        ...week(),
+        tue: [
+          e("06:00", "07:00"),
+          e("08:00", "09:00"),
+          e("10:00", "11:00"),
+          e("12:00", "13:00"),
+          e("14:00", "15:00"),
+        ],
+      })
+    ).toBeNull();
+    expect(usualWeekForCopy(empty())).toBeNull();
+  });
+
+  it("answers a valid week as stored, four shifts on a day included", () => {
+    expect(usualWeekForCopy(week())).toEqual(week());
+    const four = {
+      ...empty(),
+      wed: [e("06:00", "07:00"), e("08:00", "09:00"), e("10:00", "11:00"), e("12:00", "13:00")],
+    };
+    expect(usualWeekForCopy(four)).toEqual(four);
+    expect(usualWeekForCopy(hairSalonTemplate.openingHours)).toEqual(hairSalonTemplate.openingHours);
   });
 });

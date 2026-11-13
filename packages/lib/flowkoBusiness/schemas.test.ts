@@ -7,6 +7,9 @@ import {
   // Flowko U29a: the settings and service editor schemas.
   businessSettingsSchema,
   DEFAULT_REMINDER_OFFSETS,
+  // Flowko U29d: the invitee's e-mail and the placeholder-domain rule it shares with the business e-mail.
+  inviteEmailSchema,
+  isPlaceholderDomain,
   type OpeningHours,
   openingHoursSchema,
   openingIntervalsFor,
@@ -437,5 +440,71 @@ describe("serviceInputSchema", () => {
     ["a worker named twice", { workerMemberIds: [1, 1] }, "bad_member"],
   ])("refuses %s with its code", (_label, patch, code) => {
     expect(codes(patch)).toContain(code);
+  });
+});
+
+// Flowko U29d: the invitee's e-mail (I3, Global "E-mail rule"): the business e-mail's chain without null.
+describe("inviteEmailSchema", () => {
+  const messages = (email: unknown) => issueMessages(inviteEmailSchema.safeParse(email));
+
+  it("trims and lower-cases", () => {
+    expect(inviteEmailSchema.parse(" Ana@Example.SI ")).toBe("ana@example.si");
+    expect(inviteEmailSchema.parse("david.vojvodic+u29d-a@flowko.si")).toBe(
+      "david.vojvodic+u29d-a@flowko.si"
+    );
+  });
+
+  it("accepts 254 characters and refuses 255 (email_length)", () => {
+    const at254 = `${"a".repeat(64)}@${"b".repeat(186)}.si`;
+    expect(at254).toHaveLength(254);
+    expect(inviteEmailSchema.parse(at254)).toBe(at254);
+    expect(messages(`${"a".repeat(64)}@${"b".repeat(187)}.si`)).toContain("email_length");
+  });
+
+  it.each([
+    ["the desk domain", "x@flowko.invalid"],
+    ["the desk domain in capitals", "DESK-1@FLOWKO.INVALID"],
+    ["any .invalid domain", "a@b.invalid"],
+    ["the bare invalid domain", "a@invalid"],
+    ["sms.cal.com", "x@sms.cal.com"],
+    ["an sms.cal.com subdomain", "x@a.sms.cal.com"],
+  ])("refuses %s", (_label, email) => {
+    expect(inviteEmailSchema.safeParse(email).success).toBe(false);
+  });
+
+  it("names the placeholder refusal email_placeholder", () => {
+    expect(messages("x@flowko.invalid")).toContain("email_placeholder");
+    expect(messages("x@sms.cal.com")).toContain("email_placeholder");
+  });
+
+  it.each([["salon.example.si"], ["ana@"], ["@example.si"], ["ana @example.si"], [""], ["   "]])(
+    "refuses the malformed %j",
+    (email) => {
+      expect(inviteEmailSchema.safeParse(email).success).toBe(false);
+    }
+  );
+
+  it("refuses null and a non-string (no .nullable())", () => {
+    expect(inviteEmailSchema.safeParse(null).success).toBe(false);
+    expect(inviteEmailSchema.safeParse(42).success).toBe(false);
+  });
+
+  it("the business e-mail keeps its own rules (nullable, same codes)", () => {
+    const shape = businessSettingsSchema.shape.email;
+    expect(shape.parse(null)).toBeNull();
+    expect(shape.parse(" Salon@Example.SI ")).toBe("salon@example.si");
+    expect(issueMessages(shape.safeParse("x@flowko.invalid"))).toContain("email_placeholder");
+    expect(issueMessages(shape.safeParse("salon.example.si"))).toContain("email_format");
+  });
+});
+
+describe("isPlaceholderDomain", () => {
+  it("only the domain after the last @ decides", () => {
+    expect(isPlaceholderDomain("x@flowko.invalid")).toBe(true);
+    expect(isPlaceholderDomain("x@INVALID")).toBe(true);
+    expect(isPlaceholderDomain("x@sub.sms.cal.com")).toBe(true);
+    expect(isPlaceholderDomain("x@invalid-salon.si")).toBe(false);
+    expect(isPlaceholderDomain("invalid@example.si")).toBe(false);
+    expect(isPlaceholderDomain("x@cal.com")).toBe(false);
   });
 });

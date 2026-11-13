@@ -6,7 +6,13 @@
 // phone or user id is selected or returned, and the member's user id stays inside this function (isMe and
 // noLogin are computed here). Also the owner's member writes: add a desk-only worker (W4) and reorder every
 // member (W5), both under the business row lock. Owner only. Server only.
+// Flowko U29d: the list also answers the open invites (I9): a desk-only member's open invite on its row (id and
+// business-local expiry only, never the invitee's e-mail) and the pending brand-new invites in `invites`, which
+// are the only place the answer carries an e-mail (the address the owner typed). Never a token, its hash or the
+// creator. The business row lock and the name key are exported for the invite service (invites.ts).
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
+// Flowko U29d: invite list types and the business-local expiry.
+import { inviteExpiry, type MemberInvite, type PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
 import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import {
   WORKER_BOOKINGS_SHOWN,
@@ -14,7 +20,7 @@ import {
   type WorkerListRow,
 } from "@calcom/lib/flowkoBusiness/workers";
 import type { Prisma } from "@calcom/prisma/client";
-import { FlowkoMemberStatus } from "@calcom/prisma/enums";
+import { FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { listMembers, mayManageBusiness, requireBusinessAccess } from "./access";
 import { HOLDING_STATUSES } from "./bookingDay";
 import { createDeskOnlyWorker, displayNameOrThrow } from "./business";
@@ -37,7 +43,7 @@ export async function listWorkers(
   db: FlowkoDb,
   actorUserId: number,
   now: Date
-): Promise<{ members: WorkerListRow[] }> {
+): Promise<{ members: WorkerListRow[]; invites: PendingInvite[] }> {
   const access = await requireBusinessAccess(db, actorUserId);
   if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
 
@@ -49,6 +55,30 @@ export async function listWorkers(
   const timeZone = business.timeZone;
 
   const members = await listMembers(db, access.businessId);
+
+  // Flowko U29d: the open invites (neither used nor revoked; expired ones stay listed, flagged), creation order.
+  const openInvites = await db.flowkoBusinessInvite.findMany({
+    where: { businessId: access.businessId, usedAt: null, revokedAt: null },
+    select: { id: true, memberId: true, name: true, email: true, role: true, expiresAt: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  const memberInvites = new Map<number, MemberInvite>(); // memberId -> its open invite (at most one, M1)
+  const invites: PendingInvite[] = [];
+  for (const invite of openInvites) {
+    const expiry = inviteExpiry(invite.expiresAt, timeZone, now);
+    if (invite.memberId !== null) {
+      memberInvites.set(invite.memberId, { inviteId: invite.id, ...expiry });
+    } else {
+      invites.push({
+        inviteId: invite.id,
+        name: invite.name,
+        email: invite.email,
+        role: invite.role === FlowkoBusinessRole.STAFF ? "STAFF" : "WORKER", // CHECK: never OWNER
+        ...expiry,
+      });
+    }
+  }
+
   const columnIds = new Set(members.filter((m) => m.hasColumn).map((m) => m.memberId));
   const mirrors = await db.flowkoWorkerMirror.findMany({
     where: { businessId: access.businessId },
@@ -116,21 +146,27 @@ export async function listWorkers(
       // The two reads are separate queries, so a booking made between them could make the list longer than the count.
       moreBookings:
         member.status === FlowkoMemberStatus.LOCKED ? Math.max(0, futureCount - futureBookings.length) : 0,
+      invite: memberInvites.get(member.memberId) ?? null,
     });
   }
-  return { members: rows };
+  return { members: rows, invites };
 }
 
 /**
  * Flowko U29c: the business row lock every member add and reorder takes first (re-taking it in one tx is a no-op).
  * FOR NO KEY UPDATE: still serialises the creators, but a booking's FOR KEY SHARE FK check does not wait behind it.
+ * Flowko U29d: exported (was `lockBusiness`); the invite create takes it first too (lock order: business row ->
+ * stale invite rows -> insert).
  */
-async function lockBusiness(tx: Prisma.TransactionClient, businessId: number): Promise<void> {
+export async function lockBusinessRow(tx: Prisma.TransactionClient, businessId: number): Promise<void> {
   await tx.$executeRaw`SELECT 1 FROM "FlowkoBusiness" WHERE "id" = ${businessId} FOR NO KEY UPDATE`;
 }
 
-/** Flowko U29c: one comparison key per name: trimmed, Unicode-composed (NFC), lower-cased by Slovene rules. */
-const nameKey = (name: string): string => name.trim().normalize("NFC").toLocaleLowerCase("sl");
+/**
+ * Flowko U29c: one comparison key per name: trimmed, Unicode-composed (NFC), lower-cased by Slovene rules.
+ * Flowko U29d: exported for the invite create (a brand-new invitee's name against every member).
+ */
+export const nameKey = (name: string): string => name.trim().normalize("NFC").toLocaleLowerCase("sl");
 
 /**
  * W4: adds a desk-only worker (ACTIVE WORKER with a desk column at once, no usual week, no services) as the last
@@ -148,7 +184,7 @@ export async function addDeskWorker(
     if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
     const name = displayNameOrThrow(input.displayName);
 
-    await lockBusiness(tx, access.businessId);
+    await lockBusinessRow(tx, access.businessId);
     const members = await tx.flowkoBusinessMember.findMany({
       where: { businessId: access.businessId },
       select: { displayName: true },
@@ -177,7 +213,7 @@ export async function reorderWorkers(
     if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
     if (!input.memberIds.every((id) => Number.isInteger(id))) throw new FlowkoBusinessError("bad_member");
 
-    await lockBusiness(tx, access.businessId);
+    await lockBusinessRow(tx, access.businessId);
     const stored = await tx.flowkoBusinessMember.findMany({
       where: { businessId: access.businessId },
       select: { id: true },

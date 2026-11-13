@@ -1038,16 +1038,16 @@ model FlowkoBusiness {
 // Flowko U25: a person in a business. userId is unique (one business per user) and NULL only for STAFF without
 // a login (CHECK in the migration).
 model FlowkoBusinessMember {
-  id           Int                   @id @default(autoincrement())
+  id           Int                    @id @default(autoincrement())
   businessId   Int
-  business     FlowkoBusiness        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  userId       Int?                  @unique
-  user         User?                 @relation("FlowkoBusinessMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  business     FlowkoBusiness         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId       Int?                   @unique
+  user         User?                  @relation("FlowkoBusinessMemberUser", fields: [userId], references: [id], onDelete: Cascade)
   role         FlowkoBusinessRole
-  status       FlowkoMemberStatus    @default(ACTIVE)
+  status       FlowkoMemberStatus     @default(ACTIVE)
   lockedAt     DateTime?
   displayName  String
-  position     Int                   @default(0)
+  position     Int                    @default(0)
   // Flowko U26: the member's usual week (WeekHours JSON, validated in code; NULL = no usual week; CHECK object
   // in the migration), the week changes per date and the absences.
   usualWeek    Json?
@@ -1057,8 +1057,10 @@ model FlowkoBusinessMember {
   actedActions FlowkoBookingAction[]
   // Flowko U27: the member's mirror event type and schedule (one row).
   mirror       FlowkoWorkerMirror?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  // Flowko U29d: the invites that turn this (desk-only) member into a login.
+  invites      FlowkoBusinessInvite[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
 
   @@index([businessId])
 }
@@ -1111,23 +1113,32 @@ model FlowkoWorkerMirror {
   @@index([businessId])
 }
 
-// Flowko U25: an invitation to join a business (table only; U29 writes it). Only the token's hash is stored.
+// Flowko U25: an invitation to join a business (U29d writes it). Only the token's hash is stored.
 model FlowkoBusinessInvite {
-  id              Int                @id @default(autoincrement())
+  id              Int                   @id @default(autoincrement())
   businessId      Int
-  business        FlowkoBusiness     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business        FlowkoBusiness        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   email           String
   name            String
-  role            FlowkoBusinessRole @default(WORKER)
-  tokenHash       String             @unique
+  role            FlowkoBusinessRole    @default(WORKER)
+  tokenHash       String                @unique
   expiresAt       DateTime
   usedAt          DateTime?
+  // Flowko U29d: revokedAt = the owner revoked it (the row stays, the link is dead); memberId = the desk-only
+  // member this invite turns into a login (NULL = a brand-new member is created at accept). "Open" = neither
+  // used nor revoked. CHECKs (role never OWNER, a member link needs WORKER, lower-case e-mail 3..254, name
+  // 1..80, never both used and revoked, tokenHash = 64 lower-case hex) and two partial uniques (one open invite
+  // per business + e-mail, one per member) live in migration 20261112120000_flowko_business_invites.
+  revokedAt       DateTime?
+  memberId        Int?
+  member          FlowkoBusinessMember? @relation(fields: [memberId], references: [id], onDelete: Cascade)
   createdByUserId Int?
-  createdBy       User?              @relation("FlowkoBusinessInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdBy       User?                 @relation("FlowkoBusinessInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
   @@index([businessId])
+  @@index([memberId])
 }
 
 // Flowko U25: a service of a business; steps = JSON list of busy/processing steps (validated in code with U24

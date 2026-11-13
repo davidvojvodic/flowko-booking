@@ -38,6 +38,11 @@ import AttendeeRescheduledEmail from "./templates/attendee-rescheduled-email";
 import AttendeeScheduledEmail from "./templates/attendee-scheduled-email";
 import AttendeeUpdatedEmail from "./templates/attendee-updated-email";
 import AttendeeWasRequestedToRescheduleEmail from "./templates/attendee-was-requested-to-reschedule-email";
+// Flowko U29d: the invite mail
+import FlowkoInviteEmail, {
+  type FlowkoInviteLocale,
+  type FlowkoInviteMail,
+} from "./templates/flowko-invite-email";
 import OrganizerAddGuestsEmail from "./templates/organizer-add-guests-email";
 import OrganizerAttendeeCancelledSeatEmail from "./templates/organizer-attendee-cancelled-seat-email";
 import OrganizerCancelledEmail from "./templates/organizer-cancelled-email";
@@ -789,3 +794,14 @@ export const sendAttendeeReminderEmail = async (
     booker
   ).sendEmailOrThrow();
 };
+
+/**
+ * Flowko U29d (E1): the invite mail of a salon owner, sent with `sendEmailOrThrow` so the caller learns what really
+ * happened: "sent" is the only outcome that counts as sent; `skipped_*` resolve, a transport failure rejects with a
+ * `MailTransportError`. The invite service maps everything but "sent" to „ni poslano“ (E2) and never shows an error
+ * to the owner. Slovene; "en" only for the tests.
+ */
+export const sendFlowkoInviteEmail = async (
+  invite: FlowkoInviteMail,
+  locale?: FlowkoInviteLocale
+): Promise<MailSendOutcome> => new FlowkoInviteEmail(invite, locale).sendEmailOrThrow();

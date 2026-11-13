@@ -243,17 +243,71 @@ describe("U29c listWorkers on a real database", () => {
     expect(members.find((m) => m.memberId === fx.members.olga)).toMatchObject({ isMe: true, noLogin: false });
   });
 
+  // Flowko U29d: the scan runs on the member rows (a pending brand-new invite carries the e-mail the owner typed);
+  // Mojca's open invite adds only its expiry keys. The pending invites have their own exact key set.
   it("Review Focus 1: no uid, e-mail, phone or user id in the answer; the private booking's person never appears", async () => {
-    const answer = await listWorkers(prisma, fx.olga, NOW);
-    const keys = keysDeep(answer);
-    for (const banned of ["uid", "email", "phone", "phoneNumber", "userId", "user", "username"]) {
-      expect(keys.has(banned)).toBe(false);
+    const { businessId } = await prisma.flowkoBusinessMember.findUniqueOrThrow({
+      where: { id: fx.members.olga },
+      select: { businessId: true },
+    });
+    const hashes = ["a".repeat(64), "b".repeat(64)];
+    const inviteIds: number[] = [];
+    for (const [memberId, email, name, tokenHash] of [
+      [fx.members.mojca, `mojca-${RUN}@example.com`, "Mojca", hashes[0]],
+      [null, `hana-${RUN}@example.com`, "Hana", hashes[1]],
+    ] as const) {
+      const row = await prisma.flowkoBusinessInvite.create({
+        data: {
+          businessId,
+          email,
+          name,
+          role: FlowkoBusinessRole.WORKER,
+          memberId,
+          tokenHash,
+          expiresAt: new Date(NOW.getTime() + 86_400_000),
+          createdByUserId: fx.olga,
+        },
+        select: { id: true },
+      });
+      inviteIds.push(row.id);
     }
-    const json = JSON.stringify(answer);
-    expect(json).not.toContain("@");
-    expect(json).not.toContain("041 123 456");
-    expect(json).not.toContain("Secret Person");
-    expect(json).not.toContain(RUN);
+    try {
+      const answer = await listWorkers(prisma, fx.olga, NOW);
+      const keys = keysDeep(answer.members);
+      for (const banned of ["uid", "email", "phone", "phoneNumber", "userId", "user", "username"]) {
+        expect(keys.has(banned)).toBe(false);
+      }
+      const json = JSON.stringify(answer.members);
+      expect(json).not.toContain("@");
+      expect(json).not.toContain("041 123 456");
+      expect(json).not.toContain("Secret Person");
+      expect(json).not.toContain(RUN);
+      expect(answer.members.find((m) => m.memberId === fx.members.mojca)?.invite).toMatchObject({
+        inviteId: inviteIds[0],
+        expired: false,
+      });
+      expect(Array.from(keysDeep(answer.invites)).sort()).toEqual(
+        ["email", "expired", "expiresDate", "expiresTime", "inviteId", "name", "role"].sort()
+      );
+      const all = keysDeep(answer);
+      for (const banned of [
+        "token",
+        "tokenHash",
+        "createdByUserId",
+        "uid",
+        "phone",
+        "userId",
+        "user",
+        "username",
+      ]) {
+        expect(all.has(banned)).toBe(false);
+      }
+      const whole = JSON.stringify(answer);
+      for (const hash of hashes) expect(whole).not.toContain(hash);
+      expect(whole).not.toContain("Secret Person");
+    } finally {
+      await prisma.flowkoBusinessInvite.deleteMany({ where: { id: { in: inviteIds } } });
+    }
   });
 
   it("another business sees its own members and bookings only", async () => {

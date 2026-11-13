@@ -10,7 +10,8 @@ import type { WorkerListBooking } from "@calcom/lib/flowkoBusiness/workers";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import Link from "next/link";
 
-function dayText(date: string, language: string, withYear: boolean): string {
+// Flowko U29d: exported for the invite validity line („velja do pon., 23. 11. ob 08:07“, PendingInvites).
+export function dayText(date: string, language: string, withYear: boolean): string {
   return new Intl.DateTimeFormat(language, {
     weekday: "short",
     day: "numeric",
