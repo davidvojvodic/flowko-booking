@@ -618,4 +618,19 @@ describe("U29d invite service on a real database", () => {
     ).toBe(0);
     expect(sendInvite).not.toHaveBeenCalled();
   });
+
+  // Flowko U29e (RIGHTS-1, R5): NUL used to reach Postgres (0x00 is refused in text -> a raw driver error).
+  it("RIGHTS-1 on Postgres: a brand-new invitee's name with NUL or a C1 character is bad_member; nothing written, no mail", async () => {
+    const { deps, sendInvite } = mailer();
+    const before = await prisma.flowkoBusinessInvite.count({ where: { businessId: a.businessId } });
+    for (const name of ["A\u0000", "\u0000", "A\u0085"]) {
+      expect(
+        await codeOf(
+          createInvite(deps, a.owner, { kind: "new", name, email: email("nul"), role: "WORKER" }, NOW)
+        )
+      ).toBe("bad_member");
+    }
+    expect(await prisma.flowkoBusinessInvite.count({ where: { businessId: a.businessId } })).toBe(before);
+    expect(sendInvite).not.toHaveBeenCalled();
+  });
 });

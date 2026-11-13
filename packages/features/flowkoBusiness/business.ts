@@ -5,6 +5,8 @@
 // Never writes Team, Membership, Host, Profile or EventType (R14); members are created with
 // flowkoBusinessMember.create, never through a nested relation write (Teams guard, Ruling 1). Server only.
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
+// Flowko U29e: the shared member-name rule (RIGHTS-1).
+import { MEMBER_NAME_MAX, memberNameProblem } from "@calcom/lib/flowkoBusiness/memberName";
 import {
   businessProfileSchema,
   // Flowko U29a: the default reminder choice written into a new business.
@@ -36,7 +38,7 @@ export type CreateBusinessInput = {
 const BUSINESS_TIME_ZONE = "Europe/Ljubljana";
 const DEFAULT_SLOT_GRID_MINUTES = 15;
 const DEFAULT_SELF_CANCEL_HOURS = 24;
-const DISPLAY_NAME_MAX_LENGTH = 80;
+const DISPLAY_NAME_MAX_LENGTH = MEMBER_NAME_MAX; // Flowko U29e: one constant with the shared name rule
 
 /**
  * Flowko U29d: the Slovene user defaults every Flowko-made user gets (Cal's column defaults are London / 12 h /
@@ -88,11 +90,11 @@ async function assertBusinessExists(tx: Tx, businessId: number): Promise<void> {
 }
 
 // Flowko U29c: exported for addDeskWorker (workers.ts), which validates the name before its duplicate check.
+// Flowko U29e (RIGHTS-1): the shared rule (memberName.ts): 1..80 after trim, no control, bidi, separator or
+// invisible character and something visible left; any problem is bad_member. Answers the trimmed name.
 export function displayNameOrThrow(displayName: string): string {
-  const trimmed = displayName.trim();
-  if (trimmed.length === 0 || trimmed.length > DISPLAY_NAME_MAX_LENGTH)
-    throw new FlowkoBusinessError("bad_member");
-  return trimmed;
+  if (memberNameProblem(displayName) !== null) throw new FlowkoBusinessError("bad_member");
+  return displayName.trim();
 }
 
 /**

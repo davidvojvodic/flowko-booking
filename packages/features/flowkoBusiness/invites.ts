@@ -277,6 +277,7 @@ export async function createInvite(
       memberId = input.memberId;
       role = "WORKER";
       // The CHECK wants 1..80; a stored displayName is trimmed 1..80 by every writer, re-checked here.
+      // Flowko U29e (RIGHTS-1): a legacy name with a now-refused character is bad_member until the owner renames it.
       name = displayNameOrThrow(member.displayName);
     }
     if (await emailHasFlowkoLogin(tx, email)) throw new FlowkoBusinessError("email_has_login");

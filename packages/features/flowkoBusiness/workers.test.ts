@@ -538,6 +538,38 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
     expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "y".repeat(80) }))).toBe("ok");
   });
 
+  // Flowko U29e (RIGHTS-1, R5): control, bidi, separator and invisible characters, and names with nothing visible.
+  it("refuses a name with a control, bidi, separator or invisible character as bad_member, nothing written", async () => {
+    const users = await prismock.user.count();
+    for (const displayName of [
+      "A\u0000",
+      "A\u0085",
+      "Ana\u200B",
+      "An\u2060a",
+      "Ana\u202E",
+      "Ana\u2066x",
+      "Ana\u061C",
+      "An\u2028a",
+      "\u200D",
+      "\u00AD",
+    ]) {
+      expect(await outcome(addDeskWorker(db, f.users.olga, { displayName }))).toBe("bad_member");
+    }
+    expect(await prismock.user.count()).toBe(users);
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+  });
+
+  it("a look-alike with a joiner or a soft hyphen is member_name_taken; an emoji name with ZWJ is fine", async () => {
+    for (const displayName of ["Ana\u200D", "A\u200Cna", "A\u00ADna", "\u200D ana"]) {
+      expect(await outcome(addDeskWorker(db, f.users.olga, { displayName }))).toBe("member_name_taken");
+    }
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+    const family = "Maja \uD83D\uDC69\u200D\uD83D\uDC67";
+    const { memberId } = await addDeskWorker(db, f.users.olga, { displayName: family });
+    const member = await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } });
+    expect(member.displayName).toBe(family);
+  });
+
   it("is the owner's: a worker, a staff member, a locked member and a stranger are forbidden, nothing written", async () => {
     const users = await prismock.user.count();
     for (const actor of [f.users.ana, f.users.rok, f.users.dan, await makeUser("Nobody")]) {

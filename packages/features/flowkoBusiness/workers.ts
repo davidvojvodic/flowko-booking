@@ -13,6 +13,8 @@
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
 // Flowko U29d: invite list types and the business-local expiry.
 import { inviteExpiry, type MemberInvite, type PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
+// Flowko U29e (RIGHTS-1): the name key lives in the shared member-name rule (default-ignorables folded).
+import { nameKey } from "@calcom/lib/flowkoBusiness/memberName";
 import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import {
   WORKER_BOOKINGS_SHOWN,
@@ -165,13 +167,16 @@ export async function lockBusinessRow(tx: Prisma.TransactionClient, businessId: 
 /**
  * Flowko U29c: one comparison key per name: trimmed, Unicode-composed (NFC), lower-cased by Slovene rules.
  * Flowko U29d: exported for the invite create (a brand-new invitee's name against every member).
+ * Flowko U29e (RIGHTS-1): moved to @calcom/lib/flowkoBusiness/memberName (it also strips the default-ignorables
+ * before NFC); re-exported here so invites.ts and inviteAccept.ts keep their import.
  */
-export const nameKey = (name: string): string => name.trim().normalize("NFC").toLocaleLowerCase("sl");
+export { nameKey };
 
 /**
  * W4: adds a desk-only worker (ACTIVE WORKER with a desk column at once, no usual week, no services) as the last
- * member. Owner only (otherwise forbidden); the name is trimmed, 1..80 characters (bad_member) and unique in the
- * business without regard to case, over every member of any status or kind (member_name_taken). Under the business
+ * member. Owner only (otherwise forbidden); the name is trimmed, 1..80 characters with no control, bidi, separator or
+ * invisible character (bad_member, Flowko U29e) and unique in the business without regard to case or invisible
+ * characters (nameKey), over every member of any status or kind (member_name_taken). Under the business
  * row lock, so two adds never get the same position or the same name. A lost lock race is member_conflict.
  */
 export async function addDeskWorker(

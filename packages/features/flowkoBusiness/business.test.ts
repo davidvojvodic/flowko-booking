@@ -29,6 +29,25 @@ const db = prismock as unknown as FlowkoDb;
 const template = FLOWKO_TEMPLATES["hair-salon"];
 let seq = 0;
 
+/** Flowko U29e (RIGHTS-1, R5): names the shared rule refuses as "characters" (escapes only, never literals). */
+const REFUSED_NAMES = [
+  "A\u0000",
+  "A\u007F",
+  "A\u0085",
+  "Ana\u200B",
+  "A\uFEFFna",
+  "Ana\u200E",
+  "Ana\u202E",
+  "Ana\u2066x",
+  "Ana\u061C",
+  "An\u2029a",
+  "\u200C\u200D",
+];
+
+/** A test title shows every non-ASCII character as U+XXXX, so no invisible character reaches the output. */
+const shown = (name: string) =>
+  name.replace(/[^\x20-\x7e]/g, (c) => `U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`);
+
 async function makeUser(data: Record<string, unknown> = {}): Promise<{ id: number }> {
   seq += 1;
   return prismock.user.create({
@@ -417,11 +436,26 @@ describe("createDeskOnlyWorker", () => {
     expect(new Set(users.map((u) => u.email)).size).toBe(2);
   });
 
-  it.each(["", "   ", "a".repeat(81)])("refuses the display name %j (bad_member)", async (name) => {
+  it.each([
+    ["", ""],
+    ["   ", "   "],
+    ["81 x a", "a".repeat(81)],
+    ...REFUSED_NAMES.map((name) => [shown(name), name]), // Flowko U29e (RIGHTS-1, R5)
+  ])("refuses the display name %j (bad_member)", async (_shown, name) => {
     const { businessId } = await makeBusiness();
     const usersBefore = await prismock.user.count();
+    const membersBefore = await prismock.flowkoBusinessMember.count();
     await expectCode(createDeskOnlyWorker(db, businessId, name), "bad_member");
     expect(await prismock.user.count()).toBe(usersBefore);
+    expect(await prismock.flowkoBusinessMember.count()).toBe(membersBefore);
+  });
+
+  it("keeps an emoji name with ZWJ (allowed; Flowko U29e R5)", async () => {
+    const { businessId } = await makeBusiness();
+    const family = "Maja \uD83D\uDC69\u200D\uD83D\uDC67";
+    const { memberId } = await createDeskOnlyWorker(db, businessId, family);
+    const member = await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } });
+    expect(member.displayName).toBe(family);
   });
 
   it("refuses a missing business (forbidden) and creates no user", async () => {
@@ -447,6 +481,17 @@ describe("addStaffWithoutLogin", () => {
     const { businessId } = await makeBusiness();
     await expectCode(addStaffWithoutLogin(db, businessId, " "), "bad_member");
   });
+
+  // Flowko U29e (RIGHTS-1, R5)
+  it.each(REFUSED_NAMES.map((name) => [shown(name), name]))(
+    "refuses the display name %j (characters: bad_member), nothing written",
+    async (_shown, name) => {
+      const { businessId } = await makeBusiness();
+      const membersBefore = await prismock.flowkoBusinessMember.count();
+      await expectCode(addStaffWithoutLogin(db, businessId, name), "bad_member");
+      expect(await prismock.flowkoBusinessMember.count()).toBe(membersBefore);
+    }
+  );
 });
 
 describe("addLoginMember", () => {

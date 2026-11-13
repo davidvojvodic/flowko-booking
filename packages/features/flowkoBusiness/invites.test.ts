@@ -481,6 +481,31 @@ describe("createInvite, a brand-new person (I3)", () => {
     ).toBe("ok");
   });
 
+  // Flowko U29e (RIGHTS-1, R5)
+  it("refuses a control, bidi, separator or invisible character as bad_member and a look-alike as member_name_taken", async () => {
+    const { deps, sendInvite } = mailer();
+    for (const name of [
+      "A\u0000",
+      "A\u0085",
+      "Ana\u200B",
+      "A\uFEFFna",
+      "Ana\u202E",
+      "Ana\u2066x",
+      "Ana\u061C",
+      "An\u2028a",
+      "\u00AD",
+    ]) {
+      expect(await codeOf(createInvite(deps, f.users.olga, { ...newAna, name }, NOW))).toBe("bad_member");
+    }
+    for (const name of ["Mojca\u200D", "Mo\u00ADjca", "\u200Csara"]) {
+      expect(await codeOf(createInvite(deps, f.users.olga, { ...newAna, name }, NOW))).toBe(
+        "member_name_taken"
+      );
+    }
+    expect(await inviteRows()).toHaveLength(0);
+    expect(sendInvite).not.toHaveBeenCalled();
+  });
+
   it("a pending invite does not reserve its name (Open 7)", async () => {
     const { deps } = mailer();
     await createInvite(deps, f.users.olga, newAna, NOW);
@@ -598,6 +623,18 @@ describe("createInvite, a desk-only member (C9)", () => {
       [true, later.getTime()],
       [false, null],
     ]);
+  });
+
+  // Flowko U29e (RIGHTS-1, R5): a stored legacy name with a now-refused character blocks the invite until renamed.
+  it("a stored displayName with a refused character (legacy) is bad_member, nothing written, no mail", async () => {
+    const { deps, sendInvite } = mailer();
+    await prismock.flowkoBusinessMember.update({
+      where: { id: f.members.mojca },
+      data: { displayName: "Mojca\u200B" },
+    });
+    expect(await codeOf(createInvite(deps, f.users.olga, forMojca(), NOW))).toBe("bad_member");
+    expect(await inviteRows()).toHaveLength(0);
+    expect(sendInvite).not.toHaveBeenCalled();
   });
 
   it("the e-mail rule and C6 apply to member invites too", async () => {

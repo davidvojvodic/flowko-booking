@@ -424,6 +424,18 @@ describe("U29c addDeskWorker / reorderWorkers / nextPosition on a real database"
     expect(await codeOf(addDeskWorker(prisma, two.owner, { displayName: "lara" }))).toBe("ok");
   });
 
+  // Flowko U29e (RIGHTS-1, R5): NUL used to reach Postgres (0x00 is refused in text -> a raw driver error / 500).
+  it("RIGHTS-1 on Postgres: a NUL or a C1 character in the name is bad_member, never a driver error; nothing written", async () => {
+    const { owner, businessId } = await freshBusiness("Nul");
+    const membersBefore = await prisma.flowkoBusinessMember.count({ where: { businessId } });
+    const usersBefore = await prisma.user.count();
+    for (const displayName of ["A\u0000", "\u0000", "A\u0085"]) {
+      expect(await codeOf(addDeskWorker(prisma, owner, { displayName }))).toBe("bad_member");
+    }
+    expect(await prisma.flowkoBusinessMember.count({ where: { businessId } })).toBe(membersBefore);
+    expect(await prisma.user.count()).toBe(usersBefore);
+  });
+
   it("reorder writes 0..n-1 in the sent order over every member and closes gaps; the other business is untouched", async () => {
     const one = await freshBusiness("Ord");
     const other = await freshBusiness("OrdOther");
