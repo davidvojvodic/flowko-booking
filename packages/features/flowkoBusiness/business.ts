@@ -14,6 +14,8 @@ import {
   type OpeningHours,
   serviceStepsSchema,
 } from "@calcom/lib/flowkoBusiness/schemas";
+// Flowko U29e (E5): the type of the usual week a desk-only worker may start with.
+import type { WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { type FlowkoTemplateId, getFlowkoTemplate } from "@calcom/lib/flowkoBusiness/templates";
 import type { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole, FlowkoMemberStatus, UserPermissionRole } from "@calcom/prisma/enums";
@@ -252,11 +254,15 @@ export async function addLoginMember(
  * A worker with a calendar column but no login or mailbox (R1): a real User (bookings need a user id) with
  * a never-deliverable desk address, no username, no password, Slovene defaults set explicitly (Cal's column
  * defaults are London / 12 h / Sunday), plus a WORKER member.
+ * Flowko U29e (E5, R1): `opts.usualWeek` is the usual week the member starts with (addDeskWorker passes the owner's,
+ * already checked by usualWeekForCopy); no key or null writes nothing, so the column stays SQL NULL (the set-up
+ * script's 3-argument call and every other caller are unchanged).
  */
 export async function createDeskOnlyWorker(
   db: FlowkoDb,
   businessId: number,
-  displayName: string
+  displayName: string,
+  opts?: { usualWeek?: WeekHours | null }
 ): Promise<{ memberId: number; userId: number }> {
   return withFlowkoTx(db, async (tx) => {
     const name = displayNameOrThrow(displayName);
@@ -279,6 +285,8 @@ export async function createDeskOnlyWorker(
         role: FlowkoBusinessRole.WORKER,
         displayName: name,
         position: await nextPosition(tx, businessId),
+        // Flowko U29e (E5): only a given week is written; otherwise the key is absent (SQL NULL).
+        ...(opts?.usualWeek ? { usualWeek: opts.usualWeek } : {}),
       },
       select: { id: true },
     });

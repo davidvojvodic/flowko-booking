@@ -77,6 +77,7 @@ export async function unlockHandler({ ctx, input }: Opts<TUnlockMemberInput>) {
   return guarded(() => unlockMember(prisma, ctx.user.id, input.memberId, new Date()));
 }
 
+// Flowko U29e (E5, R3): the answer {status, memberId, usualWeek: "copied" | "none"} goes to the client unchanged.
 export async function addDeskOnlyHandler({ ctx, input }: Opts<TAddDeskOnlyInput>) {
   await limited(ctx);
   return guarded(() => addDeskWorker(prisma, ctx.user.id, { displayName: input.displayName }));

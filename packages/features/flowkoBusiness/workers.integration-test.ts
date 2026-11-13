@@ -685,3 +685,125 @@ describe("U29e renameMember on a real database (E9)", () => {
     expect((await userName(desk.userId)).name).toBe("Lara Nova");
   });
 });
+
+// Flowko U29e (E5, R1, R3, Review Focus 6): „Dodaj brez prijave“ copies the owner's usual week on a real database.
+// The add reads the owner's week after its business row lock (FOR NO KEY UPDATE); the owner's usual-week save takes
+// advisory locks and then the business row FOR UPDATE before it writes, so the two are serialised: the copy is the
+// whole committed week from before or after the save, never a mix, and neither side loses (no member_conflict).
+describe("U29e addDeskWorker copies the owner's usual week on a real database (E5)", () => {
+  const ROUNDS = 20;
+  const WEEK_A = week([{ from: "08:00", to: "16:00" }]);
+  const WEEK_B: WeekHours = {
+    ...WEEK_A,
+    mon: [
+      { from: "07:00", to: "11:00" },
+      { from: "12:00", to: "15:00" },
+    ],
+    sat: [{ from: "09:00", to: "13:00" }],
+  };
+  const usualWeekIsNull = async (memberId: number): Promise<boolean> => {
+    const rows = await prisma.$queryRaw<Array<{ none: boolean }>>`
+      SELECT "usualWeek" IS NULL AS none FROM "FlowkoBusinessMember" WHERE "id" = ${memberId}`;
+    return rows[0].none;
+  };
+  const sameWeek = (a: unknown, b: WeekHours): boolean => {
+    try {
+      expect(a).toEqual(b);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const storedWeek = async (memberId: number) =>
+    (
+      await prisma.flowkoBusinessMember.findUniqueOrThrow({
+        where: { id: memberId },
+        select: { usualWeek: true },
+      })
+    ).usualWeek;
+
+  it("copies the owner's week (equal JSON); SQL NULL when the owner has none; workers.list says which", async () => {
+    const { owner, ownerMemberId } = await freshBusiness("Week");
+    expect((await listWorkers(prisma, owner, NOW)).ownerUsualWeek).toBe(false);
+    const none = await addDeskWorker(prisma, owner, { displayName: "Brez" });
+    expect(none).toEqual({ status: "added", memberId: none.memberId, usualWeek: "none" });
+    expect(await usualWeekIsNull(none.memberId)).toBe(true);
+
+    await setUsualWeek(prisma, owner, {
+      memberId: ownerMemberId,
+      usualWeek: WEEK_A,
+      confirmOutsideOpening: true,
+    });
+    expect((await listWorkers(prisma, owner, NOW)).ownerUsualWeek).toBe(true);
+    const copied = await addDeskWorker(prisma, owner, { displayName: "Kopija" });
+    expect(copied).toEqual({ status: "added", memberId: copied.memberId, usualWeek: "copied" });
+    expect(await storedWeek(copied.memberId)).toEqual(WEEK_A);
+    // Shifts only: no service, no roster day (C10).
+    expect(await prisma.flowkoServiceWorker.count({ where: { memberId: copied.memberId } })).toBe(0);
+    expect(await prisma.flowkoRosterDay.count({ where: { memberId: copied.memberId } })).toBe(0);
+    // The earlier member keeps SQL NULL; the owner keeps the week.
+    expect(await usualWeekIsNull(none.memberId)).toBe(true);
+    expect(await storedWeek(ownerMemberId)).toEqual(WEEK_A);
+
+    // A cleared week (the save stores SQL NULL) is none again.
+    await setUsualWeek(prisma, owner, {
+      memberId: ownerMemberId,
+      usualWeek: null,
+      confirmOutsideOpening: true,
+    });
+    expect((await listWorkers(prisma, owner, NOW)).ownerUsualWeek).toBe(false);
+    const after = await addDeskWorker(prisma, owner, { displayName: "Potem" });
+    expect(after.usualWeek).toBe("none");
+    expect(await usualWeekIsNull(after.memberId)).toBe(true);
+    expect(await storedWeek(copied.memberId)).toEqual(WEEK_A);
+  });
+
+  it(`Review Focus 6: ${ROUNDS} rounds of addDeskWorker x saveUsualWeeks(owner): the copy is the old or the new week, never a mix; both land`, async () => {
+    const { owner, businessId, ownerMemberId } = await freshBusiness("WeekRace");
+    await setUsualWeek(prisma, owner, {
+      memberId: ownerMemberId,
+      usualWeek: WEEK_A,
+      confirmOutsideOpening: true,
+    });
+    const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const seen = { old: 0, new: 0 };
+    for (let round = 0; round < ROUNDS; round++) {
+      const oldWeek = round % 2 === 0 ? WEEK_A : WEEK_B;
+      const newWeek = round % 2 === 0 ? WEEK_B : WEEK_A;
+      const view = await getRosterWeek(prisma, owner, "2026-11-16", NOW);
+      const version = view.members.find((m) => m.memberId === ownerMemberId)?.usualVersion;
+      if (version === undefined) throw new Error("fixture: the owner is not in Urnik");
+      const [added, saved] = await Promise.all([
+        delay(round % 2 === 0 ? 0 : (round % 5) * 3).then(() =>
+          addDeskWorker(prisma, owner, { displayName: `Teden${round}` }).then(
+            (answer) => answer,
+            (e) => (e instanceof FlowkoBusinessError ? e.code : Promise.reject(e))
+          )
+        ),
+        delay(round % 2 === 0 ? (round % 5) * 3 : 0).then(() =>
+          saveUsualWeeks(
+            prisma,
+            owner,
+            { rows: [{ memberId: ownerMemberId, version, usualWeek: newWeek }], confirm: true },
+            NOW
+          ).then(
+            (result) => result.status,
+            (e) => (e instanceof FlowkoBusinessError ? e.code : Promise.reject(e))
+          )
+        ),
+      ]);
+      expect(saved).toBe("saved");
+      if (typeof added === "string") throw new Error(`round ${round}: addDeskWorker refused with ${added}`);
+      expect(added.usualWeek).toBe("copied");
+      const copy = await storedWeek(added.memberId);
+      expect([oldWeek, newWeek]).toContainEqual(copy);
+      // jsonb reorders object keys, so compare structurally (toEqual), not by JSON text.
+      if (sameWeek(copy, oldWeek)) seen.old += 1;
+      else seen.new += 1;
+      // Both writes landed: the owner's week is the new one and the member exists.
+      expect(await storedWeek(ownerMemberId)).toEqual(newWeek);
+    }
+    expect(seen.old + seen.new).toBe(ROUNDS);
+    expect(await prisma.flowkoBusinessMember.count({ where: { businessId } })).toBe(1 + ROUNDS);
+  });
+});

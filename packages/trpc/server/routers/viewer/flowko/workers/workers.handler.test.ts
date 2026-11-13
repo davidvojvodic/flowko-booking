@@ -278,6 +278,20 @@ describe("viewer.flowko.workers handlers (Flowko U29c)", () => {
     expect(err.message).toBe(code);
   });
 
+  // Flowko U29e (E5, R3): the answers carry the copy outcome and the owner's week flag; the handlers add nothing.
+  it("addDeskOnly and list hand the service answer through unchanged (usualWeek, ownerUsualWeek)", async () => {
+    const added = { status: "added", memberId: 21, usualWeek: "copied" };
+    m.addDeskWorker.mockResolvedValue(added);
+    expect(await handlers.addDeskOnlyHandler({ ctx, input: { displayName: "Ana" } })).toEqual({
+      status: "added",
+      memberId: 21,
+      usualWeek: "copied",
+    });
+    const listed = { members: [], invites: [], ownerUsualWeek: true };
+    m.listWorkers.mockResolvedValue(listed);
+    expect(await handlers.listHandler({ ctx })).toEqual({ members: [], invites: [], ownerUsualWeek: true });
+  });
+
   it("list and lock take `now` once per call, as a fresh Date", async () => {
     m.listWorkers.mockResolvedValue({ members: [] });
     const before = Date.now();
