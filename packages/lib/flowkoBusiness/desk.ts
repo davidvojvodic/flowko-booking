@@ -196,3 +196,12 @@ export function phoneDigitsForSearch(q: string): string | null {
   if (digits.startsWith("0")) digits = digits.slice(1);
   return digits.length >= 3 ? digits : null;
 }
+
+/**
+ * Flowko U29e: E10.5, R21. Makes a typed text literal inside a LIKE/ILIKE pattern: `\`, `%` and `_` get a leading
+ * backslash (Postgres' default escape character). Prisma's `contains` does not escape them, so „ma%k“ or „m_rija“
+ * would act as wildcards. Pure, no `u` flag (the trpc build targets ES5).
+ */
+export function escapeLikeValue(q: string): string {
+  return q.replace(/[\\%_]/g, "\\$&");
+}

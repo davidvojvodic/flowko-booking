@@ -275,18 +275,53 @@ describe("findCustomers on Postgres (ILIKE, Unicode, NULL phones)", () => {
     expect(await find("ČUK")).toEqual([{ name: "Ivan Čuk", phone: null, email: "ivan@example.com" }]);
   });
 
-  it("wildcards in the query act as SQL wildcards, but only inside the caller's business", async () => {
-    // Flowko U28 (final review): Prisma's `contains` does not escape % and _ on Postgres, so „ma%k“ and „m_rija“
-    // find „Marija Novak“. Recorded as found (no production change in U28); the lookup stays scoped to the
-    // caller's business: „m_ra“ finds business B's „Mara Bistra“ only for B, and A's „Marija“ never for B.
-    const marija = [{ name: "Marija Novak", phone: "+38641123456", email: "marija@example.com" }];
-    expect(await find("ma%k")).toEqual(marija);
-    expect(await find("m_rija")).toEqual(marija);
+  it("the search is literal: % _ and \ in the query match themselves, inside the caller's business", async () => {
+    // Flowko U29e: E10.5, R21 (inverts the U28 final-review test that recorded wildcard behaviour). Prisma's
+    // `contains` does not escape % and _ on Postgres; findCustomers escapes \ % _ itself, so „ma%k“ and „m_rija“
+    // find nothing, in A and in B. The scope lines are literal: „mara“ finds business B's „Mara Bistra“ only for B.
+    expect(await find("ma%k")).toEqual([]);
+    expect(await find("m_rija")).toEqual([]);
     expect(await find("m_ra")).toEqual([]);
-    expect(await find("m_ra", fx.users.zala)).toEqual([
+    expect(await find("ma%k", fx.users.zala)).toEqual([]);
+    expect(await find("m_ra", fx.users.zala)).toEqual([]);
+    expect(await find("m_rija", fx.users.zala)).toEqual([]);
+    expect(await find("mara", fx.users.zala)).toEqual([
       { name: "Mara Bistra", phone: "+38640111222", email: null },
     ]);
-    expect(await find("m_rija", fx.users.zala)).toEqual([]);
+    expect(await find("mara")).toEqual([]);
+    expect(await find("marija", fx.users.zala)).toEqual([]);
+  });
+
+  it("a stored „Ana_Test“ and „100% Lepota“ are found by their literal query, not by a wildcard one", async () => {
+    // Own customers on a later Monday (23 Nov, desk-only Cene), so no other test's day or week changes.
+    const nextMon = "2026-11-23";
+    for (const [time, name] of [
+      ["09:00", "Ana_Test"],
+      ["10:00", "100% Lepota"],
+      ["11:00", "Back\\slash Zof"],
+    ] as const) {
+      await book(fx.users.olga, {
+        workerMemberId: fx.members.cene,
+        serviceIds: [fx.services.mens],
+        start: at(nextMon, time),
+        customer: { name, email: `lit-${time.slice(0, 2)}-${RUN}@example.com` },
+      });
+    }
+    const names = async (q: string, userId = fx.users.olga) => (await find(q, userId)).map((c) => c.name);
+    expect(await names("ana_t")).toEqual(["Ana_Test"]);
+    expect(await names("ANA_TEST")).toEqual(["Ana_Test"]);
+    expect(await names("anaxt")).toEqual([]);
+    expect(await names("a_a_t")).toEqual([]);
+    expect(await names("100% le")).toEqual(["100% Lepota"]);
+    expect(await names("100x le")).toEqual([]);
+    expect(await names("%lepota")).toEqual([]);
+    expect(await names("back\\slash")).toEqual(["Back\\slash Zof"]);
+    expect(await names("backxslash")).toEqual([]);
+    // A backslash anywhere answers without a database error.
+    expect(await names("ana\\")).toEqual([]);
+    expect(await names("\\ana")).toEqual([]);
+    expect(await names("ab\\")).toEqual([]);
+    expect(await names("ana_t", fx.users.zala)).toEqual([]);
   });
 
   it("phone digits skip attendees without a phone; a phone-only e-mail is null", async () => {

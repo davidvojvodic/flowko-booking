@@ -20,7 +20,7 @@ import {
   totalMinutes,
   trustedSteps,
 } from "@calcom/lib/flowkoSalon";
-import { phoneDigitsForSearch } from "@calcom/lib/flowkoBusiness/desk";
+import { escapeLikeValue, phoneDigitsForSearch } from "@calcom/lib/flowkoBusiness/desk";
 import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import logger from "@calcom/lib/logger"; // Flowko U29c: P4 (listDeskServices logs a skipped row)
 import {
@@ -615,9 +615,10 @@ export async function listDeskMembers(db: FlowkoDb, actorUserId: number): Promis
 
 /**
  * R11: the customers this business has served (attendees of its mirror bookings, any status) whose name contains
- * the query (case-insensitive) or whose phone contains its digits (phoneDigitsForSearch: a query with letters is
- * a name search). Query trimmed; fewer than 2 letters and fewer than 3 digits → []. Distinct by (lower(name),
- * phone, e-mail), newest first, at most 8; `{ name, phone, email }` only, an @sms.cal.com address as null.
+ * the query (case-insensitive, literal: % _ and \ match themselves, U29e) or whose phone contains its digits
+ * (phoneDigitsForSearch: a query with letters is a name search). Query trimmed; fewer than 2 letters and fewer
+ * than 3 digits → []. Distinct by (lower(name), phone, e-mail), newest first, at most 8; `{ name, phone, email }`
+ * only, an @sms.cal.com address as null.
  */
 export async function findCustomers(
   db: FlowkoDb,
@@ -644,7 +645,8 @@ export async function findCustomers(
       // prismock's OR stops at the first match, so it never runs `contains` on a null phone (it would throw).
       ...(digits !== null
         ? { NOT: { OR: [{ phoneNumber: null }, { NOT: { phoneNumber: { contains: digits } } }] } }
-        : { name: { contains: query, mode: "insensitive" as const } }),
+        : // Flowko U29e: E10.5, R21: the text is literal (% _ and \ would otherwise act as ILIKE wildcards).
+          { name: { contains: escapeLikeValue(query), mode: "insensitive" as const } }),
     },
     select: { name: true, email: true, phoneNumber: true },
     orderBy: { id: "desc" },

@@ -6,6 +6,7 @@ import type { FitProblem, Interval } from "@calcom/lib/flowkoSalon";
 
 import {
   columnBands,
+  escapeLikeValue,
   formatHm,
   freeEdgesFor,
   hourRange,
@@ -289,5 +290,20 @@ describe("phoneDigitsForSearch", () => {
     ["", null],
   ])("%s -> %s", (q, expected) => {
     expect(phoneDigitsForSearch(q)).toBe(expected);
+  });
+});
+
+// Flowko U29e: E10.5, R21 (the customer search is literal: % _ and \ are escaped before a LIKE).
+describe("escapeLikeValue", () => {
+  it.each([
+    ["a_b", "a\\_b"],
+    ["50%", "50\\%"],
+    ["a\\b", "a\\\\b"],
+    ["\\%_", "\\\\\\%\\_"],
+    ["Marija Novak", "Marija Novak"],
+    ["čuk", "čuk"],
+    ["", ""],
+  ])("%s -> %s", (q, expected) => {
+    expect(escapeLikeValue(q)).toBe(expected);
   });
 });

@@ -909,6 +909,30 @@ describe("findCustomers (R11)", () => {
   it("a stranger → forbidden", async () => {
     await expectCode(find("marija", await makeUser("Stranger")), "forbidden");
   });
+
+  // Flowko U29e: E10.5, R21. The name filter is literal: % _ and \ reach Postgres escaped (the wildcard behaviour
+  // itself is proven on Postgres in desk.integration-test.ts; prismock's `contains` is a literal indexOf).
+  it("„m_rija“ finds nothing (regression belt) and the name filter carries the escaped text", async () => {
+    expect(await find("m_rija")).toEqual([]);
+    expect(await find("ma%k")).toEqual([]);
+    const spy = vi.spyOn(prismock.attendee, "findMany");
+    await find("m_rija");
+    await find("ab 50%");
+    await find("a\\b");
+    const contains = spy.mock.calls.map(
+      (c) => (c[0] as { where: { name?: { contains: string } } }).where.name?.contains
+    );
+    spy.mockRestore();
+    expect(contains).toEqual(["m\\_rija", "ab 50\\%", "a\\\\b"]);
+  });
+
+  it("a phone search does not touch the name filter", async () => {
+    const spy = vi.spyOn(prismock.attendee, "findMany");
+    await find("041 12");
+    const where = (spy.mock.calls[0][0] as { where: { name?: unknown } }).where;
+    spy.mockRestore();
+    expect(where.name).toBeUndefined();
+  });
 });
 
 describe("RF1: no uid, userId, worker e-mail or placeholder in any response", () => {
