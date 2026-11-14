@@ -11,6 +11,10 @@
 // links to the login, it never posts the token again. Every answer and every fetch failure is shown in Slovene,
 // never as a raw message or a toast; a fresh CSRF token is fetched on mount and after every failed POST (the
 // route deletes the cookie once it has checked it).
+// Flowko U29e (E10.6, RIGHTS-1): a 409 signed_in answer (someone is signed in on this browser) swaps the form for
+// InviteSignedIn, so the typed password unmounts with it; the code is checked, not the status (409 is shared with
+// member_conflict). The name is checked with the server's rule (memberNameProblem) before any POST: a control, bidi
+// or invisible character shows its own inline text, a length problem the existing one.
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -20,6 +24,7 @@ import { z } from "zod";
 
 import { isPasswordValid } from "@calcom/lib/auth/isPasswordValid";
 import { WEBAPP_URL, WEBSITE_PRIVACY_POLICY_URL } from "@calcom/lib/constants";
+import { MEMBER_NAME_MAX, memberNameProblem } from "@calcom/lib/flowkoBusiness/memberName";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button } from "@calcom/ui/components/button";
 import { Input, Label, PasswordField, TextField } from "@calcom/ui/components/form";
@@ -27,6 +32,7 @@ import { Input, Label, PasswordField, TextField } from "@calcom/ui/components/fo
 import AuthContainer from "@components/ui/AuthContainer";
 
 import { InviteInvalid } from "./InviteInvalid";
+import { InviteSignedIn } from "./InviteSignedIn";
 
 export type AcceptViewProps = {
   token: string;
@@ -41,7 +47,6 @@ export type AcceptViewProps = {
 
 type FormValues = { name: string; password: string; confirm_password: string };
 
-const NAME_MAX = 80;
 const PASSWORD_MAX_BYTES = 72;
 const CALLBACK_URL = `${WEBAPP_URL}/koledar`;
 
@@ -62,7 +67,7 @@ type FormError = { key: string; contactSalon?: boolean };
 export default function AcceptView({ token, email, name, title, privacy }: AcceptViewProps) {
   const { t } = useLocale();
   const emailId = useId();
-  const [stage, setStage] = useState<"form" | "invalid" | "created">("form");
+  const [stage, setStage] = useState<"form" | "invalid" | "created" | "signed_in">("form");
   const [formError, setFormError] = useState<FormError | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
@@ -92,10 +97,19 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
     () =>
       z
         .object({
-          name: z.string().refine((value) => {
-            const length = value.trim().length;
-            return length >= 1 && length <= NAME_MAX;
-          }, t("flowko_workers_error_bad_name")),
+          name: z.string().superRefine((value, ctx) => {
+            const problem = memberNameProblem(value);
+            if (problem) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: t(
+                  problem === "characters"
+                    ? "flowko_workers_error_name_characters"
+                    : "flowko_workers_error_bad_name"
+                ),
+              });
+            }
+          }),
           // Cal's signup pattern: one issue per unmet hint, keyed by the hint, so the hints turn red / green.
           password: z.string().superRefine((value, ctx) => {
             const result = isPasswordValid(value, true);
@@ -178,6 +192,8 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
       const code = await answerCode(res);
       if (res.status === 429) {
         setFormError({ key: "flowko_settings_error_TOO_MANY_REQUESTS" });
+      } else if (code === "signed_in") {
+        setStage("signed_in");
       } else if (code === "invite_invalid") {
         setStage("invalid");
       } else if (code === "email_has_login") {
@@ -201,6 +217,7 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
   };
 
   if (stage === "invalid") return <InviteInvalid />;
+  if (stage === "signed_in") return <InviteSignedIn />;
 
   if (stage === "created") {
     return (
@@ -245,7 +262,7 @@ export default function AcceptView({ token, email, name, title, privacy }: Accep
           <TextField
             {...form.register("name")}
             label={t("flowko_workers_add_name")}
-            maxLength={NAME_MAX}
+            maxLength={MEMBER_NAME_MAX}
             autoComplete="name"
           />
           <div>
