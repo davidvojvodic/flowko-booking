@@ -248,6 +248,11 @@ describe("RosterView: the phone day list (S10, D4)", () => {
     ]);
     expect(screen.getByTestId(`roster-card-${ANA}`).getAttribute("data-own")).toBe("true");
     expect(cell(BOR, "2026-11-18").textContent).toContain("Prosto");
+    // Flowko U29h: the one-line day header truncates (overflow hidden), so its line box is 24 px: at Cal's 20 px
+    // Plus Jakarta Sans' descenders were cut („pon.“ read as „bon.“ on a phone, David 14 Nov).
+    const header = screen.getByTestId("roster-header-2026-11-18");
+    expect(header.className).toContain("truncate");
+    expect(header.className).toContain("leading-6");
     expect(cell(ANA, "2026-11-18").getAttribute("data-editable")).toBe("true");
     expect(cell(OLGA, "2026-11-18").getAttribute("data-editable")).toBe("false");
     expect(screen.queryByTestId(`roster-cell-${ANA}-2026-11-17`)).toBeNull();

@@ -31,7 +31,9 @@ export function RosterDayHeading(props: {
         className={classNames(
           // Flowko U29c (P6): the grid's two lines never truncate; the list's one line does as before.
           "hover:bg-subtle max-w-full rounded text-left text-sm font-semibold",
-          props.variant === "list" && "truncate",
+          // Flowko U29h: `truncate` hides overflow, and at text-sm's 20 px line box Plus Jakarta Sans' descenders
+          // were cut („pon.“ read as „bon.“ on a phone, David 14 Nov); a 24 px line box shows them whole.
+          props.variant === "list" && "truncate leading-6",
           isToday ? "text-brand-default" : "text-emphasis"
         )}>
         {props.variant === "grid" ? (
