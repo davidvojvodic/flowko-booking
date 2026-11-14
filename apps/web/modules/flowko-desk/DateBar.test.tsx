@@ -1,16 +1,26 @@
 // Flowko U28: the date bar: previous/next day, today, a date picker and the day/week toggle, all kept in the URL
 // (?date=&view=&worker=). The week toggle is enabled from md up and disabled with a hint on a phone (D2).
 import { TooltipProvider } from "@radix-ui/react-tooltip";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { enUS } from "date-fns/locale/en-US";
+import { sl } from "date-fns/locale/sl";
 import { NuqsTestingAdapter, type UrlUpdateEvent } from "nuqs/adapters/testing";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DateBar, useDeskParams } from "./DateBar";
+import { DateBar, deskPickerLocale, useDeskParams } from "./DateBar";
 import { localeT } from "./desk.fixture";
 
+// Flowko U29f: the language is mutable so the picker cases can switch to English; reset after each test.
+const lang = vi.hoisted(() => ({ value: "sl" }));
+
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
-  useLocale: () => ({ t: localeT("sl"), i18n: { language: "sl" } }),
+  useLocale: () => ({ t: localeT(lang.value as "sl" | "en"), i18n: { language: lang.value } }),
 }));
+
+afterEach(() => {
+  lang.value = "sl";
+  vi.useRealTimers();
+});
 
 function Harness({ today, weekAvailable = true }: { today: string; weekAvailable?: boolean }) {
   const params = useDeskParams();
@@ -166,5 +176,142 @@ describe("DateBar Urnik (U29b S1)", () => {
     cleanup();
     renderBar("?rosterMode=usual&date=2026-11-18");
     expect(screen.getByRole("button", { name: "Danes" })).toBeInTheDocument();
+  });
+});
+
+// Flowko U29f (F1, R2–R7): the desk's date picker in Slovene, Monday first, the selected day in the brand pair,
+// the business today marked, outside days hidden — the same in the day, week and Urnik views.
+describe("DateBar date picker (U29f F1)", () => {
+  /** Opens the popover; queries stay inside it, because the bar shows dates too. */
+  function openPicker() {
+    fireEvent.click(screen.getByTestId("pick-date"));
+    const dialog = screen.getByRole("dialog");
+    return { dialog: within(dialog), grid: within(within(dialog).getByRole("grid")) };
+  }
+
+  function caption(dialog: ReturnType<typeof within>) {
+    return dialog
+      .getAllByText(
+        (_: string, el: Element | null) =>
+          el?.tagName === "DIV" && el.childElementCount === 2 && el.firstElementChild?.tagName === "SPAN"
+      )
+      .map((el: HTMLElement) => el.textContent);
+  }
+
+  const tokens = (el: Element) => el.getAttribute("class")?.split(/\s+/) ?? [];
+
+  function selectedDay(grid: ReturnType<typeof within>) {
+    const selected = grid
+      .getAllByRole("gridcell")
+      .filter((c: HTMLElement) => c.getAttribute("aria-selected") === "true");
+    expect(selected).toHaveLength(1);
+    return selected[0];
+  }
+
+  const SL_HEADERS = ["pon.", "tor.", "sre.", "čet.", "pet.", "sob.", "ned."];
+
+  function expectDeskPicker(grid: ReturnType<typeof within>, dialog: ReturnType<typeof within>) {
+    expect(caption(dialog)).toEqual(["december 2026"]);
+    const headers = grid.getAllByRole("columnheader");
+    expect(headers.map((h: HTMLElement) => h.textContent)).toEqual(SL_HEADERS);
+    expect(headers[0]).toHaveAttribute("aria-label", "ponedeljek");
+    expect(headers[6]).toHaveAttribute("aria-label", "nedelja");
+    // Tue 1 Dec: Mon 30 Nov is an outside day, hidden → no day button in the first cell.
+    const firstWeek = grid.getAllByRole("row")[1];
+    const firstCell = firstWeek.querySelectorAll("td")[0];
+    expect(firstCell.querySelector("button")).toBeNull();
+    expect(firstWeek.querySelectorAll("button")[0]).toHaveTextContent("1");
+    // The selected day: the brand pair, never Cal's near-black.
+    const selected = selectedDay(grid);
+    expect(selected).toHaveAttribute("name", "day");
+    expect(selected).toHaveTextContent("1");
+    expect(tokens(selected)).toContain("bg-brand-default!");
+    expect(tokens(selected)).toContain("text-brand!");
+    expect(tokens(selected)).not.toContain("bg-inverted");
+    expect(dialog.getByRole("button", { name: "Prikaži prejšnji mesec" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Prikaži naslednji mesec" })).toBeInTheDocument();
+  }
+
+  it("day view: Slovene caption and headers, Monday first, outside days hidden, brand selected day", () => {
+    renderBar("?date=2026-12-01");
+    const { dialog, grid } = openPicker();
+    expectDeskPicker(grid, dialog);
+  });
+
+  it("header cells are smaller on a phone (text-xs md:text-sm)", () => {
+    renderBar("?date=2026-12-01");
+    const { grid } = openPicker();
+    for (const header of grid.getAllByRole("columnheader")) {
+      expect(tokens(header)).toContain("text-xs");
+      expect(tokens(header)).toContain("md:text-sm");
+      expect(tokens(header)).not.toContain("text-sm");
+    }
+  });
+
+  it("the same picker in the week view and in Urnik's week", () => {
+    renderBar("?view=week&date=2026-12-01");
+    let picker = openPicker();
+    expectDeskPicker(picker.grid, picker.dialog);
+    cleanup();
+    renderBar("?view=roster&date=2026-12-01");
+    picker = openPicker();
+    expectDeskPicker(picker.grid, picker.dialog);
+    cleanup();
+    // Urnik on a phone steps by day: still the same picker.
+    renderBar("?view=roster&date=2026-12-01", "2026-11-16", false);
+    picker = openPicker();
+    expectDeskPicker(picker.grid, picker.dialog);
+  });
+
+  it("picking 2 Dec still puts the date in the URL", async () => {
+    const { lastQuery } = renderBar("?date=2026-12-01");
+    const { grid } = openPicker();
+    fireEvent.click(grid.getByRole("gridcell", { name: "2" }));
+    await vi.waitFor(() => expect(lastQuery()).toBe("?date=2026-12-02"));
+  });
+
+  it("Escape closes the picker without changing the bar", () => {
+    const { onUrlUpdate } = renderBar("?date=2026-12-01");
+    const label = screen.getByTestId("pick-date").textContent;
+    openPicker();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("pick-date").textContent).toBe(label);
+    expect(params()).toMatchObject({ date: "2026-12-01", view: "day" });
+    expect(onUrlUpdate).not.toHaveBeenCalled();
+  });
+
+  it("marks the business today, not the browser's", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // The browser's local day (TZ=UTC) is the 15th; the business today is the 16th.
+    vi.setSystemTime(new Date("2026-11-15T23:30:00Z"));
+    renderBar("?date=2026-11-20", "2026-11-16");
+    const { grid } = openPicker();
+    const day16 = grid.getByRole("gridcell", { name: "16" });
+    const day15 = grid.getByRole("gridcell", { name: "15" });
+    expect(tokens(day16)).toContain("border-brand-default!");
+    expect(tokens(day16)).toContain("font-semibold!");
+    expect(tokens(day15)).not.toContain("border-brand-default!");
+    expect(tokens(day15)).not.toContain("font-semibold!");
+  });
+
+  it("in English: English caption, Monday still first, English nav labels", () => {
+    lang.value = "en";
+    renderBar("?date=2026-12-01");
+    const { dialog, grid } = openPicker();
+    expect(caption(dialog)).toEqual(["December 2026"]);
+    const headers = grid.getAllByRole("columnheader");
+    expect(headers[0]).toHaveTextContent("Mo");
+    expect(headers[0]).toHaveAttribute("aria-label", "Monday");
+    expect(headers[6]).toHaveTextContent("Su");
+    expect(dialog.getByRole("button", { name: "View previous month" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "View next month" })).toBeInTheDocument();
+  });
+
+  it("deskPickerLocale: Slovene unless the language is something else", () => {
+    expect(deskPickerLocale("sl")).toBe(sl);
+    expect(deskPickerLocale("sl-SI")).toBe(sl);
+    expect(deskPickerLocale(undefined)).toBe(sl);
+    expect(deskPickerLocale("en")).toBe(enUS);
   });
 });
