@@ -1,6 +1,7 @@
 // Flowko U28: the booking details sheet (R5, R12, D4): what the booking is, its history („who did what“), and the
 // actions its flags allow: move (tap mode or date + time), move to another worker, no-show and its undo, cancel
 // with an optional reason. Every write carries the actor. Flowko U28c: „Prestavi“ opens a move panel in the sheet.
+// Flowko U29e: the action literals carry `byCustomer: false` (DeskAction gained the field in Task 5).
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -53,22 +54,43 @@ describe("historyLines (U28 history)", () => {
           actorName: "Olga",
           at: "2026-11-15T10:00:00.000Z",
           details: { overrides: ["overlaps_booking", "outside_shift"] },
+          byCustomer: false,
         },
         {
           kind: "RESCHEDULED",
           actorName: "Rok",
           at: "2026-11-15T12:00:00.000Z",
           details: { fromStart: iso("08:30"), toStart: iso("09:00") },
+          byCustomer: false,
         },
         {
           kind: "RESCHEDULED",
           actorName: "Rok",
           at: "2026-11-15T12:05:00.000Z",
           details: { fromStart: iso("08:30", "2026-11-17"), toStart: iso("09:00"), overrides: ["time_off"] },
+          byCustomer: false,
         },
-        { kind: "NO_SHOW", actorName: "Olga", at: "2026-11-16T08:30:00.000Z", details: { noShow: true } },
-        { kind: "NO_SHOW", actorName: null, at: "2026-11-16T08:40:00.000Z", details: { noShow: false } },
-        { kind: "CANCELLED", actorName: "Ana", at: "2026-11-16T09:00:00.000Z", details: null },
+        {
+          kind: "NO_SHOW",
+          actorName: "Olga",
+          at: "2026-11-16T08:30:00.000Z",
+          details: { noShow: true },
+          byCustomer: false,
+        },
+        {
+          kind: "NO_SHOW",
+          actorName: null,
+          at: "2026-11-16T08:40:00.000Z",
+          details: { noShow: false },
+          byCustomer: false,
+        },
+        {
+          kind: "CANCELLED",
+          actorName: "Ana",
+          at: "2026-11-16T09:00:00.000Z",
+          details: null,
+          byCustomer: false,
+        },
       ],
       TZ,
       t
@@ -87,7 +109,11 @@ describe("historyLines (U28 history)", () => {
 
   it("skips actions it has no line for", () => {
     expect(
-      historyLines([{ kind: "CONFIRMED", actorName: "Olga", at: iso("08:00"), details: null }], TZ, t)
+      historyLines(
+        [{ kind: "CONFIRMED", actorName: "Olga", at: iso("08:00"), details: null, byCustomer: false }],
+        TZ,
+        t
+      )
     ).toEqual([]);
   });
 });
@@ -101,7 +127,15 @@ describe("BookingDetailsSheet (U28)", () => {
   it("shows title, time, steps, customer and history", () => {
     renderDetails({
       ...barvanje,
-      actions: [{ kind: "CREATED", actorName: "Olga", at: "2026-11-15T10:00:00.000Z", details: null }],
+      actions: [
+        {
+          kind: "CREATED",
+          actorName: "Olga",
+          at: "2026-11-15T10:00:00.000Z",
+          details: null,
+          byCustomer: false,
+        },
+      ],
     });
     expect(screen.getByRole("dialog", { name: "Barvanje" })).toBeInTheDocument();
     expect(screen.getByTestId("desk-details-time").textContent).toContain("09:00–10:40");

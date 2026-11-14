@@ -12,6 +12,7 @@ import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import logger from "@calcom/lib/logger";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cancelBusinessBooking, cancelBusinessBookingAsCustomer } from "./bookingChange"; // Flowko U29e: E6
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
 import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
@@ -350,7 +351,8 @@ async function expectNoPrivateData(response: unknown): Promise<void> {
 }
 
 describe("getDeskDay: columns and rows (R2, R4)", () => {
-  it("Olga: columns in roster order + the locked Dan column; rows Ana, Dan, Bor (no cancelled, no B)", async () => {
+  // Flowko U29e: E6, R9 — the day answer now carries the cancelled Ana booking (12:00) as a faded row.
+  it("Olga: columns in roster order + the locked Dan column; rows Ana, Dan, cancelled Ana, Bor (no B)", async () => {
     const view = await day(f.users.olga);
     expect(view.timeZone).toBe(TZ);
     expect(view.slotStepMinutes).toBeGreaterThan(0);
@@ -371,8 +373,24 @@ describe("getDeskDay: columns and rows (R2, R4)", () => {
     expect(columnOf(view, f.members.ana).shifts).toEqual([{ start: ms("07:00"), end: ms("15:00") }]);
     expect(columnOf(view, f.members.bor).shifts).toEqual([{ start: ms("12:00"), end: ms("20:00") }]);
     expect(columnOf(view, f.members.dan)).toMatchObject({ shifts: [], timeOff: [], googleUnavailable: false });
-    expect(d.bookings.map((b) => b.bookingId)).toEqual([f.bookings.ana, f.bookings.dan, f.bookings.bor]);
-    expect(d.bookings.map((b) => b.memberId)).toEqual([f.members.ana, f.members.dan, f.members.bor]);
+    expect(d.bookings.map((b) => b.bookingId)).toEqual([
+      f.bookings.ana,
+      f.bookings.dan,
+      f.bookings.cancelled,
+      f.bookings.bor,
+    ]);
+    expect(d.bookings.map((b) => b.memberId)).toEqual([
+      f.members.ana,
+      f.members.dan,
+      f.members.ana,
+      f.members.bor,
+    ]);
+    expect(d.bookings.map((b) => b.status)).toEqual([
+      BookingStatus.ACCEPTED,
+      BookingStatus.ACCEPTED,
+      BookingStatus.CANCELLED,
+      BookingStatus.ACCEPTED,
+    ]);
   });
 
   it("Olga's own Cal booking is other busy in her column (times only), never a row", async () => {
@@ -406,11 +424,18 @@ describe("getDeskDay: columns and rows (R2, R4)", () => {
     ]);
     expect(row.actions).toHaveLength(1);
     expect(row.actions[0]).toMatchObject({ kind: "CREATED", actorName: "Olga", details: null });
+    // Flowko U29e: E6, R9 — a live row is not cancelled; an action by a member is not the customer's.
+    expect(row.cancelled).toBeNull();
+    expect(row.cancelReason).toBeNull();
+    expect(row.actions[0].byCustomer).toBe(false);
+    expect(Object.keys(row.actions[0]).sort()).toEqual(["actorName", "at", "byCustomer", "details", "kind"]);
     expect(typeof row.actions[0].at).toBe("string");
     expect(Object.keys(row).sort()).toEqual(
       [
         "actions",
         "bookingId",
+        "cancelReason", // Flowko U29e: E6, R9
+        "cancelled", // Flowko U29e: E6, R9
         "customer",
         "end",
         "mayCancel",
@@ -639,6 +664,286 @@ describe("getDeskDay: rights and flags (R5)", () => {
   });
 });
 
+// Flowko U29e: E6, R9, R10. The day answer carries cancelled bookings (faded on the desk) with who cancelled and
+// when; the week does not; a hand-over cancel („Prestavi k drugemu delavcu“) never shows; a LOCKED member with only
+// cancelled bookings that day gets no column. The fixture's cancelled Ana 12:00 is a legacy row (no CANCELLED action).
+describe("getDeskDay: cancelled bookings (Flowko U29e, E6)", () => {
+  const uidOf = async (bookingId: number) => {
+    const b = await prismock.booking.findUnique({ where: { id: bookingId }, select: { uid: true } });
+    if (!b) throw new Error("fixture: booking missing");
+    return b.uid;
+  };
+  const latestCancelAt = async (bookingId: number) => {
+    const rows = await prismock.flowkoBookingAction.findMany({
+      where: { bookingId, action: "CANCELLED" },
+      orderBy: { id: "asc" },
+    });
+    return rows[rows.length - 1].createdAt.toISOString();
+  };
+  /** A booking of Ana at `time` on Monday for a customer, then cancelled by the customer through the mail link. */
+  const customerCancelled = async (time: string, reason: string | null) => {
+    const id = await book(f.users.olga, {
+      workerMemberId: f.members.ana,
+      serviceIds: [f.services.mens],
+      start: at(time),
+      customer: { name: "Tina Rep", email: "tina@example.com" },
+    });
+    await cancelBusinessBookingAsCustomer(db, { uid: await uidOf(id), reason, sessionUserId: null }, NOW, {
+      sendMails: false,
+    });
+    return id;
+  };
+
+  it("a customer cancel: cancelled.by customer, at = the action's time, the reason, flags all false", async () => {
+    const id = await customerCancelled("13:00", "  Zbolela sem  ");
+    const row = rowOf(await day(f.users.olga), id);
+    expect(row.status).toBe(BookingStatus.CANCELLED);
+    expect(row.cancelled).toEqual({ by: "customer", at: await latestCancelAt(id) });
+    expect(row.cancelReason).toBe("Zbolela sem");
+    expect(flags(row)).toEqual({ mayCancel: false, mayMove: false, mayNoShow: false, mayReenter: false });
+    expect(row.actions.map((a) => [a.kind, a.byCustomer])).toEqual([
+      ["CREATED", false],
+      ["CANCELLED", true],
+    ]);
+    expect(row.actions[1]).toMatchObject({ actorName: "Tina Rep", details: null });
+  });
+
+  it("a desk cancel: cancelled.by desk; no reason → cancelReason null", async () => {
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bookings.bor }, NOW, { sendMails: false });
+    const row = rowOf(await day(f.users.olga), f.bookings.bor);
+    expect(row.cancelled).toEqual({ by: "desk", at: await latestCancelAt(f.bookings.bor) });
+    expect(row.cancelReason).toBeNull();
+    expect(row.actions.map((a) => [a.kind, a.actorName, a.byCustomer])).toEqual([
+      ["CREATED", "Olga", false],
+      ["CANCELLED", "Olga", false],
+    ]);
+    expect(flags(row)).toEqual({ mayCancel: false, mayMove: false, mayNoShow: false, mayReenter: false });
+  });
+
+  it("the legacy row (CANCELLED, no CANCELLED action): by desk, at null; its stored reason shows", async () => {
+    await prismock.booking.update({
+      where: { id: f.bookings.cancelled },
+      data: { cancellationReason: "Staro" },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.cancelled);
+    expect(row.cancelled).toEqual({ by: "desk", at: null });
+    expect(row.cancelReason).toBe("Staro");
+    expect(flags(row)).toEqual({ mayCancel: false, mayMove: false, mayNoShow: false, mayReenter: false });
+  });
+
+  it("a CANCELLED action without details.by but with actorMemberId null (pre-U29e customer) → customer", async () => {
+    // Known limit (Task 12): a member-deleted desk action (actorMemberId SetNull, no details.by) reads the same.
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Marija Novak",
+        actorMemberId: null,
+      },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.cancelled);
+    expect(row.cancelled).toEqual({ by: "customer", at: await latestCancelAt(f.bookings.cancelled) });
+    expect(row.actions.map((a) => [a.kind, a.byCustomer])).toEqual([
+      ["CREATED", false],
+      ["CANCELLED", true],
+    ]);
+  });
+
+  it("the latest CANCELLED action decides (a member's after an older customer one → desk)", async () => {
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Marija Novak",
+        createdAt: new Date(Date.now() - 60_000),
+        details: { by: "customer" },
+      },
+    });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.cancelled);
+    expect(row.cancelled?.by).toBe("desk");
+    expect(row.cancelled?.at).toBe(await latestCancelAt(f.bookings.cancelled));
+  });
+
+  it("details.by customer wins over a member id (a customer's cancel stays the customer's)", async () => {
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Marija Novak",
+        actorMemberId: f.members.olga,
+        details: { by: "customer" },
+      },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.cancelled);
+    expect(row.cancelled?.by).toBe("customer");
+    expect(row.actions[1].byCustomer).toBe(true);
+    expect(row.actions[1].details).toBeNull();
+  });
+
+  it("a public CREATED action (no member) is byCustomer; member actions are not", async () => {
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.ana,
+        businessId: f.a,
+        action: "CREATED",
+        actorName: "Splet",
+        actorMemberId: null,
+      },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.ana);
+    expect(row.actions.map((a) => [a.actorName, a.byCustomer])).toEqual([
+      ["Olga", false],
+      ["Splet", true],
+    ]);
+  });
+
+  it("a hand-over cancel (R10 marker) is not on the day; an ordinary cancel at the same time is", async () => {
+    const reentered = await book(f.users.olga, {
+      workerMemberId: f.members.ana,
+      serviceIds: [f.services.mens],
+      start: at("14:00"),
+      customer: PETRA,
+    });
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: reentered, reason: "Prestavljeno k: Bor", handoverToMemberId: f.members.bor },
+      NOW,
+      { sendMails: false }
+    );
+    const view = await day(f.users.olga);
+    expect(view.days[0].bookings.some((b) => b.bookingId === reentered)).toBe(false);
+    expect(JSON.stringify(view)).not.toContain("Prestavljeno");
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bookings.bor }, NOW, { sendMails: false });
+    expect(rowOf(await day(f.users.olga), f.bookings.bor).cancelled?.by).toBe("desk");
+  });
+
+  it("a hand-over marker on an older CANCELLED action does not hide a later ordinary cancel", async () => {
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+        createdAt: new Date(Date.now() - 60_000),
+        details: { handoverToMemberId: f.members.bor },
+      },
+    });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+        createdAt: new Date(Date.now() + 60_000),
+      },
+    });
+    expect(rowOf(await day(f.users.olga), f.bookings.cancelled).cancelled?.by).toBe("desk");
+  });
+
+  it("a LOCKED member with only a cancelled booking that day: no extra column, the row dropped", async () => {
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bookings.dan }, NOW, { sendMails: false });
+    const view = await day(f.users.olga);
+    expect(view.days[0].columns.some((c) => c.memberId === f.members.dan)).toBe(false);
+    expect(view.days[0].bookings.some((b) => b.bookingId === f.bookings.dan)).toBe(false);
+    expect(view.days[0].bookings.some((b) => b.memberId === f.members.dan)).toBe(false);
+  });
+
+  it("a LOCKED member with a live and a cancelled booking: column kept, both rows", async () => {
+    const danMirror = await prismock.flowkoWorkerMirror.findUnique({ where: { memberId: f.members.dan } });
+    const danCancelled = await insertBooking({
+      userId: f.users.dan,
+      eventTypeId: danMirror?.eventTypeId ?? null,
+      businessId: f.a,
+      start: at("12:00"),
+      end: at("12:30"),
+      status: BookingStatus.CANCELLED,
+      attendee: { name: "Janez Dolenc", email: "janez@example.com" },
+    });
+    const view = await day(f.users.olga);
+    expect(columnOf(view, f.members.dan).locked).toBe(true);
+    expect(rowOf(view, danCancelled).cancelled).toEqual({ by: "desk", at: null });
+    expect(rowOf(view, f.bookings.dan).cancelled).toBeNull();
+  });
+
+  it("cancelReason only on cancelled rows (a live row with a stored reason answers null)", async () => {
+    await prismock.booking.update({ where: { id: f.bookings.ana }, data: { cancellationReason: "x" } });
+    expect(rowOf(await day(f.users.olga), f.bookings.ana).cancelReason).toBeNull();
+  });
+
+  it("deep scan: no actorMemberId, handoverToMemberId, `by` or details beyond the whitelist in the answer", async () => {
+    await customerCancelled("13:00", "Ne morem");
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bookings.bor }, NOW, { sendMails: false });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+        details: { by: "desk", secret: "s", fromStart: "x" },
+      },
+    });
+    for (const userId of [f.users.olga, f.users.rok, f.users.ana]) {
+      const view = await day(userId);
+      const keys: string[] = [];
+      const walk = (value: unknown): void => {
+        if (Array.isArray(value)) value.forEach(walk);
+        else if (value !== null && typeof value === "object") {
+          for (const [k, v] of Object.entries(value)) {
+            keys.push(k);
+            walk(v);
+          }
+        }
+      };
+      walk(view);
+      for (const banned of ["actorMemberId", "handoverToMemberId", "secret", "cancellationReason"]) {
+        expect(keys).not.toContain(banned);
+      }
+      for (const b of view.days.flatMap((d) => d.bookings)) {
+        for (const a of b.actions) {
+          expect(Object.keys(a).sort()).toEqual(["actorName", "at", "byCustomer", "details", "kind"]);
+          if (a.details) {
+            expect(
+              Object.keys(a.details).every((k) => ["fromStart", "toStart", "overrides", "noShow"].includes(k))
+            ).toBe(true);
+          }
+        }
+        if (b.cancelled) expect(Object.keys(b.cancelled).sort()).toEqual(["at", "by"]);
+      }
+      await expectNoPrivateData(view);
+    }
+  });
+
+  it("the cancelled phone-only customer: e-mail null as on live rows", async () => {
+    const id = await book(f.users.olga, {
+      workerMemberId: f.members.ana,
+      serviceIds: [f.services.mens],
+      start: at("13:30"),
+      customer: { name: "Urban Les", phone: "070 300 400" },
+    });
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: id }, NOW, { sendMails: false });
+    const row = rowOf(await day(f.users.olga), id);
+    expect(row.customer.email).toBeNull();
+    expect(JSON.stringify(row)).not.toContain("@sms.cal.com");
+  });
+});
+
 describe("getDeskDay: Google (R3)", () => {
   it("Google busy per column user (desk-only Cene and locked Dan not asked), merged into other busy", async () => {
     googleBusy.mockImplementation(async (userId) =>
@@ -723,6 +1028,9 @@ describe("getDeskWeek (D2)", () => {
       expect(d.bookings.every((b) => b.memberId === f.members.ana)).toBe(true);
     }
     expect(view.days[0].bookings.map((b) => b.bookingId)).toEqual([f.bookings.ana]);
+    // Flowko U29e: E6, R9 — the week never carries a cancelled row (Ana's cancelled 12:00 is on this Monday).
+    const weekRows = view.days.flatMap((d) => d.bookings);
+    expect(weekRows.every((b) => b.status !== BookingStatus.CANCELLED && b.cancelled === null)).toBe(true);
     expect(view.days[5].columns[0].shifts).toEqual([]); // Saturday off
     expect(googleBusy).toHaveBeenCalledTimes(1);
     expect(googleBusy).toHaveBeenCalledWith(f.users.ana, {

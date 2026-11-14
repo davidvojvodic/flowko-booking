@@ -6,6 +6,10 @@
 // (Cal's own, or from before they joined, A1) come back as times only („Zasedeno“), with Google busy time fetched
 // per column user outside any transaction under a 3 s timeout (R3). Every query selects an explicit field list
 // and the number of queries does not grow with the number of columns. Server only.
+// Flowko U29e: E6, R9 — the day view also returns the business's cancelled bookings (faded on the desk, the slot stays
+// bookable) with who cancelled them (`cancelled.by`: the customer through the mail link, or the desk) and when, and
+// the stored reason; a hand-over cancel („Prestavi k drugemu delavcu“, R10 marker in the action's details) is left
+// out; the week view is unchanged. The internal member id and the marker never leave the server.
 import { addDays, localDateSchema, todayIn, weekdayOf } from "@calcom/lib/flowkoBusiness/roster";
 import { serviceStepsSchema } from "@calcom/lib/flowkoBusiness/schemas";
 import {
@@ -25,7 +29,7 @@ import isSmsCalEmail from "@calcom/lib/isSmsCalEmail";
 import logger from "@calcom/lib/logger"; // Flowko U29c: P4 (listDeskServices logs a skipped row)
 import {
   BookingStatus,
-  type FlowkoBookingActionKind,
+  FlowkoBookingActionKind, // Flowko U29e: E6 (a value now)
   FlowkoBusinessRole,
   FlowkoMemberStatus,
 } from "@calcom/prisma/enums";
@@ -67,13 +71,26 @@ export type DeskBooking = {
   mayMove: boolean;
   mayNoShow: boolean;
   mayReenter: boolean;
-  actions: Array<{
-    kind: FlowkoBookingActionKind;
-    actorName: string | null;
-    at: string;
-    details: DeskActionDetails | null;
-  }>;
+  actions: DeskAction[];
+  /** Flowko U29e: E6 — null on a live row; on a cancelled row who cancelled it and when (R9). */
+  cancelled: DeskCancelled | null;
+  /** Flowko U29e: E6, R12 — the stored cancellation reason, on cancelled rows only (else null). */
+  cancelReason: string | null;
 };
+export type DeskAction = {
+  kind: FlowkoBookingActionKind;
+  actorName: string | null;
+  at: string;
+  details: DeskActionDetails | null;
+  /** Flowko U29e: E6, R9 — the customer acted (a cancel through the mail link, a public booking), not a member. */
+  byCustomer: boolean;
+};
+/**
+ * Flowko U29e: E6, R9 — `by` from the latest CANCELLED action (`details.by === "customer"`, or no member for an
+ * action written before U29e → "customer", else "desk"); `at` = that action's time; no CANCELLED action (a legacy
+ * row) → "desk" with `at` null.
+ */
+export type DeskCancelled = { by: "customer" | "desk"; at: string | null };
 /** Flowko U28: the only action details a desk read returns (whatever else a writer stored stays on the server). */
 export type DeskActionDetails = { fromStart?: string; toStart?: string; overrides?: string[]; noShow?: boolean };
 export type DeskColumn = {
@@ -194,6 +211,7 @@ type BookingRow = {
   userId: number | null;
   eventTypeId: number | null;
   createdAt: Date;
+  cancellationReason: string | null; // Flowko U29e: E6
   attendees: Array<{ name: string; email: string; phoneNumber: string | null; noShow: boolean | null }>;
   flowkoBookingSteps: Array<{
     index: number;
@@ -206,10 +224,49 @@ type BookingRow = {
   flowkoBookingActions: Array<{
     action: FlowkoBookingActionKind;
     actorName: string;
+    actorMemberId: number | null; // Flowko U29e: E6, R9 (internal: never returned)
     createdAt: Date;
     details: unknown;
   }>;
 };
+
+type ActionRow = BookingRow["flowkoBookingActions"][number];
+
+/** Flowko U29e: the stored action details as a plain object, else null. */
+function detailsRecord(details: unknown): Record<string, unknown> | null {
+  if (typeof details !== "object" || details === null || Array.isArray(details)) return null;
+  return details as Record<string, unknown>;
+}
+
+/**
+ * Flowko U29e: E6, R9 — the customer acted: the customer branch's `details.by = "customer"` (U29e on), or no
+ * member at all (a customer cancel written before U29e, a public booking). Known limit: a member deleted later
+ * SetNulls `actorMemberId`, and that member's pre-U29e actions would then read as the customer's.
+ */
+function byCustomer(action: ActionRow): boolean {
+  return detailsRecord(action.details)?.by === "customer" || action.actorMemberId === null;
+}
+
+/** Flowko U29e: the latest CANCELLED action of a booking (actions are read oldest first), if any. */
+function latestCancel(booking: BookingRow): ActionRow | undefined {
+  const cancels = booking.flowkoBookingActions.filter((a) => a.action === FlowkoBookingActionKind.CANCELLED);
+  return cancels[cancels.length - 1];
+}
+
+/** Flowko U29e: E6, R10 — a cancelled booking whose latest cancel was a hand-over to another worker. */
+function isHandoverCancel(booking: BookingRow): boolean {
+  if (booking.status !== BookingStatus.CANCELLED) return false;
+  const marker = detailsRecord(latestCancel(booking)?.details)?.handoverToMemberId;
+  return marker !== undefined && marker !== null;
+}
+
+/** Flowko U29e: E6, R9 — who cancelled and when; null for a booking that is not cancelled. */
+function cancelledOf(booking: BookingRow): DeskCancelled | null {
+  if (booking.status !== BookingStatus.CANCELLED) return null;
+  const cancel = latestCancel(booking);
+  if (!cancel) return { by: "desk", at: null };
+  return { by: byCustomer(cancel) ? "customer" : "desk", at: cancel.createdAt.toISOString() };
+}
 
 /**
  * Flowko U28: a whitelist of the stored action details: `fromStart`/`toStart` (strings), `overrides` (string[]),
@@ -299,7 +356,11 @@ function toDeskBooking(
       actorName: a.actorName,
       at: a.createdAt.toISOString(),
       details: deskActionDetails(a.details),
+      byCustomer: byCustomer(a), // Flowko U29e: E6
     })),
+    // Flowko U29e: E6, R9/R12
+    cancelled: cancelledOf(booking),
+    cancelReason: booking.status === BookingStatus.CANCELLED ? booking.cancellationReason : null,
   };
 }
 
@@ -317,6 +378,9 @@ function busyOf(b: {
  * The shared core of the day and week views: per date the roster (loadBusinessDay), then once for the whole range
  * the members, the mirrors, the business bookings, the column users' other bookings and Google. LOCKED members
  * with visible bookings on a date get a read-only column at the end (R4).
+ * Flowko U29e: E6, R9 — `includeCancelled` (the day view) also reads CANCELLED business bookings in the same query;
+ * a hand-over cancel is dropped; extra LOCKED columns key on live (holding) rows only, and a cancelled row of a
+ * member with no column that date is dropped.
  */
 async function buildView(
   db: FlowkoDb,
@@ -324,7 +388,8 @@ async function buildView(
   dates: LocalDate[],
   filter: ColumnFilter,
   now: Date,
-  deps: GoogleDeps
+  deps: GoogleDeps,
+  opts: { includeCancelled: boolean }
 ): Promise<DeskView> {
   const timeZone = await businessTimeZone(db, access.businessId);
   const loaded: LoadedBusinessDay[] = [];
@@ -348,7 +413,10 @@ async function buildView(
       : await db.booking.findMany({
           where: {
             eventTypeId: { in: mirrors.map((m) => m.eventTypeId) },
-            status: { in: HOLDING_STATUSES },
+            // Flowko U29e: E6 — the day view reads its cancelled bookings too (no extra query).
+            status: {
+              in: opts.includeCancelled ? [...HOLDING_STATUSES, BookingStatus.CANCELLED] : HOLDING_STATUSES,
+            },
             startTime: { lt: new Date(range.end) },
             endTime: { gt: new Date(range.start) },
           },
@@ -361,6 +429,7 @@ async function buildView(
             userId: true,
             eventTypeId: true,
             createdAt: true,
+            cancellationReason: true, // Flowko U29e: E6
             attendees: {
               select: { name: true, email: true, phoneNumber: true, noShow: true },
               orderBy: { id: "asc" },
@@ -377,7 +446,8 @@ async function buildView(
               orderBy: { index: "asc" },
             },
             flowkoBookingActions: {
-              select: { action: true, actorName: true, createdAt: true, details: true },
+              // Flowko U29e: E6, R9 — actorMemberId decides „by customer“ for pre-U29e actions; never returned.
+              select: { action: true, actorName: true, actorMemberId: true, createdAt: true, details: true },
               orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             },
           },
@@ -390,6 +460,8 @@ async function buildView(
     const memberId = booking.eventTypeId === null ? undefined : mirrorMember.get(booking.eventTypeId);
     const worker = memberId === undefined ? undefined : byMember.get(memberId);
     if (!worker || booking.userId === null || !wanted(worker.memberId)) continue;
+    // Flowko U29e: E6, R10 — the old booking of a „Prestavi k drugemu delavcu“ is not shown.
+    if (isHandoverCancel(booking)) continue;
     const organizer = {
       userId: booking.userId,
       // The mirror's member is the organizer; any other organizer fails closed.
@@ -401,6 +473,8 @@ async function buildView(
     rows.push({ booking, worker, row: toDeskBooking(access, booking, worker, act, now) });
   }
   const rowIds = new Set(rows.map((r) => r.booking.id));
+  // Flowko U29e: E6, R9 — only live rows give a column-less (LOCKED) member a column.
+  const isLive = (r: { booking: BookingRow }) => r.booking.status !== BookingStatus.CANCELLED;
 
   // Columns: the active ones of each date, then LOCKED (or otherwise column-less) members with rows that date.
   const activeIds = new Set(loaded.flatMap((d) => d.workers.map((w) => w.memberId)));
@@ -409,7 +483,7 @@ async function buildView(
       COLUMN_ROLES.includes(m.role) &&
       !activeIds.has(m.memberId) &&
       wanted(m.memberId) &&
-      (filter !== null || rows.some((r) => r.worker.memberId === m.memberId))
+      (filter !== null || rows.some((r) => isLive(r) && r.worker.memberId === m.memberId))
   );
   const columnUsers = new Map<number, number>(); // memberId → userId
   for (const d of loaded) {
@@ -495,16 +569,19 @@ async function buildView(
       .filter((w) => wanted(w.memberId))
       .map((w) => column(w.memberId, w.userId, day, w, false));
     const extra = extraMembers
-      .filter((m) => filter !== null || dayRows.some((r) => r.worker.memberId === m.memberId))
+      .filter((m) => filter !== null || dayRows.some((r) => isLive(r) && r.worker.memberId === m.memberId))
       .map((m) =>
         column(m.memberId, m.userId, day, { shifts: [], timeOff: [] }, m.status === FlowkoMemberStatus.LOCKED)
       );
+    const columns = [...active, ...extra];
+    // Flowko U29e: E6, R9 — a cancelled row without its member's column that date would never be drawn.
+    const columnIds = new Set(columns.map((c) => c.memberId));
     return {
       date: d.date,
       opening: d.rules.opening,
       holiday: d.holiday,
-      columns: [...active, ...extra],
-      bookings: dayRows.map((r) => r.row),
+      columns,
+      bookings: dayRows.filter((r) => isLive(r) || columnIds.has(r.worker.memberId)).map((r) => r.row),
     };
   });
 
@@ -518,7 +595,7 @@ async function buildView(
   };
 }
 
-/** The day view: every column of the business on `date` (R2–R4). Any business access. */
+/** The day view: every column of the business on `date` (R2–R4); Flowko U29e: with its cancelled bookings (E6). */
 export async function getDeskDay(
   db: FlowkoDb,
   actorUserId: number,
@@ -529,7 +606,7 @@ export async function getDeskDay(
   const access = await requireBusinessAccess(db, actorUserId);
   const parsed = localDateSchema.safeParse(input.date);
   if (!parsed.success) throw new FlowkoBusinessError("bad_roster");
-  return buildView(db, access, [parsed.data], null, now, deps);
+  return buildView(db, access, [parsed.data], null, now, deps, { includeCancelled: true }); // Flowko U29e: E6
 }
 
 /**
@@ -558,7 +635,7 @@ export async function getDeskWeek(
   if (!member || member.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
   if (!COLUMN_ROLES.includes(member.role)) throw new FlowkoBusinessError("bad_member");
   const dates = Array.from({ length: 7 }, (_, i) => addDays(parsed.data, i));
-  return buildView(db, access, dates, { memberId }, now, deps);
+  return buildView(db, access, dates, { memberId }, now, deps, { includeCancelled: false }); // Flowko U29e: E6
 }
 
 /** The business's services in position order with their steps and the members who perform them. */

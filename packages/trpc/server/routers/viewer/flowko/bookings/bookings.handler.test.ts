@@ -234,6 +234,27 @@ describe("viewer.flowko.bookings handlers (Flowko U27)", () => {
     }
   });
 
+  // Flowko U29e: E6, R10 — the hand-over marker reaches the service only when the client sent it.
+  it("cancel passes handoverToMemberId when present, and no such key when absent", async () => {
+    m.cancelBusinessBooking.mockResolvedValue({ status: "cancelled" });
+    await handlers.cancelHandler({
+      ctx,
+      input: { bookingId: 9, reason: "Prestavljeno k: Olga", actorMemberId: 4, handoverToMemberId: 5 },
+    });
+    expect(m.cancelBusinessBooking.mock.calls[0]).toEqual([
+      m.prisma,
+      7,
+      { bookingId: 9, reason: "Prestavljeno k: Olga", actorMemberId: 4, handoverToMemberId: 5 },
+      expect.any(Date),
+    ]);
+    await handlers.cancelHandler({ ctx, input: { bookingId: 9, reason: "sick", actorMemberId: null } });
+    expect(Object.keys(m.cancelBusinessBooking.mock.calls[1][2]).sort()).toEqual([
+      "actorMemberId",
+      "bookingId",
+      "reason",
+    ]);
+  });
+
   it("day and week take 'now' from the server clock, not the input", async () => {
     m.getDeskDay.mockResolvedValue({});
     const before = Date.now();
@@ -322,6 +343,22 @@ describe("bookings input schemas (Flowko U27)", () => {
     expect(ok("x".repeat(501))).toBe(false);
     expect(ok(null)).toBe(true);
     expect(schemas.ZCancelBookingInput.safeParse({ bookingId: 1 }).success).toBe(true);
+  });
+
+  // Flowko U29e: E6, R10
+  it("cancel: handoverToMemberId is optional and a positive int; a string, 0, null, 1.5 fail", () => {
+    const ok = (handoverToMemberId: unknown) =>
+      schemas.ZCancelBookingInput.safeParse({ bookingId: 1, handoverToMemberId }).success;
+    expect(ok(3)).toBe(true);
+    expect(ok(2147483647)).toBe(true);
+    expect(schemas.ZCancelBookingInput.safeParse({ bookingId: 1 }).success).toBe(true);
+    for (const bad of ["3", 0, -1, 1.5, null, 2147483648, true]) expect(ok(bad)).toBe(false);
+    const parsed = schemas.ZCancelBookingInput.safeParse({
+      bookingId: 1,
+      reason: null,
+      handoverToMemberId: 3,
+    });
+    expect(parsed.success && parsed.data).toEqual({ bookingId: 1, reason: null, handoverToMemberId: 3 });
   });
 
   it("date must be a real calendar date", () => {

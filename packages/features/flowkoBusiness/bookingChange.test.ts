@@ -362,6 +362,112 @@ describe("cancelBusinessBooking (W7, staff)", () => {
   });
 });
 
+// Flowko U29e: E6, R10 — the hand-over marker. „Prestavi k drugemu delavcu“ cancels the old booking with
+// `handoverToMemberId`; the server accepts it only from an OWNER or STAFF session (the mayReenter rule) for an ACTIVE
+// OWNER/WORKER member of the booking's business other than the booking's own worker, and stores it in the CANCELLED
+// action's details; anything else is forbidden with nothing written.
+describe("cancelBusinessBooking with a hand-over marker (Flowko U29e, R10)", () => {
+  const handover = (
+    actorUserId: number,
+    bookingId: number,
+    handoverToMemberId: number,
+    actorMemberId?: number
+  ) =>
+    cancelBusinessBooking(
+      db,
+      actorUserId,
+      { bookingId, reason: "Prestavljeno k: X", handoverToMemberId, actorMemberId },
+      NOW
+    );
+  const untouched = async (bookingId: number) => {
+    expect((await bookingOf(bookingId))?.status).toBe(BookingStatus.ACCEPTED);
+    expect((await actionsOf(bookingId)).map((a) => a.action)).toEqual(["CREATED"]);
+    expect(mail.cancelled).not.toHaveBeenCalled();
+  };
+
+  it("the owner names an ACTIVE worker: cancelled, the marker in details, the reason kept, the mail sent", async () => {
+    expect(await handover(f.users.olga, f.ana.bookingId, f.members.bor)).toEqual({ status: "cancelled" });
+    const after = await bookingOf(f.ana.bookingId);
+    expect(after).toMatchObject({ status: BookingStatus.CANCELLED, cancellationReason: "Prestavljeno k: X" });
+    const actions = await actionsOf(f.ana.bookingId);
+    expect(actions[1]).toMatchObject({
+      action: "CANCELLED",
+      actorMemberId: f.members.olga,
+      actorName: "Olga",
+      userId: f.users.olga,
+      details: { handoverToMemberId: f.members.bor },
+    });
+    expect(mail.cancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it("the owner may name a desk-only worker; staff Rok may name a worker and the owner", async () => {
+    await handover(f.users.olga, f.ana.bookingId, f.members.cene);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ handoverToMemberId: f.members.cene });
+    await handover(f.users.rok, f.bor.bookingId, f.members.olga);
+    expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
+      actorMemberId: f.members.rok,
+      details: { handoverToMemberId: f.members.olga },
+    });
+  });
+
+  it("a WORKER session (Ana, her own booking) with the marker → forbidden, nothing written", async () => {
+    await expectCode(handover(f.users.ana, f.ana.bookingId, f.members.bor), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("the booking's own worker as the target → forbidden", async () => {
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.ana), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a STAFF target (Rok, Recepcija) → forbidden", async () => {
+    const recepcija = await prismock.flowkoBusinessMember.findFirst({ where: { displayName: "Recepcija" } });
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.rok), "forbidden");
+    await expectCode(handover(f.users.olga, f.ana.bookingId, recepcija?.id ?? 0), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a LOCKED, a foreign and a missing member → forbidden", async () => {
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.dan), "forbidden");
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.zala), "forbidden");
+    await expectCode(handover(f.users.olga, f.ana.bookingId, 999_999), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a non-integer or non-positive target → forbidden", async () => {
+    for (const bad of [1.5, 0, -3, Number.NaN, 2_147_483_648]) {
+      await expectCode(handover(f.users.olga, f.ana.bookingId, bad), "forbidden");
+    }
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a target that was ACTIVE is LOCKED before the cancel → forbidden", async () => {
+    await prismock.flowkoBusinessMember.update({
+      where: { id: f.members.bor },
+      data: { status: FlowkoMemberStatus.LOCKED },
+    });
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.bor), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("without the marker (undefined or null): no details, as before", async () => {
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.ana.bookingId, handoverToMemberId: undefined },
+      NOW
+    );
+    expect((await actionsOf(f.ana.bookingId))[1].details).toBeNull();
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.bor.bookingId, handoverToMemberId: null },
+      NOW
+    );
+    expect((await actionsOf(f.bor.bookingId))[1].details).toBeNull();
+  });
+});
+
 describe("cancelBusinessBookingAsCustomer (W8, the mail's link)", () => {
   it("no session: CANCELLED, actor = the customer (no member, the form's name, no user)", async () => {
     expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
@@ -376,6 +482,22 @@ describe("cancelBusinessBookingAsCustomer (W8, the mail's link)", () => {
       userId: null,
     });
     expect(mail.cancelled).toHaveBeenCalledWith(f.ana.bookingId);
+  });
+
+  // Flowko U29e: E6, R9 — the customer's cancel is marked in the action's details (survives a member SetNull).
+  it("the customer branch stores details { by: customer }; the staff path through the link stores none", async () => {
+    await cancelByUid(f.ana.uid, null);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
+    await cancelByUid(f.bor.uid, f.users.olga);
+    expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
+      actorMemberId: f.members.olga,
+      details: null,
+    });
+  });
+
+  it("another business's owner signed in is a customer: details { by: customer }", async () => {
+    await cancelByUid(f.ana.uid, f.users.zala);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
   });
 
   it("Ana's session on her own booking: the staff path, action by Ana's member", async () => {
