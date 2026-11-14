@@ -27,6 +27,7 @@ import {
 import type { FlowkoBusinessError } from "./errors";
 import { ensureWorkerMirror } from "./mirror";
 import { setUsualWeek } from "./roster";
+import { saveService } from "./services"; // Flowko U29e: E8
 
 const db = prismock as unknown as FlowkoDb;
 const TZ = "Europe/Ljubljana";
@@ -1097,8 +1098,9 @@ describe("listDeskServices and listDeskMembers", () => {
     expect(services.find((s) => s.id === f.services.mens)?.workerMemberIds).toEqual(
       asc([f.members.olga, f.members.ana, f.members.bor, f.members.cene, f.members.dan])
     );
+    // Flowko U29e: E8 — priceCents.
     expect(Object.keys(services[0]).sort()).toEqual(
-      ["category", "id", "name", "steps", "totalMinutes", "workerMemberIds"].sort()
+      ["category", "id", "name", "priceCents", "steps", "totalMinutes", "workerMemberIds"].sort()
     );
     const ofB = await listDeskServices(db, f.users.zala);
     expect(ofB.length).toBeGreaterThan(0);
@@ -1240,6 +1242,159 @@ describe("findCustomers (R11)", () => {
     const where = (spy.mock.calls[0][0] as { where: { name?: unknown } }).where;
     spy.mockRestore();
     expect(where.name).toBeUndefined();
+  });
+});
+
+// Flowko U29e: E8, R15, R16 — the price reaches the desk's service list only (every desk role books), never a
+// booking row, the booking itself, its steps or actions, or the worker's mirror EventType.
+describe("E8: the price on the desk (Flowko U29e)", () => {
+  const PRICE = 98_765; // 987,65 €: digits that appear nowhere else in the fixture (phones, times, ids)
+  const priceKey = /price/i;
+
+  /** Saves Barvanje through the owner's editor with PRICE (the ACTIVE members who do it today). */
+  async function priceColouring(priceCents: number | null): Promise<void> {
+    const row = await prismock.flowkoService.findUnique({
+      where: { id: f.services.colouring },
+      select: { name: true, category: true, steps: true },
+    });
+    if (!row) throw new Error("fixture: Barvanje missing");
+    await saveService(db, f.users.olga, {
+      id: f.services.colouring,
+      name: row.name,
+      category: row.category,
+      steps: row.steps as never,
+      workerMemberIds: [f.members.olga, f.members.ana, f.members.cene],
+      priceCents,
+    });
+  }
+
+  /** Every key of `value` (deep) that names a price, and every string with the price's digits. */
+  function priceTraces(value: unknown): string[] {
+    const found: string[] = [];
+    const walk = (v: unknown, path: string): void => {
+      if (typeof v === "string") {
+        if (v.includes("987,65") || v.includes(String(PRICE))) found.push(`${path}: text`);
+        return;
+      }
+      if (typeof v === "number") {
+        if (v === PRICE) found.push(`${path}: number`);
+        return;
+      }
+      if (Array.isArray(v)) {
+        v.forEach((x, i) => walk(x, `${path}[${i}]`));
+        return;
+      }
+      if (v !== null && typeof v === "object" && !(v instanceof Date)) {
+        for (const [key, x] of Object.entries(v)) {
+          if (priceKey.test(key)) found.push(`${path}.${key}: key`);
+          walk(x, `${path}.${key}`);
+        }
+      }
+    };
+    walk(value, "$");
+    return found;
+  }
+
+  it("listDeskServices answers priceCents to the owner, a worker and staff; unpriced → null", async () => {
+    await priceColouring(PRICE);
+    for (const userId of [f.users.olga, f.users.ana, f.users.rok]) {
+      const services = await listDeskServices(db, userId);
+      expect(services.find((s) => s.id === f.services.colouring)?.priceCents).toBe(PRICE);
+      expect(services.find((s) => s.id === f.services.mens)?.priceCents).toBeNull();
+    }
+  });
+
+  it("the read guard: a stored -5, 1_000_000 or 10_000_000 reads as null; 0 stays 0", async () => {
+    const set = (id: number, priceCents: number) =>
+      prismock.flowkoService.update({ where: { id }, data: { priceCents } });
+    await set(f.services.colouring, -5);
+    await set(f.services.mens, 10_000_000);
+    let services = await listDeskServices(db, f.users.ana);
+    expect(services.find((s) => s.id === f.services.colouring)?.priceCents).toBeNull();
+    expect(services.find((s) => s.id === f.services.mens)?.priceCents).toBeNull();
+    await set(f.services.colouring, 1_000_000);
+    await set(f.services.mens, 0);
+    services = await listDeskServices(db, f.users.ana);
+    expect(services.find((s) => s.id === f.services.colouring)?.priceCents).toBeNull();
+    expect(services.find((s) => s.id === f.services.mens)?.priceCents).toBe(0);
+  });
+
+  it("deep scan: the day and week answers carry no price key and no price value", async () => {
+    await priceColouring(PRICE);
+    await prismock.flowkoService.update({ where: { id: f.services.mens }, data: { priceCents: PRICE } });
+    // The walk finds the price where it belongs (the services answer), so an empty result below means something.
+    expect(priceTraces(await listDeskServices(db, f.users.olga)).length).toBeGreaterThan(0);
+    for (const userId of [f.users.olga, f.users.rok, f.users.ana]) {
+      const dayView = await day(userId, at("09:10"));
+      // The day has rows with both priced services (Ana's Barvanje, Bor's and Dan's Moško, the cancelled one).
+      expect(dayView.days[0].bookings.length).toBeGreaterThan(3);
+      expect(priceTraces(dayView)).toEqual([]);
+      for (const memberId of [f.members.ana, f.members.dan]) {
+        const weekView = await getDeskWeek(db, userId, { weekStart: DATE, memberId }, NOW, { googleBusy });
+        expect(priceTraces(weekView)).toEqual([]);
+      }
+    }
+  });
+
+  it("createBusinessBooking with a priced service writes no price: booking, title, steps, actions as unpriced", async () => {
+    await priceColouring(PRICE);
+    const priced = await book(f.users.olga, {
+      workerMemberId: f.members.ana,
+      serviceIds: [f.services.colouring],
+      start: at("09:00", TUE),
+      customer: MARIJA,
+    });
+    const read = async (id: number) => {
+      const booking = await prismock.booking.findUnique({ where: { id } });
+      const steps = await prismock.flowkoBookingStep.findMany({
+        where: { bookingId: id },
+        orderBy: { index: "asc" },
+      });
+      const actions = await prismock.flowkoBookingAction.findMany({ where: { bookingId: id } });
+      const attendees = await prismock.attendee.findMany({ where: { bookingId: id } });
+      const payments = await prismock.payment.findMany({ where: { bookingId: id } });
+      return { booking, steps, actions, attendees, payments };
+    };
+    const withPrice = await read(priced);
+    const baseline = await read(f.bookings.ana); // the same service, worker and customer, booked unpriced
+    expect(withPrice.booking?.title).toBe(baseline.booking?.title);
+    expect(withPrice.booking?.paid).toBe(false);
+    expect(withPrice.payments).toEqual([]);
+    expect(withPrice.steps.map((s) => s.serviceName)).toEqual(baseline.steps.map((s) => s.serviceName));
+    expect(withPrice.steps.map((s) => Object.keys(s).sort())).toEqual(
+      baseline.steps.map((s) => Object.keys(s).sort())
+    );
+    // The uid is random text: left out of the value scan (keys are still scanned).
+    const { uid: _uid, ...bookingWithoutUid } = withPrice.booking ?? { uid: "" };
+    expect(priceTraces({ ...withPrice, booking: bookingWithoutUid })).toEqual([]);
+  });
+
+  it("the mirror EventTypes keep price 0, currency and no metadata.apps after a priced save and booking", async () => {
+    const mirrorEventTypes = async () => {
+      const mirrors = await prismock.flowkoWorkerMirror.findMany({ where: { businessId: f.a } });
+      const rows = await prismock.eventType.findMany({
+        where: { id: { in: mirrors.map((m) => m.eventTypeId) } },
+        select: { id: true, price: true, currency: true, metadata: true },
+        orderBy: { id: "asc" },
+      });
+      return rows;
+    };
+    const before = await mirrorEventTypes();
+    expect(before.length).toBeGreaterThan(0);
+    await priceColouring(PRICE);
+    await book(f.users.olga, {
+      workerMemberId: f.members.ana,
+      serviceIds: [f.services.colouring],
+      start: at("09:00", TUE),
+      customer: MARIJA,
+    });
+    const after = await mirrorEventTypes();
+    expect(after).toEqual(before);
+    for (const row of after) {
+      expect(row.price).toBe(0);
+      expect((row.metadata as Record<string, unknown> | null)?.apps).toBeUndefined();
+      expect(priceTraces(row.metadata)).toEqual([]);
+    }
   });
 });
 

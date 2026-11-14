@@ -269,12 +269,16 @@ export const SERVICE_LIMITS = {
   stepMinutesMax: 480,
   stepMinutesMultiple: 5,
   totalMinutesMax: 720,
+  // Flowko U29e: E8, R15 — the highest price a save may store (9.999,99 €); 0 is a price, null is none.
+  priceMaxCents: 999_999,
 } as const;
 
 /**
  * A service as the editor saves it (S8, S9, S14): the U24 step rules plus the caps (step count, minutes per step,
  * total). category: trimmed, empty → null. workerMemberIds: who does it (positive ids, each once; the server
- * checks they are ACTIVE column members of the business).
+ * checks they are ACTIVE column members of the business). Flowko U29e: priceCents (E8, R15) — a required key,
+ * integer euro cents 0..SERVICE_LIMITS.priceMaxCents or null (no price); every refusal is price_range (the
+ * editor parses the typed text with parsePriceText first, so price_format never reaches this schema).
  */
 export const serviceInputSchema = z.object({
   id: z.number().int().positive().optional(),
@@ -307,5 +311,12 @@ export const serviceInputSchema = z.object({
   workerMemberIds: z
     .array(z.number().int().positive({ message: "bad_member" }))
     .refine((ids) => new Set(ids).size === ids.length, { message: "bad_member" }),
+  // Flowko U29e: E8, R15 — never by omission (a missing key is refused, as category's null is explicit).
+  priceCents: z
+    .number({ required_error: "price_range", invalid_type_error: "price_range" })
+    .int({ message: "price_range" })
+    .min(0, { message: "price_range" })
+    .max(SERVICE_LIMITS.priceMaxCents, { message: "price_range" })
+    .nullable(),
 });
 export type ServiceInput = z.infer<typeof serviceInputSchema>;

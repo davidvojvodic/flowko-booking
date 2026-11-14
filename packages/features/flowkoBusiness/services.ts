@@ -1,5 +1,5 @@
 // Flowko U29a: the owner's service catalogue (S8–S13). List the services with who does them and how many future
-// bookings use them; save one (name, category, steps, who does it; price, online flag and grid are never touched);
+// bookings use them; save one (name, category, steps, who does it, price; online flag and grid are never touched);
 // remove one (a hard delete: bookings keep their own step copy, FlowkoBookingStep.serviceId → NULL by the FK);
 // reorder them. Editing or removing a service never changes an existing booking (design §6, U27 copy rule). Who
 // does it: only ACTIVE OWNER/WORKER members may be named; a LOCKED member's stored assignment is kept and never
@@ -7,6 +7,10 @@
 // business case-insensitively (Slovene lower case), checked in the save's transaction; a parallel save with the
 // same exact name hits FlowkoService_businessId_name_key (P2002) and gets the same service_name_taken. Owner only
 // (forbidden otherwise; another business's or an unknown service id answers forbidden). Server only.
+// Flowko U29e: E8, R15 — the editor owns the price: a save writes the sent priceCents (null = no price) and the list
+// answers it through the read guard (the column has no CHECK). The price is shown to the owner here and on the desk
+// while booking only; it is never copied onto a booking.
+import { storedPriceCents } from "@calcom/lib/flowkoBusiness/price";
 import { serviceInputSchema, serviceStepsSchema } from "@calcom/lib/flowkoBusiness/schemas";
 import { type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
 import { Prisma } from "@calcom/prisma/client";
@@ -53,6 +57,8 @@ export type OwnerService = {
   futureBookings: number;
   /** Flowko U29c: P4 — the stored steps are corrupt (steps is []): the owner edits the service again or removes it. */
   broken: boolean;
+  /** Flowko U29e: E8 — euro cents, null = no price (a stored value outside 0..max reads as null, R15). */
+  priceCents: number | null;
 };
 export type OwnerServicesView = { services: OwnerService[]; members: ServiceColumnMember[] };
 
@@ -93,7 +99,8 @@ export async function listServicesForOwner(
     }));
   const services = await db.flowkoService.findMany({
     where: { businessId },
-    select: { id: true, name: true, category: true, steps: true, position: true },
+    // Flowko U29e: E8 — priceCents.
+    select: { id: true, name: true, category: true, steps: true, position: true, priceCents: true },
     orderBy: [{ position: "asc" }, { id: "asc" }],
   });
   // Through the relation, never `serviceId: { in }` (prismock returns nothing for `in` on this composite key).
@@ -128,6 +135,7 @@ export async function listServicesForOwner(
         })),
         futureBookings: futureBookings.get(s.id) ?? 0,
         broken,
+        priceCents: storedPriceCents(s.priceCents), // Flowko U29e: E8, R15 read guard
       };
     }),
     members,
@@ -243,8 +251,8 @@ function isServiceGone(e: unknown): boolean {
 
 /**
  * S8, S9, S13: creates (no `id`; placed last, max(position) + 1) or edits (`id`) a service of the owner's business:
- * name, category, steps and who does it. Price, online flag, grid and position are never written by an edit.
- * Existing bookings keep their step copies.
+ * name, category, steps, who does it and (Flowko U29e: E8) the price as sent — null clears it. Online flag, grid
+ * and position are never written by an edit. Existing bookings keep their step copies and carry no price.
  */
 export async function saveService(
   db: FlowkoDb,
@@ -281,7 +289,13 @@ export async function saveService(
         serviceId = service.id;
         await tx.flowkoService.update({
           where: { id: serviceId },
-          data: { name: service.name, category: service.category, steps: service.steps },
+          // Flowko U29e: E8 — the price as sent (null = no price).
+          data: {
+            name: service.name,
+            category: service.category,
+            steps: service.steps,
+            priceCents: service.priceCents,
+          },
         });
       } else {
         const position = others.reduce((max, s) => Math.max(max, s.position + 1), 0);
@@ -292,6 +306,7 @@ export async function saveService(
             category: service.category,
             steps: service.steps,
             position,
+            priceCents: service.priceCents, // Flowko U29e: E8
           },
           select: { id: true },
         });

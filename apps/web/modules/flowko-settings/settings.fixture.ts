@@ -92,6 +92,7 @@ export const STRIZENJE: OwnerService = {
   workers: workers([ANA, BOR]),
   futureBookings: 0,
   broken: false, // Flowko U29c: P4
+  priceCents: null, // Flowko U29e: E8
 };
 
 export const BARVANJE: OwnerService = {
@@ -108,6 +109,7 @@ export const BARVANJE: OwnerService = {
   workers: workers([ANA, DAN]),
   futureBookings: 3,
   broken: false, // Flowko U29c: P4
+  priceCents: null, // Flowko U29e: E8
 };
 
 export const FEN: OwnerService = {
@@ -120,6 +122,7 @@ export const FEN: OwnerService = {
   workers: workers([]),
   futureBookings: 1,
   broken: false, // Flowko U29c: P4
+  priceCents: null, // Flowko U29e: E8
 };
 
 // Flowko U29c: a service whose stored steps are corrupt, as listServicesForOwner returns it (steps [], broken).
@@ -133,6 +136,7 @@ export const KVAR: OwnerService = {
   workers: workers([ANA]),
   futureBookings: 0,
   broken: true,
+  priceCents: null, // Flowko U29e: E8
 };
 
 /** Out of position order on purpose: the page sorts by position. */

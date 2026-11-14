@@ -116,6 +116,7 @@ describe("ServiceSheet: a new service", () => {
         { kind: "busy", minutes: 45 },
       ],
       workerMemberIds: [ANA],
+      priceCents: null, // Flowko U29e: E8 — a required key; a new service has no price until Task 9's field
     });
     expect(mocks.toast).toHaveBeenCalledWith("Storitev je shranjena.", "success");
     expect(mocks.onChanged).toHaveBeenCalled();
@@ -196,7 +197,20 @@ describe("ServiceSheet: editing a service", () => {
         category: "Barve",
         steps: BARVANJE.steps,
         workerMemberIds: [ANA, BOR],
+        priceCents: null, // Flowko U29e: E8
       })
+    );
+  });
+
+  // Flowko U29e: E8 — the sheet sends the stored price back unchanged, so an edit never clears it by omission.
+  it("an edit sends the service's stored price unchanged", async () => {
+    open(edit({ ...BARVANJE, priceCents: 4500 }));
+    type("Ime storitve", "Barvanje las");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Barvanje las", priceCents: 4500 })
+      )
     );
   });
 

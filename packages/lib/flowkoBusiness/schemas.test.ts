@@ -349,6 +349,7 @@ describe("serviceInputSchema", () => {
       { kind: "busy", minutes: 30 },
     ],
     workerMemberIds: [1, 2],
+    priceCents: null as number | null, // Flowko U29e: E8 — a required key, null = no price
   };
 
   function codes(patch: Record<string, unknown>): string[] {
@@ -394,7 +395,38 @@ describe("serviceInputSchema", () => {
       stepMinutesMax: 480,
       stepMinutesMultiple: 5,
       totalMinutesMax: 720,
+      priceMaxCents: 999_999, // Flowko U29e: E8, R15
     });
+  });
+
+  // Flowko U29e: E8, R15 — the price is a required key: integer cents 0..9.999,99 € or null (no price).
+  it("accepts no price (null), 0 and the maximum as priceCents", () => {
+    expect(serviceInputSchema.parse({ ...barvanje, priceCents: null }).priceCents).toBeNull();
+    expect(serviceInputSchema.parse({ ...barvanje, priceCents: 0 }).priceCents).toBe(0);
+    expect(serviceInputSchema.parse({ ...barvanje, priceCents: 2500 }).priceCents).toBe(2500);
+    expect(serviceInputSchema.parse({ ...barvanje, priceCents: 999_999 }).priceCents).toBe(999_999);
+  });
+
+  it.each([
+    ["-1", -1],
+    ["1.5", 1.5],
+    ["max + 1", 1_000_000],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["NaN", Number.NaN],
+    ["a text", "25,00"],
+    ["undefined (a missing key)", undefined],
+  ])("refuses a priceCents of %s as price_range on the priceCents path", (_label, priceCents) => {
+    const result = serviceInputSchema.safeParse({ ...barvanje, priceCents });
+    expect(result.success).toBe(false);
+    const issues = result.success ? [] : result.error.issues;
+    expect(issues.length).toBeGreaterThan(0);
+    expect(Array.from(new Set(issues.map((i) => i.message)))).toEqual(["price_range"]);
+    expect(Array.from(new Set(issues.map((i) => i.path[0])))).toEqual(["priceCents"]);
+  });
+
+  it("refuses an input without the priceCents key", () => {
+    const { priceCents: _omitted, ...withoutPrice } = barvanje;
+    expect(issueMessages(serviceInputSchema.safeParse(withoutPrice))).toEqual(["price_range"]);
   });
 
   it.each([

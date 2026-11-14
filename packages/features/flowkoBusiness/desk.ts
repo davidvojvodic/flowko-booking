@@ -10,6 +10,7 @@
 // bookable) with who cancelled them (`cancelled.by`: the customer through the mail link, or the desk) and when, and
 // the stored reason; a hand-over cancel („Prestavi k drugemu delavcu“, R10 marker in the action's details) is left
 // out; the week view is unchanged. The internal member id and the marker never leave the server.
+import { storedPriceCents } from "@calcom/lib/flowkoBusiness/price"; // Flowko U29e: E8 (the read guard, R15)
 import { addDays, localDateSchema, todayIn, weekdayOf } from "@calcom/lib/flowkoBusiness/roster";
 import { serviceStepsSchema } from "@calcom/lib/flowkoBusiness/schemas";
 import {
@@ -125,6 +126,11 @@ export type DeskService = {
   steps: ServiceStep[];
   totalMinutes: number;
   workerMemberIds: number[];
+  /**
+   * Flowko U29e: E8, R16 — euro cents, null = no price; shown on the desk while booking only (every desk role books).
+   * Never on a DeskBooking row, the booking, a mail or a customer page.
+   */
+  priceCents: number | null;
 };
 export type DeskMember = {
   memberId: number;
@@ -638,12 +644,15 @@ export async function getDeskWeek(
   return buildView(db, access, dates, { memberId }, now, deps, { includeCancelled: false }); // Flowko U29e: E6
 }
 
-/** The business's services in position order with their steps and the members who perform them. */
+/**
+ * The business's services in position order with their steps, the members who perform them and (Flowko U29e: E8)
+ * their price through the read guard (a stored value outside 0..max reads as null).
+ */
 export async function listDeskServices(db: FlowkoDb, actorUserId: number): Promise<DeskService[]> {
   const access = await requireBusinessAccess(db, actorUserId);
   const services = await db.flowkoService.findMany({
     where: { businessId: access.businessId },
-    select: { id: true, name: true, category: true, steps: true },
+    select: { id: true, name: true, category: true, steps: true, priceCents: true }, // Flowko U29e: E8
     orderBy: [{ position: "asc" }, { id: "asc" }],
   });
   // Through the relation, never `serviceId: { in }` (prismock returns nothing for `in` on this composite key).
@@ -670,6 +679,7 @@ export async function listDeskServices(db: FlowkoDb, actorUserId: number): Promi
         .filter((a) => a.serviceId === s.id)
         .map((a) => a.memberId)
         .sort((x, y) => x - y),
+      priceCents: storedPriceCents(s.priceCents), // Flowko U29e: E8, R15
     });
   }
   return listed;

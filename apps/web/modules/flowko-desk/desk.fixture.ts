@@ -198,6 +198,7 @@ export const services: DeskService[] = [
       { kind: "busy", minutes: 30 },
     ],
     totalMinutes: 100,
+    priceCents: null, // Flowko U29e: E8
     workerMemberIds: [OLGA, ANA],
   },
   {
@@ -206,6 +207,7 @@ export const services: DeskService[] = [
     category: "Striženje",
     steps: [{ kind: "busy", minutes: 30 }],
     totalMinutes: 30,
+    priceCents: null, // Flowko U29e: E8
     workerMemberIds: [OLGA, ANA, BOR],
   },
   {
@@ -214,6 +216,7 @@ export const services: DeskService[] = [
     category: null,
     steps: [{ kind: "busy", minutes: 20 }],
     totalMinutes: 20,
+    priceCents: null, // Flowko U29e: E8
     workerMemberIds: [ANA, BOR],
   },
 ];

@@ -2,7 +2,8 @@
 // Dan (LOCKED); desk-only worker Mojca; staff Rok with a login; hair-salon template, every template service done
 // by Olga) and B (owner Zala, worker Bea). NOW = 2026-11-16T07:07:00Z (Mon 08:07 in Ljubljana). Covers the owner
 // list (column members, who does what, future bookings), save (fields, caps, case-insensitive names, position,
-// price and online flag untouched), who does it (LOCKED assignments kept, never added; STAFF/foreign/LOCKED named
+// online flag and grid untouched; Flowko U29e: E8 — the price is written as sent and read back through the guard),
+// who does it (LOCKED assignments kept, never added; STAFF/foreign/LOCKED named
 // → bad_member), reorder, remove, and rights (owner only; another business's ids → forbidden). Prismock ignores
 // rollbacks, FK actions and unique indexes: the P2002 mapping, the SET NULL on booking steps and the atomic
 // refusals are proven on Postgres in services.integration-test.ts.
@@ -168,6 +169,7 @@ const barvanje = (over: Partial<SaveServiceInput> = {}): SaveServiceInput => ({
   category: "Barvanje",
   steps: BARVANJE_STEPS,
   workerMemberIds: [f.members.olga, f.members.ana, f.members.bor],
+  priceCents: null,
   ...over,
 });
 
@@ -263,6 +265,7 @@ describe("listServicesForOwner (S14 services.list)", () => {
       ],
       futureBookings: 0,
       broken: false, // Flowko U29c: P4
+      priceCents: null, // Flowko U29e: E8
     });
     // Rok (STAFF) has no column: never a candidate.
     expect(view.members.some((m) => m.memberId === f.members.rok)).toBe(false);
@@ -284,6 +287,27 @@ describe("listServicesForOwner (S14 services.list)", () => {
     const others = view.services.filter((s) => s.id !== f.services.Barvanje);
     expect(others).toHaveLength(TEMPLATE_NAMES.length - 1);
     expect(others.every((s) => s.broken === false && s.steps.length > 0)).toBe(true);
+  });
+
+  // Flowko U29e: E8, R15 — the column has no CHECK; a value a save could never store reads as no price.
+  it("answers the stored price; a stored -5, 10_000_000 or 1_000_000 reads as null", async () => {
+    await prismock.flowkoService.update({ where: { id: f.services.Barvanje }, data: { priceCents: 4500 } });
+    await prismock.flowkoService.update({ where: { id: f.services.Feniranje }, data: { priceCents: -5 } });
+    await prismock.flowkoService.update({
+      where: { id: f.services["Pramenčki"] },
+      data: { priceCents: 10_000_000 },
+    });
+    await prismock.flowkoService.update({
+      where: { id: f.services["Moško striženje"] },
+      data: { priceCents: 1_000_000 },
+    });
+    const view = await listServicesForOwner(db, f.users.olga, NOW);
+    const priceOf = (id: number) => view.services.find((s) => s.id === id)?.priceCents;
+    expect(priceOf(f.services.Barvanje)).toBe(4500);
+    expect(priceOf(f.services.Feniranje)).toBeNull();
+    expect(priceOf(f.services["Pramenčki"])).toBeNull();
+    expect(priceOf(f.services["Moško striženje"])).toBeNull();
+    expect(view.services.every((s) => "priceCents" in s)).toBe(true);
   });
 
   it("futureBookings counts holding business bookings ending after now, once per booking", async () => {
@@ -328,7 +352,7 @@ describe("listServicesForOwner (S14 services.list)", () => {
 });
 
 describe("saveService (S8, S9, S13 position)", () => {
-  it("creates a service last with its steps, category and workers; price and online flag stay defaults", async () => {
+  it("creates a service last with its steps, category and workers; no price stays null, online flag default", async () => {
     const result = await saveService(db, f.users.olga, {
       name: "  Trajna  ",
       category: "  ",
@@ -338,6 +362,7 @@ describe("saveService (S8, S9, S13 position)", () => {
         { kind: "busy", minutes: 15 },
       ],
       workerMemberIds: [f.members.ana, f.members.mojca],
+      priceCents: null,
     });
     const row = await serviceRow(result.serviceId);
     expect(row).toMatchObject({
@@ -351,7 +376,8 @@ describe("saveService (S8, S9, S13 position)", () => {
       ],
       position: 6,
     });
-    expect(row?.priceCents ?? null).toBeNull();
+    expect(row?.priceCents).toBeNull();
+    expect(row?.onlineBookable).toBe(true);
     expect(await assignedTo(result.serviceId)).toEqual(
       [f.members.ana, f.members.mojca].sort((x, y) => x - y)
     );
@@ -364,6 +390,7 @@ describe("saveService (S8, S9, S13 position)", () => {
       category: null,
       steps: [{ kind: "busy", minutes: 30 }],
       workerMemberIds: [],
+      priceCents: null,
     });
     expect((await serviceRow(serviceId))?.position).toBe(18);
     // No worker is allowed (the list shows „Nihče“).
@@ -378,11 +405,13 @@ describe("saveService (S8, S9, S13 position)", () => {
       category: null,
       steps: [{ kind: "busy", minutes: 30 }],
       workerMemberIds: [f.members.zala],
+      priceCents: null,
     });
     expect((await serviceRow(serviceId))?.position).toBe(0);
   });
 
-  it("an edit changes name, category and steps; price, online flag, grid and position stay", async () => {
+  // Flowko U29e: E8 — U29a's „an edit keeps the price“ is gone: the editor owns the price and writes what it sends.
+  it("an edit writes the sent price with name, category and steps; online flag, grid and position stay", async () => {
     await prismock.flowkoService.update({
       where: { id: f.services.Barvanje },
       data: { priceCents: 4500, onlineBookable: false, slotGridMinutes: 30 },
@@ -398,6 +427,7 @@ describe("saveService (S8, S9, S13 position)", () => {
           { kind: "processing", minutes: 20 },
           { kind: "busy", minutes: 30 },
         ],
+        priceCents: 5200,
       })
     );
     expect(result).toEqual({ serviceId: f.services.Barvanje });
@@ -409,11 +439,61 @@ describe("saveService (S8, S9, S13 position)", () => {
         { kind: "processing", minutes: 20 },
         { kind: "busy", minutes: 30 },
       ],
-      priceCents: 4500,
+      priceCents: 5200,
       onlineBookable: false,
       slotGridMinutes: 30,
       position: 3,
     });
+  });
+
+  // Flowko U29e: E8, R15.
+  it("a new service with a price stores it; 0 is a price; the list answers it", async () => {
+    const priced = await saveService(db, f.users.olga, {
+      name: "Trajna",
+      category: null,
+      steps: [{ kind: "busy", minutes: 45 }],
+      workerMemberIds: [],
+      priceCents: 2550,
+    });
+    const free = await saveService(db, f.users.olga, {
+      name: "Posvet",
+      category: null,
+      steps: [{ kind: "busy", minutes: 15 }],
+      workerMemberIds: [],
+      priceCents: 0,
+    });
+    expect((await serviceRow(priced.serviceId))?.priceCents).toBe(2550);
+    expect((await serviceRow(free.serviceId))?.priceCents).toBe(0);
+    const view = await listServicesForOwner(db, f.users.olga, NOW);
+    expect(view.services.find((s) => s.id === priced.serviceId)?.priceCents).toBe(2550);
+    expect(view.services.find((s) => s.id === free.serviceId)?.priceCents).toBe(0);
+  });
+
+  it("an edit sets, changes and clears the price (null = no price)", async () => {
+    const price = async () => (await serviceRow(f.services.Barvanje))?.priceCents;
+    expect(await price()).toBeNull();
+    await saveService(db, f.users.olga, barvanje({ priceCents: 4500 }));
+    expect(await price()).toBe(4500);
+    await saveService(db, f.users.olga, barvanje({ priceCents: 999_999 }));
+    expect(await price()).toBe(999_999);
+    await saveService(db, f.users.olga, barvanje({ priceCents: null }));
+    expect(await price()).toBeNull();
+  });
+
+  it("a refused price is bad_service and writes nothing", async () => {
+    await prismock.flowkoService.update({ where: { id: f.services.Barvanje }, data: { priceCents: 4500 } });
+    const before = await serviceRow(f.services.Barvanje);
+    for (const priceCents of [-1, 1.5, 1_000_000, Number.POSITIVE_INFINITY]) {
+      expect(
+        await outcome(saveService(db, f.users.olga, barvanje({ name: "Drugo", priceCents }))),
+        String(priceCents)
+      ).toBe("bad_service");
+    }
+    const { priceCents: _omitted, ...withoutPrice } = barvanje({ name: "Drugo" });
+    expect(await outcome(saveService(db, f.users.olga, withoutPrice as SaveServiceInput))).toBe(
+      "bad_service"
+    );
+    expect(await serviceRow(f.services.Barvanje)).toEqual(before);
   });
 
   it("names are unique per business case-insensitively (Slovene letters included); B may reuse A's", async () => {
@@ -422,6 +502,7 @@ describe("saveService (S8, S9, S13 position)", () => {
       category: null,
       steps: [{ kind: "busy", minutes: 30 }],
       workerMemberIds: [],
+      priceCents: null,
     });
     expect(await outcome(saveService(db, f.users.olga, fresh("barvanje")))).toBe("service_name_taken");
     expect(await outcome(saveService(db, f.users.olga, fresh("  BARVANJE  ")))).toBe("service_name_taken");
@@ -525,6 +606,7 @@ describe("saveService (S8, S9, S13 position)", () => {
           category: null,
           steps: [{ kind: "busy", minutes: 30 }],
           workerMemberIds: [f.members.rok],
+          priceCents: null,
         })
       )
     ).toBe("bad_member");

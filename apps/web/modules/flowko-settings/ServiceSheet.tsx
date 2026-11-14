@@ -7,6 +7,8 @@
 // (someone was locked meanwhile; the rows follow the fresh list), every other code is a toast. The S11 note
 // (plural) says existing future bookings keep their steps. „Odstrani“ opens the S12 dialog with the plural count of
 // future bookings; confirm removes. After a write the caller invalidates (S17) and the sheet closes.
+// Flowko U29e: E8 — services.save requires priceCents; until the „Cena“ field (U29e Task 9) the sheet sends the
+// stored price back unchanged (a new service: null), so an edit never clears a price by omission.
 "use client";
 
 import type { OwnerService, ServiceColumnMember } from "@calcom/features/flowkoBusiness/services";
@@ -175,6 +177,7 @@ export function ServiceSheet(props: {
     category,
     steps: draftSteps(steps),
     workerMemberIds,
+    priceCents: service?.priceCents ?? null, // Flowko U29e: E8
   };
   const parsed = serviceInputSchema.safeParse(input);
   const problems = parsed.success ? { step: {} } : problemsOf(parsed.error.issues);
