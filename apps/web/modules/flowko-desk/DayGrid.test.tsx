@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DayGrid } from "./DayGrid";
-import { ANA, BOR, CENE, DAN, DATE, NOW, OLGA, at, deskView, localeT } from "./desk.fixture";
+import { ANA, BOR, CENE, DAN, DATE, NOW, OLGA, at, booking, deskView, iso, localeT } from "./desk.fixture";
 
 vi.mock("@calcom/lib/hooks/useLocale", () => ({ useLocale: () => ({ t: localeT("sl") }) }));
 
@@ -126,5 +126,29 @@ describe("DayGrid (U28)", () => {
     const axis = screen.getAllByTestId("desk-hour")[0].closest(".sticky") as HTMLElement;
     expect(axis).not.toBeNull();
     expect(scroll.contains(axis)).toBe(true);
+  });
+});
+
+// Flowko U29f: F2, R8 — each worker column counts its own live bookings, so every column starts at tone a.
+describe("DayGrid tones (U29f F2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("Olga's and Ana's first bookings at 09:00 are both a; Ana's second is b", () => {
+    const view = deskView();
+    view.days[0].bookings = [
+      ...view.days[0].bookings,
+      booking({ bookingId: 110, memberId: OLGA, start: iso("09:00"), end: iso("09:30") }),
+      booking({ bookingId: 111, memberId: ANA, start: iso("11:00"), end: iso("11:30") }),
+    ];
+    renderGrid(view);
+    const tone = (id: number) => screen.getByTestId(`desk-booking-${id}`).dataset.tone;
+    expect([tone(110), tone(101), tone(111), tone(102)]).toEqual(["a", "a", "b", "a"]);
   });
 });

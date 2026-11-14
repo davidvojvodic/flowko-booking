@@ -8,8 +8,13 @@
 // dashed, its label first („Odpovedala stranka“ / „Odpovedano“, not struck through) and the booking's time, customer
 // and services struck through; the aria-label starts with the label. A tap opens its details (the sheet shows who
 // cancelled, when and why); in move mode it lets taps through like any block.
+// Flowko U29f (F2, R9-R11): a live booking takes one of two tones (the column alternates them): "a" =
+// the brand purple with white text, "b" = the pale lilac with dark text; both with a thin brand edge (on "b"
+// it sets the block off the white band), a tentative booking's dashed 2 px edge replacing it. Every busy step
+// of one booking takes its tone; processing steps and cancelled blocks are unchanged. The wrapper carries
+// data-tone (live only).
 import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
-import { formatHm, stepSegments, toPx } from "@calcom/lib/flowkoBusiness/desk";
+import { type BookingTone, formatHm, stepSegments, toPx } from "@calcom/lib/flowkoBusiness/desk";
 import type { Ms } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
@@ -18,6 +23,12 @@ const HATCH =
   "repeating-linear-gradient(135deg, transparent, transparent 6px, rgba(100, 116, 139, 0.18) 6px, rgba(100, 116, 139, 0.18) 12px)";
 
 export const ms = (iso: string): Ms => new Date(iso).getTime();
+
+/** Flowko U29f (R9): fill and text of a live busy step per tone; a solid tint, not opacity (F2). */
+const TONE_CLASS: Record<BookingTone, string> = {
+  a: "bg-brand-default text-brand",
+  b: "bg-brand-subtle text-emphasis",
+};
 
 /** The booking's step segments in epoch ms (busy only for lanes and free time). */
 export function bookingSegments(b: DeskBooking) {
@@ -47,6 +58,8 @@ export function BookingBlock(props: {
   onOpenDetails: (bookingId: number) => void;
   /** Flowko U28 (R12): move mode: busy steps take no pointer events and a tap goes on to the column. */
   passThrough?: boolean;
+  /** Flowko U29f (R8, R11): the live booking's tone from its column; absent = "a"; never when cancelled. */
+  tone?: BookingTone;
 }) {
   const { t } = useLocale();
   const { booking: b, range, pxPerMinute, timeZone } = props;
@@ -111,8 +124,13 @@ export function BookingBlock(props: {
     );
   }
 
+  const tone = props.tone ?? "a";
   return (
-    <div data-testid={`desk-booking-${b.bookingId}`} className="absolute px-0.5" style={wrapperStyle}>
+    <div
+      data-testid={`desk-booking-${b.bookingId}`}
+      data-tone={tone}
+      className="absolute px-0.5"
+      style={wrapperStyle}>
       <div className="relative h-full">
         {segments.map((s, i) =>
           s.kind === "processing" ? (
@@ -142,8 +160,9 @@ export function BookingBlock(props: {
                 props.onOpenDetails(b.bookingId);
               }}
               className={classNames(
-                "bg-brand-default text-brand absolute inset-x-0 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-xs leading-tight shadow-sm",
-                tentative && "border-brand-default border-2 border-dashed opacity-80"
+                "border-brand-default absolute inset-x-0 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-xs leading-tight shadow-sm",
+                TONE_CLASS[tone],
+                tentative ? "border-2 border-dashed opacity-80" : "border"
               )}
               style={{
                 top: `${px(s.start) - px(top)}px`,
@@ -156,7 +175,8 @@ export function BookingBlock(props: {
                   <span className={classNames("block truncate", b.noShow && "line-through")}>
                     {b.customer.name}
                   </span>
-                  {services && <span className="block truncate opacity-80">{services}</span>}
+                  {/* Flowko U29f (R9): 90 % keeps white on the brand at 5.24:1 (80 % was 4.49). */}
+                  {services && <span className="block truncate opacity-90">{services}</span>}
                 </>
               )}
             </button>

@@ -233,3 +233,75 @@ describe("WorkerColumn cancelled bookings (U29e E6)", () => {
     expect(screen.getByRole("button", { name: /^Odpovedala stranka/ }).style.pointerEvents).toBe("none");
   });
 });
+
+// Flowko U29f: F2, R8-R11 — live bookings of one column alternate tones a/b by (start, id); cancelled
+// ones neither take nor shift a tone; lanes, z-index and the cancelled half stay as they were.
+describe("WorkerColumn tones (U29f F2)", () => {
+  const live = (id: number, from: string, to: string) =>
+    booking({ bookingId: id, memberId: ANA, start: iso(from), end: iso(to) });
+  const cancelledAt = (id: number, from: string, to: string) =>
+    booking({
+      bookingId: id,
+      memberId: ANA,
+      start: iso(from),
+      end: iso(to),
+      status: "CANCELLED",
+      mayCancel: false,
+      mayMove: false,
+      mayReenter: false,
+      cancelled: { by: "customer", at: "2026-11-15T18:00:00.000Z" },
+    });
+  const block = (id: number) => screen.getByTestId(`desk-booking-${id}`);
+  const toneOf = (id: number) => block(id).dataset.tone;
+  const laneOf = (id: number) => [block(id).style.left, block(id).style.width];
+
+  it("two touching live bookings share lane 0 at full width and take a, then b", () => {
+    renderColumn(ANA, [live(150, "11:00", "11:30"), live(151, "11:30", "12:00")]);
+    expect(laneOf(150)).toEqual(["0%", "100%"]);
+    expect(laneOf(151)).toEqual(["0%", "100%"]);
+    expect([toneOf(150), toneOf(151)]).toEqual(["a", "b"]);
+  });
+
+  it("a colouring at 09:00 and a booking at 09:30 in its waiting gap: a, then b", () => {
+    renderColumn(ANA, [live(106, "09:30", "10:00"), barvanje]);
+    expect([toneOf(101), toneOf(106)]).toEqual(["a", "b"]);
+  });
+
+  it("the Tue 1 Dec shape: Maja a, Ana b, Nina cancelled (no tone, right half), Eva a (left half)", () => {
+    renderColumn(ANA, [
+      barvanje, // Maja 09:00
+      live(106, "09:30", "10:00"), // Ana in the waiting gap
+      cancelledAt(160, "14:00", "14:30"), // Nina
+      live(161, "14:00", "14:30"), // Eva
+    ]);
+    expect([toneOf(101), toneOf(106), toneOf(160), toneOf(161)]).toEqual(["a", "b", undefined, "a"]);
+    expect(laneOf(160)).toEqual(["50%", "50%"]);
+    expect(laneOf(161)).toEqual(["0%", "50%"]);
+  });
+
+  it("a cancelled booking between two live ones is not counted: a, (none), b", () => {
+    renderColumn(ANA, [
+      live(170, "09:00", "09:30"),
+      cancelledAt(171, "12:00", "12:30"),
+      live(172, "14:00", "14:30"),
+    ]);
+    expect([toneOf(170), toneOf(171), toneOf(172)]).toEqual(["a", undefined, "b"]);
+  });
+
+  it("two overlapping bookings keep their lanes side by side and take a, then b", () => {
+    renderColumn(ANA, [live(105, "11:30", "12:30"), live(104, "11:00", "12:00")]);
+    expect([toneOf(104), toneOf(105)]).toEqual(["a", "b"]);
+    expect(laneOf(104)).toEqual(["0%", "50%"]);
+    expect(laneOf(105)).toEqual(["50%", "50%"]);
+  });
+
+  it("z-index order is unchanged: live by (start, id) from 10, cancelled 6-9", () => {
+    renderColumn(ANA, [
+      live(181, "11:00", "11:30"),
+      cancelledAt(180, "11:00", "11:30"),
+      live(182, "11:30", "12:00"),
+    ]);
+    const z = (id: number) => block(id).style.zIndex;
+    expect([z(181), z(182), z(180)]).toEqual(["10", "11", "6"]);
+  });
+});

@@ -231,3 +231,27 @@ describe("WeekGrid stacking (U28b B4)", () => {
     expect(scroll.contains(axis)).toBe(true);
   });
 });
+
+// Flowko U29f: F2, R8 (Q2) — each day column of the week restarts at tone a.
+describe("WeekGrid tones (U29f F2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("Monday's one booking is a; Wednesday's two are a, then b (the count restarts per day)", () => {
+    const view = weekViewOf(ANA);
+    view.days[2].bookings = [
+      wednesdayCut,
+      { ...wednesdayCut, bookingId: 202, start: iso("11:00", "2026-11-18"), end: iso("11:30", "2026-11-18") },
+    ];
+    renderWeek(view);
+    const tone = (id: number) => screen.getByTestId(`desk-booking-${id}`).dataset.tone;
+    expect(within(column(DATE)).getByTestId("desk-booking-101").dataset.tone).toBe("a");
+    expect([tone(201), tone(202)]).toEqual(["a", "b"]);
+  });
+});

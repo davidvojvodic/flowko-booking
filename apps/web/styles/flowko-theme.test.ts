@@ -23,6 +23,8 @@ const VALUES: Record<string, string> = {
   "--cal-bg-primary-emphasis": "#6A31BF",
   "--cal-brand": "#7A3FD1",
   "--cal-brand-emphasis": "#6A31BF",
+  // Flowko U29f: R10, the booking blocks' second tone (pale lilac), never Cal's grey fallback.
+  "--cal-brand-subtle": "#DECFF4",
   "--cal-brand-text": "#FFFFFF",
 };
 
@@ -36,8 +38,15 @@ describe("flowko-theme.css (Flowko U14)", () => {
     expect(Array.from(dark.matchAll(/(--[\w-]+):/g)).map((match) => match[1])).toEqual([
       "--cal-brand",
       "--cal-brand-emphasis",
+      "--cal-brand-subtle", // Flowko U29f: R10
       "--cal-brand-text",
     ]);
+  });
+
+  // Flowko U29f: R10 — the dark second tone is the value useCalcomTheme sets inline (#674099).
+  it("declares the dark booking tone --cal-brand-subtle: #674099 in .dark", () => {
+    const dark = css.match(/\n\.dark \{([^{}]*)\}/)?.[1] ?? "";
+    expect(dark).toMatch(/--cal-brand-subtle:\s*#674099;/i);
   });
 
   it("gives the coss Button the brand", () => {
