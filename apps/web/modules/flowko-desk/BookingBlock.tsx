@@ -8,7 +8,7 @@
 // dashed, its label first („Odpovedala stranka“ / „Odpovedano“, not struck through) and the booking's time, customer
 // and services struck through; the aria-label starts with the label. A tap opens its details (the sheet shows who
 // cancelled, when and why); in move mode it lets taps through like any block.
-// Flowko U29f (F2, R9-R11): a live booking takes one of two tones (the column alternates them): "a" =
+// Flowko U29f (F2, R9-R11): a live booking takes one of two tones (the column picks them, touch rule): "a" =
 // the brand purple with white text, "b" = the pale lilac with dark text; both with a thin brand edge (on "b"
 // it sets the block off the white band), a tentative booking's dashed 2 px edge replacing it. Every busy step
 // of one booking takes its tone; processing steps and cancelled blocks are unchanged. The wrapper carries

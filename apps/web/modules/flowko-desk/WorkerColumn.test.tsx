@@ -234,7 +234,8 @@ describe("WorkerColumn cancelled bookings (U29e E6)", () => {
   });
 });
 
-// Flowko U29f: F2, R8-R11 — live bookings of one column alternate tones a/b by (start, id); cancelled
+// Flowko U29f: F2, R8-R11 (Q1 touch rule) — live bookings of one column take tones a/b by (start, id), each the
+// opposite of the earliest earlier booking its busy steps touch or overlap, else of the previous one; cancelled
 // ones neither take nor shift a tone; lanes, z-index and the cancelled half stay as they were.
 describe("WorkerColumn tones (U29f F2)", () => {
   const live = (id: number, from: string, to: string) =>
@@ -277,6 +278,22 @@ describe("WorkerColumn tones (U29f F2)", () => {
     expect([toneOf(101), toneOf(106), toneOf(160), toneOf(161)]).toEqual(["a", "b", undefined, "a"]);
     expect(laneOf(160)).toEqual(["50%", "50%"]);
     expect(laneOf(161)).toEqual(["0%", "50%"]);
+  });
+
+  it("touch rule: a booking at 10:40 under the colouring's second step is b, not a (Ana's gap booking is b too)", () => {
+    renderColumn(ANA, [barvanje, live(106, "09:30", "10:00"), live(107, "10:40", "11:10")]);
+    expect([toneOf(101), toneOf(106), toneOf(107)]).toEqual(["a", "b", "b"]);
+    expect(laneOf(107)).toEqual(["0%", "100%"]);
+  });
+
+  it("touch rule, lane case: A 11:00-12:00, B 11:30-12:30 (lane 1), C 12:00-13:00 under A reads a, b, b", () => {
+    renderColumn(ANA, [
+      live(190, "11:00", "12:00"),
+      live(191, "11:30", "12:30"),
+      live(192, "12:00", "13:00"),
+    ]);
+    expect([toneOf(190), toneOf(191), toneOf(192)]).toEqual(["a", "b", "b"]);
+    expect(laneOf(192)).toEqual(["0%", "50%"]);
   });
 
   it("a cancelled booking between two live ones is not counted: a, (none), b", () => {

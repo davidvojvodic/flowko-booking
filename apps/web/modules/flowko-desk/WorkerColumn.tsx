@@ -7,8 +7,9 @@
 // Flowko U29e (E6, R11): cancelled bookings (the day read sends them) are drawn over their whole [start, end] beside
 // the live ones (deskLaneLayout: never in lane 0, so the left part of a cancelled-only slot stays tappable and books)
 // at z-index 6–9 (above the Google overlay, below live blocks); free edges come from live bookings only.
-// Flowko U29f (F2, R8): the live bookings alternate tones a/b by (start, id) per column (each week-view day
-// restarts at "a"); cancelled ones take no tone and shift none.
+// Flowko U29f (F2, R8, Q1 touch rule): walking the live bookings by (start, id) per column (each week-view day
+// restarts at "a"), each takes the opposite tone of the earliest earlier booking whose busy steps touch or
+// overlap its own, else of the previous one; cancelled ones take no tone and shift none.
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 
@@ -91,11 +92,6 @@ export function WorkerColumn(props: {
   // Flowko U29e (E6): live bookings keep their busy steps; a cancelled one is its span and never busy time.
   const live = useMemo(() => shown.filter((b) => !b.cancelled), [shown]);
   const cancelled = useMemo(() => shown.filter((b) => b.cancelled), [shown]);
-  // Flowko U29f (R8): tones over the live bookings this column draws.
-  const tones = useMemo(
-    () => bookingTones(live.map((b) => ({ id: b.bookingId, start: ms(b.start) }))),
-    [live]
-  );
   const busyOf = useMemo(
     () =>
       new Map(
@@ -107,6 +103,14 @@ export function WorkerColumn(props: {
         ])
       ),
     [live]
+  );
+  // Flowko U29f (R8, Q1 touch rule): tones over the live bookings this column draws, from their busy steps.
+  const tones = useMemo(
+    () =>
+      bookingTones(
+        live.map((b) => ({ id: b.bookingId, start: ms(b.start), busy: busyOf.get(b.bookingId) ?? [] }))
+      ),
+    [live, busyOf]
   );
   const lanes = useMemo(
     () =>

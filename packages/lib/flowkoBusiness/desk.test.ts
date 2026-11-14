@@ -285,75 +285,80 @@ describe("deskLaneLayout", () => {
   });
 });
 
-// Flowko U29f: F2, R8 — live bookings in one column alternate tone a / b by (start, id); lanes do not matter.
+// Flowko U29f: F2, R8 (Q1 touch rule) — walking a column's live bookings by (start, id), each takes the opposite
+// tone of the earliest-starting earlier booking whose busy steps touch or overlap its own (ties: lower id), else
+// the opposite of the latest-starting earlier booking; the first is a.
 describe("bookingTones", () => {
   const D = "2026-12-01";
   const tones = (m: Map<number, string>, ids: number[]) => ids.map((id) => m.get(id));
+  const b = (id: number, ...steps: Array<[string, string]>) => ({
+    id,
+    start: at(D, steps[0][0]),
+    busy: steps.map(([from, to]) => iv(D, from, to)),
+  });
   it("an empty column gives an empty map", () => {
     expect(bookingTones([]).size).toBe(0);
   });
   it("one booking is a", () => {
-    const m = bookingTones([{ id: 5, start: at(D, "09:00") }]);
+    const m = bookingTones([b(5, ["09:00", "09:30"])]);
     expect(m.size).toBe(1);
     expect(m.get(5)).toBe("a");
   });
-  it("three sequential bookings alternate a, b, a", () => {
-    const m = bookingTones([
-      { id: 1, start: at(D, "09:00") },
-      { id: 2, start: at(D, "11:00") },
-      { id: 3, start: at(D, "14:00") },
-    ]);
+  it("three sequential bookings that touch nothing alternate a, b, a", () => {
+    const m = bookingTones([b(1, ["09:00", "09:30"]), b(2, ["11:00", "11:30"]), b(3, ["14:00", "14:30"])]);
     expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "a"]);
   });
   it("three touching bookings (09:00-09:30, 09:30-10:00, 10:00-10:30) alternate a, b, a", () => {
-    const m = bookingTones([
-      { id: 1, start: at(D, "09:00") },
-      { id: 2, start: at(D, "09:30") },
-      { id: 3, start: at(D, "10:00") },
-    ]);
+    const m = bookingTones([b(1, ["09:00", "09:30"]), b(2, ["09:30", "10:00"]), b(3, ["10:00", "10:30"])]);
     expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "a"]);
   });
   it("input order does not matter: a shuffled column gives the same map", () => {
     const sorted = [
-      { id: 1, start: at(D, "09:00") },
-      { id: 2, start: at(D, "09:30") },
-      { id: 3, start: at(D, "10:00") },
-      { id: 4, start: at(D, "12:00") },
+      b(1, ["09:00", "09:30"]),
+      b(2, ["09:30", "10:00"]),
+      b(3, ["10:00", "10:30"]),
+      b(4, ["12:00", "12:30"]),
     ];
     const shuffled = [sorted[2], sorted[0], sorted[3], sorted[1]];
     expect(bookingTones(shuffled)).toEqual(bookingTones(sorted));
     expect(tones(bookingTones(shuffled), [1, 2, 3, 4])).toEqual(["a", "b", "a", "b"]);
   });
   it("equal starts are ordered by id: the lower id is a", () => {
-    const m = bookingTones([
-      { id: 9, start: at(D, "10:00") },
-      { id: 4, start: at(D, "10:00") },
-    ]);
+    const m = bookingTones([b(9, ["10:00", "10:30"]), b(4, ["10:00", "10:30"])]);
     expect(m.get(4)).toBe("a");
     expect(m.get(9)).toBe("b");
   });
   it("two overlapping bookings (side-by-side lanes) are a, b", () => {
-    const m = bookingTones([
-      { id: 1, start: at(D, "09:00") }, // 09:00-10:00
-      { id: 2, start: at(D, "09:30") }, // 09:30-10:30, lane 1
-    ]);
+    const m = bookingTones([b(1, ["09:00", "10:00"]), b(2, ["09:30", "10:30"])]);
     expect(tones(m, [1, 2])).toEqual(["a", "b"]);
   });
   it("Tue 1 Dec Mojca (Maja 09:00 stepped, Ana 09:30 in the gap, Eva 14:00) reads a, b, a", () => {
     const m = bookingTones([
-      { id: 101, start: at(D, "09:00") }, // Maja: busy 09:00-09:30, 10:10-10:40
-      { id: 102, start: at(D, "09:30") }, // Ana: in Maja's waiting gap
-      { id: 104, start: at(D, "14:00") }, // Eva (Nina's cancelled booking is not passed in)
+      b(101, ["09:00", "09:30"], ["10:10", "10:40"]), // Maja
+      b(102, ["09:30", "10:00"]), // Ana: in Maja's waiting gap, touches her first step
+      b(104, ["14:00", "14:30"]), // Eva (Nina's cancelled booking is not passed in)
     ]);
     expect(tones(m, [101, 102, 104])).toEqual(["a", "b", "a"]);
   });
-  it("known limit (R8, stepped service): a third booking at 10:40 is a, flush under Maja's second a step", () => {
+  it("stepped service: a third booking at 10:40 touches Maja's second step and is b, not flush a under a", () => {
     const m = bookingTones([
-      { id: 101, start: at(D, "09:00") }, // Maja: busy 09:00-09:30, 10:10-10:40
-      { id: 102, start: at(D, "09:30") }, // Ana
-      { id: 103, start: at(D, "10:40") },
+      b(101, ["09:00", "09:30"], ["10:10", "10:40"]), // Maja
+      b(102, ["09:30", "10:00"]), // Ana
+      b(103, ["10:40", "11:10"]),
     ]);
-    expect(tones(m, [101, 102, 103])).toEqual(["a", "b", "a"]);
+    expect(tones(m, [101, 102, 103])).toEqual(["a", "b", "b"]);
+  });
+  it("lane case: A 09:00-10:00, B 09:30-10:30 (lane 1), C 10:00-11:00 reads a, b, b (C opposes A, the earliest it touches)", () => {
+    const m = bookingTones([b(1, ["09:00", "10:00"]), b(2, ["09:30", "10:30"]), b(3, ["10:00", "11:00"])]);
+    expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "b"]);
+  });
+  it("two touched bookings with equal starts: the later one opposes the lower id", () => {
+    const m = bookingTones([b(2, ["09:00", "10:00"]), b(1, ["09:00", "10:00"]), b(3, ["10:00", "10:30"])]);
+    expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "b"]);
+  });
+  it("a booking without busy steps touches nothing and opposes the latest-starting earlier booking", () => {
+    const m = bookingTones([b(1, ["09:00", "09:30"]), { id: 2, start: at(D, "09:30"), busy: [] }]);
+    expect(tones(m, [1, 2])).toEqual(["a", "b"]);
   });
 });
 

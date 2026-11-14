@@ -189,17 +189,33 @@ export function deskLaneLayout(
 /** Flowko U29f: F2, R8. Tone of one live booking block on the desk: "a" = brand purple, "b" = pale lilac. */
 export type BookingTone = "a" | "b";
 
+/** Flowko U29f: F2, R8. Busy steps touch (one ends where the other starts) or overlap. */
+function touchesOrOverlaps(a: Interval[], b: Interval[]): boolean {
+  return a.some((x) => b.some((y) => x.start <= y.end && y.start <= x.end));
+}
+
 /**
- * Flowko U29f: F2, R8. Live bookings of one column alternate tones in the column's order (start, then id): even
- * index "a", odd "b". Pass only the bookings the column draws live; cancelled ones neither take nor shift a tone.
- * Lanes do not matter. Known limits: a booking can still land flush under a same-tone later step of a stepped
- * service or under a same-tone block in another lane, and adding, moving or cancelling an earlier booking flips
- * every later one.
+ * Flowko U29f: F2, R8 (David's Q1 = touch rule). Tones of the live bookings of one column: walk them in the
+ * column's order (start, then id); the first is "a"; each later one takes the opposite tone of the
+ * earliest-starting earlier booking whose busy steps touch or overlap its own (equal starts: the lower id),
+ * else the opposite of the latest-starting earlier booking. Processing gaps never count. Pass only the
+ * bookings the column draws live; cancelled ones neither take nor shift a tone. Known limit: adding, moving or
+ * cancelling an earlier booking can flip later ones.
  */
-export function bookingTones(live: Array<{ id: number; start: Ms }>): Map<number, BookingTone> {
+export function bookingTones(
+  live: Array<{ id: number; start: Ms; busy: Interval[] }>
+): Map<number, BookingTone> {
   const ordered = [...live].sort((a, b) => a.start - b.start || a.id - b.id);
   const out = new Map<number, BookingTone>();
-  ordered.forEach((b, i) => out.set(b.id, i % 2 === 0 ? "a" : "b"));
+  ordered.forEach((b, i) => {
+    if (i === 0) {
+      out.set(b.id, "a");
+      return;
+    }
+    const earlier = ordered.slice(0, i);
+    const ref = earlier.find((e) => touchesOrOverlaps(e.busy, b.busy)) ?? earlier[i - 1];
+    out.set(b.id, out.get(ref.id) === "a" ? "b" : "a");
+  });
   return out;
 }
 
