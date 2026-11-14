@@ -100,6 +100,12 @@ const DIRS = [
   "apps/web/lib/flowko/",
   "packages/emails/",
   "packages/i18n/locales/",
+  // Flowko U29e final review RIGHTS-2: the rest of the Flowko source (routers, API route, salon lib, pages).
+  "packages/trpc/server/routers/viewer/flowko/",
+  "apps/web/app/api/flowko/",
+  "packages/lib/flowkoSalon/",
+  "apps/web/app/(use-page-wrapper)/auth/pridruzi/",
+  "apps/web/app/(use-page-wrapper)/settings/(settings-layout)/podjetje/",
 ];
 /** Under apps/web/modules and packages/i18n/locales only the Flowko entries; every file of the other directories. */
 const IN_SCOPE = (file: string) => {
@@ -130,10 +136,31 @@ describe("source pin", () => {
     expect(files).toContain("packages/lib/flowkoBusiness/memberName.test.ts");
     expect(files.some((f) => f.startsWith("apps/web/modules/flowko-"))).toBe(true);
     expect(files.some((f) => f.startsWith("packages/i18n/locales/flowko-"))).toBe(true);
+    // Flowko U29e final review RIGHTS-2: one file per added directory, so a wrong path cannot pass vacuously.
+    expect(files).toContain("packages/trpc/server/routers/viewer/flowko/_router.tsx");
+    expect(files).toContain("apps/web/app/api/flowko/pridruzi/route.ts");
+    expect(files).toContain("packages/lib/flowkoSalon/index.ts");
+    expect(files).toContain("apps/web/app/(use-page-wrapper)/auth/pridruzi/[token]/page.tsx");
+    expect(files).toContain("apps/web/app/(use-page-wrapper)/settings/(settings-layout)/podjetje/page.tsx");
     const offenders = files.filter((file) =>
       LITERAL_INVISIBLE.test(readFileSync(resolve(ROOT, file), "utf8"))
     );
     expect(offenders).toEqual([]);
+  });
+
+  // Flowko U29e final review RIGHTS-2: the flowko_* values of the shared locale files reach the UI and mail subjects.
+  it("no flowko_* value in the sl or en common.json holds a literal invisible or bidi character", () => {
+    for (const lang of ["sl", "en"]) {
+      const strings = JSON.parse(
+        readFileSync(resolve(ROOT, `packages/i18n/locales/${lang}/common.json`), "utf8")
+      ) as Record<string, unknown>;
+      const flowko = Object.entries(strings).filter(([key]) => key.startsWith("flowko_"));
+      expect(flowko.length).toBeGreaterThan(0);
+      const offenders = flowko
+        .filter(([, value]) => typeof value === "string" && LITERAL_INVISIBLE.test(value))
+        .map(([key]) => `${lang}:${key}`);
+      expect(offenders).toEqual([]);
+    }
   });
 
   it("the rule's regexes carry no u (or v) flag", () => {

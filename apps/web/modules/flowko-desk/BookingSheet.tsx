@@ -408,15 +408,18 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
                           {order + 1}.
                         </span>
                       )}
-                      {s.name}
-                      {s.priceCents !== null && (
-                        <span>
-                          {" · "}
-                          <span data-testid="desk-chip-price" className="tabular-nums">
-                            {formatPriceCents(s.priceCents)}
-                          </span>
-                        </span>
-                      )}
+                      {/* Flowko U29e final review UI-4: one inline span, so the space before „·“ stays. */}
+                      <span>
+                        {s.name}
+                        {s.priceCents !== null && (
+                          <>
+                            {" · "}
+                            <span data-testid="desk-chip-price" className="tabular-nums">
+                              {formatPriceCents(s.priceCents)}
+                            </span>
+                          </>
+                        )}
+                      </span>
                     </button>
                   );
                 })}

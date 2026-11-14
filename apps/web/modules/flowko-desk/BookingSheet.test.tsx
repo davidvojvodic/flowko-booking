@@ -591,6 +591,14 @@ describe("BookingSheet prices (U29e E8)", () => {
     expect(total()).toBeNull();
   });
 
+  // Flowko U29e final review UI-4: name and price share one inline span, so the space before „·“
+  // is not dropped at a flex item's start (jsdom has no layout; the shared parent is the proof).
+  it("a chip's name and price sit in one span", () => {
+    renderSheet(createAtAna());
+    const price = within(chip("Barvanje")).getByTestId("desk-chip-price");
+    expect(price.parentElement?.textContent).toBe(`Barvanje · 45,00${String.fromCharCode(160)}€`);
+  });
+
   it("Barvanje + Moško striženje: „Skupaj: 65,00 €“, no note", () => {
     renderSheet(createAtAna());
     fireEvent.click(chip("Barvanje"));

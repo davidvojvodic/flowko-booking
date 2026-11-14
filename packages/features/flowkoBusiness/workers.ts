@@ -195,9 +195,10 @@ export { nameKey };
  * (nameKey), over every member of any status or kind (member_name_taken). Under the business row lock, so two adds
  * never get the same position or the same name. A lost lock race is member_conflict.
  * Flowko U29e (E5, R1): the new worker starts with the owner's usual week as stored (usualWeekForCopy, the brand-new
- * accept's predicate; none = SQL NULL), read after the business row lock: the owner's usual-week save takes the same
- * row FOR UPDATE before it writes, so the copy is a whole committed week. Services stay unassigned (C10). The answer
- * says whether a week was copied, so the success text is true for this add.
+ * accept's predicate; none = SQL NULL), read after the business row lock. The batch save (saveUsualWeeks) takes the
+ * business row FOR UPDATE; the single-week save (setUsualWeek) is one atomic column write; either way the copy is one
+ * committed week. Services stay unassigned (C10). The answer says whether a week was copied, so the success text is
+ * true for this add.
  */
 export async function addDeskWorker(
   db: FlowkoDb,

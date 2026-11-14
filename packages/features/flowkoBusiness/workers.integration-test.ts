@@ -687,9 +687,10 @@ describe("U29e renameMember on a real database (E9)", () => {
 });
 
 // Flowko U29e (E5, R1, R3, Review Focus 6): „Dodaj brez prijave“ copies the owner's usual week on a real database.
-// The add reads the owner's week after its business row lock (FOR NO KEY UPDATE); the owner's usual-week save takes
-// advisory locks and then the business row FOR UPDATE before it writes, so the two are serialised: the copy is the
-// whole committed week from before or after the save, never a mix, and neither side loses (no member_conflict).
+// The add reads the owner's week after its business row lock (FOR NO KEY UPDATE). The week is one jsonb column
+// written by one UPDATE, so the copy is always one committed week (the old or the new one), with or without that
+// lock. The lock serialises the add with saveUsualWeeks (advisory locks, then the business row FOR UPDATE): it
+// guards the name check and the position, not the copy's atomicity. Neither side loses (no member_conflict).
 describe("U29e addDeskWorker copies the owner's usual week on a real database (E5)", () => {
   const ROUNDS = 20;
   const WEEK_A = week([{ from: "08:00", to: "16:00" }]);
@@ -705,14 +706,6 @@ describe("U29e addDeskWorker copies the owner's usual week on a real database (E
     const rows = await prisma.$queryRaw<Array<{ none: boolean }>>`
       SELECT "usualWeek" IS NULL AS none FROM "FlowkoBusinessMember" WHERE "id" = ${memberId}`;
     return rows[0].none;
-  };
-  const sameWeek = (a: unknown, b: WeekHours): boolean => {
-    try {
-      expect(a).toEqual(b);
-      return true;
-    } catch {
-      return false;
-    }
   };
   const storedWeek = async (memberId: number) =>
     (
@@ -758,7 +751,7 @@ describe("U29e addDeskWorker copies the owner's usual week on a real database (E
     expect(await storedWeek(copied.memberId)).toEqual(WEEK_A);
   });
 
-  it(`Review Focus 6: ${ROUNDS} rounds of addDeskWorker x saveUsualWeeks(owner): the copy is the old or the new week, never a mix; both land`, async () => {
+  it(`Review Focus 6: ${ROUNDS} rounds of addDeskWorker x saveUsualWeeks(owner): the copy is the old or the new committed week; both writes land, no member_conflict`, async () => {
     const { owner, businessId, ownerMemberId } = await freshBusiness("WeekRace");
     await setUsualWeek(prisma, owner, {
       memberId: ownerMemberId,
@@ -766,7 +759,6 @@ describe("U29e addDeskWorker copies the owner's usual week on a real database (E
       confirmOutsideOpening: true,
     });
     const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const seen = { old: 0, new: 0 };
     for (let round = 0; round < ROUNDS; round++) {
       const oldWeek = round % 2 === 0 ? WEEK_A : WEEK_B;
       const newWeek = round % 2 === 0 ? WEEK_B : WEEK_A;
@@ -796,14 +788,11 @@ describe("U29e addDeskWorker copies the owner's usual week on a real database (E
       if (typeof added === "string") throw new Error(`round ${round}: addDeskWorker refused with ${added}`);
       expect(added.usualWeek).toBe("copied");
       const copy = await storedWeek(added.memberId);
+      // jsonb reorders object keys, so compare structurally (toContainEqual), not by JSON text.
       expect([oldWeek, newWeek]).toContainEqual(copy);
-      // jsonb reorders object keys, so compare structurally (toEqual), not by JSON text.
-      if (sameWeek(copy, oldWeek)) seen.old += 1;
-      else seen.new += 1;
       // Both writes landed: the owner's week is the new one and the member exists.
       expect(await storedWeek(ownerMemberId)).toEqual(newWeek);
     }
-    expect(seen.old + seen.new).toBe(ROUNDS);
     expect(await prisma.flowkoBusinessMember.count({ where: { businessId } })).toBe(1 + ROUNDS);
   });
 });

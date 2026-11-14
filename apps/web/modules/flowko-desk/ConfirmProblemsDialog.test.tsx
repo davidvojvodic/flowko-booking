@@ -73,6 +73,43 @@ describe("ConfirmProblemsDialog (U28 R8)", () => {
     ]);
   });
 
+  // Flowko U29e final review SPEC-1 (E10.1, R17): a service name with „&“ shows once, not as „&amp;“
+  // (the fixture's `t` escapes like the app-router i18next unless the call passes RAW).
+  it("shows a service name with „&“ unescaped", () => {
+    const lines = problemLines(
+      [
+        { kind: "outside_shift", step: 0 },
+        { kind: "overlaps_booking", step: 0, with: { start: at("09:30"), end: at("10:00") } },
+      ],
+      false,
+      ["Striženje & fen"],
+      TZ,
+      t
+    );
+    expect(lines).toEqual([
+      "Striženje & fen: zunaj izmene.",
+      "Striženje & fen: prekriva se s terminom 09:30–10:00.",
+    ]);
+    expect(lines.join("")).not.toContain("&amp;");
+  });
+
+  it("the dialog shows a service name with „&“ once", () => {
+    render(
+      <ConfirmProblemsDialog
+        open
+        problems={[{ kind: "outside_shift", step: 0 }]}
+        googleUnavailable={false}
+        stepNames={["Striženje & fen"]}
+        timeZone={TZ}
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getAllByTestId("desk-problem").map((l) => l.textContent)).toEqual([
+      "Striženje & fen: zunaj izmene.",
+    ]);
+  });
+
   it("lists the lines and confirms with „Vseeno shrani“", () => {
     const onConfirm = vi.fn();
     const onClose = vi.fn();

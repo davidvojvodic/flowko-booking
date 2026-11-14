@@ -6,6 +6,7 @@ import { formatHm, problemKey } from "@calcom/lib/flowkoBusiness/desk";
 import type { FitProblem } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { ConfirmationDialogContent, Dialog } from "@calcom/ui/components/dialog";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 type T = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -29,7 +30,8 @@ export function problemLines(
     const service = "step" in p ? (stepNames[p.step] ?? fallbackName) : "";
     const time =
       "with" in p ? { from: formatHm(p.with.start, timeZone), to: formatHm(p.with.end, timeZone) } : {};
-    lines.push(t(problemKey(p), { service, ...time }));
+    // Flowko U29e: E10.1 (final review SPEC-1) — the service name is shown once, React escapes it.
+    lines.push(t(problemKey(p), { service, ...time, ...RAW }));
   }
   if (googleUnavailable) lines.push(t("flowko_desk_problem_google_unavailable"));
   return Array.from(new Set(lines));

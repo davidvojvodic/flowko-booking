@@ -155,6 +155,15 @@ describe("BookingBlock cancelled (U29e E6)", () => {
     expect(struck?.textContent).toContain("Barvanje");
   });
 
+  // Flowko U29e final review UI-1: a cancelled block is at most half a column; on the 820 tablet
+  // with four columns a truncated label read „Odpoved…“ for both kinds. The label wraps instead.
+  it("the label wraps instead of being cut off", () => {
+    renderBlock(byCustomer);
+    const label = screen.getByTestId("desk-cancelled-label");
+    expect(label.className).toContain("break-words");
+    expect(label.className).not.toContain("truncate");
+  });
+
   it("a desk cancel says „Odpovedano“", () => {
     renderBlock(byDesk);
     expect(screen.getByTestId("desk-cancelled-label").textContent).toBe("Odpovedano");

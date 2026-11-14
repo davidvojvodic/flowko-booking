@@ -97,7 +97,7 @@ export function BookingBlock(props: {
               height: `${px(bottom) - px(top)}px`,
               pointerEvents: props.passThrough ? "none" : "auto",
             }}>
-            <span data-testid="desk-cancelled-label" className="block truncate font-semibold">
+            <span data-testid="desk-cancelled-label" className="block break-words font-semibold">
               {cancelledText}
             </span>
             <span data-testid="desk-cancelled-text" className="block line-through">
