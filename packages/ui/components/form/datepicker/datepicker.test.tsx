@@ -1,5 +1,8 @@
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, screen, within } from "@testing-library/react";
 import { format } from "date-fns";
+// Flowko U29f: the Slovene date-fns locale for the calendarProps pass-through cases.
+import { sl } from "date-fns/locale/sl";
+import type { ReactElement } from "react";
 import { vi } from "vitest";
 
 import DatePicker from "./DatePicker";
@@ -59,5 +62,135 @@ describe("Tests for DatePicker Component", () => {
     const dateButton = getByTestId("pick-date");
     expect(dateButton.classList.toString()).toContain("disabled:cursor-not-allowed");
     expect(dateButton.classList.toString()).toContain("disabled:opacity-30");
+  });
+});
+
+// Flowko U29f: selected day in the brand pair for every caller (R1 amended, R4), and the optional
+// calendarProps pass-through (locale, week start, classNames, labels, today, outside days) for the desk.
+describe("Flowko U29f: DatePicker calendar", () => {
+  const december = new Date(2026, 11, 1);
+
+  function open(ui: ReactElement) {
+    render(ui);
+    fireEvent.click(screen.getByTestId("pick-date"));
+    return within(screen.getByRole("grid"));
+  }
+
+  function captionTexts() {
+    return screen
+      .getAllByText(
+        (_, el) =>
+          el?.tagName === "DIV" && el.childElementCount === 2 && el.firstElementChild?.tagName === "SPAN"
+      )
+      .map((el) => el.textContent);
+  }
+
+  function selectedDay(grid: ReturnType<typeof within>) {
+    const selected = grid
+      .getAllByRole("gridcell")
+      .filter((c: HTMLElement) => c.getAttribute("aria-selected") === "true");
+    expect(selected).toHaveLength(1);
+    return selected[0];
+  }
+
+  function classTokens(el: Element) {
+    return el.getAttribute("class")?.split(/\s+/) ?? [];
+  }
+
+  test("without calendarProps: dayjs caption, Sunday first, brand selected day", () => {
+    const grid = open(<DatePicker date={december} minDate={null} />);
+
+    expect(captionTexts()).toEqual(["December 2026"]);
+    const headers = grid.getAllByRole("columnheader");
+    expect(headers[0]).toHaveTextContent("Su");
+    expect(headers[0]).toHaveAttribute("aria-label", "Sunday");
+    expect(headers[0].className).toContain("text-sm");
+
+    const tokens = classTokens(selectedDay(grid));
+    expect(tokens).toContain("bg-brand-default!");
+    expect(tokens).toContain("text-brand!");
+    expect(tokens).toContain("focus-visible:ring-2!");
+    expect(tokens).toContain("focus-visible:ring-brand-default!");
+    expect(tokens).toContain("focus-visible:ring-offset-2!");
+    expect(tokens).not.toContain("bg-inverted");
+    expect(tokens).not.toContain("text-inverted");
+  });
+
+  test("without calendarProps: outside days still shown (unchanged default)", () => {
+    const grid = open(<DatePicker date={december} minDate={null} />);
+    // 30 Nov (outside, first row) and 30 Dec.
+    expect(grid.getAllByRole("gridcell").filter((c) => c.textContent === "30")).toHaveLength(2);
+  });
+
+  test("locale sl + weekStartsOn 1: Slovene caption and Monday first", () => {
+    const grid = open(
+      <DatePicker date={december} minDate={null} calendarProps={{ locale: sl, weekStartsOn: 1 }} />
+    );
+
+    expect(captionTexts()).toEqual(["december 2026"]);
+    const headers = grid.getAllByRole("columnheader");
+    expect(headers[0]).toHaveTextContent("pon.");
+    expect(headers[0]).toHaveAttribute("aria-label", "ponedeljek");
+    expect(headers[6]).toHaveTextContent("ned.");
+  });
+
+  test("classNames are merged into the defaults, components are kept", () => {
+    const grid = open(
+      <DatePicker
+        date={december}
+        minDate={null}
+        calendarProps={{ classNames: { day_selected: "u29f-selected" } }}
+      />
+    );
+
+    const tokens = classTokens(selectedDay(grid));
+    expect(tokens).toContain("u29f-selected");
+    expect(tokens).not.toContain("bg-brand-default!");
+    // Other default keys survive the merge.
+    expect(tokens).toContain("w-8");
+    expect(grid.getAllByRole("columnheader")[0].className).toContain("text-sm");
+    // The prev/next icons (Calendar's own components) still render.
+    expect(screen.getByRole("button", { name: "Go to previous month" }).querySelector("svg")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Go to next month" }).querySelector("svg")).not.toBeNull();
+  });
+
+  test("labels pass through to the nav buttons", () => {
+    open(
+      <DatePicker
+        date={december}
+        minDate={null}
+        calendarProps={{ labels: { labelPrevious: () => "u29f-prev", labelNext: () => "u29f-next" } }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "u29f-prev" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "u29f-next" })).toBeInTheDocument();
+  });
+
+  test("showOutsideDays false: no button for 30 Nov on the December page", () => {
+    const grid = open(
+      <DatePicker date={december} minDate={null} calendarProps={{ showOutsideDays: false }} />
+    );
+
+    const thirties = grid.getAllByRole("gridcell").filter((c) => c.textContent === "30");
+    expect(thirties).toHaveLength(1);
+    // The one left is 30 Dec: the first week row holds no "29" / "30".
+    const firstWeek = grid.getAllByRole("row")[1];
+    expect(within(firstWeek).queryByText("30")).toBeNull();
+    expect(within(firstWeek).queryByText("29")).toBeNull();
+  });
+
+  test("today comes from calendarProps, not the clock", () => {
+    const grid = open(
+      <DatePicker
+        date={new Date(2024, 1, 20)}
+        minDate={null}
+        calendarProps={{ today: new Date(2024, 1, 12), classNames: { day_today: "u29f-today" } }}
+      />
+    );
+
+    const marked = grid.getAllByRole("gridcell").filter((c) => classTokens(c).includes("u29f-today"));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent("12");
   });
 });

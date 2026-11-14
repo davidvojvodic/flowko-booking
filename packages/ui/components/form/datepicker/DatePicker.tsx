@@ -5,6 +5,7 @@ import classNames from "@calcom/ui/classNames";
 
 import { Button } from "../../button/Button";
 import { Calendar } from "../date-range-picker/Calendar";
+import type { CalendarProps } from "../date-range-picker/Calendar";
 
 type Props = {
   date: Date;
@@ -13,9 +14,15 @@ type Props = {
   disabled?: boolean;
   minDate?: Date | null;
   label?: string;
+  // Flowko U29f: optional pass-through to the Calendar (the desk sets locale, Monday start, its own
+  // today, hidden outside days, classNames and nav labels); absent = unchanged behaviour.
+  calendarProps?: Pick<
+    CalendarProps,
+    "locale" | "weekStartsOn" | "classNames" | "labels" | "today" | "showOutsideDays"
+  >;
 };
 
-const DatePicker = ({ minDate, disabled, date, onDatesChange, className, label }: Props) => {
+const DatePicker = ({ minDate, disabled, date, onDatesChange, className, label, calendarProps }: Props) => {
   const { t, i18n } = useLocale();
   function handleDayClick(newDate: Date) {
     onDatesChange?.(newDate ?? new Date());
@@ -32,6 +39,8 @@ const DatePicker = ({ minDate, disabled, date, onDatesChange, className, label }
       onDayClick={(day) => handleDayClick(day)}
       numberOfMonths={1}
       disabled={disabled}
+      // Flowko U29f: spread last, after the picker's own props.
+      {...calendarProps}
     />
   );
 
