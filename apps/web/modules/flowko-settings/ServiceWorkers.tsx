@@ -3,8 +3,10 @@
 // desk's form) and is never added or removed here (the server keeps its assignment). Controlled: `checked` holds the
 // ticked ACTIVE ids, onToggle(memberId, on) reports one click (Flowko U29c, P3). With nobody ticked it says the calendar cannot book the
 // service (allowed; the list shows „Nihče“), also when only a LOCKED member still has it.
+// Flowko U29e: E10.1 (R17) — the LOCKED member's „Dan (zaklenjeno)“ passes RAW, so a name with „&“ shows once.
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { CheckboxField } from "@calcom/ui/components/form";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 export type WorkerRow = {
   memberId: number;
@@ -42,7 +44,9 @@ export function ServiceWorkers(props: {
           <CheckboxField
             key={row.memberId}
             id={`flowko-service-worker-${row.memberId}`}
-            description={locked ? t("flowko_desk_locked_column", { name: row.displayName }) : row.displayName}
+            description={
+              locked ? t("flowko_desk_locked_column", { name: row.displayName, ...RAW }) : row.displayName
+            }
             disabled={locked}
             checked={locked ? row.assigned : checked.includes(row.memberId)}
             onChange={(e) => {

@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ServicesView from "./services-view";
-import { BARVANJE, FEN, KVAR, localeT, SERVICES_VIEW, STRIZENJE } from "./settings.fixture";
+import { BARVANJE, DAN, FEN, KVAR, localeT, SERVICES_VIEW, STRIZENJE } from "./settings.fixture";
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
@@ -142,6 +142,28 @@ describe("ServicesView: the list", () => {
       "Ana, Dan (zaklenjeno)"
     );
     expect(within(row(FEN.id)).getByTestId("flowko-service-workers")).toHaveTextContent("Nihče");
+  });
+
+  // Flowko U29e (E8, R16): the owner sees the price after the minutes; a service without a price shows none.
+  it("a priced service shows its price after the minutes; an unpriced one shows nothing", () => {
+    render(<ServicesView />);
+    const barvanje = within(row(BARVANJE.id));
+    const price = barvanje.getByTestId("flowko-service-price");
+    expect(price.textContent).toBe(`45,00${String.fromCharCode(0xa0)}€`);
+    expect(
+      barvanje.getByTestId("flowko-service-total").compareDocumentPosition(price) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(within(row(STRIZENJE.id)).queryByTestId("flowko-service-price")).toBeNull();
+    expect(within(row(FEN.id)).queryByTestId("flowko-service-price")).toBeNull();
+  });
+
+  it("a price of 0 shows „0,00 €“ (0 is a price, not „no price“)", () => {
+    data = { ...SERVICES_VIEW, services: [{ ...FEN, priceCents: 0 }] };
+    render(<ServicesView />);
+    expect(within(row(FEN.id)).getByTestId("flowko-service-price").textContent).toBe(
+      `0,00${String.fromCharCode(0xa0)}€`
+    );
   });
 
   it("an empty catalogue shows the empty state with „Nova storitev“", () => {
@@ -365,6 +387,22 @@ describe("ServicesView: the refresh after a write (P1, P8)", () => {
     expect(notice()).toBeInTheDocument();
   });
 
+  // Flowko U29e (E10.7, R23): a path that saved nothing (the edited service is gone) with a failing re-read shows
+  // the neutral notice, never one that claims „Shranjeno“.
+  it("a gone service (nothing saved) + a failing refresh → the notice does not claim „Shranjeno“", async () => {
+    mocks.save.mockRejectedValue(trpcError("forbidden", "FORBIDDEN"));
+    mocks.invalidateList.mockRejectedValue(new Error("offline"));
+    render(<ServicesView />);
+    fireEvent.click(button("Uredi: Fen"));
+    await act(async () => {
+      fireEvent.click(button("Shrani"));
+    });
+    await waitFor(() => expect(notice()).toBeInTheDocument());
+    expect(notice()).toHaveTextContent(NOTICE_TEXT);
+    expect(notice()?.textContent ?? "").not.toMatch(/Shranjeno/);
+    expect(mocks.toast).not.toHaveBeenCalledWith("Storitev je shranjena.", "success");
+  });
+
   it("a failed refresh after a sheet save raises the same notice and the sheet still closes", async () => {
     mocks.invalidateList.mockRejectedValue(new Error("offline"));
     render(<ServicesView />);
@@ -409,5 +447,42 @@ describe("ServicesView: a broken service (P4)", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Odstrani" }));
     });
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith({ serviceId: KVAR.id }));
+  });
+});
+
+// Flowko U29e (E10.1, R17): the Storitve name sites (u29e-scan-client rows 10–13) print a name with „&“ or „'“ once.
+// The fixture's `t` escapes like production's i18next, so a missing RAW shows up as „&amp;“.
+describe("ServicesView: names are not escaped twice (E10.1)", () => {
+  const SERVICE_NAME = "Striženje & fen";
+  const LOCKED_NAME = "O'Brien & Co";
+
+  beforeEach(() => {
+    data = {
+      ...SERVICES_VIEW,
+      services: SERVICES_VIEW.services.map((s) =>
+        s.id === BARVANJE.id
+          ? {
+              ...s,
+              name: SERVICE_NAME,
+              workers: s.workers.map((w) => (w.memberId === DAN ? { ...w, displayName: LOCKED_NAME } : w)),
+            }
+          : s
+      ),
+    };
+  });
+
+  it("the order and edit buttons' names carry the service name once", () => {
+    render(<ServicesView />);
+    expect(button(`Premakni gor: ${SERVICE_NAME}`)).toBeInTheDocument();
+    expect(button(`Premakni dol: ${SERVICE_NAME}`)).toBeInTheDocument();
+    expect(button(`Uredi: ${SERVICE_NAME}`)).toBeInTheDocument();
+  });
+
+  it("a LOCKED worker's name in „who does it“ is printed once", () => {
+    render(<ServicesView />);
+    expect(within(row(BARVANJE.id)).getByTestId("flowko-service-workers")).toHaveTextContent(
+      `Ana, ${LOCKED_NAME} (zaklenjeno)`
+    );
+    expect(document.body.textContent).not.toMatch(/&amp;|&#39;/);
   });
 });

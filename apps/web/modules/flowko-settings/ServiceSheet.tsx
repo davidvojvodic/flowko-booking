@@ -7,11 +7,16 @@
 // (someone was locked meanwhile; the rows follow the fresh list), every other code is a toast. The S11 note
 // (plural) says existing future bookings keep their steps. „Odstrani“ opens the S12 dialog with the plural count of
 // future bookings; confirm removes. After a write the caller invalidates (S17) and the sheet closes.
-// Flowko U29e: E8 — services.save requires priceCents; until the „Cena“ field (U29e Task 9) the sheet sends the
-// stored price back unchanged (a new service: null), so an edit never clears a price by omission.
+// Flowko U29e: E8 (R15) — the optional „Cena“ field between the category and the steps: a text field (never
+// type=number, browsers differ on „25,00“) with a „€“ suffix and the decimal keypad; a new service starts empty, an
+// edit with the stored price as „45,00“. The typed text is parsed by parsePriceText (integer arithmetic) before the
+// schema: a bad format or a price above 9.999,99 € shows its text at the field after the first save attempt and
+// nothing is sent; empty = no price (null). services.save always gets priceCents, so an untouched field sends the
+// stored price back. E10.1 (R17): the remove dialog's title passes RAW.
 "use client";
 
 import type { OwnerService, ServiceColumnMember } from "@calcom/features/flowkoBusiness/services";
+import { parsePriceText, priceTextOf } from "@calcom/lib/flowkoBusiness/price";
 import { serviceInputSchema } from "@calcom/lib/flowkoBusiness/schemas";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
@@ -28,6 +33,7 @@ import {
   SheetTitle,
 } from "@calcom/ui/components/sheet";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { useId, useRef, useState } from "react";
 import type { ZodIssue } from "zod";
 import { isLocked, ServiceWorkers, type WorkerRow } from "./ServiceWorkers";
@@ -57,6 +63,9 @@ const SERVICE_FIELD_CODES = [
   "step_too_long",
   "too_many_steps",
   "total_too_long",
+  // Flowko U29e: E8 — parsePriceText's format code and the range code (parser and schema).
+  "price_format",
+  "price_range",
 ] as const;
 
 const isIn = <T extends string>(list: readonly T[], value: unknown): value is T =>
@@ -92,6 +101,8 @@ type Problems = {
   steps?: string;
   /** Per step index ("bad_minutes:2", "step_too_long:2" → 2). */
   step: Record<number, string>;
+  /** Flowko U29e: E8 — the schema's priceCents rule (price_range). */
+  price?: string;
 };
 
 /** The first issue code per field; a step's indexed code goes to that step. */
@@ -101,6 +112,7 @@ function problemsOf(issues: readonly ZodIssue[]): Problems {
     const field = issue.path[0];
     if (field === "name") problems.name ??= issue.message;
     else if (field === "category") problems.category ??= issue.message;
+    else if (field === "priceCents") problems.price ??= issue.message;
     else if (field === "steps") {
       const indexed = /^([a-z_]+):(\d+)$/.exec(issue.message);
       if (indexed) {
@@ -153,6 +165,8 @@ export function ServiceSheet(props: {
   const [name, setName] = useState(service?.name ?? "");
   const [category, setCategory] = useState(service?.category ?? "");
   const [steps, setSteps] = useState<StepDraft[]>(() => (service ? toDrafts(service.steps) : NEW_STEPS));
+  // Flowko U29e: E8 — the price as typed („45,00“ on an edit, empty for a new service or one without a price).
+  const [priceText, setPriceText] = useState(() => priceTextOf(service?.priceCents ?? null));
   // Flowko U29c (P3): only the owner's clicks are state. Ticked = the click, else the live row (edit: assigned;
   // new: every ACTIVE member), so a refetch that turns a LOCKED member ACTIVE shows it ticked instead of dropping
   // its assignment on the next save, and an untick survives the refresh.
@@ -165,28 +179,34 @@ export function ServiceSheet(props: {
   const idBase = useId();
   const nameErrorId = `${idBase}-name-error`;
   const categoryErrorId = `${idBase}-category-error`;
+  const priceErrorId = `${idBase}-price-error`;
   const removeDialogRef = useRef<HTMLDivElement>(null);
 
   // Only members ACTIVE in the current rows are sent (one locked meanwhile drops out once the list refreshes).
   const workerMemberIds = rows
     .filter((r) => !isLocked(r) && (toggles[r.memberId] ?? (service ? r.assigned : true)))
     .map((r) => r.memberId);
+  // Flowko U29e: E8 — the typed price first (a text that does not parse is no number for the schema); the parsed
+  // cents (or null) then go through the schema's range rule like every other field.
+  const price = parsePriceText(priceText);
   const input = {
     ...(service ? { id: service.id } : {}),
     name,
     category,
     steps: draftSteps(steps),
     workerMemberIds,
-    priceCents: service?.priceCents ?? null, // Flowko U29e: E8
+    priceCents: price.ok ? price.cents : null,
   };
   const parsed = serviceInputSchema.safeParse(input);
-  const problems = parsed.success ? { step: {} } : problemsOf(parsed.error.issues);
+  const problems: Problems = parsed.success ? { step: {} } : problemsOf(parsed.error.issues);
+  const priceProblem = price.ok ? problems.price : price.code;
   const nameText = nameTaken
     ? t("flowko_settings_service_error_service_name_taken")
     : submitted && problems.name
       ? t(fieldKey(problems.name))
       : undefined;
   const categoryText = submitted && problems.category ? t(fieldKey(problems.category)) : undefined;
+  const priceErrorText = submitted && priceProblem ? t(fieldKey(priceProblem)) : undefined;
   const stepErrors: Record<number, string> = {};
   for (const [index, code] of Object.entries(problems.step)) stepErrors[Number(index)] = t(fieldKey(code));
 
@@ -201,7 +221,7 @@ export function ServiceSheet(props: {
 
   async function onSave() {
     setSubmitted(true);
-    if (!parsed.success) return;
+    if (!parsed.success || !price.ok) return;
     setBusy(true);
     try {
       const { id, ...fields } = parsed.data;
@@ -305,6 +325,24 @@ export function ServiceSheet(props: {
               />
               {fieldError(categoryText, categoryErrorId, "flowko-service-category-error")}
             </div>
+            {/* Flowko U29e: E8 — „Cena“, optional; the error is the field's accessible description (U29b D1 a). */}
+            <div>
+              <TextField
+                name="flowko-service-price"
+                label={t("flowko_settings_service_price")}
+                hint={t("flowko_settings_service_price_hint")}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                maxLength={20}
+                addOnSuffix="€"
+                value={priceText}
+                aria-invalid={priceErrorText ? true : undefined}
+                aria-describedby={priceErrorText ? priceErrorId : undefined}
+                onChange={(e) => setPriceText(e.target.value)}
+              />
+              {fieldError(priceErrorText, priceErrorId, "flowko-service-price-error")}
+            </div>
             <div>
               <h3 className="text-emphasis mb-2 text-sm font-medium">{t("flowko_settings_service_steps")}</h3>
               <StepsEditor
@@ -355,7 +393,7 @@ export function ServiceSheet(props: {
               }}>
               <ConfirmationContent
                 variety="danger"
-                title={t("flowko_settings_service_remove_title", { name: service.name })}
+                title={t("flowko_settings_service_remove_title", { name: service.name, ...RAW })}
                 confirmBtnText={t("flowko_settings_service_remove")}
                 cancelBtnText={t("cancel")}
                 isPending={busy}

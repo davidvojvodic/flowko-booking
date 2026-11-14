@@ -6,9 +6,13 @@
 // the ServiceSheet; an empty catalogue shows the empty state. Every service write invalidates services.list, the
 // desk's business.services and bookings.freeStarts (S17). Flowko U29c: a failed refresh shows an inline notice with
 // „Osveži“; a corrupt service is listed with a damaged-steps text (P1, P4, P8).
+// Flowko U29e: E8 (R16) — a priced service shows its price after the minutes („45,00 €“, the own formatter, never
+// Intl); none without a price. The owner's settings only: never a booking, a mail or a customer page. E10.1 (R17) —
+// every name interpolation (order and edit button names, a LOCKED worker in „who does it“) passes RAW.
 "use client";
 
 import type { OwnerService } from "@calcom/features/flowkoBusiness/services";
+import { formatPriceCents } from "@calcom/lib/flowkoBusiness/price";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Alert } from "@calcom/ui/components/alert";
@@ -16,6 +20,7 @@ import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
 import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { refreshAfterSave } from "@calcom/web/lib/flowko/refreshAfterSave";
 import { useState } from "react";
 import { ServiceSheet, serviceErrorCode, serviceErrorKey } from "./ServiceSheet";
@@ -117,7 +122,9 @@ export default function ServicesView() {
   const workersText = (service: OwnerService) => {
     const names = service.workers
       .filter((w) => w.assigned)
-      .map((w) => (isLocked(w) ? t("flowko_desk_locked_column", { name: w.displayName }) : w.displayName));
+      .map((w) =>
+        isLocked(w) ? t("flowko_desk_locked_column", { name: w.displayName, ...RAW }) : w.displayName
+      );
     return names.length > 0 ? names.join(", ") : t("flowko_settings_service_nobody");
   };
 
@@ -180,6 +187,14 @@ export default function ServicesView() {
                       <span data-testid="flowko-service-total" className="text-default text-sm tabular-nums">
                         {t("flowko_settings_service_minutes", { minutes: service.totalMinutes })}
                       </span>
+                      {/* Flowko U29e: E8 (R16) — the price after the minutes; nothing without a price. */}
+                      {service.priceCents !== null && (
+                        <span
+                          data-testid="flowko-service-price"
+                          className="text-default text-sm tabular-nums">
+                          {formatPriceCents(service.priceCents)}
+                        </span>
+                      )}
                       <StepsBar steps={service.steps} />
                     </div>
                   )}
@@ -193,7 +208,7 @@ export default function ServicesView() {
                     variant="icon"
                     color="minimal"
                     StartIcon="arrow-up"
-                    aria-label={t("flowko_settings_service_move_up", { name: service.name })}
+                    aria-label={t("flowko_settings_service_move_up", { name: service.name, ...RAW })}
                     disabled={index === 0 || reordering || refreshFailed}
                     onClick={() => void move(index, -1)}
                   />
@@ -202,14 +217,14 @@ export default function ServicesView() {
                     variant="icon"
                     color="minimal"
                     StartIcon="arrow-down"
-                    aria-label={t("flowko_settings_service_move_down", { name: service.name })}
+                    aria-label={t("flowko_settings_service_move_down", { name: service.name, ...RAW })}
                     disabled={index === services.length - 1 || reordering || refreshFailed}
                     onClick={() => void move(index, 1)}
                   />
                   <Button
                     type="button"
                     color="secondary"
-                    aria-label={t("flowko_settings_service_edit_label", { name: service.name })}
+                    aria-label={t("flowko_settings_service_edit_label", { name: service.name, ...RAW })}
                     onClick={() => setSheet({ kind: "edit", service })}>
                     {t("flowko_settings_service_edit")}
                   </Button>

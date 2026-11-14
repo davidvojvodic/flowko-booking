@@ -128,7 +128,7 @@ export const BARVANJE: OwnerService = {
   workers: workers([ANA, DAN]),
   futureBookings: 3,
   broken: false, // Flowko U29c: P4
-  priceCents: null, // Flowko U29e: E8
+  priceCents: 4500, // Flowko U29e: E8 (45,00 €; the other services have no price)
 };
 
 export const FEN: OwnerService = {
