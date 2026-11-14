@@ -5085,7 +5085,7 @@
   "flowko_desk_cancelled_by_desk": "Cancelled",
   "flowko_desk_cancel_reason_line": "Reason: {{reason}}",
   "flowko_desk_price_total": "Total: {{price}}",
-  "flowko_desk_price_partial": "The price is not known for every selected service.",
+  "flowko_desk_price_partial": "Some selected services have no price, so the total is incomplete.",
   "flowko_settings_section": "Business",
   "flowko_settings_profile": "Business profile",
   "flowko_settings_profile_description": "Name, contact details, opening hours and other business settings.",
@@ -5311,7 +5311,7 @@
   "flowko_workers_error_name_characters": "The name contains invisible characters that are not allowed. Type it again.",
   "flowko_workers_rename_title": "Rename: {{name}}",
   "flowko_workers_rename_hint": "The new name applies from now on in the calendar, in Roster and in Services.",
-  "flowko_workers_rename_hint_desk": "Customers also see it in e-mails, including for bookings already made.",
+  "flowko_workers_rename_hint_desk": "Customers also see it in e-mails, including those about bookings already made.",
   "flowko_workers_rename_hint_login": "E-mails keep the name the person has in their own account.",
   "flowko_workers_renamed": "Name changed: {{name}}",
   "flowko_invite_form_title": "Invite with a login",
@@ -5381,7 +5381,7 @@
   "flowko_cancel_notice_reason": "Reason",
   "flowko_cancel_notice_no_reason": "No reason given.",
   "flowko_cancel_notice_open_day": "Open the day in the calendar",
-  "flowko_cancel_notice_reply_hint": "You can reply to this message and the reply goes to the customer.",
+  "flowko_cancel_notice_reply_hint": "You can reply to this message; the reply goes to the customer.",
   "flowko_cancel_notice_footer": "Flowko sends this notice because the customer cancelled the booking through the link in their e-mail.",
   "flowko_cancel_notice_footer_fallback": "You get this notice at the address you sign in with, because no business e-mail is set in the business settings."
 }

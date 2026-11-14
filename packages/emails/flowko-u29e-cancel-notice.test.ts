@@ -70,8 +70,9 @@ const STRINGS = {
     reason: "Razlog: Zbolela sem.",
     noReason: "Razlog ni naveden.",
     openDay: "Odpri dan na koledarju",
-    reply: "Na to sporočilo lahko odgovorite in odgovor prejme stranka.",
-    footer: "To obvestilo pošlje Flowko, ker je stranka termin odpovedala prek povezave v e-pošti.",
+    reply: "Na to sporočilo lahko odgovorite; odgovor prejme stranka.",
+    footer:
+      "To obvestilo vam pošilja Flowko, ker je stranka termin odpovedala prek povezave v e-poštnem sporočilu.",
     fallback:
       "Obvestilo prejemate na naslov, s katerim se prijavljate, ker v nastavitvah podjetja ni vpisana e-pošta podjetja.",
   },
@@ -86,7 +87,7 @@ const STRINGS = {
     reason: "Reason: Zbolela sem.",
     noReason: "No reason given.",
     openDay: "Open the day in the calendar",
-    reply: "You can reply to this message and the reply goes to the customer.",
+    reply: "You can reply to this message; the reply goes to the customer.",
     footer:
       "Flowko sends this notice because the customer cancelled the booking through the link in their e-mail.",
     fallback:
@@ -289,10 +290,10 @@ describe("U29e cancel notice strings", () => {
     expect(sl.flowko_cancel_notice_no_reason).toBe("Razlog ni naveden.");
     expect(sl.flowko_cancel_notice_open_day).toBe("Odpri dan na koledarju");
     expect(sl.flowko_cancel_notice_reply_hint).toBe(
-      "Na to sporočilo lahko odgovorite in odgovor prejme stranka."
+      "Na to sporočilo lahko odgovorite; odgovor prejme stranka."
     );
     expect(sl.flowko_cancel_notice_footer).toBe(
-      "To obvestilo pošlje Flowko, ker je stranka termin odpovedala prek povezave v e-pošti."
+      "To obvestilo vam pošilja Flowko, ker je stranka termin odpovedala prek povezave v e-poštnem sporočilu."
     );
     expect(sl.flowko_cancel_notice_footer_fallback).toBe(
       "Obvestilo prejemate na naslov, s katerim se prijavljate, ker v nastavitvah podjetja ni vpisana e-pošta podjetja."
@@ -312,7 +313,7 @@ describe("U29e cancel notice strings", () => {
 
   it("the business e-mail hint now names the notices and the fallback (R14)", () => {
     expect(sl.flowko_settings_email_hint).toBe(
-      "Na ta naslov prispejo odgovori strank na e-poštna sporočila o terminih in obvestila, ko stranka odpove termin. Če naslov ni vpisan, obvestila o odpovedih prejmete na e-poštni naslov, s katerim se prijavljate."
+      "Na ta naslov prispejo odgovori strank na e-poštna sporočila o terminih. Nanj prejmete tudi obvestilo, ko stranka odpove termin. Če naslov ni vpisan, obvestila o odpovedih prejmete na e-poštni naslov, s katerim se prijavljate."
     );
     expect(en.flowko_settings_email_hint).toBe(
       "Customers' replies to e-mails about their bookings arrive at this address, and so do notices when a customer cancels a booking. If no address is set, cancellation notices go to the e-mail address you sign in with."

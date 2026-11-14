@@ -577,7 +577,7 @@ describe("BookingSheet prices (U29e E8)", () => {
 
   const createAtAna = (): BookingSheetTarget => ({ kind: "create", memberId: ANA, start: at("11:00") });
   const total = () => screen.queryByTestId("desk-price-total");
-  const partial = () => screen.queryByText("Cena ni znana za vse izbrane storitve.");
+  const partial = () => screen.queryByText("Nekatere izbrane storitve nimajo cene, zato znesek ni popoln.");
 
   it("chips show „Name · price“; an unpriced service shows its name only", () => {
     renderSheet(createAtAna());

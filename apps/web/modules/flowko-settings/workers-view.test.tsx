@@ -834,7 +834,8 @@ describe("WorkersView: rename (E9, R8)", () => {
     await waitFor(() => expect(screen.getByTestId("flowko-worker-rename-dialog")).toBeInTheDocument());
   };
   const HINT = "Novo ime velja od zdaj naprej na koledarju, v Urniku in v Storitvah.";
-  const HINT_DESK = "Stranke ga vidijo tudi v e-poštnih sporočilih, tudi pri že narejenih terminih.";
+  const HINT_DESK =
+    "Stranke ga vidijo tudi v e-poštnih sporočilih, vključno s sporočili o že vnesenih terminih.";
   const HINT_LOGIN = "V e-poštnih sporočilih ostane ime, ki ga ima oseba v svojem računu.";
 
   it("„Preimenuj“ on every row (the owner and the locked one included), described by the name", () => {
@@ -1121,7 +1122,7 @@ describe("WorkersView: the owner's usual week on add (E5, R4)", () => {
     await click(form().getByRole("button", { name: "Dodaj" }));
     await waitFor(() =>
       expect(mocks.toast).toHaveBeenCalledWith(
-        "Dodano: Gaj. Dobi enak običajni teden, kot ga imate vi; spremenite ga v Urniku. Storitve dodelite v Storitvah.",
+        "Dodano: Gaj. Oseba dobi enak običajni teden, kot ga imate vi; spremenite ga v Urniku. Storitve ji dodelite v Storitvah.",
         "success"
       )
     );
@@ -1216,7 +1217,7 @@ describe("WorkersView: names are printed once (E10.1)", () => {
     await click(form().getByRole("button", { name: "Dodaj" }));
     await waitFor(() =>
       expect(mocks.toast).toHaveBeenCalledWith(
-        "Dodano: Iva & Ida. Dobi enak običajni teden, kot ga imate vi; spremenite ga v Urniku. Storitve dodelite v Storitvah.",
+        "Dodano: Iva & Ida. Oseba dobi enak običajni teden, kot ga imate vi; spremenite ga v Urniku. Storitve ji dodelite v Storitvah.",
         "success"
       )
     );
