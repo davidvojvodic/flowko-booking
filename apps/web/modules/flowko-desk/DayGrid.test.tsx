@@ -84,9 +84,29 @@ describe("DayGrid (U28)", () => {
     expect(onBook).not.toHaveBeenCalled();
   });
 
+  // Flowko U29e (E10.3, R19): the server sends the law's running-text form („dan reformacije“); the label starts
+  // with a capital.
   it("shows a holiday banner", () => {
-    renderGrid(deskView({ holiday: { name: "Dan reformacije", open: false } }));
+    renderGrid(deskView({ holiday: { name: "dan reformacije", open: false } }));
     expect(screen.getByTestId("desk-holiday").textContent).toBe("Dan reformacije – zaprto");
+  });
+
+  it("capitalises the server's holiday name: „božič“ → „Božič – zaprto“, open → „Božič – odprto“", () => {
+    renderGrid(deskView({ holiday: { name: "božič", open: false } }));
+    expect(screen.getByTestId("desk-holiday").textContent).toBe("Božič – zaprto");
+    cleanup();
+    renderGrid(deskView({ holiday: { name: "božič", open: true } }));
+    expect(screen.getByTestId("desk-holiday").textContent).toBe("Božič – odprto");
+  });
+
+  // Flowko U29e (E10.1): a locked column header names „Ana & Maja“ once.
+  it("a locked column header shows its name once", () => {
+    const view = deskView();
+    view.days[0].columns = view.days[0].columns.map((c) =>
+      c.memberId === DAN ? { ...c, displayName: "Ana & Maja" } : c
+    );
+    renderGrid(view);
+    expect(screen.getByTestId(`desk-column-header-${DAN}`).textContent).toBe("Ana & Maja (zaklenjeno)");
   });
 
   it("shows only one column when asked (phone)", () => {

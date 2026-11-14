@@ -4,6 +4,10 @@
 // no-show and its undo (D4), cancel with an optional reason. Every write goes through useDeskWrites (actor, R13).
 // Flowko U28c (David, 2026-11-08): „Prestavi“ opens a move panel inside this sheet (date, the booking's worker's
 // free starts, time, „Potrdi prestavitev“ through moveMode.moveTo); a link under it starts the calendar tap mode.
+// Flowko U29e (E6, R12): a cancelled booking (day view) opens this sheet: a badge with the label („Odpovedala
+// stranka“ / „Odpovedano“), „Razlog: …“ when a reason is stored (every desk role sees it, David 13 Nov Q3), and a
+// customer cancel's history line „Odpovedala stranka · …“ (`byCustomer`, read for CANCELLED only); its flags are all
+// false, so no action shows. E10.1: every name, time and reason interpolation passes RAW (React escapes once).
 import { useEffect, useRef, useState } from "react";
 
 import dayjs from "@calcom/dayjs";
@@ -18,8 +22,9 @@ import { Button } from "@calcom/ui/components/button";
 import { ConfirmationDialogContent, Dialog } from "@calcom/ui/components/dialog";
 import { Label, TextArea, TextField } from "@calcom/ui/components/form";
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@calcom/ui/components/sheet";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
-import { ms } from "./BookingBlock";
+import { cancelledLabelKey, ms } from "./BookingBlock";
 import { useDeskContext } from "./DeskContext";
 import { FreeStartChips } from "./FreeStartChips";
 import { useDeskWrites } from "./useDeskWrites";
@@ -48,7 +53,11 @@ export function historyLines(actions: Action[], timeZone: string, t: T): string[
   const lines: string[] = [];
   for (const a of actions) {
     const d = record(a.details);
-    const base = { name: a.actorName ?? t("flowko_desk_history_unknown_actor"), time: when(a.at, timeZone) };
+    const base = {
+      name: a.actorName ?? t("flowko_desk_history_unknown_actor"),
+      time: when(a.at, timeZone),
+      ...RAW,
+    };
     if (a.kind === "CREATED") lines.push(t("flowko_desk_history_created", base));
     else if (a.kind === "RESCHEDULED" && typeof d.fromStart === "string" && typeof d.toStart === "string")
       lines.push(
@@ -58,12 +67,18 @@ export function historyLines(actions: Action[], timeZone: string, t: T): string[
       lines.push(
         t(d.noShow === false ? "flowko_desk_history_no_show_undone" : "flowko_desk_history_no_show", base)
       );
-    else if (a.kind === "CANCELLED") lines.push(t("flowko_desk_history_cancelled", base));
+    // Flowko U29e (E6): a customer cancel (mail link): no member acted, so no „Odpovedano: <name>“.
+    else if (a.kind === "CANCELLED")
+      lines.push(
+        a.byCustomer
+          ? t("flowko_desk_history_cancelled_customer", { time: base.time, ...RAW })
+          : t("flowko_desk_history_cancelled", base)
+      );
     else continue;
     const overrides = Array.isArray(d.overrides) ? d.overrides.filter((k) => typeof k === "string") : [];
     if (overrides.length > 0) {
       const list = overrides.map((k) => t(`flowko_desk_override_${k}`)).join(", ");
-      lines.push(t("flowko_desk_history_overrides", { list }));
+      lines.push(t("flowko_desk_history_overrides", { list, ...RAW }));
     }
   }
   return lines;
@@ -100,6 +115,7 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
     { kind: null, start: booking.start, end: booking.end, serviceName: booking.serviceNames.join(", ") },
   ];
   const history = historyLines(booking.actions, timeZone, t);
+  const cancelledKey = cancelledLabelKey(booking);
 
   const moveToField = async () => {
     let start: Ms;
@@ -142,6 +158,16 @@ export function BookingDetailsSheet(props: { booking: DeskBooking; onClose: () =
             {formatHm(ms(booking.end), timeZone)}
           </p>
           {booking.noShow && <Badge variant="orange">{t("flowko_desk_no_show_mark")}</Badge>}
+          {cancelledKey && (
+            <Badge variant="gray" data-testid="desk-details-cancelled">
+              {t(cancelledKey)}
+            </Badge>
+          )}
+          {cancelledKey && booking.cancelReason && (
+            <p data-testid="desk-details-cancel-reason" className="text-default whitespace-pre-line text-sm">
+              {t("flowko_desk_cancel_reason_line", { reason: booking.cancelReason, ...RAW })}
+            </p>
+          )}
         </SheetHeader>
         <SheetBody className="flex flex-col gap-5">
           <section className="flex flex-col gap-1">

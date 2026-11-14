@@ -1,7 +1,9 @@
 // Flowko U28: the booking details sheet (R5, R12, D4): what the booking is, its history („who did what“), and the
 // actions its flags allow: move (tap mode or date + time), move to another worker, no-show and its undo, cancel
 // with an optional reason. Every write carries the actor. Flowko U28c: „Prestavi“ opens a move panel in the sheet.
-// Flowko U29e: the action literals carry `byCustomer: false` (DeskAction gained the field in Task 5).
+// Flowko U29e: the action literals carry `byCustomer: false` (DeskAction gained the field in Task 5). E6: a cancelled
+// booking opens this sheet with a badge, the stored reason and „Odpovedala stranka · …“ for a customer cancel; E10.1:
+// names show once with the escaping `t`.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -388,5 +390,134 @@ describe("BookingDetailsSheet (U28)", () => {
     await waitFor(() =>
       expect(deskTrpc.cancel).toHaveBeenCalledWith({ bookingId: 101, reason: null, actorMemberId: OLGA })
     );
+  });
+});
+
+// Flowko U29e: E6, R12 — a cancelled booking's sheet; E10.1 — names once.
+describe("historyLines: who cancelled (U29e E6, E10.1)", () => {
+  const cancel = (byCustomer: boolean, actorName: string | null) => ({
+    kind: "CANCELLED" as const,
+    actorName,
+    at: "2026-11-16T09:00:00.000Z",
+    details: null,
+    byCustomer,
+  });
+
+  it("a customer cancel reads „Odpovedala stranka · …“, a desk cancel names the member", () => {
+    expect(historyLines([cancel(true, "Marija Novak")], TZ, t)).toEqual([
+      "Odpovedala stranka · 16. 11. 2026 10:00",
+    ]);
+    expect(historyLines([cancel(false, "Ana")], TZ, t)).toEqual(["Odpovedano: Ana · 16. 11. 2026 10:00"]);
+  });
+
+  it("byCustomer changes only the CANCELLED line (a public CREATED or a NO_SHOW keep theirs)", () => {
+    expect(
+      historyLines(
+        [
+          { kind: "CREATED", actorName: "Marija Novak", at: iso("08:00"), details: null, byCustomer: true },
+          { kind: "NO_SHOW", actorName: null, at: iso("08:30"), details: { noShow: true }, byCustomer: true },
+        ],
+        TZ,
+        t
+      )
+    ).toEqual([
+      "Ustvarjeno: Marija Novak · 16. 11. 2026 08:00",
+      "Neprihod označil(a): neznano · 16. 11. 2026 08:30",
+    ]);
+  });
+
+  it("names with & and ' show once (the escaping t)", () => {
+    expect(
+      historyLines(
+        [
+          { kind: "CREATED", actorName: "O'Brien", at: iso("08:00"), details: null, byCustomer: false },
+          cancel(false, "Ana & Maja"),
+        ],
+        TZ,
+        t
+      )
+    ).toEqual(["Ustvarjeno: O'Brien · 16. 11. 2026 08:00", "Odpovedano: Ana & Maja · 16. 11. 2026 10:00"]);
+  });
+});
+
+describe("BookingDetailsSheet for a cancelled booking (U29e E6, R12)", () => {
+  beforeEach(() => {
+    resetDeskTrpc();
+    toast.mockReset();
+  });
+
+  const cancelledBarvanje = (over: Partial<DeskBooking> = {}): DeskBooking => ({
+    ...barvanje,
+    ...none,
+    status: "CANCELLED",
+    cancelled: { by: "customer", at: "2026-11-16T09:00:00.000Z" },
+    cancelReason: "Zbolela & doma",
+    actions: [
+      {
+        kind: "CREATED",
+        actorName: "Olga",
+        at: "2026-11-15T10:00:00.000Z",
+        details: null,
+        byCustomer: false,
+      },
+      {
+        kind: "CANCELLED",
+        actorName: "Marija Novak",
+        at: "2026-11-16T09:00:00.000Z",
+        details: null,
+        byCustomer: true,
+      },
+    ],
+    ...over,
+  });
+
+  it("a customer cancel: badge, the reason once, history, no actions", () => {
+    renderDetails(cancelledBarvanje());
+    const dialog = screen.getByRole("dialog", { name: "Barvanje" });
+    expect(within(dialog).getByTestId("desk-details-cancelled").textContent).toBe("Odpovedala stranka");
+    expect(within(dialog).getByTestId("desk-details-cancel-reason").textContent).toBe(
+      "Razlog: Zbolela & doma"
+    );
+    expect(screen.getAllByTestId("desk-history-line").map((l) => l.textContent)).toEqual([
+      "Ustvarjeno: Olga · 15. 11. 2026 11:00",
+      "Odpovedala stranka · 16. 11. 2026 10:00",
+    ]);
+    expect(screen.queryAllByRole("button", { name: /Prestavi|Odpovej|neprihod/i })).toEqual([]);
+  });
+
+  it("a desk cancel without a reason: „Odpovedano“, no reason line", () => {
+    renderDetails(
+      cancelledBarvanje({
+        cancelled: { by: "desk", at: "2026-11-16T09:00:00.000Z" },
+        cancelReason: null,
+        actions: [
+          {
+            kind: "CANCELLED",
+            actorName: "Ana",
+            at: "2026-11-16T09:00:00.000Z",
+            details: null,
+            byCustomer: false,
+          },
+        ],
+      })
+    );
+    expect(screen.getByTestId("desk-details-cancelled").textContent).toBe("Odpovedano");
+    expect(screen.queryByTestId("desk-details-cancel-reason")).toBeNull();
+    expect(screen.getAllByTestId("desk-history-line").map((l) => l.textContent)).toEqual([
+      "Odpovedano: Ana · 16. 11. 2026 10:00",
+    ]);
+  });
+
+  it("a live booking has no cancelled badge and no reason line", () => {
+    renderDetails({ ...barvanje, ...all });
+    expect(screen.queryByTestId("desk-details-cancelled")).toBeNull();
+    expect(screen.queryByTestId("desk-details-cancel-reason")).toBeNull();
+  });
+
+  it("a multi-line reason keeps its lines", () => {
+    renderDetails(cancelledBarvanje({ cancelReason: "Zbolela.\nPokliče jutri." }));
+    const line = screen.getByTestId("desk-details-cancel-reason");
+    expect(line.textContent).toBe("Razlog: Zbolela.\nPokliče jutri.");
+    expect(line.className).toContain("whitespace-pre-line");
   });
 });

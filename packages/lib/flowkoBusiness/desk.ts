@@ -133,6 +133,59 @@ export function laneLayout(
   return out;
 }
 
+/**
+ * Flowko U29e: E6, R11. Lanes for a column with cancelled blocks (each over its whole [start, end]). Blocks that
+ * overlap share a group, live and cancelled alike. Inside a group the live blocks keep laneLayout's lanes
+ * (lane 0 first); a group without a live block keeps lane 0 empty; the cancelled blocks take the lanes after the
+ * live ones (laneLayout among themselves, shifted). So a cancelled block is never in lane 0: the left part of its
+ * time stays tappable and books, and a rebook there draws live left, cancelled right. No cancelled block: the
+ * answer is laneLayout's.
+ */
+export function deskLaneLayout(
+  live: Array<{ id: number; busy: Interval[] }>,
+  cancelled: Array<{ id: number; busy: Interval[] }>
+): Map<number, { lane: number; lanes: number }> {
+  if (cancelled.length === 0) return laneLayout(live);
+  const all = [...live.map((b) => ({ ...b, live: true })), ...cancelled.map((b) => ({ ...b, live: false }))];
+  const parent = all.map((_, i) => i);
+  const find = (i: number): number => {
+    let r = i;
+    while (parent[r] !== r) r = parent[r];
+    return r;
+  };
+  for (let i = 0; i < all.length; i++) {
+    for (let j = i + 1; j < all.length; j++) {
+      if (overlap(all[i].busy, all[j].busy)) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < all.length; i++) {
+    const root = find(i);
+    const list = groups.get(root);
+    if (list) list.push(i);
+    else groups.set(root, [i]);
+  }
+  const out = new Map<number, { lane: number; lanes: number }>();
+  groups.forEach((members) => {
+    const liveBlocks = members.filter((i) => all[i].live).map((i) => all[i]);
+    const cancelledBlocks = members.filter((i) => !all[i].live).map((i) => all[i]);
+    const liveLanes = laneLayout(liveBlocks);
+    const cancelledLanes = laneLayout(cancelledBlocks);
+    let reserved = 1;
+    liveLanes.forEach((l) => {
+      reserved = Math.max(reserved, l.lanes);
+    });
+    let extra = 0;
+    cancelledLanes.forEach((l) => {
+      extra = Math.max(extra, l.lanes);
+    });
+    const lanes = reserved + extra;
+    liveLanes.forEach((l, id) => out.set(id, { lane: l.lane, lanes }));
+    cancelledLanes.forEach((l, id) => out.set(id, { lane: reserved + l.lane, lanes }));
+  });
+  return out;
+}
+
 function covers(list: Interval[], at: Ms): boolean {
   return list.some((i) => i.start <= at && at < i.end);
 }

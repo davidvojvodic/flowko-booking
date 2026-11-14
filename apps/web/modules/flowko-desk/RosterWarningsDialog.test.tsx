@@ -8,8 +8,10 @@ import { RosterWarningsDialog } from "./RosterWarningsDialog";
 import { localeT } from "./desk.fixture";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// Flowko U29e (E10.1): the language is switchable (en dates carry a „/“ that i18next would escape).
+const loc = vi.hoisted(() => ({ lang: "sl" as "sl" | "en" }));
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
-  useLocale: () => ({ t: localeT("sl"), i18n: { language: "sl" } }),
+  useLocale: () => ({ t: localeT(loc.lang), i18n: { language: loc.lang } }),
 }));
 
 const members = [
@@ -35,6 +37,7 @@ function dialog(over: Partial<Parameters<typeof RosterWarningsDialog>[0]> = {}) 
 }
 
 beforeEach(() => {
+  loc.lang = "sl";
   onConfirm.mockReset();
   onClose.mockReset();
 });
@@ -119,5 +122,19 @@ describe("RosterWarningsDialog (S14)", () => {
     dialog();
     const d = screen.getByRole("dialog");
     expect(document.activeElement).toBe(within(d).getByRole("button", { name: "Prekliči" }));
+  });
+});
+
+// Flowko U29e: E10.1 — the days outside the opening hours in English keep their „/“ (no „&#x2F;“).
+describe("RosterWarningsDialog dates in English (U29e E10.1)", () => {
+  it("lists „11/17“ once, not escaped", () => {
+    loc.lang = "en";
+    dialog({
+      warnings: [{ memberId: 2, outsideOpening: ["2026-11-17", "2026-11-18"], bookingsNewlyOutside: 0 }],
+    });
+    const group = screen.getByTestId("roster-warning-group-2");
+    expect(group.textContent).toContain("11/17");
+    expect(group.textContent).toContain("11/18");
+    expect(group.textContent).not.toContain("&#x2F;");
   });
 });

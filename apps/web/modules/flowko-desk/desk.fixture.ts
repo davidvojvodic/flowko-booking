@@ -1,6 +1,8 @@
 // Flowko U28: test fixture of the desk day view (not a test file). Monday 2026-11-16 in Europe/Ljubljana (UTC+1),
 // NOW = 07:07Z = 08:07 local, grid 15 min. Owner Olga, workers Ana and Bor (Google unavailable), desk-only Cene,
 // locked Dan with one booking. Ana's Barvanje: busy 09:00-09:30, processing 09:30-10:10, busy 10:10-10:40.
+// Flowko U29e: rows default to live (`cancelled: null`, `cancelReason: null`); the services carry prices (Barvanje
+// 45,00 €, Moško striženje 20,00 €, Fen none, E8); `localeT` escapes like i18next unless a call passes RAW (E10.1).
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
 import type { DeskBooking, DeskMember, DeskService, DeskView } from "@calcom/features/flowkoBusiness/desk";
@@ -49,6 +51,8 @@ export function booking(
     mayNoShow: false,
     mayReenter: true,
     actions: [],
+    cancelled: null, // Flowko U29e: E6
+    cancelReason: null, // Flowko U29e: E6
     ...over,
   } as DeskBooking;
 }
@@ -198,7 +202,7 @@ export const services: DeskService[] = [
       { kind: "busy", minutes: 30 },
     ],
     totalMinutes: 100,
-    priceCents: null, // Flowko U29e: E8
+    priceCents: 4500, // Flowko U29e: E8
     workerMemberIds: [OLGA, ANA],
   },
   {
@@ -207,7 +211,7 @@ export const services: DeskService[] = [
     category: "Striženje",
     steps: [{ kind: "busy", minutes: 30 }],
     totalMinutes: 30,
-    priceCents: null, // Flowko U29e: E8
+    priceCents: 2000, // Flowko U29e: E8
     workerMemberIds: [OLGA, ANA, BOR],
   },
   {
@@ -221,7 +225,22 @@ export const services: DeskService[] = [
   },
 ];
 
-/** A `t` backed by the real locale files, with {{placeholder}} interpolation (BookingSuccessCard.test precedent). */
+// Flowko U29e (E10.1): i18next's default escape (its _entityMap): & < > " ' and / (copied from the settings
+// fixture, which took it from workers-view.invites.test.tsx).
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\//g, "&#x2F;");
+
+/**
+ * A `t` backed by the real locale files, with {{placeholder}} interpolation (BookingSuccessCard.test precedent).
+ * Flowko U29e (E10.1): interpolated strings are HTML-escaped as the app-router i18next does by default, unless the
+ * call passes `interpolation: { escapeValue: false }` (RAW); numbers are never escaped.
+ */
 export function localeT(lang: "sl" | "en" = "sl") {
   const strings = (lang === "sl" ? sl : en) as unknown as Record<string, string>;
   // Flowko U29b: `count` picks the plural form first (_one/_two/_few/_other), as i18next does.
@@ -229,9 +248,13 @@ export function localeT(lang: "sl" | "en" = "sl") {
   return (key: string, opts?: Record<string, unknown>) => {
     const count = opts?.count;
     const plural = typeof count === "number" ? strings[`${key}_${rules.select(count)}`] : undefined;
-    return (plural ?? strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) =>
-      String(opts?.[k] ?? "")
-    );
+    const interpolation = opts?.interpolation as { escapeValue?: boolean } | undefined;
+    const raw = interpolation?.escapeValue === false;
+    return (plural ?? strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) => {
+      const value = opts?.[k];
+      if (typeof value === "string") return raw ? value : escapeHtml(value);
+      return String(value ?? "");
+    });
   };
 }
 

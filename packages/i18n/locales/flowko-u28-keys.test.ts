@@ -5,6 +5,9 @@ import sl from "./sl/common.json";
 
 // Flowko U28: every string key the desk added (Tasks 3 and 5 to 8) exists in en and sl with the same
 // {{placeholders}}. The test checks keys and placeholders, not texts: the Slovene wording may change.
+// Flowko U29e: the list also holds the six U29e desk keys (E6: the cancelled labels, the customer-cancel history
+// line and the reason line; E8: the price total and the partial note), appended at its end; the U29e key test pins
+// them again across every prefix.
 
 const enKeys = en as Record<string, string>;
 const slKeys = sl as Record<string, string>;
@@ -117,6 +120,13 @@ const U28_KEYS = [
   "flowko_desk_move_services_gone",
   // Flowko U28c (review): the banner when no worker name is known (names the customer).
   "flowko_desk_move_banner",
+  // Flowko U29e: E6 (cancelled bookings on „Dan“: labels, history line, reason) and E8 (price total, partial note).
+  "flowko_desk_cancelled_by_customer",
+  "flowko_desk_cancelled_by_desk",
+  "flowko_desk_history_cancelled_customer",
+  "flowko_desk_cancel_reason_line",
+  "flowko_desk_price_total",
+  "flowko_desk_price_partial",
 ];
 
 const placeholders = (text: string): string[] =>

@@ -7,6 +7,7 @@
 // the roster and the desk are refreshed, then the sheet closes (`onDone`). Errors are toasts (rosterErrors).
 // Flowko U29c (P1, P8, R11): a saved add or removal shows „Shranjeno“; the refresh's answer goes to `onRefreshed`
 // (false raises RosterView's notice, true clears it); the sheet closes anyway: the save stands.
+// Flowko U29e (E10.1): the dates pass RAW (an en date „Mon, 11/23“ would show „&#x2F;“).
 import { useRef, useState } from "react";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -15,6 +16,7 @@ import { Button } from "@calcom/ui/components/button";
 import { ConfirmationContent, Dialog, DialogContent } from "@calcom/ui/components/dialog";
 import { TextField } from "@calcom/ui/components/form";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 import { formatDayLabel } from "./WeekGrid";
 import { rosterErrorCode, rosterErrorKey } from "./rosterErrors";
@@ -52,8 +54,8 @@ export function AbsenceSection(props: {
   const day = (date: string) => formatDayLabel(date, language);
   const rangeText = (a: { startDate: string; endDate: string }) =>
     a.startDate === a.endDate
-      ? t("flowko_roster_absence_day", { date: day(a.startDate) })
-      : t("flowko_roster_absence_range", { from: day(a.startDate), to: day(a.endDate) });
+      ? t("flowko_roster_absence_day", { date: day(a.startDate), ...RAW })
+      : t("flowko_roster_absence_range", { from: day(a.startDate), to: day(a.endDate), ...RAW });
 
   /** Runs one write: a rejection is a toast and a fresh read; a result is handed to `onResult`. */
   async function run<T>(write: () => Promise<T>, onResult: (result: T) => Promise<boolean> | boolean) {

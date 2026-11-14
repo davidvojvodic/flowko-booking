@@ -5,6 +5,7 @@
 // holds „Uporabi“ back. „Uporabi“ only hands the value to the caller, which writes it into the draft (no server call):
 // null = „Običajno“, [] = „Prosto“, else the shifts. `children` is the caller's place for the absence section
 // (Task 9), shown in the week mode only.
+// Flowko U29e (E10.1): the opening-hours hint passes RAW, as every Flowko interpolation does.
 import { type ReactNode, useState } from "react";
 
 import { ROSTER_MAX_SHIFTS_PER_DAY, type ShiftEntry } from "@calcom/lib/flowkoBusiness/roster";
@@ -19,6 +20,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@calcom/ui/components/sheet";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { DayRangesRows } from "@calcom/web/modules/flowko-settings/DayRangesEditor";
 
 import type { DraftCell, RosterMode } from "./useRosterDraft";
@@ -83,6 +85,7 @@ export function RosterCellSheet(props: {
       ? t("flowko_settings_closed")
       : t("flowko_roster_opening_hint", {
           hours: props.opening.map((entry) => `${entry.from}–${entry.to}`).join(", "),
+          ...RAW,
         });
 
   const choiceClass = (active: boolean) => (active ? "ring-brand-default ring-2" : "");

@@ -101,3 +101,11 @@ export function workFreeDayOn(date: LocalDate): WorkFreeDay | null {
   assertYear(year);
   return slovenianWorkFreeDays(year).find((h) => h.date === date) ?? null;
 }
+
+/**
+ * Flowko U29e: E10.3, R19. A holiday name at the start of a label („Božič – zaprto“): the first letter upper case
+ * (sl rules). The data keeps the law's running-text form („božič“, „dan reformacije“), right inside a sentence.
+ */
+export function holidayLabel(name: string): string {
+  return name.charAt(0).toLocaleUpperCase("sl") + name.slice(1);
+}

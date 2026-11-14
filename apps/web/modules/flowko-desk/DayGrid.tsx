@@ -3,14 +3,18 @@
 // off and the day's bookings (fallback 08-18; DST days 23/25 h from `dayBounds`). CSS grid + absolutely placed
 // blocks; header row and hour axis stay in view while the grid scrolls. `onlyMemberId` shows a single column
 // (phone). The now-line and the past shading follow the server's clock (R18).
+// Flowko U29e: the holiday banner starts with a capital (holidayLabel, E10.3); names pass RAW (E10.1); the day's
+// cancelled bookings arrive with the rest and WorkerColumn draws them (E6).
 import { useMemo } from "react";
 
 import type { DeskView } from "@calcom/features/flowkoBusiness/desk";
 import { hourRange, rangeSpans, toPx } from "@calcom/lib/flowkoBusiness/desk";
+import { holidayLabel } from "@calcom/lib/flowkoBusiness/holidays";
 import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import { dayBounds } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 import { ms } from "./BookingBlock";
 import { HourAxis } from "./HourAxis";
@@ -76,7 +80,8 @@ export function DayGrid(props: {
           data-testid="desk-holiday"
           className="bg-semantic-attention-subtle text-attention rounded-md px-3 py-2 text-sm font-medium">
           {t(dayData.holiday.open ? "flowko_desk_holiday_open" : "flowko_desk_holiday_closed", {
-            name: dayData.holiday.name,
+            name: holidayLabel(dayData.holiday.name),
+            ...RAW,
           })}
         </div>
       )}
@@ -98,7 +103,7 @@ export function DayGrid(props: {
                   "bg-default border-subtle sticky top-0 z-40 truncate border-b border-l px-2 py-2 text-sm font-semibold",
                   c.locked ? "text-subtle" : "text-emphasis"
                 )}>
-                {c.locked ? t("flowko_desk_locked_column", { name: c.displayName }) : c.displayName}
+                {c.locked ? t("flowko_desk_locked_column", { name: c.displayName, ...RAW }) : c.displayName}
               </div>
             ))}
             <div className="bg-default sticky left-0 z-40 pt-1">

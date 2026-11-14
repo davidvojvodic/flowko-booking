@@ -931,12 +931,13 @@ describe("RosterView editing: the refresh-failed notice (U29c P1, Rulings R8 and
     }) as HTMLButtonElement;
   const copyButton = () =>
     screen.getByRole("button", { name: "Kopiraj prejšnji teden" }) as HTMLButtonElement;
+  // Flowko U29e (R19): the server's lower-case holiday name.
   const withHoliday = () => {
     const base = rosterWeek();
     return {
       ...base,
       days: base.days.map((d) =>
-        d.date === "2026-11-19" ? { ...d, holiday: { name: "Božič", open: false } } : d
+        d.date === "2026-11-19" ? { ...d, holiday: { name: "božič", open: false } } : d
       ),
     };
   };

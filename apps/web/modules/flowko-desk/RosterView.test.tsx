@@ -60,12 +60,14 @@ const allCells = () =>
   screen.getAllByTestId(/^roster-cell-\d+-/).filter((c) => c.hasAttribute("data-editable"));
 const editableCells = () => allCells().filter((c) => c.getAttribute("data-editable") === "true");
 
-/** The week of the 16th with Thursday 19 a holiday (closed or open). */
+/**
+ * The week of the 16th with Thursday 19 a holiday (closed or open). Flowko U29e (R19): the server's lower-case name.
+ */
 function withHoliday(open: boolean, over: Partial<RosterWeekView> = {}): RosterWeekView {
   const base = rosterWeek(over);
   return {
     ...base,
-    days: base.days.map((d) => (d.date === "2026-11-19" ? { ...d, holiday: { name: "Božič", open } } : d)),
+    days: base.days.map((d) => (d.date === "2026-11-19" ? { ...d, holiday: { name: "božič", open } } : d)),
   };
 }
 
@@ -414,7 +416,7 @@ describe("RosterView: the day header (S1, S8)", () => {
       view: {
         ...past,
         days: past.days.map((d) =>
-          d.date === "2026-11-12" ? { ...d, holiday: { name: "Božič", open: false } } : d
+          d.date === "2026-11-12" ? { ...d, holiday: { name: "božič", open: false } } : d
         ),
       },
     });

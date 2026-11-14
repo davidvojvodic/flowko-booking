@@ -109,3 +109,86 @@ describe("BookingBlock (U28)", () => {
     expect(block.style.width).toBe("50%");
   });
 });
+
+// Flowko U29e: E6, R11 — a cancelled booking: one faded block over [start, end], struck through, labelled.
+describe("BookingBlock cancelled (U29e E6)", () => {
+  const byCustomer = booking({
+    ...barvanje,
+    status: "CANCELLED",
+    mayCancel: false,
+    mayMove: false,
+    mayReenter: false,
+    cancelled: { by: "customer", at: "2026-11-15T18:00:00.000Z" },
+    cancelReason: "Zbolela",
+  });
+  const byDesk = booking({
+    bookingId: 130,
+    memberId: 2,
+    status: "CANCELLED",
+    cancelled: { by: "desk", at: "2026-11-15T18:00:00.000Z" },
+  });
+
+  it("is one block over its whole time, steps ignored, faded and not dashed", () => {
+    renderBlock(byCustomer);
+    const block = screen.getByTestId("desk-booking-101");
+    const parts = Array.from(block.querySelectorAll<HTMLElement>("[data-kind]"));
+    expect(parts.map((p) => p.dataset.kind)).toEqual(["cancelled"]);
+    expect(block.dataset.cancelled).toBe("customer");
+    expect(block.style.top).toBe("120px");
+    expect(block.style.height).toBe("200px");
+    expect(parts[0].style.top).toBe("0px");
+    expect(parts[0].style.height).toBe("200px");
+    expect(parts[0].className).toContain("opacity-60");
+    expect(parts[0].className).not.toContain("border-dashed");
+  });
+
+  it("says „Odpovedala stranka“ first, strikes the booking text through, and names it in the aria-label", () => {
+    renderBlock(byCustomer);
+    const button = screen.getByRole("button", { name: /^Odpovedala stranka · 09:00–10:40 · Marija Novak/ });
+    const label = button.querySelector<HTMLElement>('[data-testid="desk-cancelled-label"]');
+    expect(label?.textContent).toBe("Odpovedala stranka");
+    expect(button.firstElementChild).toBe(label);
+    const struck = button.querySelector<HTMLElement>('[data-testid="desk-cancelled-text"]');
+    expect(struck?.className).toContain("line-through");
+    expect(struck?.textContent).toContain("09:00–10:40");
+    expect(struck?.textContent).toContain("Marija Novak");
+    expect(struck?.textContent).toContain("Barvanje");
+  });
+
+  it("a desk cancel says „Odpovedano“", () => {
+    renderBlock(byDesk);
+    expect(screen.getByTestId("desk-cancelled-label").textContent).toBe("Odpovedano");
+    expect(screen.getByRole("button", { name: /^Odpovedano · 11:00–11:30/ })).toBeInTheDocument();
+  });
+
+  it("a tap opens the details and stays inside the block", () => {
+    const onParent = vi.fn();
+    const onOpen = renderBlock(byCustomer, vi.fn(), { onParent });
+    fireEvent.click(screen.getByRole("button", { name: /^Odpovedala stranka/ }));
+    expect(onOpen).toHaveBeenCalledWith(101);
+    expect(onParent).not.toHaveBeenCalled();
+  });
+
+  it("in move mode it lets the tap through to the column", () => {
+    const onParent = vi.fn();
+    const onOpen = renderBlock(byCustomer, vi.fn(), { passThrough: true, onParent });
+    const button = screen.getByRole("button", { name: /^Odpovedala stranka/ });
+    expect(button.style.pointerEvents).toBe("none");
+    fireEvent.click(button);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onParent).toHaveBeenCalledTimes(1);
+  });
+
+  it("a live PENDING booking stays dashed (tentative), not cancelled", () => {
+    renderBlock(booking({ bookingId: 131, memberId: 2, status: "PENDING" }));
+    const block = screen.getByTestId("desk-booking-131");
+    expect(block.dataset.cancelled).toBeUndefined();
+    expect(block.querySelector<HTMLElement>('[data-kind="busy"]')?.className).toContain("border-dashed");
+    expect(screen.queryByTestId("desk-cancelled-label")).toBeNull();
+  });
+
+  it("names a customer „O'Brien & Co“ once", () => {
+    renderBlock({ ...byDesk, customer: { name: "O'Brien & Co", phone: null, email: null } });
+    expect(screen.getByRole("button", { name: /O'Brien & Co/ })).toBeInTheDocument();
+  });
+});

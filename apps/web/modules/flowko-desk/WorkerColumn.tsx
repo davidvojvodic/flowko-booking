@@ -4,11 +4,14 @@
 // lanes, and on a Google failure a hatched overlay with the note over the kept bands. A tap on an empty spot
 // books the latest free edge between the grid start before the tap and the tap (U24 E3, design call 11); a
 // locked column takes no taps (R4).
+// Flowko U29e (E6, R11): cancelled bookings (the day read sends them) are drawn over their whole [start, end] beside
+// the live ones (deskLaneLayout: never in lane 0, so the left part of a cancelled-only slot stays tappable and books)
+// at z-index 6–9 (above the Google overlay, below live blocks); free edges come from live bookings only.
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 
 import type { DeskBooking, DeskColumn } from "@calcom/features/flowkoBusiness/desk";
-import { columnBands, freeEdgesFor, laneLayout, tapToStart, toPx } from "@calcom/lib/flowkoBusiness/desk";
+import { columnBands, deskLaneLayout, freeEdgesFor, tapToStart, toPx } from "@calcom/lib/flowkoBusiness/desk";
 import type { Interval, Ms } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
@@ -76,21 +79,28 @@ export function WorkerColumn(props: {
         .sort((a, b) => ms(a.start) - ms(b.start) || a.bookingId - b.bookingId),
     [bookings, range]
   );
+  // Flowko U29e (E6): live bookings keep their busy steps; a cancelled one is its span and never busy time.
+  const live = useMemo(() => shown.filter((b) => !b.cancelled), [shown]);
+  const cancelled = useMemo(() => shown.filter((b) => b.cancelled), [shown]);
   const busyOf = useMemo(
     () =>
       new Map(
-        shown.map((b) => [
+        live.map((b) => [
           b.bookingId,
           bookingSegments(b)
             .filter((s) => s.kind === "busy")
             .map((s) => ({ start: s.start, end: s.end })),
         ])
       ),
-    [shown]
+    [live]
   );
   const lanes = useMemo(
-    () => laneLayout(shown.map((b) => ({ id: b.bookingId, busy: busyOf.get(b.bookingId) ?? [] }))),
-    [shown, busyOf]
+    () =>
+      deskLaneLayout(
+        live.map((b) => ({ id: b.bookingId, busy: busyOf.get(b.bookingId) ?? [] })),
+        cancelled.map((b) => ({ id: b.bookingId, busy: [{ start: ms(b.start), end: ms(b.end) }] }))
+      ),
+    [live, cancelled, busyOf]
   );
   const freeEdges = useMemo(
     () =>
@@ -161,7 +171,24 @@ export function WorkerColumn(props: {
           {t("flowko_desk_busy")}
         </div>
       ))}
-      {shown.map((b, index) => {
+      {cancelled.map((b, index) => {
+        const lane = lanes.get(b.bookingId) ?? { lane: 1, lanes: 2 };
+        return (
+          <BookingBlock
+            key={b.bookingId}
+            booking={b}
+            range={range}
+            pxPerMinute={pxPerMinute}
+            timeZone={props.timeZone}
+            lane={lane.lane}
+            lanes={lane.lanes}
+            zIndex={6 + Math.min(index, 3)}
+            onOpenDetails={props.onOpenDetails}
+            passThrough={props.passThrough}
+          />
+        );
+      })}
+      {live.map((b, index) => {
         const lane = lanes.get(b.bookingId) ?? { lane: 0, lanes: 1 };
         return (
           <BookingBlock

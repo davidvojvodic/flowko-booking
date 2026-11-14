@@ -2,6 +2,7 @@
 // „Zapri ta dan“ (saved at once, refresh with the settings), the hint + link while the closing switch is off, the
 // disabled action while the draft is dirty, and the label-only view for everyone else. Flowko U29c (P1, P8, R11): a
 // saved change shows „Shranjeno“ and hands the refresh's answer to onRefreshed (false = RosterView's notice).
+// Flowko U29e (E10.3, R19): the inputs are the server's lower-case names („božič“); the label starts with a capital.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,7 +27,7 @@ function renderMenu(over: Partial<Parameters<typeof RosterHolidayMenu>[0]> = {})
   return render(
     <RosterHolidayMenu
       date={DATE}
-      holiday={{ name: "Božič", open: false }}
+      holiday={{ name: "božič", open: false }}
       holidaysClosed
       canManage
       dirty={false}
@@ -51,18 +52,18 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
     const { unmount } = renderMenu();
     expect(label().textContent).toBe("Božič – zaprto");
     unmount();
-    renderMenu({ holiday: { name: "Božič", open: true } });
+    renderMenu({ holiday: { name: "božič", open: true } });
     expect(label().textContent).toBe("Božič – odprto");
   });
 
   it("never truncates the label: the state word stays in the DOM, the full text is the title", () => {
-    const { unmount } = renderMenu({ holiday: { name: "Dan reformacije in zelo dolgo ime", open: false } });
+    const { unmount } = renderMenu({ holiday: { name: "dan reformacije in zelo dolgo ime", open: false } });
     expect(label().className).not.toContain("truncate");
     expect(label().className).toContain("break-words");
     expect(label().textContent).toBe("Dan reformacije in zelo dolgo ime – zaprto");
     expect(label().getAttribute("title")).toBe("Dan reformacije in zelo dolgo ime – zaprto");
     unmount();
-    renderMenu({ canManage: false, holiday: { name: "Božič", open: true } });
+    renderMenu({ canManage: false, holiday: { name: "božič", open: true } });
     expect(label().className).not.toContain("truncate");
     expect(label().getAttribute("title")).toBe("Božič – odprto");
   });
@@ -84,7 +85,7 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
   });
 
   it("offers „Zapri ta dan“ on an open holiday", async () => {
-    renderMenu({ holiday: { name: "Božič", open: true } });
+    renderMenu({ holiday: { name: "božič", open: true } });
     fireEvent.click(label());
     fireEvent.click(screen.getByRole("button", { name: "Zapri ta dan" }));
     await waitFor(() => expect(deskTrpc.setHolidayOpen).toHaveBeenCalledWith({ date: DATE, open: false }));
@@ -92,7 +93,7 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
   });
 
   it("with the closing switch off shows a hint and a link to the business settings, and never saves", () => {
-    renderMenu({ holidaysClosed: false, holiday: { name: "Božič", open: true } });
+    renderMenu({ holidaysClosed: false, holiday: { name: "božič", open: true } });
     fireEvent.click(label());
     expect(screen.getByText(/v nastavitvah podjetja možnost „Ob praznikih zaprto“ izklopljena/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Odpri nastavitve podjetja" }).getAttribute("href")).toBe(
@@ -131,7 +132,7 @@ describe("RosterHolidayMenu (U29b Task 7)", () => {
     ["closed", false, "Odpri ta dan"],
     ["open", true, "Zapri ta dan"],
   ])("a saved change of a %s holiday shows „Shranjeno“ (U29c P8)", async (_, open, action) => {
-    renderMenu({ holiday: { name: "Božič", open } });
+    renderMenu({ holiday: { name: "božič", open } });
     fireEvent.click(label());
     fireEvent.click(screen.getByRole("button", { name: action }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Shranjeno", "success"));

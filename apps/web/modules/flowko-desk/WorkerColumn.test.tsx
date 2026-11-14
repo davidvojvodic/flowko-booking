@@ -145,3 +145,91 @@ describe("WorkerColumn backgrounds (U28 R3, R14)", () => {
     expect(screen.queryByTestId(`desk-google-unavailable-${ANA}`)).toBeNull();
   });
 });
+
+// Flowko U29e: E6, R11 — cancelled bookings: right half, the left half books, free edges ignore them.
+describe("WorkerColumn cancelled bookings (U29e E6)", () => {
+  const cancelledAt = (id: number, from: string, to: string, by: "customer" | "desk" = "customer") =>
+    booking({
+      bookingId: id,
+      memberId: ANA,
+      start: iso(from),
+      end: iso(to),
+      status: "CANCELLED",
+      mayCancel: false,
+      mayMove: false,
+      mayReenter: false,
+      cancelled: { by, at: "2026-11-15T18:00:00.000Z" },
+    });
+
+  it("a cancelled-only slot: the block takes the right half; a tap on the left half books the tapped start", () => {
+    const { onBook, onOpenDetails, body } = renderColumn(ANA, [cancelledAt(140, "11:00", "11:30")]);
+    const block = screen.getByTestId("desk-booking-140");
+    expect(block.style.left).toBe("50%");
+    expect(block.style.width).toBe("50%");
+    fireEvent.click(body, { clientY: yOf("11:00") + 1 });
+    expect(onBook).toHaveBeenCalledWith({ memberId: ANA, start: at("11:00") });
+    expect(onOpenDetails).not.toHaveBeenCalled();
+  });
+
+  it("free edges ignore cancelled time: a tap at 11:25 under a cancel ending 11:20 books 11:15, not 11:20", () => {
+    const { onBook, body } = renderColumn(ANA, [cancelledAt(141, "11:00", "11:20")]);
+    fireEvent.click(body, { clientY: yOf("11:25") });
+    expect(onBook).toHaveBeenCalledWith({ memberId: ANA, start: at("11:15") });
+  });
+
+  it("a tap on the cancelled block opens its details, no booking", () => {
+    const { onBook, onOpenDetails } = renderColumn(ANA, [cancelledAt(140, "11:00", "11:30")]);
+    fireEvent.click(screen.getByRole("button", { name: /^Odpovedala stranka/ }));
+    expect(onOpenDetails).toHaveBeenCalledWith(140);
+    expect(onBook).not.toHaveBeenCalled();
+  });
+
+  it("cancelled and live in one slot both render, live left at a higher z-index", () => {
+    const live = booking({ bookingId: 142, memberId: ANA, start: iso("11:00"), end: iso("11:30") });
+    renderColumn(ANA, [cancelledAt(140, "11:00", "11:30", "desk"), live]);
+    const liveBlock = screen.getByTestId("desk-booking-142");
+    const cancelledBlock = screen.getByTestId("desk-booking-140");
+    expect([liveBlock.style.left, liveBlock.style.width]).toEqual(["0%", "50%"]);
+    expect([cancelledBlock.style.left, cancelledBlock.style.width]).toEqual(["50%", "50%"]);
+    const cancelledZ = Number(cancelledBlock.style.zIndex);
+    expect(cancelledZ).toBeGreaterThanOrEqual(6);
+    expect(cancelledZ).toBeLessThanOrEqual(9);
+    expect(Number(liveBlock.style.zIndex)).toBeGreaterThanOrEqual(10);
+    expect(screen.getByRole("button", { name: /^Odpovedano · 11:00–11:30/ })).toBeInTheDocument();
+  });
+
+  it("a live booking that overlaps no cancelled one keeps full width", () => {
+    renderColumn(ANA, [barvanje, cancelledAt(140, "12:00", "12:30")]);
+    expect(screen.getByTestId("desk-booking-101").style.width).toBe("100%");
+    expect(screen.getByTestId("desk-booking-140").style.left).toBe("50%");
+  });
+
+  it("a cancelled block inside a colouring's processing gap sits right of it; the gap still books", () => {
+    const { onBook, body } = renderColumn(ANA, [barvanje, cancelledAt(143, "09:30", "10:00")]);
+    expect(screen.getByTestId("desk-booking-101").style.left).toBe("0%");
+    expect(screen.getByTestId("desk-booking-143").style.left).toBe("50%");
+    fireEvent.click(body, { clientY: yOf("09:45") + 1 });
+    expect(onBook).toHaveBeenCalledWith({ memberId: ANA, start: at("09:45") });
+  });
+
+  it("in move mode the cancelled block lets taps through to the column", () => {
+    const onBook = vi.fn();
+    render(
+      <WorkerColumn
+        column={columnOf(ANA)}
+        bookings={[cancelledAt(140, "11:00", "11:30")]}
+        day={day}
+        opening={view.days[0].opening}
+        range={range}
+        pxPerMinute={PX}
+        timeZone={TZ}
+        stepMinutes={15}
+        pastUntil={at("08:00")}
+        onBook={onBook}
+        onOpenDetails={vi.fn()}
+        passThrough
+      />
+    );
+    expect(screen.getByRole("button", { name: /^Odpovedala stranka/ }).style.pointerEvents).toBe("none");
+  });
+});

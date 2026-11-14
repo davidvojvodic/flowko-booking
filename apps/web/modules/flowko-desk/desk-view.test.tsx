@@ -1,5 +1,6 @@
 // Flowko U28: the desk entry: data, date from the URL (business today by default), „who are you“ chip, and the
 // phone layout (one column at a time with a worker select, R15).
+// Flowko U29e: a cancelled booking on „Dan“ opens its details (E6); names with „&“ / „'“ show once (E10.1).
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NuqsTestingAdapter, type UrlUpdateEvent } from "nuqs/adapters/testing";
@@ -15,6 +16,7 @@ import {
   ANA,
   BOR,
   CENE,
+  DAN,
   NOW,
   OLGA,
   at,
@@ -22,6 +24,7 @@ import {
   deskView,
   iso,
   localeT,
+  members,
   rosterWeek,
   weekViewOf,
 } from "./desk.fixture";
@@ -1312,5 +1315,112 @@ describe("U29b Urnik routing", () => {
     renderDesk("?view=roster");
     fireEvent.click(screen.getByRole("button", { name: "Poskusi znova" }));
     expect(retry).toHaveBeenCalled();
+  });
+});
+
+// Flowko U29e: E6 on the desk (a cancelled booking opens its details; its slot books) and E10.1 (names once).
+describe("DeskView cancelled bookings and names (U29e E6, E10.1)", () => {
+  const yOf = (hm: string) => ((at(hm) - at("08:00")) / 60_000) * 2;
+  const column = (memberId: number) => screen.getByTestId(`desk-column-${memberId}`);
+  const named = (rename: Record<number, string>, customer?: string) => {
+    const v = deskView();
+    v.days[0].columns = v.days[0].columns.map((c) =>
+      c.memberId in rename ? { ...c, displayName: rename[c.memberId] } : c
+    );
+    if (customer) {
+      v.days[0].bookings = v.days[0].bookings.map((b) =>
+        b.bookingId === 101 ? { ...b, customer: { ...b.customer, name: customer } } : b
+      );
+    }
+    return v;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDeskTrpc();
+    toast.mockReset();
+    window.localStorage.clear();
+    window.localStorage.setItem("flowko-desk-actor:9", String(OLGA));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    isPhone.mockReturnValue(false);
+    me.mockReturnValue(businessMe(OLGA, "OWNER", true));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("a customer-cancelled booking: a tap opens its sheet; a tap on the free left half opens „Nov termin“", () => {
+    const view = deskView();
+    view.days[0].bookings = [
+      ...view.days[0].bookings,
+      {
+        ...view.days[0].bookings[1],
+        bookingId: 150,
+        memberId: ANA,
+        start: iso("12:00"),
+        end: iso("12:30"),
+        title: "Fen",
+        status: "CANCELLED",
+        mayCancel: false,
+        mayMove: false,
+        mayReenter: false,
+        mayNoShow: false,
+        cancelled: { by: "customer", at: "2026-11-15T18:00:00.000Z" },
+        cancelReason: "Zbolela",
+      },
+    ];
+    answer(view);
+    renderDesk();
+    fireEvent.click(screen.getByRole("button", { name: /^Odpovedala stranka · 12:00–12:30/ }));
+    const sheet = screen.getByRole("dialog", { name: "Fen" });
+    expect(within(sheet).getByTestId("desk-details-cancelled").textContent).toBe("Odpovedala stranka");
+    expect(within(sheet).getByTestId("desk-details-cancel-reason").textContent).toBe("Razlog: Zbolela");
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    fireEvent.click(column(ANA), { clientY: yOf("12:00") + 1 });
+    expect(screen.getByRole("dialog", { name: "Nov termin" })).toBeInTheDocument();
+    expect((screen.getByLabelText("Čas") as HTMLInputElement).value).toBe("12:00");
+  });
+
+  it("on a phone the locked worker's option reads „Ana & Maja (zaklenjeno)“", () => {
+    isPhone.mockReturnValue(true);
+    answer(named({ [DAN]: "Ana & Maja" }));
+    renderDesk();
+    const options = Array.from((screen.getByLabelText("Delavec") as HTMLSelectElement).options).map(
+      (o) => o.textContent
+    );
+    expect(options).toContain("Ana & Maja (zaklenjeno)");
+  });
+
+  it("the move banner names the column „Ana & Maja“ once", () => {
+    answer(named({ [ANA]: "Ana & Maja" }));
+    // The banner reads the member list first (M3), then the columns.
+    deskTrpc.membersQuery.mockReturnValue({
+      data: members.map((m) => (m.memberId === ANA ? { ...m, displayName: "Ana & Maja" } : m)),
+    });
+    renderDesk();
+    fireEvent.click(
+      screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
+    );
+    startCalendarMove();
+    expect(screen.getByTestId("desk-move-banner").textContent).toContain(
+      "Kliknite nov čas v stolpcu: Ana & Maja"
+    );
+  });
+
+  it("the move banner without a worker name names the customer „O'Brien“ once", () => {
+    answer(named({ [ANA]: "" }, "O'Brien"));
+    deskTrpc.membersQuery.mockReturnValue({
+      data: members.filter((m) => m.memberId !== ANA),
+    });
+    renderDesk();
+    fireEvent.click(
+      screen.getByTestId("desk-booking-101").querySelector('[data-kind="busy"]') as HTMLElement
+    );
+    startCalendarMove();
+    expect(screen.getByTestId("desk-move-banner").textContent).toContain(
+      "Izberite nov čas za termin: O'Brien"
+    );
   });
 });

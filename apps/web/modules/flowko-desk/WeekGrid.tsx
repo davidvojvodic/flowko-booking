@@ -3,10 +3,13 @@
 // (`hourRange` per day, widened to the same whole local hours so the days line up). A tap on a day header opens
 // that day's day view; a tap on an empty spot books that worker on that day (R10), and in move mode moves the
 // moving booking there (R12). The now-line and the past shading follow the server's clock (R18).
+// Flowko U29e (E10.3): a holiday under its day starts with a capital (holidayLabel). The week read sends no cancelled
+// bookings (E6 is „Dan“ only).
 import { useMemo } from "react";
 
 import type { DeskView } from "@calcom/features/flowkoBusiness/desk";
 import { formatHm, hourRange, rangeSpans, toPx } from "@calcom/lib/flowkoBusiness/desk";
+import { holidayLabel } from "@calcom/lib/flowkoBusiness/holidays";
 import { addDays, todayIn, weekdayOf } from "@calcom/lib/flowkoBusiness/roster";
 import type { Interval } from "@calcom/lib/flowkoSalon";
 import { dayBounds, wallClockToMs } from "@calcom/lib/flowkoSalon";
@@ -127,7 +130,10 @@ export function WeekGrid(props: {
             )}>
             <span className="max-w-full truncate">{formatDayLabel(d.date, language)}</span>
             {d.holiday && (
-              <span className="text-attention max-w-full truncate text-xs font-normal">{d.holiday.name}</span>
+              // Flowko U29e (E10.3): the server's running-text name starts the label with a capital.
+              <span className="text-attention max-w-full truncate text-xs font-normal">
+                {holidayLabel(d.holiday.name)}
+              </span>
             )}
           </button>
         ))}

@@ -6,6 +6,7 @@ import type { FitProblem, Interval } from "@calcom/lib/flowkoSalon";
 
 import {
   columnBands,
+  deskLaneLayout,
   escapeLikeValue,
   formatHm,
   freeEdgesFor,
@@ -188,6 +189,98 @@ describe("laneLayout", () => {
   });
   it("gives a block without busy time lane 0 of 1", () => {
     expect(laneLayout([{ id: 9, busy: [] }]).get(9)).toEqual({ lane: 0, lanes: 1 });
+  });
+});
+
+// Flowko U29e: E6, R11 — cancelled blocks beside live ones; lane 0 is never a cancelled block.
+describe("deskLaneLayout", () => {
+  const D = "2026-11-16";
+  it("a cancelled-only group keeps lane 0 empty: the cancelled block is lane 1 of 2", () => {
+    const m = deskLaneLayout([], [{ id: 7, busy: [iv(D, "10:00", "11:00")] }]);
+    expect(m.get(7)).toEqual({ lane: 1, lanes: 2 });
+  });
+  it("live and cancelled overlapping: live lane 0, cancelled lane 1", () => {
+    const m = deskLaneLayout(
+      [{ id: 8, busy: [iv(D, "10:00", "11:00")] }],
+      [{ id: 7, busy: [iv(D, "10:00", "11:00")] }]
+    );
+    expect(m.get(8)).toEqual({ lane: 0, lanes: 2 });
+    expect(m.get(7)).toEqual({ lane: 1, lanes: 2 });
+  });
+  it("live first even when the cancelled one starts earlier or has the lower id", () => {
+    const m = deskLaneLayout(
+      [{ id: 9, busy: [iv(D, "10:30", "11:30")] }],
+      [{ id: 1, busy: [iv(D, "10:00", "11:00")] }]
+    );
+    expect(m.get(9)).toEqual({ lane: 0, lanes: 2 });
+    expect(m.get(1)).toEqual({ lane: 1, lanes: 2 });
+  });
+  it("two cancels and one live in one slot: three lanes, live 0", () => {
+    const m = deskLaneLayout(
+      [{ id: 3, busy: [iv(D, "10:00", "11:00")] }],
+      [
+        { id: 1, busy: [iv(D, "10:00", "11:00")] },
+        { id: 2, busy: [iv(D, "10:00", "11:00")] },
+      ]
+    );
+    expect(m.get(3)).toEqual({ lane: 0, lanes: 3 });
+    expect(m.get(1)).toEqual({ lane: 1, lanes: 3 });
+    expect(m.get(2)).toEqual({ lane: 2, lanes: 3 });
+  });
+  it("two overlapping live blocks keep lanes 0 and 1; a cancelled one beside them takes lane 2", () => {
+    const m = deskLaneLayout(
+      [
+        { id: 1, busy: [iv(D, "09:00", "10:00")] },
+        { id: 2, busy: [iv(D, "09:30", "10:30")] },
+      ],
+      [{ id: 3, busy: [iv(D, "09:00", "10:30")] }]
+    );
+    expect(m.get(1)).toEqual({ lane: 0, lanes: 3 });
+    expect(m.get(2)).toEqual({ lane: 1, lanes: 3 });
+    expect(m.get(3)).toEqual({ lane: 2, lanes: 3 });
+  });
+  it("a cancelled block never takes lane 0, also where no live block overlaps it", () => {
+    // live 09:00-10:00; cancelled A 09:30-11:00 overlaps it; cancelled B 10:30-11:30 overlaps only A.
+    const m = deskLaneLayout(
+      [{ id: 1, busy: [iv(D, "09:00", "10:00")] }],
+      [
+        { id: 2, busy: [iv(D, "09:30", "11:00")] },
+        { id: 3, busy: [iv(D, "10:30", "11:30")] },
+      ]
+    );
+    expect(m.get(1)).toEqual({ lane: 0, lanes: 3 });
+    expect(m.get(2)?.lane).toBeGreaterThan(0);
+    expect(m.get(3)?.lane).toBeGreaterThan(0);
+    expect(m.get(2)?.lane).not.toBe(m.get(3)?.lane);
+  });
+  it("a live booking with no overlap keeps full width; groups are sized apart", () => {
+    const m = deskLaneLayout(
+      [
+        { id: 1, busy: [iv(D, "09:00", "10:00")] },
+        { id: 2, busy: [iv(D, "13:00", "14:00")] },
+      ],
+      [{ id: 3, busy: [iv(D, "13:00", "14:00")] }]
+    );
+    expect(m.get(1)).toEqual({ lane: 0, lanes: 1 });
+    expect(m.get(2)).toEqual({ lane: 0, lanes: 2 });
+    expect(m.get(3)).toEqual({ lane: 1, lanes: 2 });
+  });
+  it("touching is not overlapping: a cancelled block right after a live one keeps lane 0 empty only for itself", () => {
+    const m = deskLaneLayout(
+      [{ id: 1, busy: [iv(D, "09:00", "10:00")] }],
+      [{ id: 2, busy: [iv(D, "10:00", "11:00")] }]
+    );
+    expect(m.get(1)).toEqual({ lane: 0, lanes: 1 });
+    expect(m.get(2)).toEqual({ lane: 1, lanes: 2 });
+  });
+  it("without cancelled blocks it is laneLayout", () => {
+    const live = [
+      { id: 1, busy: [iv(D, "09:00", "10:00")] },
+      { id: 2, busy: [iv(D, "09:30", "11:00")] },
+      { id: 3, busy: [iv(D, "10:00", "10:30")] },
+      { id: 4, busy: [iv(D, "14:00", "15:00")] },
+    ];
+    expect(deskLaneLayout(live, [])).toEqual(laneLayout(live));
   });
 });
 
