@@ -38,6 +38,11 @@ import AttendeeRescheduledEmail from "./templates/attendee-rescheduled-email";
 import AttendeeScheduledEmail from "./templates/attendee-scheduled-email";
 import AttendeeUpdatedEmail from "./templates/attendee-updated-email";
 import AttendeeWasRequestedToRescheduleEmail from "./templates/attendee-was-requested-to-reschedule-email";
+// Flowko U29e: the business notice on a customer cancel
+import FlowkoCancelNoticeEmail, {
+  type FlowkoCancelNoticeLocale,
+  type FlowkoCancelNoticeMail,
+} from "./templates/flowko-cancel-notice-email";
 // Flowko U29d: the invite mail
 import FlowkoInviteEmail, {
   type FlowkoInviteLocale,
@@ -805,3 +810,14 @@ export const sendFlowkoInviteEmail = async (
   invite: FlowkoInviteMail,
   locale?: FlowkoInviteLocale
 ): Promise<MailSendOutcome> => new FlowkoInviteEmail(invite, locale).sendEmailOrThrow();
+
+/**
+ * Flowko U29e (E7, R13): the business notice when a customer cancels through the link in their mail, sent with
+ * `sendEmailOrThrow`: "sent" is the only outcome that counts as sent; `skipped_*` resolve, a transport failure rejects
+ * with a `MailTransportError`. The booking service logs everything but "sent" without data and never lets it reach
+ * the customer's cancel. Slovene; "en" only for the tests.
+ */
+export const sendFlowkoCancelNoticeEmail = async (
+  notice: FlowkoCancelNoticeMail,
+  locale?: FlowkoCancelNoticeLocale
+): Promise<MailSendOutcome> => new FlowkoCancelNoticeEmail(notice, locale).sendEmailOrThrow();

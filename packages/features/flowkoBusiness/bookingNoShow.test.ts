@@ -22,6 +22,7 @@ vi.mock("./bookingMail", () => ({
   sendBusinessBookingCreated: vi.fn(async () => undefined),
   sendBusinessBookingMoved: vi.fn(async () => undefined),
   sendBusinessBookingCancelled: vi.fn(async () => undefined),
+  sendBusinessCancelNotice: vi.fn(async () => undefined), // Flowko U29e: E7 (the senders map reads every export)
 }));
 
 const db = prismock as unknown as FlowkoDb;

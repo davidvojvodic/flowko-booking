@@ -22,11 +22,21 @@ import type { FlowkoDb } from "./db";
 import type { FlowkoBusinessError } from "./errors";
 import { setUsualWeek } from "./roster";
 
-vi.mock("./bookingMail", () => ({
-  sendBusinessBookingCreated: vi.fn(async () => undefined),
-  sendBusinessBookingMoved: vi.fn(async () => undefined),
-  sendBusinessBookingCancelled: vi.fn(async () => undefined),
-}));
+// Flowko U29e: E7 — `mailModule.loadFails` makes every read of the mocked module's notice export throw, as a module
+// that fails to load would inside sendMailAfterCommit (the senders map reads every export).
+const mailModule = vi.hoisted(() => ({ loadFails: false }));
+vi.mock("./bookingMail", () => {
+  const notice = vi.fn(async () => undefined);
+  return {
+    sendBusinessBookingCreated: vi.fn(async () => undefined),
+    sendBusinessBookingMoved: vi.fn(async () => undefined),
+    sendBusinessBookingCancelled: vi.fn(async () => undefined),
+    get sendBusinessCancelNotice() {
+      if (mailModule.loadFails) throw new Error("Flowko test: the mail module did not load");
+      return notice;
+    },
+  };
+});
 
 const db = prismock as unknown as FlowkoDb;
 const TZ = "Europe/Ljubljana";
@@ -207,6 +217,7 @@ const mail = {
   created: vi.mocked(bookingMail.sendBusinessBookingCreated),
   moved: vi.mocked(bookingMail.sendBusinessBookingMoved),
   cancelled: vi.mocked(bookingMail.sendBusinessBookingCancelled),
+  notice: vi.mocked(bookingMail.sendBusinessCancelNotice), // Flowko U29e: E7
 };
 /** Every sub-logger is a tslog Logger: the prototype's error catches the writer's log line. */
 let logError: MockInstance<(...args: unknown[]) => unknown>;
@@ -224,6 +235,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  mailModule.loadFails = false; // Flowko U29e: E7
   vi.restoreAllMocks();
 });
 
@@ -800,6 +812,96 @@ describe("mails after commit never undo the write (the writer's one helper)", ()
     await move(f.users.olga, f.ana.bookingId, at("09:15"), {}, { sendMails: false });
     expect(mail.cancelled).not.toHaveBeenCalled();
     expect(mail.moved).not.toHaveBeenCalled();
+    expect(mail.notice).not.toHaveBeenCalled(); // Flowko U29e: E7
+  });
+});
+
+// Flowko U29e: E7, R13 — one business notice per customer cancel, after Cal's cancelled mails, only through
+// sendMailAfterCommit("cancel_notice") (its dynamic import and try/catch): never on the staff path, the desk
+// cancel, a hand-over cancel or with mails off, and never a failed customer cancel.
+describe("the business notice on a customer cancel (Flowko U29e, E7)", () => {
+  const noticeLogLines = () =>
+    logError.mock.calls.filter(
+      (call) =>
+        call[0] === "business booking mail not sent" &&
+        (call[1] as { kind?: string } | undefined)?.kind === "cancel_notice"
+    );
+
+  it("no session: the notice once, after Cal's cancelled mails; the action carries details.by customer", async () => {
+    expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
+    expect(mail.cancelled).toHaveBeenCalledTimes(1);
+    expect(mail.notice).toHaveBeenCalledTimes(1);
+    expect(mail.notice).toHaveBeenCalledWith(f.ana.bookingId);
+    expect(mail.cancelled.mock.invocationCallOrder[0]).toBeLessThan(mail.notice.mock.invocationCallOrder[0]);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
+  });
+
+  it("another business's owner signed in is a customer: the notice once", async () => {
+    await cancelByUid(f.ana.uid, f.users.zala);
+    expect(mail.notice).toHaveBeenCalledTimes(1);
+    expect(mail.notice).toHaveBeenCalledWith(f.ana.bookingId);
+  });
+
+  it("the staff path through the link (Ana's own booking, the owner on Bor's): Cal's mails, no notice", async () => {
+    await cancelByUid(f.ana.uid, f.users.ana);
+    await cancelByUid(f.bor.uid, f.users.olga);
+    expect(mail.cancelled).toHaveBeenCalledTimes(2);
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("a desk cancel and a hand-over cancel send no notice", async () => {
+    await cancel(f.users.olga, f.bor.bookingId);
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.ana.bookingId, handoverToMemberId: f.members.bor },
+      NOW
+    );
+    expect(mail.cancelled).toHaveBeenCalledTimes(2);
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("sendMails false: no notice and no Cal mail on the customer path", async () => {
+    await cancelBusinessBookingAsCustomer(db, { uid: f.ana.uid, sessionUserId: null }, NOW, {
+      sendMails: false,
+    });
+    expect(mail.cancelled).not.toHaveBeenCalled();
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("a refused customer cancel (started booking) sends no notice", async () => {
+    await expectCode(cancelByUid(f.ana.uid, null, at("09:00")), "booking_not_active");
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("a throwing notice: the cancel still answers cancelled, Cal's mail went out, one log line without data", async () => {
+    mail.notice.mockRejectedValueOnce(new TypeError("boom for ana@example.com"));
+    expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+    expect(mail.cancelled).toHaveBeenCalledTimes(1);
+    expect(noticeLogLines()).toEqual([
+      [
+        "business booking mail not sent",
+        { kind: "cancel_notice", bookingId: f.ana.bookingId, errorClass: "TypeError" },
+      ],
+    ]);
+  });
+
+  it("the mail module fails to load: the cancel still answers cancelled; each send logged once", async () => {
+    mailModule.loadFails = true;
+    expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+    const lines = logError.mock.calls.filter((call) => call[0] === "business booking mail not sent");
+    expect(lines).toEqual([
+      [
+        "business booking mail not sent",
+        { kind: "cancelled", bookingId: f.ana.bookingId, errorClass: "Error" },
+      ],
+      [
+        "business booking mail not sent",
+        { kind: "cancel_notice", bookingId: f.ana.bookingId, errorClass: "Error" },
+      ],
+    ]);
   });
 });
 

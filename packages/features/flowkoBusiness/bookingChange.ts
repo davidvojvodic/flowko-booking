@@ -11,6 +11,8 @@
 // Flowko U29e: E6, R9/R10 — the customer's cancel marks its CANCELLED action `details: { by: "customer" }`; a staff
 // cancel from „Prestavi k drugemu delavcu“ carries `handoverToMemberId` (OWNER/STAFF only, an ACTIVE OWNER/WORKER of
 // the business other than the booking's worker), stored as `details: { handoverToMemberId }`, so the desk day hides it.
+// Flowko U29e: E7 — after the customer's cancel, the business notice follows Cal's cancelled mails, only through
+// sendMailAfterCommit("cancel_notice") (its dynamic import and try/catch: nothing reaches /api/cancel's answer).
 import { type Interval, placeSteps, type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
 import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKeyService";
 import type { Prisma } from "@calcom/prisma/client";
@@ -243,7 +245,10 @@ export async function cancelBusinessBookingAsCustomer(
       { by: "customer" } // Flowko U29e: E6, R9 (survives a member SetNull)
     )
   );
-  if (deps.sendMails !== false) await sendMailAfterCommit("cancelled", ref.bookingId);
+  if (deps.sendMails !== false) {
+    await sendMailAfterCommit("cancelled", ref.bookingId);
+    await sendMailAfterCommit("cancel_notice", ref.bookingId); // Flowko U29e: E7, R13 (after Cal's mails)
+  }
   return { status: "cancelled" };
 }
 
