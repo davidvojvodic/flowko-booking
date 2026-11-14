@@ -120,7 +120,8 @@ export function isServiceForeignKeyRace(error: unknown): boolean {
   return JSON.stringify(error.meta ?? {}).includes(STEP_SERVICE_FK);
 }
 
-export type BusinessMailKind = "created" | "moved" | "cancelled";
+/** Flowko U29e: E7 — "cancel_notice" = the business's own notice after a customer cancel. */
+export type BusinessMailKind = "created" | "moved" | "cancelled" | "cancel_notice";
 
 /**
  * Cal's mails of a committed business booking. Loading the mail module and sending both sit inside one
@@ -134,6 +135,7 @@ export async function sendMailAfterCommit(kind: BusinessMailKind, bookingId: num
       created: mail.sendBusinessBookingCreated,
       moved: mail.sendBusinessBookingMoved,
       cancelled: mail.sendBusinessBookingCancelled,
+      cancel_notice: mail.sendBusinessCancelNotice, // Flowko U29e: E7
     };
     await senders[kind](bookingId);
   } catch (error) {

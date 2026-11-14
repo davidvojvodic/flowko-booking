@@ -449,7 +449,7 @@ describe("flowko router wiring (Flowko U26)", () => {
   // Flowko U27: bookings.* and business.me joined the flowko router (13 keys); Flowko U28 added six (19 keys);
   // Flowko U29a added six (25 keys); Flowko U29b added roster.saveWeek and roster.saveUsualWeeks (27 keys);
   // Flowko U29c added the five workers.* ones (32 keys); Flowko U29d (S1) adds workers.invite, workers.resendInvite
-  // and workers.revokeInvite (35 keys).
+  // and workers.revokeInvite (35 keys); Flowko U29e (E9) adds workers.rename (36 keys).
   it("flowkoRouter serves the roster.* procedures and the U27 ones", () => {
     expect(Object.keys(flowkoRouter._def.procedures).sort()).toEqual(
       [
@@ -493,6 +493,8 @@ describe("flowko router wiring (Flowko U26)", () => {
         "workers.invite",
         "workers.resendInvite",
         "workers.revokeInvite",
+        // Flowko U29e (E9): the owner renames a member (36 keys)
+        "workers.rename",
       ].sort()
     );
   });

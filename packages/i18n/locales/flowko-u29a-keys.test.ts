@@ -2,6 +2,8 @@
 // with the same {{placeholders}}, no value is empty, and every {{count}} string is an i18next plural with all
 // its forms (sl _one, _two, _few, _other; en _one, _other). The test checks keys, forms and placeholders, not
 // texts: the Slovene wording may change. U29a added no flowko_desk_* key (flowko-u28-keys.test.ts pins those).
+// Flowko U29e: the list also holds the four U29e Storitve price keys (E8: the „Cena“ label, its hint and the two
+// field texts), appended at its end; the U29e key test pins them again across every prefix.
 import { describe, expect, it } from "vitest";
 
 import en from "./en/common.json";
@@ -10,7 +12,8 @@ import sl from "./sl/common.json";
 const enKeys = en as Record<string, string>;
 const slKeys = sl as Record<string, string>;
 
-// Base keys (plural suffix stripped), in file order; the list is exactly the U29a diff of the two locale files.
+// Base keys (plural suffix stripped), in file order; the list is exactly the U29a diff of the two locale files plus
+// the later settings keys marked U29b, U29c and U29e below.
 const U29A_KEYS = [
   // Task 6: the „Podjetje“ settings section and its two pages (S15).
   "flowko_settings_section",
@@ -138,6 +141,11 @@ const U29A_KEYS = [
   "flowko_settings_refresh_failed",
   "flowko_settings_refresh",
   "flowko_settings_service_broken",
+  // Flowko U29e: E8 (the „Cena“ field of a service: label, hint, format and range texts).
+  "flowko_settings_service_price",
+  "flowko_settings_service_price_hint",
+  "flowko_settings_service_field_price_format",
+  "flowko_settings_service_field_price_range",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.

@@ -3,6 +3,8 @@
 // string carries a `<n>` tag (no name ever passes through ServerTrans, A7). The test checks keys, forms and
 // placeholders, not texts: the Slovene wording may change (Task 10 read). The mail texts are pinned verbatim by
 // packages/emails/flowko-u29d-invite.test.ts. Reused existing keys (invite, resend, email, close, …) are not listed.
+// Flowko U29e: one key appended (flowko_invite_hint_new_worker_no_week, E5 R4: the brand-new WORKER hint when the
+// owner has no usual week), so the list holds 56 keys.
 import { describe, expect, it } from "vitest";
 
 import en from "./en/common.json";
@@ -11,7 +13,7 @@ import sl from "./sl/common.json";
 const enKeys = en as Record<string, string>;
 const slKeys = sl as Record<string, string>;
 
-// In the plan's Keys-table order; the list is exactly the U29d diff of the two locale files.
+// In the plan's Keys-table order; the list is exactly the U29d diff of the two locale files + one U29e key.
 const U29D_KEYS = [
   // Delavci: the invite form („Povabi s prijavo“).
   "flowko_invite_form_title",
@@ -74,6 +76,8 @@ const U29D_KEYS = [
   "flowko_invite_mail_link_text",
   "flowko_invite_mail_ignore",
   "flowko_invite_mail_reply",
+  // Flowko U29e (E5, R4): the brand-new WORKER hint when the owner has no usual week.
+  "flowko_invite_hint_new_worker_no_week",
 ];
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
@@ -96,8 +100,8 @@ const keysInFile = (keys: Record<string, string>): string[] =>
   Object.keys(keys).filter((key) => key.startsWith("flowko_invite_"));
 
 describe("U29d invite keys", () => {
-  it("lists 55 keys, each once", () => {
-    expect(U29D_KEYS).toHaveLength(55);
+  it("lists 56 keys, each once", () => {
+    expect(U29D_KEYS).toHaveLength(56);
     expect(new Set(U29D_KEYS).size).toBe(U29D_KEYS.length);
   });
 

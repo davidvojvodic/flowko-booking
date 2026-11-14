@@ -9,13 +9,15 @@ import classNames from "@calcom/ui/classNames";
 import { Button } from "@calcom/ui/components/button";
 import { Dialog, DialogContent } from "@calcom/ui/components/dialog";
 import { Icon } from "@calcom/ui/components/icon";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 import type { DeskActorState } from "./useDeskActor";
 
 export function ActorChip({ actor }: { actor: DeskActorState }) {
   const { t } = useLocale();
   if (!actor.actor) return null;
-  const label = t("flowko_desk_actor_chip", { name: actor.actor.displayName });
+  // Flowko U29e (E10.1): RAW, so „Ana & Maja“ shows once.
+  const label = t("flowko_desk_actor_chip", { name: actor.actor.displayName, ...RAW });
 
   return (
     <>

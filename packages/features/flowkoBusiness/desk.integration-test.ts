@@ -12,6 +12,7 @@ import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import prisma from "@calcom/prisma";
 import { BookingStatus, FlowkoBusinessRole } from "@calcom/prisma/enums";
 import { beforeAll, describe, expect, it } from "vitest";
+import { cancelBusinessBooking, cancelBusinessBookingAsCustomer } from "./bookingChange"; // Flowko U29e: E6
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
 import { addLoginMember, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
@@ -275,18 +276,53 @@ describe("findCustomers on Postgres (ILIKE, Unicode, NULL phones)", () => {
     expect(await find("ČUK")).toEqual([{ name: "Ivan Čuk", phone: null, email: "ivan@example.com" }]);
   });
 
-  it("wildcards in the query act as SQL wildcards, but only inside the caller's business", async () => {
-    // Flowko U28 (final review): Prisma's `contains` does not escape % and _ on Postgres, so „ma%k“ and „m_rija“
-    // find „Marija Novak“. Recorded as found (no production change in U28); the lookup stays scoped to the
-    // caller's business: „m_ra“ finds business B's „Mara Bistra“ only for B, and A's „Marija“ never for B.
-    const marija = [{ name: "Marija Novak", phone: "+38641123456", email: "marija@example.com" }];
-    expect(await find("ma%k")).toEqual(marija);
-    expect(await find("m_rija")).toEqual(marija);
+  it("the search is literal: % _ and \ in the query match themselves, inside the caller's business", async () => {
+    // Flowko U29e: E10.5, R21 (inverts the U28 final-review test that recorded wildcard behaviour). Prisma's
+    // `contains` does not escape % and _ on Postgres; findCustomers escapes \ % _ itself, so „ma%k“ and „m_rija“
+    // find nothing, in A and in B. The scope lines are literal: „mara“ finds business B's „Mara Bistra“ only for B.
+    expect(await find("ma%k")).toEqual([]);
+    expect(await find("m_rija")).toEqual([]);
     expect(await find("m_ra")).toEqual([]);
-    expect(await find("m_ra", fx.users.zala)).toEqual([
+    expect(await find("ma%k", fx.users.zala)).toEqual([]);
+    expect(await find("m_ra", fx.users.zala)).toEqual([]);
+    expect(await find("m_rija", fx.users.zala)).toEqual([]);
+    expect(await find("mara", fx.users.zala)).toEqual([
       { name: "Mara Bistra", phone: "+38640111222", email: null },
     ]);
-    expect(await find("m_rija", fx.users.zala)).toEqual([]);
+    expect(await find("mara")).toEqual([]);
+    expect(await find("marija", fx.users.zala)).toEqual([]);
+  });
+
+  it("a stored „Ana_Test“ and „100% Lepota“ are found by their literal query, not by a wildcard one", async () => {
+    // Own customers on a later Monday (23 Nov, desk-only Cene), so no other test's day or week changes.
+    const nextMon = "2026-11-23";
+    for (const [time, name] of [
+      ["09:00", "Ana_Test"],
+      ["10:00", "100% Lepota"],
+      ["11:00", "Back\\slash Zof"],
+    ] as const) {
+      await book(fx.users.olga, {
+        workerMemberId: fx.members.cene,
+        serviceIds: [fx.services.mens],
+        start: at(nextMon, time),
+        customer: { name, email: `lit-${time.slice(0, 2)}-${RUN}@example.com` },
+      });
+    }
+    const names = async (q: string, userId = fx.users.olga) => (await find(q, userId)).map((c) => c.name);
+    expect(await names("ana_t")).toEqual(["Ana_Test"]);
+    expect(await names("ANA_TEST")).toEqual(["Ana_Test"]);
+    expect(await names("anaxt")).toEqual([]);
+    expect(await names("a_a_t")).toEqual([]);
+    expect(await names("100% le")).toEqual(["100% Lepota"]);
+    expect(await names("100x le")).toEqual([]);
+    expect(await names("%lepota")).toEqual([]);
+    expect(await names("back\\slash")).toEqual(["Back\\slash Zof"]);
+    expect(await names("backxslash")).toEqual([]);
+    // A backslash anywhere answers without a database error.
+    expect(await names("ana\\")).toEqual([]);
+    expect(await names("\\ana")).toEqual([]);
+    expect(await names("ab\\")).toEqual([]);
+    expect(await names("ana_t", fx.users.zala)).toEqual([]);
   });
 
   it("phone digits skip attendees without a phone; a phone-only e-mail is null", async () => {
@@ -322,6 +358,111 @@ describe("RF1 on real responses", () => {
       await expectNoPrivateData(await findCustomers(prisma, userId, { query: "an" }));
       await expectNoPrivateData(await findCustomers(prisma, userId, { query: "0411" }));
     }
+  });
+});
+
+// Flowko U29e: E6, R9, R10 on Postgres — the widened status `in` (CANCELLED is a real enum value), the action select
+// with actorMemberId and the Json details read back through the real client. Own bookings on Wed 18 Nov (Ana), so no
+// other test's day or week changes.
+describe("cancelled bookings on the day (Flowko U29e, E6)", () => {
+  it("a customer cancel, a desk cancel and a hand-over cancel: two faded rows, the hand-over one hidden", async () => {
+    const WED = "2026-11-18";
+    const make = async (time: string, customer: CreateBookingInput["customer"]) => {
+      const result = await createBusinessBooking(
+        prisma,
+        fx.users.olga,
+        {
+          workerMemberId: fx.members.ana,
+          serviceIds: [fx.services.mens],
+          start: at(WED, time),
+          customer,
+          confirmOverride: false,
+        },
+        NOW,
+        quiet
+      );
+      if (result.status !== "created") throw new Error(`fixture: expected created, got ${result.status}`);
+      return result;
+    };
+    const byCustomer = await make("09:00", { name: "Tina Rep", email: `tina-${RUN}@example.com` });
+    const byDesk = await make("10:00", { name: "Urban Les", phone: "070 300 400" });
+    const handedOver = await make("11:00", { name: "Vida Hrib", phone: "070 300 401" });
+    const live = await make("12:00", { name: "Zoja Breg", phone: "070 300 402" });
+
+    await cancelBusinessBookingAsCustomer(
+      prisma,
+      { uid: byCustomer.uid, reason: "Zbolela & doma", sessionUserId: null },
+      NOW,
+      { sendMails: false }
+    );
+    await cancelBusinessBooking(prisma, fx.users.olga, { bookingId: byDesk.bookingId, reason: null }, NOW, {
+      sendMails: false,
+    });
+    await cancelBusinessBooking(
+      prisma,
+      fx.users.olga,
+      { bookingId: handedOver.bookingId, reason: "Prestavljeno k: Bor", handoverToMemberId: fx.members.bor },
+      NOW,
+      { sendMails: false }
+    );
+    // A WORKER session may not set the marker (R10): forbidden, the booking stays.
+    await expect(
+      cancelBusinessBooking(
+        prisma,
+        fx.users.ana,
+        { bookingId: live.bookingId, handoverToMemberId: fx.members.bor },
+        NOW,
+        { sendMails: false }
+      )
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const stored = await prisma.flowkoBookingAction.findMany({
+      where: {
+        bookingId: { in: [byCustomer.bookingId, byDesk.bookingId, handedOver.bookingId] },
+        action: "CANCELLED",
+      },
+      select: { bookingId: true, actorMemberId: true, details: true, createdAt: true },
+      orderBy: { bookingId: "asc" },
+    });
+    expect(stored.map((s) => [s.bookingId, s.actorMemberId, s.details])).toEqual([
+      [byCustomer.bookingId, null, { by: "customer" }],
+      [byDesk.bookingId, fx.members.olga, null],
+      [handedOver.bookingId, fx.members.olga, { handoverToMemberId: fx.members.bor }],
+    ]);
+
+    const view = await getDeskDay(prisma, fx.users.olga, { date: WED }, NOW, deps);
+    const rows = view.days[0].bookings;
+    expect(rows.map((r) => [r.bookingId, r.status])).toEqual([
+      [byCustomer.bookingId, BookingStatus.CANCELLED],
+      [byDesk.bookingId, BookingStatus.CANCELLED],
+      [live.bookingId, BookingStatus.ACCEPTED],
+    ]);
+    expect(rows[0].cancelled).toEqual({ by: "customer", at: stored[0].createdAt.toISOString() });
+    expect(rows[0].cancelReason).toBe("Zbolela & doma");
+    expect(rows[0].actions.map((a) => [a.kind, a.byCustomer])).toEqual([
+      ["CREATED", false],
+      ["CANCELLED", true],
+    ]);
+    expect(rows[1].cancelled).toEqual({ by: "desk", at: stored[1].createdAt.toISOString() });
+    expect(rows[1].cancelReason).toBeNull();
+    expect(rows[2]).toMatchObject({ cancelled: null, cancelReason: null, mayCancel: true });
+    for (const r of rows.slice(0, 2)) {
+      expect([r.mayCancel, r.mayMove, r.mayNoShow, r.mayReenter]).toEqual([false, false, false, false]);
+    }
+    expect(JSON.stringify(view)).not.toMatch(/handoverToMemberId|actorMemberId|Vida Hrib/);
+    await expectNoPrivateData(view);
+
+    // The week has no cancelled row (Ana's week of 16 Nov holds the two cancels above).
+    const weekView = await getDeskWeek(
+      prisma,
+      fx.users.olga,
+      { weekStart: MON, memberId: fx.members.ana },
+      NOW,
+      deps
+    );
+    const weekRows = weekView.days.flatMap((d) => d.bookings);
+    expect(weekRows.some((r) => r.bookingId === live.bookingId)).toBe(true);
+    expect(weekRows.every((r) => r.status !== BookingStatus.CANCELLED && r.cancelled === null)).toBe(true);
   });
 });
 

@@ -11,13 +11,17 @@ import type { ShiftEntry, WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
 import prisma from "@calcom/prisma";
 import { BookingStatus, FlowkoBusinessRole } from "@calcom/prisma/enums";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type CreateBookingInput, createBusinessBooking, type WriterDeps } from "./bookingWriter";
 import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWorker } from "./business";
 import { FlowkoBusinessError } from "./errors";
 import { setMemberLock } from "./lock";
-import { setUsualWeek } from "./roster";
-import { addDeskWorker, listWorkers, reorderWorkers } from "./workers";
+// Flowko U29e (E9): the rename's races (conversion, usual-week save, booking).
+import type { MailSendOutcome } from "@calcom/emails/templates/_base-email";
+import { acceptInvite } from "./inviteAccept";
+import { createInvite, type InviteDeps, type InviteMailArgs } from "./invites";
+import { getRosterWeek, saveUsualWeeks, setUsualWeek } from "./roster";
+import { addDeskWorker, listWorkers, renameMember, reorderWorkers } from "./workers";
 
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const TZ = "Europe/Ljubljana";
@@ -424,6 +428,18 @@ describe("U29c addDeskWorker / reorderWorkers / nextPosition on a real database"
     expect(await codeOf(addDeskWorker(prisma, two.owner, { displayName: "lara" }))).toBe("ok");
   });
 
+  // Flowko U29e (RIGHTS-1, R5): NUL used to reach Postgres (0x00 is refused in text -> a raw driver error / 500).
+  it("RIGHTS-1 on Postgres: a NUL or a C1 character in the name is bad_member, never a driver error; nothing written", async () => {
+    const { owner, businessId } = await freshBusiness("Nul");
+    const membersBefore = await prisma.flowkoBusinessMember.count({ where: { businessId } });
+    const usersBefore = await prisma.user.count();
+    for (const displayName of ["A\u0000", "\u0000", "A\u0085"]) {
+      expect(await codeOf(addDeskWorker(prisma, owner, { displayName }))).toBe("bad_member");
+    }
+    expect(await prisma.flowkoBusinessMember.count({ where: { businessId } })).toBe(membersBefore);
+    expect(await prisma.user.count()).toBe(usersBefore);
+  });
+
   it("reorder writes 0..n-1 in the sent order over every member and closes gaps; the other business is untouched", async () => {
     const one = await freshBusiness("Ord");
     const other = await freshBusiness("OrdOther");
@@ -479,5 +495,304 @@ describe("U29c addDeskWorker / reorderWorkers / nextPosition on a real database"
       expect(all).toHaveLength(ids.length + 1);
       expect(all.map(([, position]) => position)).toEqual(all.map((_, index) => index));
     }
+  });
+});
+
+// Flowko U29e (E9, R6-R8, Review Focus 4): the rename on a real database. Its locks: business row FOR NO KEY UPDATE
+// -> member row FOR NO KEY UPDATE -> re-read -> users row (desk-only only). Proven here: one name key under a race
+// with addDeskWorker, the desk-only decision taken from the re-read under the member lock (a conversion committed
+// first is never overwritten), and no deadlock against the owner's usual-week save and a booking of that worker.
+describe("U29e renameMember on a real database (E9)", () => {
+  const ROUNDS = 20;
+  const BASE = "https://booking.example";
+  const fastHash = async (pw: string) => `stub:${pw.length}`;
+  const inviteDeps = (): InviteDeps => ({
+    db: prisma,
+    baseUrl: BASE,
+    sendInvite: vi.fn(async (_args: InviteMailArgs): Promise<MailSendOutcome> => "sent"),
+  });
+  const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  // 24 distinct hourly slots (Tue to Thu, 08:00 to 15:00), in the week after NOW.
+  const SLOTS = ["2026-11-17", "2026-11-18", "2026-11-19"].flatMap((date) =>
+    ["08", "09", "10", "11", "12", "13", "14", "15"].map((h) => at(date, `${h}:00`))
+  );
+  const userName = async (userId: number) =>
+    (
+      await prisma.$queryRaw<Array<{ name: string | null; email: string }>>`
+      SELECT name, email FROM users WHERE id = ${userId}`
+    )[0];
+
+  it("Review Focus 4: rename and addDeskWorker to the same new name in parallel -> exactly one member_name_taken (10 rounds)", async () => {
+    const { owner, businessId } = await freshBusiness("RenAdd");
+    for (let round = 0; round < 10; round++) {
+      const { memberId } = await addDeskWorker(prisma, owner, { displayName: `Stara${round}` });
+      const codes = await Promise.all([
+        codeOf(renameMember(prisma, owner, { memberId, displayName: `Nova${round}` })),
+        codeOf(addDeskWorker(prisma, owner, { displayName: ` nova${round} ` })),
+      ]);
+      expect([...codes].sort()).toEqual(["member_name_taken", "ok"]);
+      const same = await prisma.flowkoBusinessMember.findMany({
+        where: { businessId, displayName: { in: [`Nova${round}`, `nova${round}`] } },
+      });
+      expect(same).toHaveLength(1);
+    }
+  });
+
+  it(`Review Focus 4: ${ROUNDS} rounds of a rename racing the desk-only conversion (C9): no deadlock, the conversion's User.name is never overwritten`, async () => {
+    const { owner, businessId } = await freshBusiness("RenConv");
+    for (let round = 0; round < ROUNDS; round++) {
+      const desk = await createDeskOnlyWorker(prisma, businessId, `Desk${round}`);
+      const mail = `renconv${round}-${RUN}@example.com`;
+      const { link } = await createInvite(
+        inviteDeps(),
+        owner,
+        { kind: "member", memberId: desk.memberId, email: mail },
+        NOW
+      );
+      const token = link.slice(`${BASE}/auth/pridruzi/`.length);
+      const [renamed, accepted] = await Promise.all([
+        delay(round % 2 === 0 ? 0 : (round % 5) * 3).then(() =>
+          codeOf(
+            renameMember(prisma, owner, { memberId: desk.memberId, displayName: `Preimenovana${round}` })
+          )
+        ),
+        delay(round % 2 === 0 ? (round % 5) * 3 : 0).then(() =>
+          codeOf(
+            acceptInvite(
+              { db: prisma, hashPassword: fastHash },
+              { token, name: `Vpisana${round}`, password: "Geslo123" },
+              NOW
+            )
+          )
+        ),
+      ]);
+      expect([renamed, accepted]).toEqual(["ok", "ok"]);
+      const member = await prisma.flowkoBusinessMember.findUniqueOrThrow({ where: { id: desk.memberId } });
+      expect(member.displayName).toBe(`Preimenovana${round}`);
+      // Either order ends the same: a rename first is overwritten by the conversion's name; a conversion first is
+      // seen by the rename's re-read under the member lock, which then leaves User.name alone.
+      expect(await userName(desk.userId)).toEqual({ name: `Vpisana${round}`, email: mail });
+    }
+  });
+
+  it(`Review Focus 4: ${ROUNDS} rounds of rename x saveUsualWeeks x a booking of that worker: no deadlock, all three succeed`, async () => {
+    const { owner, businessId } = await freshBusiness("RenTri");
+    await prisma.flowkoBusiness.update({ where: { id: businessId }, data: { openHolidays: [] } });
+    const service = await prisma.flowkoService.findFirstOrThrow({
+      where: { businessId },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
+    const desk = await createDeskOnlyWorker(prisma, businessId, "Trojka");
+    await prisma.flowkoServiceWorker.create({ data: { serviceId: service.id, memberId: desk.memberId } });
+    const WEEK_A = week([{ from: "08:00", to: "16:00" }]);
+    const WEEK_B = { ...WEEK_A, sat: [{ from: "09:00", to: "13:00" }] };
+    await setUsualWeek(prisma, owner, {
+      memberId: desk.memberId,
+      usualWeek: WEEK_A,
+      confirmOutsideOpening: true,
+    });
+    for (let round = 0; round < ROUNDS; round++) {
+      const view = await getRosterWeek(prisma, owner, "2026-11-16", NOW);
+      const version = view.members.find((m) => m.memberId === desk.memberId)?.usualVersion;
+      if (version === undefined) throw new Error("fixture: the worker is not in Urnik");
+      const [renamed, saved, booked] = await Promise.all([
+        codeOf(renameMember(prisma, owner, { memberId: desk.memberId, displayName: `Trojka${round}` })),
+        saveUsualWeeks(
+          prisma,
+          owner,
+          {
+            rows: [{ memberId: desk.memberId, version, usualWeek: round % 2 === 0 ? WEEK_B : WEEK_A }],
+            confirm: true,
+          },
+          NOW
+        ).then(
+          (result) => result.status,
+          (e) => (e instanceof FlowkoBusinessError ? e.code : Promise.reject(e))
+        ),
+        createBusinessBooking(
+          prisma,
+          owner,
+          {
+            workerMemberId: desk.memberId,
+            serviceIds: [service.id],
+            start: SLOTS[round],
+            customer: { name: "Ana Testna", phone: "041 123 456", email: null },
+            confirmOverride: false,
+          },
+          NOW,
+          quiet
+        ).then(
+          (result) => result.status,
+          (e) => (e instanceof FlowkoBusinessError ? e.code : Promise.reject(e))
+        ),
+      ]);
+      expect([renamed, saved, booked]).toEqual(["ok", "saved", "created"]);
+      const member = await prisma.flowkoBusinessMember.findUniqueOrThrow({ where: { id: desk.memberId } });
+      expect(member.displayName).toBe(`Trojka${round}`);
+      expect((await userName(desk.userId)).name).toBe(`Trojka${round}`);
+    }
+    expect(await prisma.booking.count({ where: { userId: desk.userId } })).toBe(ROUNDS);
+  });
+
+  it("RIGHTS-1 on Postgres: a NUL or a C1 character is bad_member, never a driver error; nothing written", async () => {
+    const { owner, businessId } = await freshBusiness("RenNul");
+    const desk = await createDeskOnlyWorker(prisma, businessId, "Nulka");
+    const before = await userName(desk.userId);
+    for (const displayName of ["A\u0000", "\u0000", "A\u0085"]) {
+      expect(await codeOf(renameMember(prisma, owner, { memberId: desk.memberId, displayName }))).toBe(
+        "bad_member"
+      );
+    }
+    const member = await prisma.flowkoBusinessMember.findUniqueOrThrow({ where: { id: desk.memberId } });
+    expect(member.displayName).toBe("Nulka");
+    expect(await userName(desk.userId)).toEqual(before);
+  });
+
+  it("a desk-only rename writes displayName and User.name; a login member's only displayName; a foreign owner is forbidden", async () => {
+    const one = await freshBusiness("RenBasic");
+    const desk = await createDeskOnlyWorker(prisma, one.businessId, "Lara");
+    const login = await addLoginMember(
+      prisma,
+      one.businessId,
+      await realUser("Renlogin"),
+      FlowkoBusinessRole.WORKER
+    );
+    const loginUser = await prisma.flowkoBusinessMember.findUniqueOrThrow({ where: { id: login.memberId } });
+    const loginBefore = await userName(loginUser.userId as number);
+    expect(
+      await renameMember(prisma, one.owner, { memberId: desk.memberId, displayName: "Lara Nova" })
+    ).toEqual({
+      status: "saved",
+    });
+    expect(
+      await renameMember(prisma, one.owner, { memberId: login.memberId, displayName: "Login Nova" })
+    ).toEqual({
+      status: "saved",
+    });
+    expect((await userName(desk.userId)).name).toBe("Lara Nova");
+    expect(await userName(loginUser.userId as number)).toEqual(loginBefore);
+    expect(
+      await prisma.flowkoBusinessMember.findMany({
+        where: { id: { in: [desk.memberId, login.memberId] } },
+        select: { displayName: true },
+        orderBy: { id: "asc" },
+      })
+    ).toEqual([{ displayName: "Lara Nova" }, { displayName: "Login Nova" }]);
+    expect(
+      await codeOf(renameMember(prisma, fx.zala, { memberId: desk.memberId, displayName: "Tuja" }))
+    ).toBe("forbidden");
+    expect((await userName(desk.userId)).name).toBe("Lara Nova");
+  });
+});
+
+// Flowko U29e (E5, R1, R3, Review Focus 6): „Dodaj brez prijave“ copies the owner's usual week on a real database.
+// The add reads the owner's week after its business row lock (FOR NO KEY UPDATE). The week is one jsonb column
+// written by one UPDATE, so the copy is always one committed week (the old or the new one), with or without that
+// lock. The lock serialises the add with saveUsualWeeks (advisory locks, then the business row FOR UPDATE): it
+// guards the name check and the position, not the copy's atomicity. Neither side loses (no member_conflict).
+describe("U29e addDeskWorker copies the owner's usual week on a real database (E5)", () => {
+  const ROUNDS = 20;
+  const WEEK_A = week([{ from: "08:00", to: "16:00" }]);
+  const WEEK_B: WeekHours = {
+    ...WEEK_A,
+    mon: [
+      { from: "07:00", to: "11:00" },
+      { from: "12:00", to: "15:00" },
+    ],
+    sat: [{ from: "09:00", to: "13:00" }],
+  };
+  const usualWeekIsNull = async (memberId: number): Promise<boolean> => {
+    const rows = await prisma.$queryRaw<Array<{ none: boolean }>>`
+      SELECT "usualWeek" IS NULL AS none FROM "FlowkoBusinessMember" WHERE "id" = ${memberId}`;
+    return rows[0].none;
+  };
+  const storedWeek = async (memberId: number) =>
+    (
+      await prisma.flowkoBusinessMember.findUniqueOrThrow({
+        where: { id: memberId },
+        select: { usualWeek: true },
+      })
+    ).usualWeek;
+
+  it("copies the owner's week (equal JSON); SQL NULL when the owner has none; workers.list says which", async () => {
+    const { owner, ownerMemberId } = await freshBusiness("Week");
+    expect((await listWorkers(prisma, owner, NOW)).ownerUsualWeek).toBe(false);
+    const none = await addDeskWorker(prisma, owner, { displayName: "Brez" });
+    expect(none).toEqual({ status: "added", memberId: none.memberId, usualWeek: "none" });
+    expect(await usualWeekIsNull(none.memberId)).toBe(true);
+
+    await setUsualWeek(prisma, owner, {
+      memberId: ownerMemberId,
+      usualWeek: WEEK_A,
+      confirmOutsideOpening: true,
+    });
+    expect((await listWorkers(prisma, owner, NOW)).ownerUsualWeek).toBe(true);
+    const copied = await addDeskWorker(prisma, owner, { displayName: "Kopija" });
+    expect(copied).toEqual({ status: "added", memberId: copied.memberId, usualWeek: "copied" });
+    expect(await storedWeek(copied.memberId)).toEqual(WEEK_A);
+    // Shifts only: no service, no roster day (C10).
+    expect(await prisma.flowkoServiceWorker.count({ where: { memberId: copied.memberId } })).toBe(0);
+    expect(await prisma.flowkoRosterDay.count({ where: { memberId: copied.memberId } })).toBe(0);
+    // The earlier member keeps SQL NULL; the owner keeps the week.
+    expect(await usualWeekIsNull(none.memberId)).toBe(true);
+    expect(await storedWeek(ownerMemberId)).toEqual(WEEK_A);
+
+    // A cleared week (the save stores SQL NULL) is none again.
+    await setUsualWeek(prisma, owner, {
+      memberId: ownerMemberId,
+      usualWeek: null,
+      confirmOutsideOpening: true,
+    });
+    expect((await listWorkers(prisma, owner, NOW)).ownerUsualWeek).toBe(false);
+    const after = await addDeskWorker(prisma, owner, { displayName: "Potem" });
+    expect(after.usualWeek).toBe("none");
+    expect(await usualWeekIsNull(after.memberId)).toBe(true);
+    expect(await storedWeek(copied.memberId)).toEqual(WEEK_A);
+  });
+
+  it(`Review Focus 6: ${ROUNDS} rounds of addDeskWorker x saveUsualWeeks(owner): the copy is the old or the new committed week; both writes land, no member_conflict`, async () => {
+    const { owner, businessId, ownerMemberId } = await freshBusiness("WeekRace");
+    await setUsualWeek(prisma, owner, {
+      memberId: ownerMemberId,
+      usualWeek: WEEK_A,
+      confirmOutsideOpening: true,
+    });
+    const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    for (let round = 0; round < ROUNDS; round++) {
+      const oldWeek = round % 2 === 0 ? WEEK_A : WEEK_B;
+      const newWeek = round % 2 === 0 ? WEEK_B : WEEK_A;
+      const view = await getRosterWeek(prisma, owner, "2026-11-16", NOW);
+      const version = view.members.find((m) => m.memberId === ownerMemberId)?.usualVersion;
+      if (version === undefined) throw new Error("fixture: the owner is not in Urnik");
+      const [added, saved] = await Promise.all([
+        delay(round % 2 === 0 ? 0 : (round % 5) * 3).then(() =>
+          addDeskWorker(prisma, owner, { displayName: `Teden${round}` }).then(
+            (answer) => answer,
+            (e) => (e instanceof FlowkoBusinessError ? e.code : Promise.reject(e))
+          )
+        ),
+        delay(round % 2 === 0 ? (round % 5) * 3 : 0).then(() =>
+          saveUsualWeeks(
+            prisma,
+            owner,
+            { rows: [{ memberId: ownerMemberId, version, usualWeek: newWeek }], confirm: true },
+            NOW
+          ).then(
+            (result) => result.status,
+            (e) => (e instanceof FlowkoBusinessError ? e.code : Promise.reject(e))
+          )
+        ),
+      ]);
+      expect(saved).toBe("saved");
+      if (typeof added === "string") throw new Error(`round ${round}: addDeskWorker refused with ${added}`);
+      expect(added.usualWeek).toBe("copied");
+      const copy = await storedWeek(added.memberId);
+      // jsonb reorders object keys, so compare structurally (toContainEqual), not by JSON text.
+      expect([oldWeek, newWeek]).toContainEqual(copy);
+      // Both writes landed: the owner's week is the new one and the member exists.
+      expect(await storedWeek(ownerMemberId)).toEqual(newWeek);
+    }
+    expect(await prisma.flowkoBusinessMember.count({ where: { businessId } })).toBe(1 + ROUNDS);
   });
 });

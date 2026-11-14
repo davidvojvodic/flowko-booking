@@ -18,6 +18,12 @@
 // InviteLinkPanel (one at a time, dropped on „Zapri“, on leaving the page and when its invite is revoked). Every
 // invite write runs in exclusive() and ends with the checked refresh; invite_gone / member_not_desk_only also
 // refresh. Strings with a name, an address or a date opt out of i18next's escaping (React escapes once).
+// Flowko U29e (Task 8): „Preimenuj“ on every row opens RenameWorkerDialog (E9, R8); the rename runs in exclusive()
+// and, after it saved, refreshes the list (probe) plus every view that shows member names (desk members and services,
+// the desk day and week, Urnik, Storitve). Only one dialog is open at a time (lock, „Povabi“, rename). The add
+// answer says whether the owner's usual week was copied and the toast says so (E5, R4); the list's ownerUsualWeek
+// drives the add form's week line and the brand-new WORKER invite hint. Every name goes through the shared RAW
+// (E10.1).
 "use client";
 
 import type { InviteLinkAnswer, InviteRole, PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
@@ -28,6 +34,7 @@ import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { refreshAfterSave } from "@calcom/web/lib/flowko/refreshAfterSave";
 import { useEffect, useRef, useState } from "react";
 import { AddDeskWorkerForm, type AddWorkerResult } from "./AddDeskWorkerForm";
@@ -36,6 +43,7 @@ import { type InvitePanelData, type InvitePanelLine, InviteLinkPanel } from "./I
 import { InviteMemberDialog, type InviteMemberResult } from "./InviteMemberDialog";
 import { LockWorkerDialog } from "./LockWorkerDialog";
 import { PendingInvites } from "./PendingInvites";
+import { RenameWorkerDialog, type RenameWorkerResult } from "./RenameWorkerDialog";
 import { type ArrowDirection, WorkerListItem } from "./WorkerListItem";
 
 const BOX = "border-subtle rounded-b-xl border border-t-0 px-4 py-8 sm:px-6";
@@ -101,18 +109,22 @@ const memberInviteTarget = (row: WorkerListRow, inviteId: number): InviteTarget 
   hint: "desk_worker",
 });
 
-const pendingInviteTarget = (invite: PendingInvite): InviteTarget => ({
+/** Flowko U29e (E5, R4): a brand-new WORKER's hint follows the owner's usual week (a list-time snapshot). */
+const newWorkerHint = (ownerUsualWeek: boolean): InvitePanelData["hint"] =>
+  ownerUsualWeek ? "new_worker" : "new_worker_no_week";
+
+const pendingInviteTarget = (invite: PendingInvite, ownerUsualWeek: boolean): InviteTarget => ({
   inviteId: invite.inviteId,
   name: invite.name,
   email: invite.email,
-  hint: invite.role === "WORKER" ? "new_worker" : null,
+  hint: invite.role === "WORKER" ? newWorkerHint(ownerUsualWeek) : null,
 });
 
 /** U4: these answers mean the list on screen is stale. */
 const refreshesList = (code: WorkerCode) => code === "invite_gone" || code === "member_not_desk_only";
 
-/** Names, addresses and dates are printed by React (escaped once); i18next must not escape them too. */
-const RAW = { interpolation: { escapeValue: false } } as const;
+/** Flowko U29e: the one dialog open on the page (lock, „Povabi“ or rename) and the member it is for. */
+type OpenDialog = { kind: "lock" | "invite" | "rename"; memberId: number };
 
 export default function WorkersView() {
   const { t } = useLocale();
@@ -124,30 +136,35 @@ export default function WorkersView() {
   const reorder = trpc.viewer.flowko.workers.reorder.useMutation();
   // Flowko U29d: revoke answers no link, so a mutation hook is fine; invite / resendInvite use utils.client (U3).
   const revokeInvite = trpc.viewer.flowko.workers.revokeInvite.useMutation();
+  // Flowko U29e (E9): the answer carries no secret, so a mutation hook is fine.
+  const rename = trpc.viewer.flowko.workers.rename.useMutation();
 
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [preparing, setPreparing] = useState<number | null>(null);
-  const [dialogFor, setDialogFor] = useState<number | null>(null);
+  // Flowko U29e: one dialog at a time (lock, „Povabi“, rename); opening one replaces any other.
+  const [openDialog, setOpenDialog] = useState<OpenDialog | null>(null);
+  const closeDialog = (kind: OpenDialog["kind"]) =>
+    setOpenDialog((open) => (open?.kind === kind ? null : open));
   const [retryGoogle, setRetryGoogle] = useState<number[]>([]);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const arrows = useRef(new Map<string, HTMLElement | null>());
-  // Flowko U29d: the one link panel (its key remounts it when a new link replaces the old one) and the member
-  // whose „Povabi“ dialog is open.
+  // Flowko U29d: the one link panel (its key remounts it when a new link replaces the old one).
   const [panel, setPanel] = useState<{ key: number; data: InvitePanelData } | null>(null);
   const panelKey = useRef(0);
-  const [inviteFor, setInviteFor] = useState<number | null>(null);
 
   // P1: workers.list is the probe (invalidated with throwOnError, so it rejects when its refetch fails); the desk's
   // member and service lists only run alongside. A saved write is never undone by a failed refresh.
   const probeList = () =>
     utils.viewer.flowko.workers.list.invalidate(undefined, undefined, { throwOnError: true });
-  async function refresh(): Promise<boolean> {
+  // Flowko U29e (E9): `extra` = more views to invalidate alongside (a rename changes names everywhere).
+  async function refresh(extra: Array<() => Promise<unknown>> = []): Promise<boolean> {
     const ok = await refreshAfterSave(probeList, [
       () => utils.viewer.flowko.business.members.invalidate(),
       () => utils.viewer.flowko.business.services.invalidate(),
+      ...extra,
     ]);
     setRefreshFailed(!ok);
     return ok;
@@ -238,7 +255,7 @@ export default function WorkersView() {
         return;
       }
       setRefreshFailed(false);
-      setDialogFor(row.memberId);
+      setOpenDialog({ kind: "lock", memberId: row.memberId });
     }, undefined);
   }
 
@@ -252,9 +269,9 @@ export default function WorkersView() {
         showToast(t(errorKey(workerErrorCode(error))), "error");
         return;
       }
-      showToast(t("flowko_workers_locked", { name: row.displayName }), "success");
+      showToast(t("flowko_workers_locked", { name: row.displayName, ...RAW }), "success");
       if (result.google === "failed") {
-        showToast(t("flowko_workers_google_failed", { name: row.displayName }), "warning");
+        showToast(t("flowko_workers_google_failed", { name: row.displayName, ...RAW }), "warning");
         setRetryGoogle((ids) => (ids.includes(row.memberId) ? ids : [...ids, row.memberId]));
       } else {
         setRetryGoogle((ids) => ids.filter((id) => id !== row.memberId));
@@ -274,7 +291,7 @@ export default function WorkersView() {
         if (code === "member_not_locked") await refresh();
         return;
       }
-      showToast(t("flowko_workers_unlocked", { name: row.displayName }), "success");
+      showToast(t("flowko_workers_unlocked", { name: row.displayName, ...RAW }), "success");
       setRetryGoogle((ids) => ids.filter((id) => id !== row.memberId));
       await refresh();
     }, undefined);
@@ -310,8 +327,9 @@ export default function WorkersView() {
 
   async function addWorker(displayName: string): Promise<AddWorkerResult> {
     return exclusive<AddWorkerResult>(async () => {
+      let answer: Awaited<ReturnType<typeof addDeskOnly.mutateAsync>>;
       try {
-        await addDeskOnly.mutateAsync({ displayName });
+        answer = await addDeskOnly.mutateAsync({ displayName });
       } catch (error) {
         const code = workerErrorCode(error);
         if (code === "member_name_taken") return "member_name_taken";
@@ -319,8 +337,41 @@ export default function WorkersView() {
         showToast(t(errorKey(code)), "error");
         return "failed";
       }
-      showToast(t("flowko_workers_added", { name: displayName }), "success");
+      // Flowko U29e (E5, R4): the text follows what this add did, not what the list said before.
+      const key = answer.usualWeek === "copied" ? "flowko_workers_added" : "flowko_workers_added_no_week";
+      showToast(t(key, { name: displayName, ...RAW }), "success");
       await refresh();
+      return "ok";
+    }, "failed");
+  }
+
+  // Flowko U29e (E9, R8): rename. bad_member / member_name_taken stay inline in the dialog; forbidden means the member
+  // is gone or the right is lost (the list is stale: the dialog closes and the list is refreshed); anything else is
+  // a toast and the dialog stays with the typed name.
+  const renameRefreshes = [
+    () => utils.viewer.flowko.bookings.day.invalidate(),
+    () => utils.viewer.flowko.bookings.week.invalidate(),
+    () => utils.viewer.flowko.roster.week.invalidate(),
+    () => utils.viewer.flowko.services.list.invalidate(),
+  ];
+  async function renameMember(row: WorkerListRow, displayName: string): Promise<RenameWorkerResult> {
+    return exclusive<RenameWorkerResult>(async () => {
+      try {
+        await rename.mutateAsync({ memberId: row.memberId, displayName });
+      } catch (error) {
+        const code = workerErrorCode(error);
+        if (code === "member_name_taken") return "member_name_taken";
+        if (code === "bad_member") return "bad_name";
+        showToast(t(errorKey(code)), "error");
+        if (code === "forbidden") {
+          closeDialog("rename");
+          await refresh();
+        }
+        return "failed";
+      }
+      closeDialog("rename");
+      showToast(t("flowko_workers_renamed", { name: displayName, ...RAW }), "success");
+      await refresh(renameRefreshes);
       return "ok";
     }, "failed");
   }
@@ -369,9 +420,8 @@ export default function WorkersView() {
         showToast(t(errorKey(code)), "error");
         return "failed";
       }
-      showPanel(answer, { name: input.name, hint: input.role === "WORKER" ? "new_worker" : null }, [
-        createdLine(answer, input.email),
-      ]);
+      const hint = input.role === "WORKER" ? newWorkerHint(query.data?.ownerUsualWeek ?? false) : null;
+      showPanel(answer, { name: input.name, hint }, [createdLine(answer, input.email)]);
       await refresh();
       return "ok";
     }, "failed");
@@ -392,12 +442,12 @@ export default function WorkersView() {
           return code;
         showToast(t(errorKey(code)), "error");
         if (refreshesList(code)) {
-          setInviteFor(null);
+          closeDialog("invite");
           await refresh();
         }
         return "failed";
       }
-      setInviteFor(null);
+      closeDialog("invite");
       showPanel(answer, { name: row.displayName, hint: "desk_worker" }, [createdLine(answer, email)]);
       await refresh();
       return "ok";
@@ -456,8 +506,12 @@ export default function WorkersView() {
     }, undefined);
   }
 
-  const dialogRow = dialogFor === null ? undefined : members.find((m) => m.memberId === dialogFor);
-  const inviteRow = inviteFor === null ? undefined : members.find((m) => m.memberId === inviteFor);
+  const dialogRowOf = (kind: OpenDialog["kind"]) =>
+    openDialog?.kind === kind ? members.find((m) => m.memberId === openDialog.memberId) : undefined;
+  const lockRow = dialogRowOf("lock");
+  const inviteRow = dialogRowOf("invite");
+  const renameRow = dialogRowOf("rename");
+  const ownerUsualWeek = query.data.ownerUsualWeek;
 
   return (
     <div className={BOX}>
@@ -490,7 +544,8 @@ export default function WorkersView() {
             onLock={() => void startLock(row)}
             onUnlock={() => void unlockMember(row)}
             onRetryGoogle={() => void lockMember(row)}
-            onInvite={() => setInviteFor(row.memberId)}
+            onRename={() => setOpenDialog({ kind: "rename", memberId: row.memberId })}
+            onInvite={() => setOpenDialog({ kind: "invite", memberId: row.memberId })}
             invite={{
               onResend: () => row.invite && void newLink(memberInviteTarget(row, row.invite.inviteId), true),
               onNewLink: () =>
@@ -507,18 +562,18 @@ export default function WorkersView() {
         invites={query.data.invites}
         busy={busy}
         currentYear={currentYear}
-        onResend={(invite) => void newLink(pendingInviteTarget(invite), true)}
-        onNewLink={(invite) => void newLink(pendingInviteTarget(invite), false)}
-        onRevoke={(invite) => void revoke(pendingInviteTarget(invite))}
+        onResend={(invite) => void newLink(pendingInviteTarget(invite, ownerUsualWeek), true)}
+        onNewLink={(invite) => void newLink(pendingInviteTarget(invite, ownerUsualWeek), false)}
+        onRevoke={(invite) => void revoke(pendingInviteTarget(invite, ownerUsualWeek))}
       />
       {panel && <InviteLinkPanel key={panel.key} panel={panel.data} onClose={() => setPanel(null)} />}
       <InviteForm disabled={busy} onInvite={inviteNew} />
-      <AddDeskWorkerForm disabled={busy} onAdd={addWorker} />
-      {dialogRow && (
+      <AddDeskWorkerForm disabled={busy} ownerUsualWeek={ownerUsualWeek} onAdd={addWorker} />
+      {lockRow && (
         <LockWorkerDialog
-          row={dialogRow}
-          onClose={() => setDialogFor(null)}
-          onConfirm={() => void lockMember(dialogRow)}
+          row={lockRow}
+          onClose={() => closeDialog("lock")}
+          onConfirm={() => void lockMember(lockRow)}
         />
       )}
       {inviteRow && (
@@ -526,7 +581,15 @@ export default function WorkersView() {
           row={inviteRow}
           disabled={busy}
           onInvite={(email) => inviteMember(inviteRow, email)}
-          onClose={() => setInviteFor(null)}
+          onClose={() => closeDialog("invite")}
+        />
+      )}
+      {renameRow && (
+        <RenameWorkerDialog
+          row={renameRow}
+          disabled={busy}
+          onRename={(displayName) => renameMember(renameRow, displayName)}
+          onClose={() => closeDialog("rename")}
         />
       )}
     </div>

@@ -13,6 +13,7 @@
 // into another week, a view change, a mode change and a day-header tap run through the guard.
 "use client";
 
+// Flowko U29e (E10.1): the phone worker option and the move banners pass RAW (a name or a customer shows once).
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
@@ -21,6 +22,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import useMediaQuery from "@calcom/lib/hooks/useMediaQuery";
 import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { useFlowkoBusiness } from "@calcom/web/lib/flowko/useFlowkoBusiness";
 
 import { ActorChip } from "./ActorChip";
@@ -251,7 +253,9 @@ export default function DeskView() {
                   onChange={(e) => params.setWorker(Number(e.target.value))}>
                   {columns.map((c) => (
                     <option key={c.memberId} value={c.memberId}>
-                      {c.locked ? t("flowko_desk_locked_column", { name: c.displayName }) : c.displayName}
+                      {c.locked
+                        ? t("flowko_desk_locked_column", { name: c.displayName, ...RAW })
+                        : c.displayName}
                     </option>
                   ))}
                 </select>
@@ -265,8 +269,8 @@ export default function DeskView() {
                 className="bg-semantic-info-subtle text-emphasis border-semantic-info flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-base font-semibold">
                 <span>
                   {movingWorkerName
-                    ? t("flowko_desk_move_banner_column", { name: movingWorkerName })
-                    : t("flowko_desk_move_banner", { name: moving.customer.name })}
+                    ? t("flowko_desk_move_banner_column", { name: movingWorkerName, ...RAW })
+                    : t("flowko_desk_move_banner", { name: moving.customer.name, ...RAW })}
                 </span>
                 <Button color="secondary" onClick={moveMode.stop}>
                   {t("cancel")}

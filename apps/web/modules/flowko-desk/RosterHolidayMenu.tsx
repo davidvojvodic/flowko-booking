@@ -6,13 +6,16 @@
 // edits the action is disabled with a hint (the refresh would drop them).
 // Flowko U29c (P1, P8, R11): a saved change shows „Shranjeno“; the refresh's answer goes to `onRefreshed` (false
 // raises RosterView's notice, true clears it); the menu closes anyway: the change stands.
+// Flowko U29e (E10.3, E10.1): the name starts with a capital (holidayLabel) and passes RAW.
 import { useState } from "react";
 
+import { holidayLabel } from "@calcom/lib/flowkoBusiness/holidays";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { Button } from "@calcom/ui/components/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@calcom/ui/components/popover";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 import { useInvalidateRoster } from "./useRosterData";
 
@@ -37,7 +40,8 @@ export function RosterHolidayMenu(props: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const label = t(holiday.open ? "flowko_desk_holiday_open" : "flowko_desk_holiday_closed", {
-    name: holiday.name,
+    name: holidayLabel(holiday.name),
+    ...RAW,
   });
 
   if (!props.canManage) {

@@ -14,6 +14,11 @@
 // fields say what is missing (muted, until a submit); the card is only for a customer the rules accept (else the
 // fields, pre-filled, so they stay editable; a server bad_customer on a card opens them too); focus follows the
 // section's state (first empty field, „Zamenjaj“, the search).
+// Flowko U29e: E8 (R16) each chip shows its price („Barvanje · 45,00 €“, create and re-enter) and „Skupaj: …“ sums
+// the chosen priced services, with a note when some have none; the price never goes into the payload. E10.4 (R20)
+// „no services“ only once the list is known; while it loads a busy skeleton, on an error the load-error text with
+// „Poskusi znova“. E6 (R10) the re-enter cancel carries `handoverToMemberId` (the desk hides that cancel); E10.1 the
+// reason and the toasts are built with RAW, so a name such as „Ana & Maja“ is stored and shown once.
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -21,6 +26,7 @@ import { z } from "zod";
 
 import type { DeskBooking, DeskColumn } from "@calcom/features/flowkoBusiness/desk";
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
+import { formatPriceCents, priceTotal } from "@calcom/lib/flowkoBusiness/price";
 import { localDateSchema, todayIn } from "@calcom/lib/flowkoBusiness/roster";
 import type { FitProblem, Ms } from "@calcom/lib/flowkoSalon";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
@@ -37,7 +43,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@calcom/ui/components/sheet";
+import { SkeletonText } from "@calcom/ui/components/skeleton";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 import { ConfirmProblemsDialog, stepNamesOf } from "./ConfirmProblemsDialog";
 import { CustomerCard, CustomerField } from "./CustomerField";
@@ -125,7 +133,11 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
   const writes = useDeskWrites(ctx);
   const { target, onClose } = props;
   const timeZone = ctx.view?.timeZone ?? "UTC";
-  const services = trpc.viewer.flowko.business.services.useQuery(undefined, { staleTime: 60_000 }).data ?? [];
+  // Flowko U29e (E10.4): keep the query, so loading and an error are told apart from „no services“.
+  const servicesQuery = trpc.viewer.flowko.business.services.useQuery(undefined, { staleTime: 60_000 });
+  const services = servicesQuery.data ?? [];
+  const servicesReady = servicesQuery.data !== undefined;
+  const servicesFailed = !servicesReady && Boolean(servicesQuery.error);
   const columns = useMemo(() => columnsOf(ctx.view?.days ?? []), [ctx.view]);
   const reenter = target.kind === "reenter" ? target.booking : null;
 
@@ -251,12 +263,17 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
     if (reenter) {
       // R12: the new booking exists; only now the old one goes.
       const name = workerName(payload.workerMemberId);
+      // Flowko U29e (E6, R10): the marker hides this cancel on the desk; the reason stays (the customer's mail).
       const cancelled = await writes.cancel(
-        { bookingId: reenter.bookingId, reason: t("flowko_desk_reenter_reason", { name }) },
+        {
+          bookingId: reenter.bookingId,
+          reason: t("flowko_desk_reenter_reason", { name, ...RAW }),
+          handoverToMemberId: payload.workerMemberId,
+        },
         { toasts: "none" }
       );
-      if (cancelled.kind === "done") showToast(t("flowko_desk_reentered", { name }), "success");
-      else showToast(t("flowko_desk_reenter_both_exist", { name }), "warning");
+      if (cancelled.kind === "done") showToast(t("flowko_desk_reentered", { name, ...RAW }), "success");
+      else showToast(t("flowko_desk_reenter_both_exist", { name, ...RAW }), "warning");
     }
     onClose();
   }
@@ -301,6 +318,8 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
   // Flowko U28b review fix: a muted „what is missing“ line for the new-customer fields (not an alert).
   const hint = (key: string | undefined) =>
     key ? <p className="text-subtle mt-1 text-sm">{t(key)}</p> : null;
+  // Flowko U29e (E8, R16): the total of the chosen services that have a price.
+  const total = priceTotal(services, selected);
   const pendingServices = pending
     ? pending.payload.serviceIds
         .map((id) => services.find((s) => s.id === id))
@@ -349,10 +368,27 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
               {reenter && reenter.serviceIds === null && (
                 <p className="text-attention text-sm">{t("flowko_desk_reenter_services_gone")}</p>
               )}
-              {memberId !== null && offered.length === 0 && (
+              {memberId !== null && servicesReady && offered.length === 0 && (
                 <p className="text-subtle text-sm">{t("flowko_desk_services_none")}</p>
               )}
-              <div className="flex flex-wrap gap-2">
+              {servicesFailed && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-error text-sm">{t("flowko_settings_services_load_error")}</p>
+                  <Button color="secondary" onClick={() => void servicesQuery.refetch()}>
+                    {t("try_again")}
+                  </Button>
+                </div>
+              )}
+              <div
+                data-testid="desk-sheet-services"
+                aria-busy={!servicesReady && !servicesFailed ? true : undefined}
+                className="flex flex-wrap gap-2">
+                {!servicesReady && !servicesFailed && (
+                  <div data-testid="desk-services-loading" className="flex w-full gap-2">
+                    <SkeletonText className="h-10 w-24" />
+                    <SkeletonText className="h-10 w-24" />
+                  </div>
+                )}
                 {offered.map((s) => {
                   const order = selected.indexOf(s.id);
                   return (
@@ -372,11 +408,30 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
                           {order + 1}.
                         </span>
                       )}
-                      {s.name}
+                      {/* Flowko U29e final review UI-4: one inline span, so the space before „·“ stays. */}
+                      <span>
+                        {s.name}
+                        {s.priceCents !== null && (
+                          <>
+                            {" · "}
+                            <span data-testid="desk-chip-price" className="tabular-nums">
+                              {formatPriceCents(s.priceCents)}
+                            </span>
+                          </>
+                        )}
+                      </span>
                     </button>
                   );
                 })}
               </div>
+              {total.cents !== null && (
+                <p data-testid="desk-price-total" className="text-emphasis text-sm font-medium tabular-nums">
+                  {t("flowko_desk_price_total", { price: formatPriceCents(total.cents), ...RAW })}
+                </p>
+              )}
+              {total.cents !== null && total.unpriced > 0 && (
+                <p className="text-subtle text-xs">{t("flowko_desk_price_partial")}</p>
+              )}
               <p className="text-subtle text-xs">{t("flowko_desk_services_hint")}</p>
               {fieldError(errors.serviceIds?.message)}
             </div>

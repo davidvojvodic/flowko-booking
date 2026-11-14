@@ -4,6 +4,7 @@
 // stay inline under the field with the typed value kept. The caller does the write, closes the dialog on success
 // (and shows the link panel) or on an answer that makes the invite impossible, and toasts anything else.
 // The name stands alone or as the subject, never declined.
+// Flowko U29e (E10.1): the shared RAW replaces the inline opt-out.
 "use client";
 
 import type { WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
@@ -12,6 +13,7 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button } from "@calcom/ui/components/button";
 import { Dialog, DialogClose, DialogContent, DialogFooter } from "@calcom/ui/components/dialog";
 import { TextField } from "@calcom/ui/components/form";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { useId, useRef, useState } from "react";
 import { type InviteEmailError, inviteEmailErrorKey } from "./InviteForm";
 
@@ -54,8 +56,8 @@ export function InviteMemberDialog(props: {
       <DialogContent
         type="creation"
         data-testid="flowko-invite-member-dialog"
-        title={t("flowko_invite_dialog_title", { name, interpolation: { escapeValue: false } })}
-        description={t("flowko_invite_dialog_body", { name, interpolation: { escapeValue: false } })}
+        title={t("flowko_invite_dialog_title", { name, ...RAW })}
+        description={t("flowko_invite_dialog_body", { name, ...RAW })}
         onOpenAutoFocus={(event) => {
           if (!fieldRef.current) return;
           event.preventDefault();

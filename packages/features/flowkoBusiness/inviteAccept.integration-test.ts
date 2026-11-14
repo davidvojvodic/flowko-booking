@@ -306,6 +306,25 @@ describe("U29d brand-new accept on a real database", () => {
     expect(await readInviteForAcceptPage(prisma, token, NOW)).toMatchObject({ state: "open" });
   });
 
+  // Flowko U29e (RIGHTS-1, R5): NUL used to reach Postgres here (the route then answered 500 server_error).
+  it("RIGHTS-1 on Postgres: a typed name with NUL or a C1 character is bad_member before bcrypt; nothing written", async () => {
+    const token = await newInvite(a, "Nula");
+    const users = await prisma.user.count();
+    const members = await prisma.flowkoBusinessMember.count({ where: { businessId: a.businessId } });
+    const hash = vi.fn(fastHash);
+    for (const name of ["A\u0000", "\u0000", "A\u0085"]) {
+      expect(
+        await codeOf(
+          acceptInvite({ db: prisma, hashPassword: hash }, { token, name, password: PASSWORD }, NOW)
+        )
+      ).toBe("bad_member");
+    }
+    expect(hash).not.toHaveBeenCalled();
+    expect(await prisma.user.count()).toBe(users);
+    expect(await prisma.flowkoBusinessMember.count({ where: { businessId: a.businessId } })).toBe(members);
+    expect(await readInviteForAcceptPage(prisma, token, NOW)).toMatchObject({ state: "open" });
+  });
+
   it(`Review Focus 2: ${ROUNDS} rounds of two parallel accepts of one token -> exactly one success`, async () => {
     for (let round = 0; round < ROUNDS; round++) {
       const token = await newInvite(a, `Dvojna${round}`);
@@ -886,6 +905,31 @@ describe("U29d desk-only conversion on a real database (D2, C9)", () => {
     ).toBe("email_has_login");
     expect(blindReads.count).toBeGreaterThan(0);
     expect(await userOf(desk.userId)).toEqual(deskBefore);
+    expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(0);
+    expect(await readInviteForAcceptPage(prisma, desk.token, NOW)).toMatchObject({
+      state: "open",
+      kind: "member",
+    });
+  });
+
+  // Flowko U29e (RIGHTS-1, R5): the typed name becomes User.name; NUL used to reach Postgres in the users UPDATE.
+  it("RIGHTS-1 on Postgres: a conversion with a NUL or C1 name is bad_member before bcrypt; the user stays desk-only", async () => {
+    const desk = await deskWithInvite("Nulka");
+    const before = await userOf(desk.userId);
+    const hash = vi.fn(fastHash);
+    for (const name of ["A\u0000", "\u0000", "A\u0085"]) {
+      expect(
+        await codeOf(
+          acceptInvite(
+            { db: prisma, hashPassword: hash },
+            { token: desk.token, name, password: PASSWORD },
+            NOW
+          )
+        )
+      ).toBe("bad_member");
+    }
+    expect(hash).not.toHaveBeenCalled();
+    expect(await userOf(desk.userId)).toEqual(before);
     expect(await prisma.userPassword.count({ where: { userId: desk.userId } })).toBe(0);
     expect(await readInviteForAcceptPage(prisma, desk.token, NOW)).toMatchObject({
       state: "open",

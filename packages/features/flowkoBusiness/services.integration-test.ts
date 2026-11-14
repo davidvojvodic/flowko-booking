@@ -168,6 +168,7 @@ const barvanjeInput = (over: Partial<SaveServiceInput> = {}): SaveServiceInput =
   category: "Barvanje",
   steps: BARVANJE_STEPS,
   workerMemberIds: [fx.members.ana],
+  priceCents: null, // Flowko U29e: E8 — a required key
   ...over,
 });
 
@@ -270,6 +271,7 @@ describe("U29a services on a real database", () => {
       category: null,
       steps: [{ kind: "busy", minutes: 30 }],
       workerMemberIds: [fx.members.ana],
+      priceCents: null, // Flowko U29e: E8
     });
     expect(await codeOf(saveService(prisma, fx.olga, fresh("MOŠKO STRIŽENJE")))).toBe("service_name_taken");
 
@@ -307,6 +309,43 @@ describe("U29a services on a real database", () => {
     });
     expect(masaze).toHaveLength(1);
   });
+
+  // Flowko U29e: E8, R15 — the price round trip on Postgres (int4 column, no CHECK: the read guard is the code's).
+  it("E8: a price is stored, changed and cleared; a stored -5 or 10_000_000 reads as null", async () => {
+    const input = (priceCents: number | null, id?: number): SaveServiceInput => ({
+      ...(id !== undefined ? { id } : {}),
+      name: `Cena ${RUN}`,
+      category: null,
+      steps: [{ kind: "busy", minutes: 30 }],
+      workerMemberIds: [],
+      priceCents,
+    });
+    const { serviceId } = await saveService(prisma, fx.olga, input(2550));
+    const stored = async () =>
+      (await prisma.flowkoService.findUnique({ where: { id: serviceId }, select: { priceCents: true } }))
+        ?.priceCents;
+    const listed = async () =>
+      (await listServicesForOwner(prisma, fx.olga, NOW)).services.find((s) => s.id === serviceId)?.priceCents;
+    expect(await stored()).toBe(2550);
+    expect(await listed()).toBe(2550);
+    await saveService(prisma, fx.olga, input(999_999, serviceId));
+    expect(await stored()).toBe(999_999);
+    await saveService(prisma, fx.olga, input(0, serviceId));
+    expect(await stored()).toBe(0);
+    expect(await listed()).toBe(0);
+    await saveService(prisma, fx.olga, input(null, serviceId));
+    expect(await stored()).toBeNull();
+    expect(await listed()).toBeNull();
+    // A refused price writes nothing.
+    expect(await codeOf(saveService(prisma, fx.olga, input(1_000_000, serviceId)))).toBe("bad_service");
+    expect(await stored()).toBeNull();
+    for (const corrupt of [-5, 10_000_000]) {
+      await prisma.flowkoService.update({ where: { id: serviceId }, data: { priceCents: corrupt } });
+      expect(await stored()).toBe(corrupt);
+      expect(await listed(), String(corrupt)).toBeNull();
+    }
+    await prisma.flowkoService.delete({ where: { id: serviceId } });
+  });
 });
 
 // Flowko U29c: P2 — the business row FOR NO KEY UPDATE first in saveService, reorderServices and removeService. A fresh
@@ -329,6 +368,7 @@ describe("U29c services: the business row lock", () => {
     category: null,
     steps: [{ kind: "busy", minutes: 30 }],
     workerMemberIds: [],
+    priceCents: null, // Flowko U29e: E8
   });
   const positionsOf = async (businessId: number) =>
     (

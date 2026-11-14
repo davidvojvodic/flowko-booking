@@ -32,6 +32,18 @@ const NOW = new Date("2026-11-16T07:07:00Z"); // Mon 08:07 in Ljubljana
 const BASE = "https://booking.example";
 const DAY = 24 * 60 * 60 * 1000;
 const PASSWORD = "Geslo123";
+/** Flowko U29e (RIGHTS-1, R5): names the shared rule refuses as "characters" (escapes only, never literals). */
+const REFUSED_NAMES = [
+  "A\u0000",
+  "A\u0085",
+  "Ana\u200B",
+  "An\u2060a",
+  "Ana\u202E",
+  "Ana\u2066x",
+  "Ana\u061C",
+  "An\u2028a",
+  "\u200D",
+];
 const HASH = "$2a$12$stubstubstubstubstubstuOstubstubstubstubstubstubstubstu";
 
 const e = (from: string, to: string) => ({ from, to });
@@ -557,6 +569,34 @@ describe("acceptInvite, a brand-new member (A3, A4)", () => {
     expect(await prismock.flowkoBusinessMember.count({ where: { displayName: "y".repeat(80) } })).toBe(1);
   });
 
+  // Flowko U29e (RIGHTS-1, R5)
+  it("the edited name: a control, bidi, separator or invisible character is bad_member before bcrypt, nothing written", async () => {
+    const { token, inviteId } = await invite();
+    const before = await counts();
+    const hashPassword = hasher();
+    for (const name of REFUSED_NAMES) {
+      expect(await codeOf(acceptInvite({ db, hashPassword }, { token, name, password: PASSWORD }, NOW))).toBe(
+        "bad_member"
+      );
+    }
+    expect(hashPassword).not.toHaveBeenCalled();
+    expect(await counts()).toEqual(before);
+    expect(
+      (await prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: inviteId } })).usedAt
+    ).toBeNull();
+  });
+
+  it("the edited name: a look-alike of a member's name with a joiner or a soft hyphen is member_name_taken", async () => {
+    const { token } = await invite();
+    const before = await counts();
+    for (const name of ["Mojca\u200D", "Mo\u00ADjca", "\u200Clara"]) {
+      expect(
+        await codeOf(acceptInvite({ db, hashPassword: hasher() }, { token, name, password: PASSWORD }, NOW))
+      ).toBe("member_name_taken");
+    }
+    expect(await counts()).toEqual(before);
+  });
+
   it("creates no Team, Membership, Profile, Host, Schedule, VerificationToken or service row", async () => {
     const worker = await invite("WORKER", "w@example.si", "Wanda");
     const staff = await invite("STAFF", "s@example.si", "Sonja");
@@ -999,6 +1039,25 @@ describe("acceptInvite, a desk-only member's conversion (D2, C9)", () => {
       );
     }
     expect(hashPassword).not.toHaveBeenCalled();
+  });
+
+  // Flowko U29e (RIGHTS-1, R5): the typed name becomes User.name, so the character rule applies here too.
+  it("the name rules: a control, bidi, separator or invisible character is bad_member before bcrypt, nothing written", async () => {
+    const { token, inviteId } = await inviteMojca();
+    const userBefore = await userRow(f.deskUsers.mojca);
+    const before = await counts();
+    const hashPassword = hasher();
+    for (const name of REFUSED_NAMES) {
+      expect(await codeOf(acceptInvite({ db, hashPassword }, { token, name, password: PASSWORD }, NOW))).toBe(
+        "bad_member"
+      );
+    }
+    expect(hashPassword).not.toHaveBeenCalled();
+    expect(await userRow(f.deskUsers.mojca)).toEqual(userBefore);
+    expect(await counts()).toEqual(before);
+    expect(
+      (await prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: inviteId } })).usedAt
+    ).toBeNull();
   });
 
   it("a users e-mail P2002 on the update is email_has_login; P2028 and a raw 40P01 are member_conflict", async () => {

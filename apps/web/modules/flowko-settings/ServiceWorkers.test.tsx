@@ -73,6 +73,16 @@ describe("ServiceWorkers (U29a S10)", () => {
     expect(screen.queryByText("Zaklenjenih oseb tukaj ni mogoče dodati ali odstraniti.")).toBeNull();
   });
 
+  // Flowko U29e (E10.1, R17, u29e-scan-client row 15): the LOCKED name is printed once (the fixture's `t` escapes).
+  it("a LOCKED member's name with „&“ or „'“ is printed once", () => {
+    const rows = BARVANJE.workers.map((w) =>
+      w.memberId === DAN ? { ...w, displayName: "O'Brien & Co" } : w
+    );
+    setup([ANA], rows);
+    expect(box("O'Brien & Co (zaklenjeno)")).toBeDisabled();
+    expect(document.body.textContent).not.toMatch(/&amp;|&#39;/);
+  });
+
   it("no column member at all says so", () => {
     setup([], []);
     expect(screen.getByText("V podjetju ni nikogar, ki bi lahko izvajal storitve.")).toBeInTheDocument();

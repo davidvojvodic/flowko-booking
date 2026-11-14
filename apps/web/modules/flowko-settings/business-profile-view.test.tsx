@@ -140,8 +140,12 @@ describe("BusinessProfileView: the form shows business.settings", () => {
     expect(input("Telefon").value).toBe("+386 40 123 456");
     expect(input("Naslov").value).toBe("Slovenska cesta 1, Ljubljana");
     expect(input("E-pošta podjetja").value).toBe("salon@example.si");
+    // Flowko U29e: R14 — the hint names the cancel notices and the owner fallback.
     expect(
-      screen.getByText(/Ko stranka odgovori na e-poštno sporočilo o svojem terminu/)
+      screen.getByText(/Na ta naslov prispejo odgovori strank na e-poštna sporočila o terminih/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/obvestila o odpovedih prejmete na e-poštni naslov, s katerim se prijavljate/)
     ).toBeInTheDocument();
     expect((screen.getByTestId("flowko-day-ranges-mon-0-from") as HTMLSelectElement).value).toBe("08:00");
     expect((screen.getByTestId("flowko-day-ranges-sat-0-to") as HTMLSelectElement).value).toBe("13:00");
@@ -347,7 +351,8 @@ describe("BusinessProfileView: settings_changed", () => {
 // is never said about the owner's own save.
 describe("BusinessProfileView: the refresh after a save (P1)", () => {
   const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
-  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.";
+  // Flowko U29e (E10.7, R23): the notice is neutral; the saved paths keep their own success toast.
+  const NOTICE_TEXT = "Prikaza ni bilo mogoče osvežiti. Kliknite „Osveži“.";
 
   async function saveWithFailingRefresh() {
     mocks.update.mockResolvedValue({ status: "saved" });

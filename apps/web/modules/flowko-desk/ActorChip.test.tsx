@@ -1,5 +1,6 @@
 // Flowko U28: the „who are you“ chip and its picker (R9). Slovene strings from the real sl file.
 // Flowko U28b (B1): no „Kdo ste?“ prompt on the chip; while the actor is unknown (member list loading) no chip.
+// Flowko U29e (E10.1): the chip names „Ana & Maja“ once (escaping `t`).
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -52,5 +53,17 @@ describe("ActorChip (U28 R9)", () => {
     expect(within(dialog).getByTestId(`desk-actor-option-${BOR}`).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(within(dialog).getByTestId(`desk-actor-option-${CENE}`));
     expect(s.choose).toHaveBeenCalledWith(CENE);
+  });
+});
+
+describe("ActorChip names once (U29e E10.1)", () => {
+  it("a fixed chip and a shared-device chip show „Ana & Maja“ once", () => {
+    const { unmount } = render(
+      <ActorChip actor={state({ actor: { memberId: ANA, displayName: "Ana & Maja" }, fixed: true })} />
+    );
+    expect(screen.getByTestId("desk-actor-chip").textContent).toBe("Ste: Ana & Maja");
+    unmount();
+    render(<ActorChip actor={state({ actor: { memberId: BOR, displayName: "O'Brien" } })} />);
+    expect(screen.getByRole("button", { name: "Ste: O'Brien" })).toBeInTheDocument();
   });
 });

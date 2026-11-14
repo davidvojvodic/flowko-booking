@@ -7,6 +7,8 @@
 // Flowko U28b (B1, B3): no picker opens from a write: the actor defaults to the signed-in member, and `forbidden`
 // only clears the stored choice (back to herself) and shows its text. The refetch before a dialog or a message
 // refreshes the shown free starts too (the success path's `invalidate` covers them, useDeskData).
+// Flowko U29e (E6, R10): `cancel` takes an optional `handoverToMemberId` (the re-enter's new worker); sent only when
+// given, so an ordinary cancel's payload is unchanged.
 import type { FitProblem } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
@@ -63,7 +65,7 @@ export type DeskWrites = {
   create: (input: DeskCreateInput, opts?: DeskWriteOptions) => Promise<DeskWriteOutcome<Written>>;
   move: (input: DeskMoveInput, opts?: DeskWriteOptions) => Promise<DeskWriteOutcome<Written>>;
   cancel: (
-    input: { bookingId: number; reason?: string | null },
+    input: { bookingId: number; reason?: string | null; handoverToMemberId?: number },
     opts?: DeskWriteOptions
   ) => Promise<DeskWriteOutcome<Written>>;
   noShow: (

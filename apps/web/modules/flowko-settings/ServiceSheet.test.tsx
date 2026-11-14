@@ -4,6 +4,8 @@
 // a refused value) and sends {id?, name, category, steps, workerMemberIds}; each server code has its text
 // (service_name_taken at the name); the S11 note (plural) when future bookings use the service; „Odstrani“ opens
 // the S12 dialog with the plural count and removes on confirm.
+// Flowko U29e (E8, R15): the optional „Cena“ field (text, € suffix, decimal keypad) is parsed before the schema; the
+// save sends priceCents (null = no price). E10.1: the remove dialog's title prints the service name once.
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SERVICE_ERROR_CODES, ServiceSheet, type ServiceSheetTarget } from "./ServiceSheet";
@@ -116,6 +118,7 @@ describe("ServiceSheet: a new service", () => {
         { kind: "busy", minutes: 45 },
       ],
       workerMemberIds: [ANA],
+      priceCents: null, // Flowko U29e: E8 — an empty „Cena“ is no price
     });
     expect(mocks.toast).toHaveBeenCalledWith("Storitev je shranjena.", "success");
     expect(mocks.onChanged).toHaveBeenCalled();
@@ -196,7 +199,21 @@ describe("ServiceSheet: editing a service", () => {
         category: "Barve",
         steps: BARVANJE.steps,
         workerMemberIds: [ANA, BOR],
+        priceCents: 4500, // Flowko U29e: E8 — the prefilled „45,00“, untouched
       })
+    );
+  });
+
+  // Flowko U29e: E8 — an untouched „Cena“ sends the stored price back, so an edit never clears it by omission.
+  it("an edit with „Cena“ untouched sends the stored price unchanged", async () => {
+    open(edit({ ...BARVANJE, priceCents: 125050 }));
+    expect(input("Cena").value).toBe("1250,50");
+    type("Ime storitve", "Barvanje las");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Barvanje las", priceCents: 125050 })
+      )
     );
   });
 
@@ -626,5 +643,197 @@ describe("ServiceSheet: remove (S12)", () => {
       refresh.resolve();
     });
     await waitFor(() => expect(mocks.onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+// Flowko U29e (E8, R15): „Cena“. A text field (never type=number: browsers differ on „25,00“) with a „€“ suffix and
+// the decimal keypad, between the category and the steps; empty = no price. The typed text is parsed with
+// parsePriceText (integer arithmetic); a bad format or a price above 9.999,99 € shows its text at the field after the
+// first save attempt and nothing is sent.
+describe("ServiceSheet: the price (E8)", () => {
+  const FORMAT_TEXT = "Vnesite ceno v evrih, na primer 25,00.";
+  const RANGE_TEXT = "Cena je lahko največ 9.999,99 €.";
+  const HINT_TEXT =
+    "Neobvezno. V evrih, na primer 25,00. Ceno vidijo vsi, ki vnašajo termine na koledarju; strankam se ne prikaže.";
+  const priceError = () => screen.queryByTestId("flowko-service-price-error");
+
+  it("a new service: an empty text field „Cena“ with the € suffix, the decimal keypad and the hint", () => {
+    open({ kind: "new" });
+    const price = input("Cena");
+    expect(price.value).toBe("");
+    expect(price).toHaveAttribute("type", "text");
+    expect(price).toHaveAttribute("inputmode", "decimal");
+    expect(price).toHaveAttribute("name", "flowko-service-price");
+    expect(screen.getByText("€")).toBeInTheDocument();
+    expect(screen.getByText(HINT_TEXT)).toBeInTheDocument();
+    expect(price).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("sits between the category and the steps", () => {
+    open({ kind: "new" });
+    const order = (a: HTMLElement, b: HTMLElement) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(order(input("Kategorija"), input("Cena"))).toBeTruthy();
+    expect(order(input("Cena"), input("1. korak: minute"))).toBeTruthy();
+  });
+
+  it("an edit prefills the stored price as „45,00“ (no grouping, no €); an unpriced service is empty", () => {
+    open(edit());
+    expect(input("Cena").value).toBe("45,00");
+  });
+
+  it("an unpriced service opens with an empty „Cena“", () => {
+    open(edit(FEN));
+    expect(input("Cena").value).toBe("");
+  });
+
+  it("„25“ on a new service saves 2500", async () => {
+    open({ kind: "new" });
+    type("Ime storitve", "Pramenki");
+    type("Cena", "25");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith({
+        name: "Pramenki",
+        category: null,
+        steps: [{ kind: "busy", minutes: 30 }],
+        workerMemberIds: [ANA, BOR],
+        priceCents: 2500,
+      })
+    );
+  });
+
+  it.each([
+    ["25,5", 2550],
+    ["25,50", 2550],
+    ["25.5", 2550],
+    ["1.250,00", 125000],
+    ["25 €", 2500],
+    ["0", 0],
+    ["0,29", 29],
+    ["9999,99", 999999],
+  ])("„%s“ saves %i cents", async (text, cents) => {
+    open(edit(FEN));
+    type("Cena", text);
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ id: FEN.id, priceCents: cents }))
+    );
+  });
+
+  it("clearing the field on an edit saves null (the price is removed)", async () => {
+    open(edit());
+    type("Cena", "");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ id: BARVANJE.id, priceCents: null }))
+    );
+  });
+
+  it("only spaces count as empty: null", async () => {
+    open(edit());
+    type("Cena", "   ");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ id: BARVANJE.id, priceCents: null }))
+    );
+  });
+
+  it("a changed price is sent (45,00 → 52,50)", async () => {
+    open(edit());
+    type("Cena", "52,50");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ id: BARVANJE.id, priceCents: 5250 }))
+    );
+  });
+
+  it.each([
+    ["1.250"],
+    ["abc"],
+    ["-5"],
+    ["25,505"],
+    [",50"],
+  ])("„%s“ → the format text at the field after the first save attempt, nothing sent", async (text) => {
+    open(edit());
+    type("Cena", text);
+    expect(priceError()).toBeNull();
+    await save();
+    expect(priceError()).toHaveTextContent(FORMAT_TEXT);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["10000"],
+    ["10000,00"],
+    ["1.000.000,00"],
+  ])("„%s“ → the range text, nothing sent", async (text) => {
+    open(edit());
+    type("Cena", text);
+    await save();
+    expect(priceError()).toHaveTextContent(RANGE_TEXT);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("the error makes the field aria-invalid and is its accessible description", async () => {
+    open(edit());
+    type("Cena", "abc");
+    await save();
+    const price = input("Cena");
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(price).toHaveAccessibleDescription(FORMAT_TEXT);
+  });
+
+  it("a corrected price clears the error and saves", async () => {
+    open(edit());
+    type("Cena", "1.250");
+    await save();
+    expect(priceError()).toBeInTheDocument();
+    type("Cena", "1250");
+    expect(priceError()).toBeNull();
+    expect(input("Cena")).not.toHaveAttribute("aria-invalid");
+    await save();
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: BARVANJE.id, priceCents: 125000 })
+      )
+    );
+  });
+
+  it("a bad price and a bad name both show their texts; nothing is sent", async () => {
+    open({ kind: "new" });
+    type("Cena", "abc");
+    await save();
+    expect(screen.getByTestId("flowko-service-name-error")).toBeInTheDocument();
+    expect(priceError()).toHaveTextContent(FORMAT_TEXT);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("English: the label, the hint and both error texts", async () => {
+    mocks.lang.current = "en";
+    open(edit());
+    expect(input("Price").value).toBe("45,00");
+    expect(
+      screen.getByText(
+        "Optional. In euros, for example 25,00. Everyone who enters bookings in the calendar sees the price; customers never see it."
+      )
+    ).toBeInTheDocument();
+    type("Price", "abc");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(priceError()).toHaveTextContent("Enter the price in euros, for example 25,00.");
+    type("Price", "10000");
+    expect(priceError()).toHaveTextContent("The price can be at most 9.999,99 €.");
+  });
+});
+
+// Flowko U29e (E10.1, R17, u29e-scan-client row 14): the remove dialog's title prints the service name once.
+describe("ServiceSheet: the remove title is not escaped twice (E10.1)", () => {
+  it("„O'Brien & fen“ appears once in the dialog's name", () => {
+    open(edit({ ...STRIZENJE, name: "O'Brien & fen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Odstrani" }));
+    expect(screen.getByRole("dialog", { name: "Odstrani storitev: O'Brien & fen" })).toBeInTheDocument();
   });
 });

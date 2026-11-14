@@ -8,11 +8,21 @@
 // extension would hide a locked worker). Mails go out after the commit and never undo a write. Server only.
 // Flowko U28: a move never targets a start in the past (in_past) nor moves a booking that has ended
 // (booking_not_active); its needs_confirm carries googleUnavailable (R7).
+// Flowko U29e: E6, R9/R10 — the customer's cancel marks its CANCELLED action `details: { by: "customer" }`; a staff
+// cancel from „Prestavi k drugemu delavcu“ carries `handoverToMemberId` (OWNER/STAFF only, an ACTIVE OWNER/WORKER of
+// the business other than the booking's worker), stored as `details: { handoverToMemberId }`, so the desk day hides it.
+// Flowko U29e: E7 — after the customer's cancel, the business notice follows Cal's cancelled mails, only through
+// sendMailAfterCommit("cancel_notice") (its dynamic import and try/catch: nothing reaches /api/cancel's answer).
 import { type Interval, placeSteps, type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
 import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKeyService";
 import type { Prisma } from "@calcom/prisma/client";
-import { BookingStatus, FlowkoBookingActionKind } from "@calcom/prisma/enums";
-import { getBusinessAccess, requireBookingAccess } from "./access";
+import {
+  BookingStatus,
+  FlowkoBookingActionKind,
+  FlowkoBusinessRole, // Flowko U29e: R10
+  FlowkoMemberStatus, // Flowko U29e: R10
+} from "@calcom/prisma/enums";
+import { type BusinessAccess, getBusinessAccess, requireBookingAccess } from "./access";
 import {
   type ActorRef,
   fitUnderLock,
@@ -40,8 +50,14 @@ const MINUTE_MS = 60_000;
 const MAX_REASON_LENGTH = 500;
 /** W7/W8: the states a cancel may end (the ones that hold the worker's time). */
 const CANCELLABLE_STATUSES = [BookingStatus.ACCEPTED, BookingStatus.PENDING, BookingStatus.AWAITING_HOST];
+const MAX_INT4 = 2_147_483_647; // Flowko U29e: R10
 
-export type CancelBookingInput = ActorRef & { bookingId: number; reason?: string | null };
+export type CancelBookingInput = ActorRef & {
+  bookingId: number;
+  reason?: string | null;
+  /** Flowko U29e: R10 — the re-enter's new worker; null/undefined = an ordinary cancel. */
+  handoverToMemberId?: number | null;
+};
 export type CustomerCancelInput = { uid: string; reason?: string | null; sessionUserId: number | null };
 export type MoveBookingInput = ActorRef & { bookingId: number; start: Date; confirmOverride: boolean };
 
@@ -62,6 +78,42 @@ async function requireBusinessBooking(db: FlowkoDb, bookingId: number): Promise<
 }
 
 type CancelActor = { actorMemberId: number | null; actorName: string; userId: number | null };
+/** Flowko U29e: E6 — what the CANCELLED action's details record (none for an ordinary staff cancel). */
+type CancelDetails = { by: "customer" } | { handoverToMemberId: number };
+
+/**
+ * Flowko U29e: R10 — the hand-over marker is accepted only from an OWNER or STAFF session (the desk's mayReenter
+ * rule) and only for an ACTIVE OWNER/WORKER member of the booking's business other than the booking's own worker;
+ * anything else is forbidden before any write. No marker → null.
+ */
+async function handoverDetails(
+  db: FlowkoDb,
+  access: BusinessAccess,
+  ref: BusinessBookingRef,
+  handoverToMemberId: number | null | undefined
+): Promise<CancelDetails | null> {
+  if (handoverToMemberId === undefined || handoverToMemberId === null) return null;
+  if (access.role !== FlowkoBusinessRole.OWNER && access.role !== FlowkoBusinessRole.STAFF) {
+    throw new FlowkoBusinessError("forbidden");
+  }
+  const id = handoverToMemberId;
+  if (!Number.isInteger(id) || id <= 0 || id > MAX_INT4 || id === ref.memberId) {
+    throw new FlowkoBusinessError("forbidden");
+  }
+  const target = await db.flowkoBusinessMember.findUnique({
+    where: { id },
+    select: { businessId: true, role: true, status: true },
+  });
+  if (
+    !target ||
+    target.businessId !== ref.businessId ||
+    target.status !== FlowkoMemberStatus.ACTIVE ||
+    (target.role !== FlowkoBusinessRole.OWNER && target.role !== FlowkoBusinessRole.WORKER)
+  ) {
+    throw new FlowkoBusinessError("forbidden");
+  }
+  return { handoverToMemberId: id };
+}
 
 /**
  * The guarded cancel: one conditional update (status still cancellable and `timeGuard` still true), so two
@@ -72,7 +124,8 @@ async function cancelInTx(
   ref: BusinessBookingRef,
   timeGuard: Prisma.BookingWhereInput,
   reason: string | null,
-  actor: CancelActor
+  actor: CancelActor,
+  details: CancelDetails | null = null // Flowko U29e: E6
 ): Promise<void> {
   const { count } = await tx.booking.updateMany({
     where: { id: ref.bookingId, status: { in: CANCELLABLE_STATUSES }, ...timeGuard },
@@ -93,6 +146,7 @@ async function cancelInTx(
       actorMemberId: actor.actorMemberId,
       actorName: actor.actorName,
       userId: actor.userId,
+      ...(details !== null && { details }), // Flowko U29e: E6 (no key at all for an ordinary staff cancel)
     },
   });
 }
@@ -101,6 +155,8 @@ async function cancelInTx(
  * W7: staff cancel. Rights = act on the booking (U25; a missing id answers like a foreign one: forbidden); only a
  * business booking (else not_business_booking) that is ACCEPTED, PENDING or AWAITING_HOST and has not ended (else
  * booking_not_active). Works for a booking of a locked worker. Mails after the commit unless `sendMails` false.
+ * Flowko U29e: R10 — an optional `handoverToMemberId` (checked by handoverDetails) marks a „Prestavi k drugemu
+ * delavcu“ cancel.
  */
 export async function cancelBusinessBooking(
   db: FlowkoDb,
@@ -114,14 +170,18 @@ export async function cancelBusinessBooking(
   const ref = await requireBusinessBooking(db, input.bookingId);
   if (ref.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
   const actor = await resolveActor(db, access, input.actorMemberId);
+  const handover = await handoverDetails(db, access, ref, input.handoverToMemberId); // Flowko U29e: R10
   const reason = cancellationReason(input.reason);
 
   await withFlowkoTx(db, (tx) =>
-    cancelInTx(tx, ref, { endTime: { gt: now } }, reason, {
-      actorMemberId: actor.memberId,
-      actorName: actor.name,
-      userId: actorUserId,
-    })
+    cancelInTx(
+      tx,
+      ref,
+      { endTime: { gt: now } },
+      reason,
+      { actorMemberId: actor.memberId, actorName: actor.name, userId: actorUserId },
+      handover
+    )
   );
   if (deps.sendMails !== false) await sendMailAfterCommit("cancelled", ref.bookingId);
   return { status: "cancelled" };
@@ -176,13 +236,19 @@ export async function cancelBusinessBookingAsCustomer(
   const reason = cancellationReason(input.reason);
   const actorName = await customerName(db, ref.bookingId);
   await withFlowkoTx(db, (tx) =>
-    cancelInTx(tx, ref, { startTime: { gt: now } }, reason, {
-      actorMemberId: null,
-      actorName,
-      userId: sessionUserId,
-    })
+    cancelInTx(
+      tx,
+      ref,
+      { startTime: { gt: now } },
+      reason,
+      { actorMemberId: null, actorName, userId: sessionUserId },
+      { by: "customer" } // Flowko U29e: E6, R9 (survives a member SetNull)
+    )
   );
-  if (deps.sendMails !== false) await sendMailAfterCommit("cancelled", ref.bookingId);
+  if (deps.sendMails !== false) {
+    await sendMailAfterCommit("cancelled", ref.bookingId);
+    await sendMailAfterCommit("cancel_notice", ref.bookingId); // Flowko U29e: E7, R13 (after Cal's mails)
+  }
   return { status: "cancelled" };
 }
 

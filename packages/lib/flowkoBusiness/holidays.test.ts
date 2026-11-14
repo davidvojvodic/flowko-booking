@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { easterSunday, slovenianWorkFreeDays, workFreeDayOn } from "./holidays";
+import { easterSunday, holidayLabel, slovenianWorkFreeDays, workFreeDayOn } from "./holidays";
 
 describe("easterSunday", () => {
   it.each([
@@ -121,6 +121,29 @@ describe("workFreeDayOn", () => {
 
   it("throws a RangeError on a non-string", () => {
     expect(() => workFreeDayOn(undefined as unknown as string)).toThrow(RangeError);
+  });
+});
+
+// Flowko U29e: E10.3, R19 — the data keeps the law's running-text form; a label starts with a capital.
+describe("holidayLabel", () => {
+  it.each([
+    ["božič", "Božič"],
+    ["novo leto", "Novo leto"],
+    ["dan reformacije", "Dan reformacije"],
+    ["Prešernov dan, slovenski kulturni praznik", "Prešernov dan, slovenski kulturni praznik"],
+    ["Marijino vnebovzetje", "Marijino vnebovzetje"],
+    ["čarovniški dan", "Čarovniški dan"],
+    ["", ""],
+  ])("%s -> %s", (name, label) => {
+    expect(holidayLabel(name)).toBe(label);
+  });
+
+  it("capitalises every name of a year and changes nothing after the first letter", () => {
+    for (const day of slovenianWorkFreeDays(2026)) {
+      const label = holidayLabel(day.name);
+      expect(label.slice(1)).toBe(day.name.slice(1));
+      expect(label.charAt(0)).toBe(day.name.charAt(0).toLocaleUpperCase("sl"));
+    }
   });
 });
 

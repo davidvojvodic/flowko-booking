@@ -53,7 +53,8 @@ export function resetDeskTrpc() {
     error: null,
   });
   deskTrpc.membersQuery.mockReturnValue({ data: members });
-  deskTrpc.servicesQuery.mockReturnValue({ data: services });
+  // Flowko U29e (E10.4): the sheet tells loading (data undefined) and an error (error + refetch) from „none“.
+  deskTrpc.servicesQuery.mockReturnValue({ data: services, error: null, refetch: vi.fn() });
   deskTrpc.freeStartsQuery.mockReturnValue({ data: undefined, isFetching: false });
   deskTrpc.customersQuery.mockReturnValue({ data: undefined, isFetching: false });
   deskTrpc.invalidateDay.mockResolvedValue(undefined);

@@ -3,12 +3,14 @@
 // number of bookings that end up outside the shifts. Nothing moves by itself („Termini se ne premaknejo.“); the usual
 // week's dialog also says that weeks with their own roster stay unchanged. „Vseeno shrani“ lets the caller resend
 // with confirm: true; „Prekliči“ closes and keeps the draft. Person names are shown as they are, never declined.
+// Flowko U29e (E10.1): the days pass RAW (an en date „Mon, 11/23“ would show „&#x2F;“).
 import { useRef } from "react";
 
 import type { RosterWarning } from "@calcom/lib/flowkoBusiness/roster";
 import type { Weekday } from "@calcom/lib/flowkoBusiness/schemas";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { ConfirmationContent, Dialog, DialogContent } from "@calcom/ui/components/dialog";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 
 import { formatDayLabel } from "./WeekGrid";
 import { WEEKDAY_TEXT_KEYS } from "./rosterModel";
@@ -63,6 +65,7 @@ export function RosterWarningsDialog(props: {
                     <li>
                       {t("flowko_roster_warning_outside", {
                         days: warning.outsideOpening.map(dayText).join(", "),
+                        ...RAW,
                       })}
                     </li>
                   )}

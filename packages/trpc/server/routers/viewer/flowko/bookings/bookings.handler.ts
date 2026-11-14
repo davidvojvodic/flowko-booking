@@ -80,7 +80,13 @@ export async function cancelHandler({ ctx, input }: Opts<TCancelBookingInput>) {
     cancelBusinessBooking(
       prisma,
       ctx.user.id,
-      { bookingId: input.bookingId, reason: input.reason, actorMemberId: input.actorMemberId },
+      {
+        bookingId: input.bookingId,
+        reason: input.reason,
+        actorMemberId: input.actorMemberId,
+        // Flowko U29e: E6, R10 — only when the client sent it.
+        ...(input.handoverToMemberId !== undefined && { handoverToMemberId: input.handoverToMemberId }),
+      },
       new Date()
     )
   );

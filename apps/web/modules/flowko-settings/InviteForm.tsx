@@ -5,9 +5,12 @@
 // field stay inline under it (aria-invalid + accessible description, typed values kept, typing clears the error):
 // bad_member / member_name_taken on the name; invite_bad_email / email_has_login / invite_pending on the e-mail.
 // The caller does the write (and shows the link panel) and answers what happened; the form clears on "ok".
+// Flowko U29e (RIGHTS-1): the name is checked with the server's rule (memberNameProblem): a control, bidi or
+// invisible character shows its own text on the name field before any call.
 "use client";
 
 import type { InviteRole } from "@calcom/lib/flowkoBusiness/invites";
+import { memberNameProblem, MEMBER_NAME_MAX } from "@calcom/lib/flowkoBusiness/memberName";
 import { inviteEmailSchema } from "@calcom/lib/flowkoBusiness/schemas";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button } from "@calcom/ui/components/button";
@@ -18,8 +21,6 @@ import { useId, useState } from "react";
 export type InviteNameError = "bad_name" | "member_name_taken";
 export type InviteEmailError = "invite_bad_email" | "email_has_login" | "invite_pending";
 export type InviteFormResult = "ok" | InviteNameError | InviteEmailError | "failed";
-
-const MAX_NAME = 80;
 
 export const inviteEmailErrorKey = (error: InviteEmailError) => `flowko_invite_error_${error}`;
 
@@ -32,7 +33,7 @@ export function InviteForm(props: {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<InviteRole>("WORKER");
-  const [nameError, setNameError] = useState<InviteNameError | null>(null);
+  const [nameError, setNameError] = useState<InviteNameError | "name_characters" | null>(null);
   const [emailError, setEmailError] = useState<InviteEmailError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const id = useId();
@@ -41,15 +42,14 @@ export function InviteForm(props: {
   const roleLabelId = `${id}-role`;
 
   async function submit() {
-    const trimmed = name.trim();
-    const badName = trimmed.length < 1 || trimmed.length > MAX_NAME;
+    const problem = memberNameProblem(name);
     const parsed = inviteEmailSchema.safeParse(email);
-    setNameError(badName ? "bad_name" : null);
+    setNameError(problem === null ? null : problem === "characters" ? "name_characters" : "bad_name");
     setEmailError(parsed.success ? null : "invite_bad_email");
-    if (badName || !parsed.success) return;
+    if (problem !== null || !parsed.success) return;
     setSubmitting(true);
     try {
-      const result = await props.onInvite({ name: trimmed, email: parsed.data, role });
+      const result = await props.onInvite({ name: name.trim(), email: parsed.data, role });
       if (result === "ok") {
         setName("");
         setEmail("");
@@ -83,7 +83,7 @@ export function InviteForm(props: {
           <TextField
             name="flowko-invite-name"
             label={t("flowko_workers_add_name")}
-            maxLength={MAX_NAME}
+            maxLength={MEMBER_NAME_MAX}
             value={name}
             aria-invalid={nameText ? true : undefined}
             aria-describedby={nameText ? nameErrorId : undefined}

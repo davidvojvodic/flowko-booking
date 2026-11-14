@@ -44,6 +44,7 @@ export async function saveHandler({ ctx, input }: Opts<TSaveServiceInput>) {
       category: input.category,
       steps: input.steps,
       workerMemberIds: input.workerMemberIds,
+      priceCents: input.priceCents, // Flowko U29e: E8
     })
   );
 }

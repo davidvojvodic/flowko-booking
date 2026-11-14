@@ -2,6 +2,8 @@
 // lookup, free-start chips, the override dialog after a refetch, field errors, and re-enter with another worker
 // (create first, then cancel the old booking with „Prestavljeno k: {{name}}“). U28b B2: the customer section
 // shows the search first, „Nova stranka“ fields on demand, a picked customer as a card.
+// Flowko U29e: chips carry the price (E8, „Barvanje · 45,00 €“) with a total; the services list says loading / error
+// apart from „none“ (E10.4); the re-enter cancel sends the hand-over marker and the reason with the name once.
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +11,7 @@ import type { DeskBooking } from "@calcom/features/flowkoBusiness/desk";
 
 import { BookingSheet } from "./BookingSheet";
 import type { BookingSheetTarget } from "./BookingSheet";
-import { ANA, BOR, DATE, OLGA, at, barvanje, iso, localeT } from "./desk.fixture";
+import { ANA, BOR, DATE, OLGA, at, barvanje, deskView, iso, localeT, services } from "./desk.fixture";
 import {
   DeskTestProvider,
   actorState,
@@ -45,7 +47,9 @@ function renderSheet(target: BookingSheetTarget, over: Parameters<typeof context
 
 const createAtBor = (hm = "13:30"): BookingSheetTarget => ({ kind: "create", memberId: BOR, start: at(hm) });
 const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
-const chip = (name: string) => screen.getByRole("button", { name });
+// Flowko U29e (E8): a chip's name is the service, then „ · price“ when it has one.
+const chipName = (name: string) => new RegExp(`^${name}( · .*)?$`);
+const chip = (name: string) => screen.getByRole("button", { name: chipName(name) });
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Shrani" }));
 const saveButton = () => screen.getByRole("button", { name: "Shrani" });
 
@@ -69,7 +73,7 @@ describe("BookingSheet create (U28 R10, R13)", () => {
     expect(screen.getByTestId("desk-sheet-worker").textContent).toContain("Bor");
     expect(field("Datum").value).toBe(DATE);
     expect(field("Čas").value).toBe("13:30");
-    expect(screen.queryByRole("button", { name: "Barvanje" })).toBeNull();
+    expect(screen.queryByRole("button", { name: chipName("Barvanje") })).toBeNull();
     fireEvent.click(chip("Fen"));
     fireEvent.click(chip("Moško striženje"));
     expect(chip("Fen")).toHaveAttribute("aria-pressed", "true");
@@ -476,10 +480,12 @@ describe("BookingSheet re-enter with another worker (U28 R12)", () => {
       confirmOverride: false,
       actorMemberId: OLGA,
     });
+    // Flowko U29e (E6, R10): the hand-over marker names the new worker; the reason text stays.
     expect(deskTrpc.cancel).toHaveBeenCalledWith({
       bookingId: 101,
       reason: "Prestavljeno k: Olga",
       actorMemberId: OLGA,
+      handoverToMemberId: OLGA,
     });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(toast).toHaveBeenCalledWith("Termin je prestavljen k: Olga", "success");
@@ -559,5 +565,183 @@ describe("BookingSheet re-enter with another worker (U28 R12)", () => {
     save();
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Ta delavec je zaklenjen.", "error"));
     expect(deskTrpc.cancel).not.toHaveBeenCalled();
+  });
+});
+
+// Flowko U29e: E8, R16 — the price on the chips and the total while booking.
+describe("BookingSheet prices (U29e E8)", () => {
+  beforeEach(() => {
+    resetDeskTrpc();
+    toast.mockReset();
+  });
+
+  const createAtAna = (): BookingSheetTarget => ({ kind: "create", memberId: ANA, start: at("11:00") });
+  const total = () => screen.queryByTestId("desk-price-total");
+  const partial = () => screen.queryByText("Nekatere izbrane storitve nimajo cene, zato znesek ni popoln.");
+
+  it("chips show „Name · price“; an unpriced service shows its name only", () => {
+    renderSheet(createAtAna());
+    expect(screen.getByRole("button", { name: /^Barvanje · 45,00\u00a0€$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Moško striženje · 20,00\u00a0€$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fen" })).toBeInTheDocument();
+    const price = screen
+      .getByRole("button", { name: /^Barvanje/ })
+      .querySelector("[data-testid='desk-chip-price']");
+    expect(price?.className).toContain("tabular-nums");
+    expect(total()).toBeNull();
+  });
+
+  // Flowko U29e final review UI-4: name and price share one inline span, so the space before „·“
+  // is not dropped at a flex item's start (jsdom has no layout; the shared parent is the proof).
+  it("a chip's name and price sit in one span", () => {
+    renderSheet(createAtAna());
+    const price = within(chip("Barvanje")).getByTestId("desk-chip-price");
+    expect(price.parentElement?.textContent).toBe(`Barvanje · 45,00${String.fromCharCode(160)}€`);
+  });
+
+  it("Barvanje + Moško striženje: „Skupaj: 65,00 €“, no note", () => {
+    renderSheet(createAtAna());
+    fireEvent.click(chip("Barvanje"));
+    fireEvent.click(chip("Moško striženje"));
+    expect(total()?.textContent).toBe("Skupaj: 65,00\u00a0€");
+    expect(partial()).toBeNull();
+  });
+
+  it("Barvanje + Fen: the total of the priced one and the note", () => {
+    renderSheet(createAtAna());
+    fireEvent.click(chip("Barvanje"));
+    fireEvent.click(chip("Fen"));
+    expect(total()?.textContent).toBe("Skupaj: 45,00\u00a0€");
+    expect(partial()).toBeInTheDocument();
+  });
+
+  it("only Fen: no total line, no note", () => {
+    renderSheet(createAtAna());
+    fireEvent.click(chip("Fen"));
+    expect(total()).toBeNull();
+    expect(partial()).toBeNull();
+  });
+
+  it("a price of 0 counts: „Skupaj: 0,00 €“", () => {
+    deskTrpc.servicesQuery.mockReturnValue({
+      data: services.map((s) => (s.id === 3 ? { ...s, priceCents: 0 } : s)),
+    });
+    renderSheet(createAtAna());
+    fireEvent.click(chip("Fen"));
+    expect(total()?.textContent).toBe("Skupaj: 0,00\u00a0€");
+  });
+
+  it("re-enter shows the prices too, with the total of the old services", () => {
+    renderSheet({ kind: "reenter", booking: barvanje });
+    expect(screen.getByRole("button", { name: /^Barvanje · 45,00\u00a0€$/ })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(total()?.textContent).toBe("Skupaj: 45,00\u00a0€");
+  });
+
+  it("the payload never carries a price", async () => {
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 9, uid: "u" });
+    renderSheet(createAtAna());
+    fireEvent.click(chip("Barvanje"));
+    fillCustomer();
+    save();
+    await waitFor(() => expect(deskTrpc.create).toHaveBeenCalled());
+    expect(JSON.stringify(deskTrpc.create.mock.calls[0][0])).not.toMatch(/price|4500|45,00/i);
+  });
+});
+
+// Flowko U29e: E10.4, R20 — „no services“ only once the list is known; loading and error say so.
+describe("BookingSheet services loading (U29e E10.4)", () => {
+  beforeEach(() => {
+    resetDeskTrpc();
+    toast.mockReset();
+  });
+
+  const none = () => screen.queryByText("Tej osebi ni dodeljena nobena storitev.");
+
+  it("while loading: no „none“ line, a busy skeleton", () => {
+    deskTrpc.servicesQuery.mockReturnValue({ data: undefined, error: null, refetch: vi.fn() });
+    renderSheet(createAtBor());
+    expect(none()).toBeNull();
+    const chips = screen.getByTestId("desk-sheet-services");
+    expect(chips).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByTestId("desk-services-loading")).toBeInTheDocument();
+    expect(screen.queryByText("Storitev ni bilo mogoče naložiti.")).toBeNull();
+  });
+
+  it("an empty list says „none“, not busy", () => {
+    deskTrpc.servicesQuery.mockReturnValue({ data: [], error: null, refetch: vi.fn() });
+    renderSheet(createAtBor());
+    expect(none()).toBeInTheDocument();
+    expect(screen.getByTestId("desk-sheet-services")).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("desk-services-loading")).toBeNull();
+  });
+
+  it("a worker without services says „none“", () => {
+    deskTrpc.servicesQuery.mockReturnValue({
+      data: services.map((s) => ({ ...s, workerMemberIds: s.workerMemberIds.filter((id) => id !== BOR) })),
+    });
+    renderSheet(createAtBor());
+    expect(none()).toBeInTheDocument();
+  });
+
+  it("an error: the load-error text and „Poskusi znova“ refetches; no „none“ line", () => {
+    const refetch = vi.fn();
+    deskTrpc.servicesQuery.mockReturnValue({ data: undefined, error: new Error("boom"), refetch });
+    renderSheet(createAtBor());
+    expect(none()).toBeNull();
+    expect(screen.getByText("Storitev ni bilo mogoče naložiti.")).toBeInTheDocument();
+    expect(screen.queryByTestId("desk-services-loading")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Poskusi znova" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("an error after an earlier answer keeps the chips (stale data wins)", () => {
+    deskTrpc.servicesQuery.mockReturnValue({ data: services, error: new Error("boom"), refetch: vi.fn() });
+    renderSheet(createAtBor());
+    expect(chip("Fen")).toBeInTheDocument();
+    expect(screen.queryByText("Storitev ni bilo mogoče naložiti.")).toBeNull();
+  });
+});
+
+// Flowko U29e: E10.1, R10 — a worker „Bor & Co“: the stored reason and both toasts carry „&“ once.
+describe("BookingSheet re-enter names once (U29e E10.1)", () => {
+  beforeEach(() => {
+    resetDeskTrpc();
+    toast.mockReset();
+  });
+
+  const borAndCo = () => {
+    const view = deskView();
+    view.days[0].columns = view.days[0].columns.map((c) =>
+      c.memberId === BOR ? { ...c, displayName: "Bor & Co" } : c
+    );
+    return view;
+  };
+
+  it("success: reason „Prestavljeno k: Bor & Co“, marker BOR, toast with „&“ once", async () => {
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 9, uid: "u" });
+    deskTrpc.cancel.mockResolvedValue({ status: "cancelled" });
+    renderSheet({ kind: "reenter", booking: barvanje }, { view: borAndCo() });
+    fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(BOR) } });
+    save();
+    await waitFor(() => expect(deskTrpc.cancel).toHaveBeenCalled());
+    expect(deskTrpc.cancel).toHaveBeenCalledWith({
+      bookingId: 101,
+      reason: "Prestavljeno k: Bor & Co",
+      actorMemberId: OLGA,
+      handoverToMemberId: BOR,
+    });
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Termin je prestavljen k: Bor & Co", "success"));
+  });
+
+  it("a failed cancel: the warning names „Bor & Co“ once", async () => {
+    deskTrpc.create.mockResolvedValue({ status: "created", bookingId: 9, uid: "u" });
+    deskTrpc.cancel.mockRejectedValue(trpcError("booking_not_active"));
+    renderSheet({ kind: "reenter", booking: barvanje }, { view: borAndCo() });
+    fireEvent.change(screen.getByLabelText("Delavec"), { target: { value: String(BOR) } });
+    save();
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.stringContaining("(Bor & Co)"), "warning"));
   });
 });

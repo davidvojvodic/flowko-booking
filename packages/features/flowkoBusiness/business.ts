@@ -5,6 +5,8 @@
 // Never writes Team, Membership, Host, Profile or EventType (R14); members are created with
 // flowkoBusinessMember.create, never through a nested relation write (Teams guard, Ruling 1). Server only.
 import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
+// Flowko U29e: the shared member-name rule (RIGHTS-1).
+import { MEMBER_NAME_MAX, memberNameProblem } from "@calcom/lib/flowkoBusiness/memberName";
 import {
   businessProfileSchema,
   // Flowko U29a: the default reminder choice written into a new business.
@@ -12,6 +14,8 @@ import {
   type OpeningHours,
   serviceStepsSchema,
 } from "@calcom/lib/flowkoBusiness/schemas";
+// Flowko U29e (E5): the type of the usual week a desk-only worker may start with.
+import type { WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { type FlowkoTemplateId, getFlowkoTemplate } from "@calcom/lib/flowkoBusiness/templates";
 import type { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole, FlowkoMemberStatus, UserPermissionRole } from "@calcom/prisma/enums";
@@ -36,7 +40,7 @@ export type CreateBusinessInput = {
 const BUSINESS_TIME_ZONE = "Europe/Ljubljana";
 const DEFAULT_SLOT_GRID_MINUTES = 15;
 const DEFAULT_SELF_CANCEL_HOURS = 24;
-const DISPLAY_NAME_MAX_LENGTH = 80;
+const DISPLAY_NAME_MAX_LENGTH = MEMBER_NAME_MAX; // Flowko U29e: one constant with the shared name rule
 
 /**
  * Flowko U29d: the Slovene user defaults every Flowko-made user gets (Cal's column defaults are London / 12 h /
@@ -88,11 +92,11 @@ async function assertBusinessExists(tx: Tx, businessId: number): Promise<void> {
 }
 
 // Flowko U29c: exported for addDeskWorker (workers.ts), which validates the name before its duplicate check.
+// Flowko U29e (RIGHTS-1): the shared rule (memberName.ts): 1..80 after trim, no control, bidi, separator or
+// invisible character and something visible left; any problem is bad_member. Answers the trimmed name.
 export function displayNameOrThrow(displayName: string): string {
-  const trimmed = displayName.trim();
-  if (trimmed.length === 0 || trimmed.length > DISPLAY_NAME_MAX_LENGTH)
-    throw new FlowkoBusinessError("bad_member");
-  return trimmed;
+  if (memberNameProblem(displayName) !== null) throw new FlowkoBusinessError("bad_member");
+  return displayName.trim();
 }
 
 /**
@@ -250,11 +254,15 @@ export async function addLoginMember(
  * A worker with a calendar column but no login or mailbox (R1): a real User (bookings need a user id) with
  * a never-deliverable desk address, no username, no password, Slovene defaults set explicitly (Cal's column
  * defaults are London / 12 h / Sunday), plus a WORKER member.
+ * Flowko U29e (E5, R1): `opts.usualWeek` is the usual week the member starts with (addDeskWorker passes the owner's,
+ * already checked by usualWeekForCopy); no key or null writes nothing, so the column stays SQL NULL (the set-up
+ * script's 3-argument call and every other caller are unchanged).
  */
 export async function createDeskOnlyWorker(
   db: FlowkoDb,
   businessId: number,
-  displayName: string
+  displayName: string,
+  opts?: { usualWeek?: WeekHours | null }
 ): Promise<{ memberId: number; userId: number }> {
   return withFlowkoTx(db, async (tx) => {
     const name = displayNameOrThrow(displayName);
@@ -277,6 +285,8 @@ export async function createDeskOnlyWorker(
         role: FlowkoBusinessRole.WORKER,
         displayName: name,
         position: await nextPosition(tx, businessId),
+        // Flowko U29e (E5): only a given week is written; otherwise the key is absent (SQL NULL).
+        ...(opts?.usualWeek ? { usualWeek: opts.usualWeek } : {}),
       },
       select: { id: true },
     });

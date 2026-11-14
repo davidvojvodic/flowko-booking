@@ -12,8 +12,10 @@ import { ANA, localeT } from "./desk.fixture";
 import { deskTrpc, resetDeskTrpc, trpcError } from "./desk.testDoubles";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// Flowko U29e (E10.1): the language is switchable (en dates carry a „/“ that i18next would escape).
+const loc = vi.hoisted(() => ({ lang: "sl" as "sl" | "en" }));
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
-  useLocale: () => ({ t: localeT("sl"), i18n: { language: "sl" } }),
+  useLocale: () => ({ t: localeT(loc.lang), i18n: { language: loc.lang } }),
 }));
 vi.mock("@calcom/trpc/react", async () => (await import("./desk.testDoubles")).trpcModule);
 const toast = vi.hoisted(() => vi.fn());
@@ -42,6 +44,7 @@ const addButton = () => screen.getByRole("button", { name: "Dodaj odsotnost" }) 
 const removeButton = () => screen.getByRole("button", { name: "Odstrani odsotnost" }) as HTMLButtonElement;
 
 beforeEach(() => {
+  loc.lang = "sl";
   onDone.mockReset();
   onRefreshed.mockReset();
   toast.mockReset();
@@ -307,5 +310,21 @@ describe("AbsenceSection: „Shranjeno“ and the checked refresh (U29c P1, P8)"
     expect(onRefreshed).toHaveBeenCalledExactlyOnceWith(false);
     expect(toast).toHaveBeenCalledWith("Shranjeno", "success");
     expect(deskTrpc.invalidateRosterWeek).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+  });
+});
+
+// Flowko U29e: E10.1 — en dates („Tue, 11/17“) are not escaped (no „&#x2F;“).
+describe("AbsenceSection dates in English (U29e E10.1)", () => {
+  it("a range and a one-day absence show their dates with „/“ once", () => {
+    loc.lang = "en";
+    section({ absences: [{ id: 71, startDate: "2026-11-16", endDate: "2026-11-18" }], date: "2026-11-16" });
+    const text = screen.getByTestId("roster-absence-71").textContent ?? "";
+    expect(text).toContain("11/16");
+    expect(text).toContain("11/18");
+    expect(text).not.toContain("&#x2F;");
+    cleanup();
+    section({ absences: [{ id: 72, startDate: TUE, endDate: TUE }] });
+    expect(screen.getByTestId("roster-absence-72").textContent).toContain("11/17");
+    expect(screen.getByTestId("roster-absence-72").textContent).not.toContain("&#x2F;");
   });
 });

@@ -37,6 +37,8 @@ export const ZCancelBookingInput = z
     bookingId: idSchema,
     reason: z.string().max(500).nullish(),
     actorMemberId: actorMemberIdSchema,
+    // Flowko U29e: E6, R10 — „Prestavi k drugemu delavcu“: the new worker; the service checks role and target.
+    handoverToMemberId: idSchema.optional(),
   })
   .strict();
 export type TCancelBookingInput = z.infer<typeof ZCancelBookingInput>;

@@ -7,6 +7,9 @@
 // ctx.user.id, `now` is taken once per call in the handler, the flowkoSettings:<id> bucket runs before the service on
 // all five procedures, the error mapping (forbidden → FORBIDDEN; the member codes → BAD_REQUEST with the code) and
 // the exact input shapes.
+// Flowko U29e (E9, R8): rename joins the five U29c procedures (six in `cases`): the same actor rule, the
+// flowkoSettings:<id> bucket first, FORBIDDEN, and BAD_REQUEST for bad_member, member_name_taken and
+// member_conflict; its strict input {memberId, displayName <= 200}.
 import { TRPCError } from "@trpc/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +17,7 @@ const m = vi.hoisted(() => ({
   listWorkers: vi.fn(),
   addDeskWorker: vi.fn(),
   reorderWorkers: vi.fn(),
+  renameMember: vi.fn(), // Flowko U29e
   lockMember: vi.fn(),
   unlockMember: vi.fn(),
   disconnectGoogleOfUser: vi.fn(),
@@ -33,6 +37,7 @@ vi.mock("@calcom/features/flowkoBusiness/workers", () => ({
   listWorkers: m.listWorkers,
   addDeskWorker: m.addDeskWorker,
   reorderWorkers: m.reorderWorkers,
+  renameMember: m.renameMember, // Flowko U29e
 }));
 vi.mock("@calcom/features/flowkoBusiness/invites", () => ({
   createInvite: m.createInvite,
@@ -96,6 +101,13 @@ const cases: Case[] = [
     service: m.reorderWorkers,
     run: () => handlers.reorderHandler({ ctx, input: { memberIds: [13, 12] } }),
     args: [m.prisma, 7, { memberIds: [13, 12] }],
+  },
+  // Flowko U29e (E9): the input is passed field by field; the actor is ctx.user.id.
+  {
+    name: "rename",
+    service: m.renameMember,
+    run: () => handlers.renameHandler({ ctx, input: { memberId: 12, displayName: "Ana Nova" } }),
+    args: [m.prisma, 7, { memberId: 12, displayName: "Ana Nova" }],
   },
 ];
 
@@ -239,12 +251,45 @@ describe("viewer.flowko.workers handlers (Flowko U29c)", () => {
       () => handlers.reorderHandler({ ctx, input: { memberIds: [12] } }),
       m.reorderWorkers,
     ],
+    // Flowko U29e (E9, R8): no new code.
+    [
+      "rename",
+      "bad_member",
+      () => handlers.renameHandler({ ctx, input: { memberId: 12, displayName: "" } }),
+      m.renameMember,
+    ],
+    [
+      "rename",
+      "member_name_taken",
+      () => handlers.renameHandler({ ctx, input: { memberId: 12, displayName: "Ana" } }),
+      m.renameMember,
+    ],
+    [
+      "rename",
+      "member_conflict",
+      () => handlers.renameHandler({ ctx, input: { memberId: 12, displayName: "Ana" } }),
+      m.renameMember,
+    ],
   ] as const)("%s maps %s to BAD_REQUEST with the code as message", async (_name, code, run, service) => {
     service.mockRejectedValue(new FlowkoBusinessError(code));
     const err = await run().catch((e) => e);
     expect(err).toBeInstanceOf(TRPCError);
     expect(err.code).toBe("BAD_REQUEST");
     expect(err.message).toBe(code);
+  });
+
+  // Flowko U29e (E5, R3): the answers carry the copy outcome and the owner's week flag; the handlers add nothing.
+  it("addDeskOnly and list hand the service answer through unchanged (usualWeek, ownerUsualWeek)", async () => {
+    const added = { status: "added", memberId: 21, usualWeek: "copied" };
+    m.addDeskWorker.mockResolvedValue(added);
+    expect(await handlers.addDeskOnlyHandler({ ctx, input: { displayName: "Ana" } })).toEqual({
+      status: "added",
+      memberId: 21,
+      usualWeek: "copied",
+    });
+    const listed = { members: [], invites: [], ownerUsualWeek: true };
+    m.listWorkers.mockResolvedValue(listed);
+    expect(await handlers.listHandler({ ctx })).toEqual({ members: [], invites: [], ownerUsualWeek: true });
   });
 
   it("list and lock take `now` once per call, as a fresh Date", async () => {
@@ -511,5 +556,39 @@ describe("viewer.flowko.workers input schemas (Flowko U29c, strict)", () => {
     expect(schemas.ZAddDeskOnlyInput.safeParse({ displayName: "n".repeat(201) }).success).toBe(false);
     expect(schemas.ZAddDeskOnlyInput.safeParse({ displayName: "" }).success).toBe(true);
     expect(schemas.ZAddDeskOnlyInput.safeParse({ displayName: 5 }).success).toBe(false);
+  });
+});
+
+// Flowko U29e (E9, R8): {memberId, displayName}, strict; the name rules (trim, 1..80, characters, duplicates) are the
+// service's, so the schema only caps the size.
+describe("viewer.flowko.workers.rename input schema (Flowko U29e, strict)", () => {
+  const MAX_INT4 = 2147483647;
+  const ok = (input: unknown) => schemas.ZRenameMemberInput.safeParse(input).success;
+
+  it("accepts a member id and a name", () => {
+    expect(ok({ memberId: 1, displayName: "Ana Nova" })).toBe(true);
+    expect(ok({ memberId: MAX_INT4, displayName: "" })).toBe(true);
+  });
+
+  it("refuses an unknown key (no actor, business or user id from the client)", () => {
+    expect(ok({ memberId: 1, displayName: "Ana", userId: 5 })).toBe(false);
+    expect(ok({ memberId: 1, displayName: "Ana", businessId: 5 })).toBe(false);
+    expect(ok({ memberId: 1, displayName: "Ana", name: "Ana" })).toBe(false);
+  });
+
+  it("refuses a missing key", () => {
+    expect(ok({ memberId: 1 })).toBe(false);
+    expect(ok({ displayName: "Ana" })).toBe(false);
+    expect(ok({})).toBe(false);
+  });
+
+  it("the id is an integer 1..2147483647; the name a string of at most 200", () => {
+    for (const bad of [0, -1, 1.5, MAX_INT4 + 1, "1"]) {
+      expect(ok({ memberId: bad, displayName: "Ana" })).toBe(false);
+    }
+    expect(ok({ memberId: 1, displayName: "n".repeat(200) })).toBe(true);
+    expect(ok({ memberId: 1, displayName: "n".repeat(201) })).toBe(false);
+    expect(ok({ memberId: 1, displayName: 5 })).toBe(false);
+    expect(ok({ memberId: 1, displayName: null })).toBe(false);
   });
 });

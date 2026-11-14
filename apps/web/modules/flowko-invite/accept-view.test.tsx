@@ -1,3 +1,6 @@
+// Flowko U29e (Task 11, E10.6, RIGHTS-1): a 409 signed_in answer shows the already-signed-in view (no form, no
+// password left in the DOM, no sign-in, no toast); a name with an invisible or control character shows its own
+// inline text before any POST.
 // Flowko U29d (Task 8, A5, A7): the accept form. The e-mail is fixed (read-only), the name is prefilled and
 // editable, the password shows Cal's live hints (caplow / min / num) and must be repeated. Submit posts
 // {token, name, password, csrfToken} to /api/flowko/pridruzi; on 201 it signs in with the credentials provider and
@@ -188,6 +191,30 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
     expect(posts()).toHaveLength(0);
   });
 
+  it("Flowko U29e (RIGHTS-1): a name with an invisible or control character shows the characters text on the page, without a POST", async () => {
+    // code points are built, never typed as invisible characters
+    const zwsp = String.fromCharCode(0x200b);
+    const nul = String.fromCharCode(0);
+    const rlo = String.fromCharCode(0x202e);
+    await ready();
+    for (const name of [`Ana${zwsp}`, `Ana${nul}`, `An${rlo}a`]) {
+      await fill(PASSWORD, PASSWORD, name);
+      await submit();
+      expect(
+        await screen.findByText("Ime vsebuje nedovoljene nevidne znake. Vnesite ga znova.")
+      ).toBeTruthy();
+      expect(screen.queryByText("Vnesite ime (največ 80 znakov).")).toBeNull();
+      expect(posts()).toHaveLength(0);
+    }
+    expect(mocks.signIn).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    // the next valid name goes through (the inline text clears on typing)
+    await fill(PASSWORD, PASSWORD, "Ana Novak");
+    await submit();
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(String(posts()[0].init?.body)).name).toBe("Ana Novak");
+  });
+
   it("refuses a password over 72 UTF-8 bytes on the page, without a POST", async () => {
     await ready();
     const long = `Aa1${"ž".repeat(35)}`;
@@ -300,6 +327,42 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
     expect((await screen.findByTestId("flowko-invite-password-error")).textContent).toBe(text);
   });
 
+  it("Flowko U29e (E10.6): a 409 signed_in answer shows the already-signed-in view, no form, no password, no sign-in, no toast", async () => {
+    mocks.posts.push({ status: 409, body: { code: "signed_in" } });
+    await ready();
+    await fill();
+    await submit();
+
+    const view = await screen.findByTestId("flowko-invite-signed-in");
+    expect(screen.getByRole("heading", { name: "Ste že prijavljeni" })).toBeTruthy();
+    expect(view.textContent).toContain(
+      "Za sprejem povabila se najprej odjavite, nato povezavo odprite znova."
+    );
+    expect(screen.getByRole("link", { name: "Odjava" }).getAttribute("href")).toBe("/auth/logout");
+    expect(screen.queryByTestId("flowko-invite-accept-form")).toBeNull();
+    expect(screen.queryByLabelText("Geslo")).toBeNull();
+    expect(screen.queryByLabelText("Potrdi geslo")).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(screen.queryByTestId("flowko-invite-accept-error")).toBeNull();
+    expect(document.body.textContent).not.toContain("Nekaj je šlo narobe.");
+    expect(document.body.textContent).not.toContain(PASSWORD);
+    expect(mocks.signIn).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("member_conflict (409, shared status with signed_in) keeps the form and its own text", async () => {
+    mocks.posts.push({ status: 409, body: { code: "member_conflict" } });
+    await ready();
+    await fill();
+    await submit();
+
+    await waitFor(() => expect(alertText()).toBe("Hkrati je shranjeval še nekdo. Poskusite znova."));
+    expect(screen.queryByTestId("flowko-invite-signed-in")).toBeNull();
+    expect(screen.getByTestId("flowko-invite-accept-form")).toBeTruthy();
+    expect(passwordInput().value).toBe(PASSWORD);
+  });
+
   it.each([
     [
       "429 from the limiter",
@@ -317,7 +380,6 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
       { status: 403, body: { success: false, message: "Invalid CSRF token" } },
       "Nekaj je šlo narobe.",
     ],
-    ["signed_in", { status: 409, body: { code: "signed_in" } }, "Nekaj je šlo narobe."],
     ["an unknown code", { status: 400, body: { code: "whatever" } }, "Nekaj je šlo narobe."],
     ["a body that is not JSON", { status: 502, body: null, badJson: true }, "Nekaj je šlo narobe."],
     ["a network failure", { status: 0, body: null, throws: true }, "Nekaj je šlo narobe."],

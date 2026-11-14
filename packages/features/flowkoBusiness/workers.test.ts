@@ -16,7 +16,11 @@ import { addLoginMember, addStaffWithoutLogin, createBusiness, createDeskOnlyWor
 import type { FlowkoDb } from "./db";
 import { FlowkoBusinessError } from "./errors";
 import { ensureWorkerMirror } from "./mirror";
-import { addDeskWorker, listWorkers, reorderWorkers } from "./workers";
+// Flowko U29e: the rename reads (desk member list, Urnik) to prove the new name shows everywhere.
+import { listDeskMembers } from "./desk";
+// Flowko U29e (E5): readUsualWeek reads the copied week back.
+import { getRosterWeek, readUsualWeek } from "./roster";
+import { addDeskWorker, listWorkers, renameMember, reorderWorkers } from "./workers";
 
 const db = prismock as unknown as FlowkoDb;
 const tx = prismock as unknown as Prisma.TransactionClient;
@@ -423,7 +427,9 @@ describe("listWorkers (W1 workers.list)", () => {
         "to",
       ].sort()
     );
-    expect(Object.keys(answer).sort()).toEqual(["invites", "members"]);
+    // Flowko U29e (E5, R3): a third top-level key, the owner's usual week as a boolean (never the week itself).
+    expect(Object.keys(answer).sort()).toEqual(["invites", "members", "ownerUsualWeek"]);
+    expect(typeof answer.ownerUsualWeek).toBe("boolean");
     expect([...keysDeep(answer.invites)].sort()).toEqual(
       ["email", "expired", "expiresDate", "expiresTime", "inviteId", "name", "role"].sort()
     );
@@ -473,7 +479,8 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
     });
     const user = await prismock.user.findUnique({ where: { id: member?.userId as number } });
     expect(user?.email.endsWith("@flowko.invalid")).toBe(true);
-    // No usual week, no roster days, no services.
+    // Flowko U29e (E5): the fixture owner Olga has no usual week, so none is copied; no roster days, no services
+    // (C10). The copy itself: the "addDeskWorker copies the owner's usual week" block below.
     expect(await prismock.flowkoRosterDay.count({ where: { memberId } })).toBe(0);
     expect(member?.usualWeek ?? null).toBeNull();
     expect(await prismock.flowkoServiceWorker.count({ where: { memberId } })).toBe(0);
@@ -538,6 +545,38 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
     expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "y".repeat(80) }))).toBe("ok");
   });
 
+  // Flowko U29e (RIGHTS-1, R5): control, bidi, separator and invisible characters, and names with nothing visible.
+  it("refuses a name with a control, bidi, separator or invisible character as bad_member, nothing written", async () => {
+    const users = await prismock.user.count();
+    for (const displayName of [
+      "A\u0000",
+      "A\u0085",
+      "Ana\u200B",
+      "An\u2060a",
+      "Ana\u202E",
+      "Ana\u2066x",
+      "Ana\u061C",
+      "An\u2028a",
+      "\u200D",
+      "\u00AD",
+    ]) {
+      expect(await outcome(addDeskWorker(db, f.users.olga, { displayName }))).toBe("bad_member");
+    }
+    expect(await prismock.user.count()).toBe(users);
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+  });
+
+  it("a look-alike with a joiner or a soft hyphen is member_name_taken; an emoji name with ZWJ is fine", async () => {
+    for (const displayName of ["Ana\u200D", "A\u200Cna", "A\u00ADna", "\u200D ana"]) {
+      expect(await outcome(addDeskWorker(db, f.users.olga, { displayName }))).toBe("member_name_taken");
+    }
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+    const family = "Maja \uD83D\uDC69\u200D\uD83D\uDC67";
+    const { memberId } = await addDeskWorker(db, f.users.olga, { displayName: family });
+    const member = await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } });
+    expect(member.displayName).toBe(family);
+  });
+
   it("is the owner's: a worker, a staff member, a locked member and a stranger are forbidden, nothing written", async () => {
     const users = await prismock.user.count();
     for (const actor of [f.users.ana, f.users.rok, f.users.dan, await makeUser("Nobody")]) {
@@ -572,6 +611,140 @@ describe("addDeskWorker (W4 workers.addDeskOnly)", () => {
     const other = raw("P2010", { code: "22P02" });
     vi.spyOn(prismock.flowkoBusinessMember, "create").mockRejectedValueOnce(other);
     await expect(addDeskWorker(db, f.users.olga, { displayName: "Maja" })).rejects.toBe(other);
+  });
+});
+
+// Flowko U29e (E5, R1, R3): „Dodaj brez prijave“ gives the new worker the owner's usual week (the accept's predicate,
+// usualWeekForCopy), answers whether it did, and workers.list says whether the owner has one. Services stay empty
+// (C10). The race with the owner's usual-week save: workers.integration-test.ts.
+describe("addDeskWorker copies the owner's usual week (U29e E5)", () => {
+  const e = (from: string, to: string) => ({ from, to });
+  const OWNER_WEEK = {
+    mon: [e("08:00", "12:00"), e("13:00", "16:00")],
+    tue: [e("08:00", "16:00")],
+    wed: [],
+    thu: [e("09:00", "17:00")],
+    fri: [e("08:00", "14:00")],
+    sat: [],
+    sun: [],
+  };
+  const LATER_WEEK = { ...OWNER_WEEK, sat: [e("09:00", "13:00")] };
+  const EMPTY_WEEK = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
+  const TOO_MANY = {
+    ...OWNER_WEEK,
+    tue: [
+      e("06:00", "07:00"),
+      e("08:00", "09:00"),
+      e("10:00", "11:00"),
+      e("12:00", "13:00"),
+      e("14:00", "15:00"),
+    ],
+  };
+  const setWeek = (memberId: number, usualWeek: unknown) =>
+    prismock.flowkoBusinessMember.update({
+      where: { id: memberId },
+      data: { usualWeek: usualWeek as never },
+    });
+  const weekOf = async (memberId: number) =>
+    readUsualWeek(
+      (await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } })).usualWeek
+    );
+
+  it("the owner has a valid week: the new member gets exactly it, answer copied; still no services, no roster days", async () => {
+    await setWeek(f.members.olga, OWNER_WEEK);
+    const answer = await addDeskWorker(db, f.users.olga, { displayName: "Maja" });
+    expect(answer).toEqual({ status: "added", memberId: expect.any(Number), usualWeek: "copied" });
+    expect(Object.keys(answer).sort()).toEqual(["memberId", "status", "usualWeek"]);
+    expect(await weekOf(answer.memberId)).toEqual(OWNER_WEEK);
+    expect(await prismock.flowkoServiceWorker.count({ where: { memberId: answer.memberId } })).toBe(0);
+    expect(await prismock.flowkoRosterDay.count({ where: { memberId: answer.memberId } })).toBe(0);
+    // The owner's own week is untouched.
+    expect(await weekOf(f.members.olga)).toEqual(OWNER_WEEK);
+  });
+
+  it("the owner has none, Prisma.DbNull, more than 4 shifts a day, an all-empty week or a bad shape: no week, answer none", async () => {
+    const variants: Array<[string, unknown]> = [
+      ["never set", undefined],
+      ["DbNull", Prisma.DbNull],
+      ["too many shifts", TOO_MANY],
+      ["all empty", EMPTY_WEEK],
+      ["bad shape", { mon: "08:00-16:00" }],
+    ];
+    for (const [label, week] of variants) {
+      if (week !== undefined) await setWeek(f.members.olga, week);
+      const answer = await addDeskWorker(db, f.users.olga, { displayName: `Nova ${label}` });
+      expect([label, answer]).toEqual([
+        label,
+        { status: "added", memberId: answer.memberId, usualWeek: "none" },
+      ]);
+      expect([label, await weekOf(answer.memberId)]).toEqual([label, null]);
+    }
+  });
+
+  it("copies the week as stored at the add: a later week is copied, a cleared one gives none; earlier copies stay", async () => {
+    await setWeek(f.members.olga, OWNER_WEEK);
+    const first = await addDeskWorker(db, f.users.olga, { displayName: "Prva" });
+    await setWeek(f.members.olga, LATER_WEEK);
+    const second = await addDeskWorker(db, f.users.olga, { displayName: "Druga" });
+    await setWeek(f.members.olga, Prisma.DbNull);
+    const third = await addDeskWorker(db, f.users.olga, { displayName: "Tretja" });
+    expect([first.usualWeek, second.usualWeek, third.usualWeek]).toEqual(["copied", "copied", "none"]);
+    expect(await weekOf(first.memberId)).toEqual(OWNER_WEEK);
+    expect(await weekOf(second.memberId)).toEqual(LATER_WEEK);
+    expect(await weekOf(third.memberId)).toBeNull();
+  });
+
+  it("only the actor's own owner counts: B's owner week never reaches A, and a worker's week is not the owner's", async () => {
+    await setWeek(f.members.zala, LATER_WEEK);
+    await setWeek(f.members.ana, OWNER_WEEK);
+    const inA = await addDeskWorker(db, f.users.olga, { displayName: "Maja" });
+    expect(inA.usualWeek).toBe("none");
+    expect(await weekOf(inA.memberId)).toBeNull();
+
+    await setWeek(f.members.olga, OWNER_WEEK);
+    const inAAgain = await addDeskWorker(db, f.users.olga, { displayName: "Maja Druga" });
+    const inB = await addDeskWorker(db, f.users.zala, { displayName: "Maja" });
+    expect(await weekOf(inAAgain.memberId)).toEqual(OWNER_WEEK);
+    expect(await weekOf(inB.memberId)).toEqual(LATER_WEEK);
+  });
+
+  it("createDeskOnlyWorker without opts (the set-up script's 3-argument call) and staff never get a week", async () => {
+    await setWeek(f.members.olga, OWNER_WEEK);
+    const script = await createDeskOnlyWorker(db, f.a, "Skripta");
+    const noKey = await createDeskOnlyWorker(db, f.a, "Brez", {});
+    const nullWeek = await createDeskOnlyWorker(db, f.a, "Nic", { usualWeek: null });
+    const given = await createDeskOnlyWorker(db, f.a, "Dana", { usualWeek: LATER_WEEK });
+    const staff = await addStaffWithoutLogin(db, f.a, "Recepcija");
+    expect(await weekOf(script.memberId)).toBeNull();
+    expect(await weekOf(noKey.memberId)).toBeNull();
+    expect(await weekOf(nullWeek.memberId)).toBeNull();
+    expect(await weekOf(given.memberId)).toEqual(LATER_WEEK);
+    expect(await weekOf((staff as { memberId: number }).memberId)).toBeNull();
+  });
+
+  it("refusals copy nothing: forbidden and member_name_taken write no member", async () => {
+    await setWeek(f.members.olga, OWNER_WEEK);
+    expect(await outcome(addDeskWorker(db, f.users.ana, { displayName: "Maja" }))).toBe("forbidden");
+    expect(await outcome(addDeskWorker(db, f.users.olga, { displayName: "ana" }))).toBe("member_name_taken");
+    expect(await prismock.flowkoBusinessMember.count({ where: { businessId: f.a } })).toBe(7);
+  });
+
+  it("workers.list answers ownerUsualWeek by the same predicate as the copy", async () => {
+    const flag = async () => (await listWorkers(db, f.users.olga, NOW)).ownerUsualWeek;
+    expect(await flag()).toBe(false); // never set
+    // A worker's week and another business's owner week do not count.
+    await setWeek(f.members.ana, OWNER_WEEK);
+    await setWeek(f.members.zala, OWNER_WEEK);
+    expect(await flag()).toBe(false);
+    await setWeek(f.members.olga, OWNER_WEEK);
+    expect(await flag()).toBe(true);
+    for (const week of [Prisma.DbNull, TOO_MANY, EMPTY_WEEK, { mon: "08:00-16:00" }]) {
+      await setWeek(f.members.olga, week);
+      expect(await flag()).toBe(false);
+    }
+    await setWeek(f.members.olga, LATER_WEEK);
+    expect(await flag()).toBe(true);
+    expect((await listWorkers(db, f.users.zala, NOW)).ownerUsualWeek).toBe(true);
   });
 });
 
@@ -693,5 +866,249 @@ describe("listWorkers moreBookings (Task 2 review carry)", () => {
     expect(dan?.futureCount).toBe(1);
     expect(dan?.futureBookings).toHaveLength(2);
     expect(dan?.moreBookings).toBe(0);
+  });
+});
+
+// Flowko U29e (E9, R6-R8): the owner renames a member. Locks and races: workers.integration-test.ts.
+describe("renameMember (E9 workers.rename)", () => {
+  const userIdOf = async (memberId: number): Promise<number> =>
+    (await prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id: memberId } })).userId as number;
+  const memberRow = (id: number) => prismock.flowkoBusinessMember.findUniqueOrThrow({ where: { id } });
+  const userRow = (id: number) => prismock.user.findUniqueOrThrow({ where: { id } });
+  /** Every member row and every user row, whole (prismock writes no updatedAt, so equal rows = nothing written). */
+  const everything = async () => ({
+    members: await prismock.flowkoBusinessMember.findMany({ orderBy: { id: "asc" } }),
+    users: await prismock.user.findMany({ orderBy: { id: "asc" } }),
+  });
+  /** Spies on the two writes a rename may make; restored by the caller. */
+  function spyWrites() {
+    const member = vi.spyOn(prismock.flowkoBusinessMember, "update");
+    const user = vi.spyOn(prismock.user, "update");
+    member.mockClear();
+    user.mockClear();
+    return {
+      member,
+      user,
+      restore: () => {
+        member.mockRestore();
+        user.mockRestore();
+      },
+    };
+  }
+
+  it("a desk-only worker: displayName and User.name both change, the e-mail stays; answers saved", async () => {
+    const userId = await userIdOf(f.members.mojca);
+    const before = await userRow(userId);
+    expect(before.name).toBe("Mojca");
+    expect(
+      await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "  Mojca Nova  " })
+    ).toEqual({ status: "saved" });
+    expect((await memberRow(f.members.mojca)).displayName).toBe("Mojca Nova");
+    const after = await userRow(userId);
+    expect(after).toEqual({ ...before, name: "Mojca Nova" });
+    expect(after.email).toBe(before.email);
+    expect(after.email.endsWith("@flowko.invalid")).toBe(true);
+  });
+
+  it("a login worker, a login staff member and the owner's own row: only displayName, the user row is untouched", async () => {
+    for (const [memberId, userId, next] of [
+      [f.members.ana, f.users.ana, "Ana Kovač"],
+      [f.members.rok, f.users.rok, "Rok Recepcija"],
+      [f.members.olga, f.users.olga, "Olga Lastnica"],
+    ] as const) {
+      const before = await userRow(userId);
+      expect(await renameMember(db, f.users.olga, { memberId, displayName: next })).toEqual({
+        status: "saved",
+      });
+      expect((await memberRow(memberId)).displayName).toBe(next);
+      expect(await userRow(userId)).toEqual(before);
+    }
+  });
+
+  it("a converted member (desk user that now has a real e-mail): only displayName, User.name stays the person's", async () => {
+    const userId = await userIdOf(f.members.mojca);
+    await prismock.user.update({
+      where: { id: userId },
+      data: { email: "mojca.prava@example.com", name: "Mojca Vpisana" },
+    });
+    const before = await userRow(userId);
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Mojca S." });
+    expect((await memberRow(f.members.mojca)).displayName).toBe("Mojca S.");
+    expect(await userRow(userId)).toEqual(before);
+  });
+
+  it("staff without a login: displayName only, no user write", async () => {
+    const writes = spyWrites();
+    try {
+      await renameMember(db, f.users.olga, { memberId: f.members.sara, displayName: "Sara Blagajna" });
+      expect(writes.user).not.toHaveBeenCalled();
+      expect(writes.member).toHaveBeenCalledTimes(1);
+    } finally {
+      writes.restore();
+    }
+    expect((await memberRow(f.members.sara)).displayName).toBe("Sara Blagajna");
+  });
+
+  it("a LOCKED member can be renamed (status kept)", async () => {
+    const before = await userRow(f.users.dan);
+    await renameMember(db, f.users.olga, { memberId: f.members.dan, displayName: "Dan Stari" });
+    expect(await memberRow(f.members.dan)).toMatchObject({
+      displayName: "Dan Stari",
+      status: FlowkoMemberStatus.LOCKED,
+    });
+    expect(await userRow(f.users.dan)).toEqual(before);
+  });
+
+  it("a case-only change of one's own name passes (self is not a duplicate), the owner's and another member's", async () => {
+    await renameMember(db, f.users.olga, { memberId: f.members.olga, displayName: "OLGA" });
+    expect((await memberRow(f.members.olga)).displayName).toBe("OLGA");
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "mojca" });
+    expect((await memberRow(f.members.mojca)).displayName).toBe("mojca");
+    expect((await userRow(await userIdOf(f.members.mojca))).name).toBe("mojca");
+  });
+
+  it("an unchanged name (after trim) answers saved and writes nothing", async () => {
+    const before = await everything();
+    const writes = spyWrites();
+    try {
+      for (const displayName of ["Mojca", "  Mojca "]) {
+        expect(await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName })).toEqual({
+          status: "saved",
+        });
+      }
+      expect(writes.member).not.toHaveBeenCalled();
+      expect(writes.user).not.toHaveBeenCalled();
+    } finally {
+      writes.restore();
+    }
+    expect(await everything()).toEqual(before);
+  });
+
+  it("another member's name in any case, NFC or invisible-character variant is member_name_taken, nothing written", async () => {
+    await renameMember(db, f.users.olga, { memberId: f.members.sara, displayName: "\u010Caja" }); // composed
+    const before = await everything();
+    for (const displayName of [
+      "Ana",
+      " ana ",
+      "ANA",
+      "Dan", // LOCKED
+      "C\u030Caja", // decomposed C-caron against the composed one
+      "Ana\u200D",
+      "A\u00ADna",
+      "olga",
+      "ROK",
+    ]) {
+      expect(await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName }))).toBe(
+        "member_name_taken"
+      );
+    }
+    expect(await everything()).toEqual(before);
+    // A name used only in another business is free; so is a name freed by an earlier rename.
+    expect(
+      await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Bea" }))
+    ).toBe("ok");
+    expect(
+      await outcome(renameMember(db, f.users.olga, { memberId: f.members.ana, displayName: "Sara" }))
+    ).toBe("ok");
+  });
+
+  it("an empty name, 81 characters and a refused character are bad_member, nothing written", async () => {
+    const before = await everything();
+    for (const displayName of ["", "   ", "x".repeat(81), "A\u0000", "Ana\u200B", "Ana\u202E", "\u200D"]) {
+      expect(await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName }))).toBe(
+        "bad_member"
+      );
+    }
+    expect(await everything()).toEqual(before);
+    expect(
+      await outcome(
+        renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "y".repeat(80) })
+      )
+    ).toBe("ok");
+  });
+
+  it("is the owner's: a worker, a staff member, a locked member, a stranger, a foreign owner and a missing id are forbidden, nothing written", async () => {
+    const before = await everything();
+    const writes = spyWrites();
+    try {
+      for (const actor of [f.users.ana, f.users.rok, f.users.dan, f.users.zala]) {
+        expect(
+          await outcome(renameMember(db, actor, { memberId: f.members.mojca, displayName: "Nova" }))
+        ).toBe("forbidden");
+      }
+      // The owner of A cannot reach B's member; a missing id answers the same.
+      for (const memberId of [f.members.bea, f.members.zala, 999_999]) {
+        expect(await outcome(renameMember(db, f.users.olga, { memberId, displayName: "Nova" }))).toBe(
+          "forbidden"
+        );
+      }
+      // A worker cannot rename herself either.
+      expect(
+        await outcome(renameMember(db, f.users.ana, { memberId: f.members.ana, displayName: "Ana Nova" }))
+      ).toBe("forbidden");
+      expect(writes.member).not.toHaveBeenCalled();
+      expect(writes.user).not.toHaveBeenCalled();
+    } finally {
+      writes.restore();
+    }
+    expect(await everything()).toEqual(before);
+    const stranger = await makeUser("Nobody");
+    expect(
+      await outcome(renameMember(db, stranger, { memberId: f.members.mojca, displayName: "Nova" }))
+    ).toBe("forbidden");
+  });
+
+  it("answers a lost lock race (P2028, P2034, P2010 with 40P01 in both meta forms) as member_conflict", async () => {
+    const raw = (code: string, meta: Record<string, unknown>) =>
+      new Prisma.PrismaClientKnownRequestError(`prisma ${code}`, { code, clientVersion: "6", meta });
+    const failures = [
+      raw("P2028", {}),
+      raw("P2034", {}),
+      raw("P2010", { code: "40P01", message: "deadlock detected" }),
+      raw("P2010", {
+        driverAdapterError: { cause: { originalCode: "40P01", kind: "postgres", code: "40P01" } },
+      }),
+    ];
+    for (const failure of failures) {
+      vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(failure);
+      expect(
+        await outcome(renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Nova" }))
+      ).toBe("member_conflict");
+    }
+    const other = raw("P2010", { code: "22P02" });
+    vi.spyOn(prismock.flowkoBusinessMember, "update").mockRejectedValueOnce(other);
+    await expect(
+      renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Nova" })
+    ).rejects.toBe(other);
+  });
+
+  it("afterwards Delavci, the desk's member list and Urnik show the new name", async () => {
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Mojca Nova" });
+    const { members } = await listWorkers(db, f.users.olga, NOW);
+    expect(members.find((m) => m.memberId === f.members.mojca)?.displayName).toBe("Mojca Nova");
+    const desk = await listDeskMembers(db, f.users.ana);
+    expect(desk.find((m) => m.memberId === f.members.mojca)?.displayName).toBe("Mojca Nova");
+    const roster = await getRosterWeek(db, f.users.olga, "2026-11-16", NOW);
+    expect(roster.members.find((m) => m.memberId === f.members.mojca)?.displayName).toBe("Mojca Nova");
+    expect(JSON.stringify([members, desk, roster])).not.toContain('"Mojca"');
+  });
+
+  it("an open member invite keeps the name it was sent with (R6)", async () => {
+    const invite = await prismock.flowkoBusinessInvite.create({
+      data: {
+        businessId: f.a,
+        email: "mojca@example.com",
+        name: "Mojca",
+        role: FlowkoBusinessRole.WORKER,
+        memberId: f.members.mojca,
+        tokenHash: "c".repeat(64),
+        expiresAt: new Date(NOW.getTime() + 86_400_000),
+        createdByUserId: f.users.olga,
+      },
+    });
+    await renameMember(db, f.users.olga, { memberId: f.members.mojca, displayName: "Mojca Nova" });
+    expect(await prismock.flowkoBusinessInvite.findUniqueOrThrow({ where: { id: invite.id } })).toEqual(
+      invite
+    );
   });
 });

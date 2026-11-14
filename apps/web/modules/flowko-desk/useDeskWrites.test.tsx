@@ -3,6 +3,7 @@
 // `forbidden` clears the stored actor and reopens the picker.
 // Flowko U28b (B1, B3): no picker is ever forced open (a `forbidden` answer clears the stored choice and shows its
 // text); the refetch before a dialog or a message refreshes the shown free starts too.
+// Flowko U29e (E6, R10): cancel passes the hand-over marker only when given.
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -230,5 +231,30 @@ describe("useDeskWrites (U28 R9, R13)", () => {
     expect(deskErrorCode(trpcError("Rate limit", "TOO_MANY_REQUESTS"))).toBe("TOO_MANY_REQUESTS");
     expect(deskErrorCode(new Error("nope"))).toBe("unknown");
     expect(deskErrorCode(null)).toBe("unknown");
+  });
+});
+
+describe("useDeskWrites cancel with the hand-over marker (U29e E6, R10)", () => {
+  beforeEach(() => {
+    resetDeskTrpc();
+    toast.mockReset();
+    log.length = 0;
+  });
+
+  it("sends handoverToMemberId when given, and no such key otherwise", async () => {
+    deskTrpc.cancel.mockResolvedValue({ status: "cancelled" });
+    const { writes } = setup();
+    await act(async () => {
+      await writes().cancel({ bookingId: 101, reason: "Prestavljeno k: Bor", handoverToMemberId: BOR });
+      await writes().cancel({ bookingId: 102, reason: null });
+    });
+    expect(deskTrpc.cancel.mock.calls[0][0]).toEqual({
+      bookingId: 101,
+      reason: "Prestavljeno k: Bor",
+      handoverToMemberId: BOR,
+      actorMemberId: 1,
+    });
+    expect(deskTrpc.cancel.mock.calls[1][0]).toEqual({ bookingId: 102, reason: null, actorMemberId: 1 });
+    expect(Object.keys(deskTrpc.cancel.mock.calls[1][0])).not.toContain("handoverToMemberId");
   });
 });

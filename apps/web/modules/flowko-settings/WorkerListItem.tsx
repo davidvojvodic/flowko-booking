@@ -10,12 +10,16 @@
 // STAFF member without login, Open 9); with an invite its row shows the validity line (no e-mail: the address
 // never reaches a member row) and „Pošlji znova“ / „Nova povezava“ / „Prekliči povabilo“ in place of „Povabi“.
 // A LOCKED row hides all of it (its invite is inert until an unlock); „Zakleni“ / „Odkleni“ stay.
+// Flowko U29e (E9, R8): „Preimenuj“ on every row, the owner's own and a LOCKED one included: the first text action
+// after the arrows (the same place on every row), described by the name like the other actions. The arrows' labels
+// print the name once (RAW, E10.1).
 "use client";
 
 import type { WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Badge } from "@calcom/ui/components/badge";
 import { Button } from "@calcom/ui/components/button";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { useId } from "react";
 import {
   InviteActions,
@@ -47,6 +51,8 @@ export function WorkerListItem(props: {
   onLock: () => void;
   onUnlock: () => void;
   onRetryGoogle: () => void;
+  /** Flowko U29e (E9): „Preimenuj“ (every row). */
+  onRename: () => void;
   /** Flowko U29d: „Povabi“ (desk-only worker without an open invite). */
   onInvite: () => void;
   /** Flowko U29d: the actions on this row's open invite. */
@@ -91,7 +97,7 @@ export function WorkerListItem(props: {
           color="minimal"
           StartIcon="arrow-up"
           ref={(element) => props.arrowRef("up", element)}
-          aria-label={t("flowko_workers_move_up", { name: row.displayName })}
+          aria-label={t("flowko_workers_move_up", { name: row.displayName, ...RAW })}
           disabled={props.isFirst || props.busy || props.arrowsOff}
           onClick={() => props.onMove("up")}
         />
@@ -101,10 +107,18 @@ export function WorkerListItem(props: {
           color="minimal"
           StartIcon="arrow-down"
           ref={(element) => props.arrowRef("down", element)}
-          aria-label={t("flowko_workers_move_down", { name: row.displayName })}
+          aria-label={t("flowko_workers_move_down", { name: row.displayName, ...RAW })}
           disabled={props.isLast || props.busy || props.arrowsOff}
           onClick={() => props.onMove("down")}
         />
+        <Button
+          type="button"
+          color="secondary"
+          aria-describedby={nameId}
+          disabled={props.busy}
+          onClick={props.onRename}>
+          {t("rename")}
+        </Button>
         {props.retryGoogle && locked && (
           <Button type="button" color="secondary" disabled={props.busy} onClick={props.onRetryGoogle}>
             {t("flowko_workers_retry_google")}

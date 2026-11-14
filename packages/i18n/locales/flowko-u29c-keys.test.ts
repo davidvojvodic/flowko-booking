@@ -3,6 +3,8 @@
 // _two, _few, _other; en _one, _other). The test checks keys, forms and placeholders, not texts: the Slovene wording
 // may change (Task 9 read). The U29c polish keys outside this prefix (flowko_settings_refresh_failed,
 // flowko_settings_refresh, flowko_settings_service_broken, flowko_roster_refresh_failed) sit in the U29a and U29b lists.
+// Flowko U29e: the list also holds the nine U29e workers keys (E5 add hints and no-week toast, the RIGHTS-1 name text,
+// the E9 rename dialog and toast), appended at its end; the U29e key test pins them again across every prefix.
 import { describe, expect, it } from "vitest";
 
 import en from "./en/common.json";
@@ -51,6 +53,16 @@ const U29C_KEYS = [
   "flowko_workers_error_owner_cannot_be_locked",
   "flowko_workers_error_member_not_locked",
   "flowko_workers_error_member_conflict",
+  // Flowko U29e: E5 (the add hints and the no-week toast), RIGHTS-1 (the characters text), E9 (rename).
+  "flowko_workers_added_no_week",
+  "flowko_workers_add_hint",
+  "flowko_workers_add_hint_week",
+  "flowko_workers_error_name_characters",
+  "flowko_workers_rename_title",
+  "flowko_workers_rename_hint",
+  "flowko_workers_rename_hint_desk",
+  "flowko_workers_rename_hint_login",
+  "flowko_workers_renamed",
 ];
 
 // The {{count}} strings: stored only as plural forms, never under the base key.

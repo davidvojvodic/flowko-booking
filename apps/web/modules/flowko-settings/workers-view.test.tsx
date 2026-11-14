@@ -8,10 +8,15 @@
 // (the invite form and „Povabljeni“ legitimately show addresses; C12 is about members), the uid pin stays on the
 // whole view, and the add-form queries are scoped to that form (the invite form also has an „Ime“ field). The
 // invite behaviour itself is tested in workers-view.invites.test.tsx.
+// Flowko U29e (Task 8): „Preimenuj“ on every row and its dialog (E9, R8: the name rule before the call, the extra
+// invalidations after a rename); the add answer's `usualWeek` picks the toast and `ownerUsualWeek` the add form's
+// week line (E5, R4); the escaping fixture `t` proves every name is printed once (E10.1); the hand-over hint and
+// the neutral refresh notice (E10.2, E10.7).
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkersView from "./workers-view";
 import {
+  AMP_NAME,
   ANA,
   BOR,
   CENE,
@@ -22,6 +27,7 @@ import {
   localeT,
   WORKERS_VIEW,
   WORKERS_VIEW_INVITES,
+  type WorkersViewData,
 } from "./settings.fixture";
 
 const mocks = vi.hoisted(() => ({
@@ -39,6 +45,12 @@ const mocks = vi.hoisted(() => ({
   resend: vi.fn(),
   revoke: vi.fn(),
   toast: vi.fn(),
+  // Flowko U29e (E9): the rename write and the views a rename refreshes besides the probe.
+  rename: vi.fn(),
+  invalidateDay: vi.fn(),
+  invalidateWeek: vi.fn(),
+  invalidateRoster: vi.fn(),
+  invalidateServicesList: vi.fn(),
 }));
 
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
@@ -66,6 +78,13 @@ vi.mock("@calcom/trpc/react", () => ({
             members: { invalidate: mocks.invalidateMembers },
             services: { invalidate: mocks.invalidateDeskServices },
           },
+          // Flowko U29e (E9).
+          bookings: {
+            day: { invalidate: mocks.invalidateDay },
+            week: { invalidate: mocks.invalidateWeek },
+          },
+          roster: { week: { invalidate: mocks.invalidateRoster } },
+          services: { list: { invalidate: mocks.invalidateServicesList } },
         },
       },
     }),
@@ -84,6 +103,8 @@ vi.mock("@calcom/trpc/react", () => ({
           revokeInvite: {
             useMutation: () => ({ mutateAsync: (i: unknown) => mocks.revoke(i), isPending: false }),
           },
+          // Flowko U29e (E9).
+          rename: { useMutation: () => ({ mutateAsync: (i: unknown) => mocks.rename(i), isPending: false }) },
         },
       },
     },
@@ -104,7 +125,7 @@ function deferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-let data: typeof WORKERS_VIEW | undefined;
+let data: WorkersViewData | undefined;
 // react-query's dataUpdatedAt: the focus after a move waits for it to advance (a refetch landed).
 let version = 0;
 const queryResult = (over: Record<string, unknown> = {}) => ({
@@ -117,9 +138,10 @@ const queryResult = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const withRow = (memberId: number, patch: Record<string, unknown>) => ({
+const withRow = (memberId: number, patch: Record<string, unknown>): WorkersViewData => ({
   members: WORKERS_VIEW.members.map((m) => (m.memberId === memberId ? { ...m, ...patch } : m)),
   invites: WORKERS_VIEW.invites,
+  ownerUsualWeek: WORKERS_VIEW.ownerUsualWeek,
 });
 
 beforeEach(() => {
@@ -131,12 +153,22 @@ beforeEach(() => {
   version = 0;
   mocks.query.mockImplementation(() => queryResult());
   mocks.refetch.mockResolvedValue(undefined);
-  for (const fn of [mocks.invalidateList, mocks.invalidateMembers, mocks.invalidateDeskServices]) {
+  for (const fn of [
+    mocks.invalidateList,
+    mocks.invalidateMembers,
+    mocks.invalidateDeskServices,
+    mocks.invalidateDay,
+    mocks.invalidateWeek,
+    mocks.invalidateRoster,
+    mocks.invalidateServicesList,
+  ]) {
     fn.mockResolvedValue(undefined);
   }
   mocks.lock.mockResolvedValue({ status: "LOCKED", google: "disconnected", futureCount: 0 });
   mocks.unlock.mockResolvedValue({ status: "ACTIVE" });
-  mocks.add.mockResolvedValue({ memberId: 99 });
+  // Flowko U29e (E5, R3): the add answers whether the owner's usual week was copied.
+  mocks.add.mockResolvedValue({ status: "added", memberId: 99, usualWeek: "none" });
+  mocks.rename.mockResolvedValue({ status: "saved" });
   mocks.reorder.mockResolvedValue({ status: "saved" });
 });
 
@@ -242,8 +274,11 @@ describe("WorkersView: the list", () => {
     expect(links[0]).toHaveAttribute("href", "/koledar?view=day&date=2026-11-17");
     expect(links[0]).toHaveTextContent("tor., 17. 11. · 10:00–11:00 · Striženje, Fen · Ana Testna");
     expect(links[1]).toHaveAttribute("href", "/koledar?view=day&date=2027-01-05");
+    // Flowko U29e (E10.2, R18): the hint names the desk's „Prestavi k drugemu delavcu“.
     expect(
-      r.getByText("Termin prestavite k drugemu delavcu tako, da ga odpoveste in znova vnesete.")
+      r.getByText(
+        "Termin prestavite k drugemu delavcu tako, da ga odprete na koledarju in izberete „Prestavi k drugemu delavcu“."
+      )
     ).toBeInTheDocument();
   });
 
@@ -522,9 +557,8 @@ describe("WorkersView: unlock (W9)", () => {
     await click(inRow(DAN).getByRole("button", { name: "Odkleni" }));
     await waitFor(() => expect(screen.getByTestId("flowko-workers-refresh-failed")).toBeInTheDocument());
     expect(mocks.toast).toHaveBeenCalledWith("Odklenjeno: Dan", "success");
-    expect(
-      screen.getByText("Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.")
-    ).toBeInTheDocument();
+    // Flowko U29e (E10.7, R23): the notice is neutral (the saved paths keep their own success toast).
+    expect(screen.getByText("Prikaza ni bilo mogoče osvežiti. Kliknite „Osveži“.")).toBeInTheDocument();
     expect(screen.getByTestId("flowko-workers-refresh-failed")).toHaveAttribute("role", "alert");
     // the actions are not blocked
     expect(inRow(EVA).getByRole("button", { name: "Zakleni" })).toBeEnabled();
@@ -606,6 +640,7 @@ describe("WorkersView: order (W5, W6, P8)", () => {
       version += 1;
       data = {
         invites: [],
+        ownerUsualWeek: true,
         members: [ANA, CENE, BOR, DAN, EVA, FRAN].map(
           (id) => WORKERS_VIEW.members.find((m) => m.memberId === id) as (typeof WORKERS_VIEW.members)[number]
         ),
@@ -621,6 +656,7 @@ describe("WorkersView: order (W5, W6, P8)", () => {
       version += 1;
       data = {
         invites: [],
+        ownerUsualWeek: true,
         members: [ANA, BOR, CENE, DAN, FRAN, EVA].map(
           (id) => WORKERS_VIEW.members.find((m) => m.memberId === id) as (typeof WORKERS_VIEW.members)[number]
         ),
@@ -736,6 +772,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
     type("  Gaj  ");
     await submit();
     await waitFor(() => expect(mocks.add).toHaveBeenCalledWith({ displayName: "Gaj" }));
+    // Flowko U29e (E5, R4): the answer was "none" (no usual week to copy): the shifts are set in Urnik.
     expect(mocks.toast).toHaveBeenCalledWith(
       "Dodano: Gaj. Izmene nastavite v Urniku, storitve pa v Storitvah.",
       "success"
@@ -759,7 +796,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
   });
 
   it("a second click while the add runs sends once", async () => {
-    const pending = deferred<{ memberId: number }>();
+    const pending = deferred<{ status: "added"; memberId: number; usualWeek: "none" }>();
     mocks.add.mockReturnValue(pending.promise);
     render(<WorkersView />);
     type("Gaj");
@@ -767,7 +804,7 @@ describe("WorkersView: add without login (W4, W10)", () => {
     await submit();
     expect(mocks.add).toHaveBeenCalledTimes(1);
     await act(async () => {
-      pending.resolve({ memberId: 99 });
+      pending.resolve({ status: "added", memberId: 99, usualWeek: "none" });
     });
   });
 });
@@ -779,5 +816,447 @@ describe("WorkersView: bookings link data", () => {
       .getAllByRole("link")
       .map((a) => a.getAttribute("href"));
     expect(hrefs).toEqual(DAN_BOOKINGS.map((b) => `/koledar?view=day&date=${b.date}`));
+  });
+});
+
+// Flowko U29e (Task 8): the zero-width space built from its code point (never a literal invisible character).
+const ZWSP = String.fromCharCode(0x200b);
+const BAD_NAME = "Vnesite ime (največ 80 znakov).";
+const NAME_CHARACTERS = "Ime vsebuje nedovoljene nevidne znake. Vnesite ga znova.";
+
+describe("WorkersView: rename (E9, R8)", () => {
+  const renameButton = (id: number) => inRow(id).getByRole("button", { name: "Preimenuj" });
+  const renameField = () => within(dialog()).getByLabelText("Ime") as HTMLInputElement;
+  const typeName = (value: string) => fireEvent.change(renameField(), { target: { value } });
+  const save = () => click(within(dialog()).getByRole("button", { name: "Shrani" }));
+  const openRename = async (id: number) => {
+    await click(renameButton(id));
+    await waitFor(() => expect(screen.getByTestId("flowko-worker-rename-dialog")).toBeInTheDocument());
+  };
+  const HINT = "Novo ime velja od zdaj naprej na koledarju, v Urniku in v Storitvah.";
+  const HINT_DESK =
+    "Stranke ga vidijo tudi v e-poštnih sporočilih, vključno s sporočili o že vnesenih terminih.";
+  const HINT_LOGIN = "V e-poštnih sporočilih ostane ime, ki ga ima oseba v svojem računu.";
+
+  it("„Preimenuj“ on every row (the owner and the locked one included), described by the name", () => {
+    render(<WorkersView />);
+    for (const [id, name] of [
+      [ANA, "Ana"],
+      [BOR, "Bor"],
+      [CENE, "Cene"],
+      [DAN, "Dan"],
+      [EVA, "Eva"],
+      [FRAN, "Fran"],
+    ] as const) {
+      expect(renameButton(id)).toHaveAccessibleDescription(name);
+      expect(renameButton(id)).toBeEnabled();
+    }
+  });
+
+  it("opens „Preimenuj: Bor“ with the field focused and prefilled, and the desk-only hints", async () => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    expect(within(dialog()).getByText("Preimenuj: Bor")).toBeInTheDocument();
+    expect(renameField().value).toBe("Bor");
+    expect(renameField()).toHaveAttribute("maxlength", "80");
+    await waitFor(() => expect(renameField()).toHaveFocus());
+    expect(within(dialog()).getByText(HINT)).toBeInTheDocument();
+    expect(within(dialog()).getByText(HINT_DESK)).toBeInTheDocument();
+    expect(within(dialog()).queryByText(HINT_LOGIN)).toBeNull();
+  });
+
+  it.each([
+    ["Ana (owner, login)", ANA, "login"],
+    ["Eva (WORKER with login)", EVA, "login"],
+    ["Fran (STAFF with login)", FRAN, "login"],
+    ["Dan (LOCKED, login)", DAN, "login"],
+    ["Bor (desk-only)", BOR, "desk"],
+    ["Cene (STAFF without login)", CENE, "none"],
+  ])("the mail hint for %s", async (_label, id, kind) => {
+    render(<WorkersView />);
+    await openRename(id);
+    expect(within(dialog()).getByText(HINT)).toBeInTheDocument();
+    expect(within(dialog()).queryByText(HINT_DESK) !== null).toBe(kind === "desk");
+    expect(within(dialog()).queryByText(HINT_LOGIN) !== null).toBe(kind === "login");
+  });
+
+  it.each([
+    ["empty", "", BAD_NAME],
+    ["only spaces", "   ", BAD_NAME],
+    ["81 characters", "a".repeat(81), BAD_NAME],
+    ["a zero-width space", `Bor${ZWSP}`, NAME_CHARACTERS],
+    ["a NUL", `Bo${String.fromCharCode(0)}r`, NAME_CHARACTERS],
+  ])("%s: inline text before any call, value kept", async (_label, value, text) => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName(value);
+    await save();
+    expect(within(dialog()).getByText(text)).toBeInTheDocument();
+    expect(renameField()).toHaveAttribute("aria-invalid", "true");
+    expect(renameField()).toHaveAccessibleDescription(text);
+    expect(renameField().value).toBe(value);
+    expect(mocks.rename).not.toHaveBeenCalled();
+  });
+
+  it("typing clears the inline error", async () => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("");
+    await save();
+    expect(within(dialog()).getByText(BAD_NAME)).toBeInTheDocument();
+    typeName("Bori");
+    expect(within(dialog()).queryByText(BAD_NAME)).toBeNull();
+    expect(renameField()).not.toHaveAttribute("aria-invalid");
+  });
+
+  it.each([
+    ["Bor"],
+    ["  Bor  "],
+  ])("an unchanged name (%j) closes the dialog without a call", async (value) => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName(value);
+    await save();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.rename).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("a case-only change is a change (sent)", async () => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("BOR");
+    await save();
+    await waitFor(() => expect(mocks.rename).toHaveBeenCalledWith({ memberId: BOR, displayName: "BOR" }));
+  });
+
+  it("bad_member from the server: the length text inline, value kept, dialog open, no toast", async () => {
+    mocks.rename.mockRejectedValue(trpcError("bad_member"));
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Bor Novak");
+    await save();
+    expect(await within(dialog()).findByText(BAD_NAME)).toBeInTheDocument();
+    expect(renameField().value).toBe("Bor Novak");
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("member_name_taken: inline, aria-invalid, accessible description, value kept", async () => {
+    mocks.rename.mockRejectedValue(trpcError("member_name_taken"));
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Eva");
+    await save();
+    const text = "V podjetju je že oseba s tem imenom.";
+    expect(await within(dialog()).findByText(text)).toBeInTheDocument();
+    expect(renameField()).toHaveAttribute("aria-invalid", "true");
+    expect(renameField()).toHaveAccessibleDescription(text);
+    expect(renameField().value).toBe("Eva");
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("success: the trimmed name, the toast, the dialog closed, the list probe and every view with names refreshed", async () => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("  Bor Novak  ");
+    await save();
+    await waitFor(() =>
+      expect(mocks.rename).toHaveBeenCalledWith({ memberId: BOR, displayName: "Bor Novak" })
+    );
+    expect(mocks.toast).toHaveBeenCalledWith("Ime je spremenjeno: Bor Novak", "success");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.invalidateList).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+    for (const fn of [
+      mocks.invalidateMembers,
+      mocks.invalidateDeskServices,
+      mocks.invalidateDay,
+      mocks.invalidateWeek,
+      mocks.invalidateRoster,
+      mocks.invalidateServicesList,
+    ]) {
+      expect(fn).toHaveBeenCalledTimes(1);
+    }
+    expect(mocks.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it("the page stays busy until the list probe is back", async () => {
+    const probe = deferred();
+    mocks.invalidateList.mockReturnValue(probe.promise);
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Bor Novak");
+    await save();
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Ime je spremenjeno: Bor Novak", "success"));
+    expect(renameButton(EVA)).toBeDisabled();
+    await act(async () => {
+      probe.resolve();
+    });
+    await waitFor(() => expect(renameButton(EVA)).toBeEnabled());
+  });
+
+  it("a failed probe after a saved rename keeps the toast and shows the refresh notice", async () => {
+    mocks.invalidateList.mockRejectedValueOnce(new Error("network"));
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Bor Novak");
+    await save();
+    await waitFor(() => expect(screen.getByTestId("flowko-workers-refresh-failed")).toBeInTheDocument());
+    expect(mocks.toast).toHaveBeenCalledWith("Ime je spremenjeno: Bor Novak", "success");
+  });
+
+  it("a double submit sends once", async () => {
+    const pending = deferred<{ status: "saved" }>();
+    mocks.rename.mockReturnValue(pending.promise);
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Bor Novak");
+    await save();
+    await save();
+    expect(mocks.rename).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      pending.resolve({ status: "saved" });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it("forbidden (the member is gone or the right is lost): the text, the dialog closes, the list is refreshed", async () => {
+    mocks.rename.mockRejectedValue(trpcError("forbidden"));
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Bor Novak");
+    await save();
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Za to nimate dovoljenja.", "error"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.invalidateList).toHaveBeenCalledWith(undefined, undefined, { throwOnError: true });
+  });
+
+  it.each([
+    ["member_conflict", "BAD_REQUEST", "Hkrati je shranjeval še nekdo. Poskusite znova."],
+    ["Too many", "TOO_MANY_REQUESTS", "Preveč zahtev. Poskusite znova čez trenutek."],
+    ["boom", "INTERNAL_SERVER_ERROR", "Nekaj je šlo narobe."],
+  ])("rename error %s (%s) -> toast %s; the dialog stays with the typed name", async (message, code, text) => {
+    mocks.rename.mockRejectedValue(trpcError(message, code));
+    render(<WorkersView />);
+    await openRename(BOR);
+    typeName("Bor Novak");
+    await save();
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(text, "error"));
+    expect(renameField().value).toBe("Bor Novak");
+    expect(within(dialog()).getByRole("button", { name: "Shrani" })).toBeEnabled();
+  });
+
+  it("„Prekliči“ closes the dialog without a call", async () => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    await click(within(dialog()).getByRole("button", { name: "Prekliči" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.rename).not.toHaveBeenCalled();
+  });
+
+  it("one dialog at a time: „Zakleni“ while the rename dialog is open replaces it", async () => {
+    render(<WorkersView />);
+    await openRename(BOR);
+    // Radix hides the page behind the open dialog: the row button is reached with `hidden`.
+    await click(inRow(EVA).getByRole("button", { name: "Zakleni", hidden: true }));
+    await waitFor(() => expect(screen.getByTestId("flowko-worker-lock-dialog")).toBeInTheDocument());
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.queryByTestId("flowko-worker-rename-dialog")).toBeNull();
+  });
+
+  it("one dialog at a time: „Preimenuj“ while the „Povabi“ dialog is open replaces it", async () => {
+    render(<WorkersView />);
+    await click(inRow(BOR).getByRole("button", { name: "Povabi" }));
+    await waitFor(() => expect(screen.getByTestId("flowko-invite-member-dialog")).toBeInTheDocument());
+    await click(inRow(EVA).getByRole("button", { name: "Preimenuj", hidden: true }));
+    await waitFor(() => expect(screen.getByTestId("flowko-worker-rename-dialog")).toBeInTheDocument());
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.queryByTestId("flowko-invite-member-dialog")).toBeNull();
+  });
+
+  it("one dialog at a time: „Povabi“ while the lock dialog is open replaces it", async () => {
+    render(<WorkersView />);
+    await click(inRow(EVA).getByRole("button", { name: "Zakleni" }));
+    await waitFor(() => expect(screen.getByTestId("flowko-worker-lock-dialog")).toBeInTheDocument());
+    await click(inRow(BOR).getByRole("button", { name: "Povabi", hidden: true }));
+    await waitFor(() => expect(screen.getByTestId("flowko-invite-member-dialog")).toBeInTheDocument());
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    // Radix would hide an older dialog from role queries: the test id proves it is gone.
+    expect(screen.queryByTestId("flowko-worker-lock-dialog")).toBeNull();
+  });
+
+  it("English", async () => {
+    mocks.lang = "en";
+    render(<WorkersView />);
+    await click(inRow(EVA).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(within(dialog()).getByText("Rename: Eva")).toBeInTheDocument());
+    fireEvent.change(within(dialog()).getByLabelText("Name"), { target: { value: "Eva Nova" } });
+    await click(within(dialog()).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Name changed: Eva Nova", "success"));
+  });
+});
+
+describe("WorkersView: the owner's usual week on add (E5, R4)", () => {
+  const form = () => within(screen.getByTestId("flowko-worker-add-form"));
+  const field = () => form().getByLabelText("Ime") as HTMLInputElement;
+  const HINT = "Oseba nima prijave in dobi svoj stolpec na koledarju.";
+  const WEEK = "Dobi enak običajni teden, kot ga imate vi.";
+
+  it("the add form says what the person gets: no login, own column, and the owner's week when there is one", () => {
+    render(<WorkersView />);
+    expect(form().getByText(HINT)).toBeInTheDocument();
+    expect(form().getByText(WEEK)).toBeInTheDocument();
+  });
+
+  it("without the owner's usual week the week line is not there", () => {
+    data = { ...WORKERS_VIEW, ownerUsualWeek: false };
+    render(<WorkersView />);
+    expect(form().getByText(HINT)).toBeInTheDocument();
+    expect(form().queryByText(WEEK)).toBeNull();
+  });
+
+  it("the answer „copied“: the toast says the week was copied and where the services are assigned", async () => {
+    mocks.add.mockResolvedValue({ status: "added", memberId: 99, usualWeek: "copied" });
+    render(<WorkersView />);
+    fireEvent.change(field(), { target: { value: "Gaj" } });
+    await click(form().getByRole("button", { name: "Dodaj" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Dodano: Gaj. Oseba dobi enak običajni teden, kot ga imate vi; spremenite ga v Urniku. Storitve ji dodelite v Storitvah.",
+        "success"
+      )
+    );
+  });
+
+  it("the answer „none“: the toast says the shifts are set in Urnik (also when the list said there was a week)", async () => {
+    mocks.add.mockResolvedValue({ status: "added", memberId: 99, usualWeek: "none" });
+    render(<WorkersView />);
+    fireEvent.change(field(), { target: { value: "Gaj" } });
+    await click(form().getByRole("button", { name: "Dodaj" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Dodano: Gaj. Izmene nastavite v Urniku, storitve pa v Storitvah.",
+        "success"
+      )
+    );
+  });
+
+  it("a zero-width space in the name: the characters text before any call", async () => {
+    render(<WorkersView />);
+    fireEvent.change(field(), { target: { value: `Gaj${ZWSP}` } });
+    await click(form().getByRole("button", { name: "Dodaj" }));
+    expect(form().getByText(NAME_CHARACTERS)).toBeInTheDocument();
+    expect(field()).toHaveAttribute("aria-invalid", "true");
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersView: names are printed once (E10.1)", () => {
+  it("the order arrows' labels", () => {
+    data = withRow(EVA, { displayName: AMP_NAME });
+    render(<WorkersView />);
+    expect(screen.getByRole("button", { name: "Premakni gor: Ana & Maja" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Premakni dol: Ana & Maja" })).toBeInTheDocument();
+    expect(inRow(EVA).getByRole("button", { name: "Preimenuj" })).toHaveAccessibleDescription(AMP_NAME);
+  });
+
+  it("an apostrophe in the arrows' labels", () => {
+    data = withRow(EVA, { displayName: "O'Brien" });
+    render(<WorkersView />);
+    expect(screen.getByRole("button", { name: "Premakni gor: O'Brien" })).toBeInTheDocument();
+  });
+
+  it("the lock dialog (title and booking text), the lock toast and the Google warning", async () => {
+    data = withRow(EVA, { displayName: AMP_NAME, futureCount: 2 });
+    mocks.lock.mockResolvedValueOnce({ status: "LOCKED", google: "failed", futureCount: 2 });
+    render(<WorkersView />);
+    await click(inRow(EVA).getByRole("button", { name: "Zakleni" }));
+    await waitFor(() => expect(dialog()).toBeInTheDocument());
+    expect(within(dialog()).getByText("Zakleni: Ana & Maja")).toBeInTheDocument();
+    expect(
+      within(dialog()).getByText("Ana & Maja ima 2 prihodnja termina. Ostaneta, dokler ju ne odpoveste.")
+    ).toBeInTheDocument();
+    expect(dialog().textContent).not.toContain("&amp;");
+    await click(within(dialog()).getByRole("button", { name: "Zakleni" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Zaklenjeno: Ana & Maja", "success"));
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "Ana & Maja: dostop je zaklenjen, povezave z Googlom pa ni bilo mogoče prekiniti. Poskusite znova z gumbom „Prekini povezavo z Googlom“.",
+      "warning"
+    );
+  });
+
+  it("the lock dialog without bookings", async () => {
+    data = withRow(EVA, { displayName: AMP_NAME });
+    render(<WorkersView />);
+    await click(inRow(EVA).getByRole("button", { name: "Zakleni" }));
+    await waitFor(() => expect(dialog()).toBeInTheDocument());
+    expect(within(dialog()).getByText("Ana & Maja nima prihodnjih terminov.")).toBeInTheDocument();
+  });
+
+  it("the unlock toast", async () => {
+    data = withRow(DAN, { displayName: AMP_NAME });
+    render(<WorkersView />);
+    await click(inRow(DAN).getByRole("button", { name: "Odkleni" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Odklenjeno: Ana & Maja", "success"));
+  });
+
+  it("the add toast (both texts)", async () => {
+    const form = () => within(screen.getByTestId("flowko-worker-add-form"));
+    mocks.add.mockResolvedValueOnce({ status: "added", memberId: 99, usualWeek: "none" });
+    mocks.add.mockResolvedValueOnce({ status: "added", memberId: 100, usualWeek: "copied" });
+    render(<WorkersView />);
+    fireEvent.change(form().getByLabelText("Ime"), { target: { value: "Tim & Tea" } });
+    await click(form().getByRole("button", { name: "Dodaj" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Dodano: Tim & Tea. Izmene nastavite v Urniku, storitve pa v Storitvah.",
+        "success"
+      )
+    );
+    fireEvent.change(form().getByLabelText("Ime"), { target: { value: "Iva & Ida" } });
+    await click(form().getByRole("button", { name: "Dodaj" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Dodano: Iva & Ida. Oseba dobi enak običajni teden, kot ga imate vi; spremenite ga v Urniku. Storitve ji dodelite v Storitvah.",
+        "success"
+      )
+    );
+  });
+
+  it("the rename dialog title and the renamed toast", async () => {
+    data = withRow(EVA, { displayName: AMP_NAME });
+    render(<WorkersView />);
+    await click(inRow(EVA).getByRole("button", { name: "Preimenuj" }));
+    await waitFor(() => expect(within(dialog()).getByText("Preimenuj: Ana & Maja")).toBeInTheDocument());
+    expect(dialog().textContent).not.toContain("&amp;");
+    fireEvent.change(within(dialog()).getByLabelText("Ime"), { target: { value: "Ana & Maja d.o.o." } });
+    await click(within(dialog()).getByRole("button", { name: "Shrani" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("Ime je spremenjeno: Ana & Maja d.o.o.", "success")
+    );
+  });
+});
+
+describe("WorkersView: the refresh notice is neutral on a path that saved nothing (E10.7, R23)", () => {
+  it("unlock answers member_not_locked and the re-read fails: the notice does not claim „Shranjeno“", async () => {
+    mocks.unlock.mockRejectedValue(trpcError("member_not_locked"));
+    mocks.invalidateList.mockRejectedValueOnce(new Error("network"));
+    render(<WorkersView />);
+    await click(inRow(DAN).getByRole("button", { name: "Odkleni" }));
+    await waitFor(() => expect(screen.getByTestId("flowko-workers-refresh-failed")).toBeInTheDocument());
+    const notice = screen.getByTestId("flowko-workers-refresh-failed").textContent ?? "";
+    expect(notice).toContain("Prikaza ni bilo mogoče osvežiti.");
+    expect(notice.startsWith("Shranjeno")).toBe(false);
+    expect(notice).not.toContain("Shranjeno");
+  });
+
+  it("English: neutral too", async () => {
+    mocks.lang = "en";
+    mocks.unlock.mockRejectedValue(trpcError("member_not_locked"));
+    mocks.invalidateList.mockRejectedValueOnce(new Error("network"));
+    render(<WorkersView />);
+    await click(inRow(DAN).getByRole("button", { name: "Unlock" }));
+    await waitFor(() => expect(screen.getByTestId("flowko-workers-refresh-failed")).toBeInTheDocument());
+    expect(screen.getByText("The view could not be refreshed. Click “Refresh”.")).toBeInTheDocument();
   });
 });

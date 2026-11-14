@@ -22,11 +22,21 @@ import type { FlowkoDb } from "./db";
 import type { FlowkoBusinessError } from "./errors";
 import { setUsualWeek } from "./roster";
 
-vi.mock("./bookingMail", () => ({
-  sendBusinessBookingCreated: vi.fn(async () => undefined),
-  sendBusinessBookingMoved: vi.fn(async () => undefined),
-  sendBusinessBookingCancelled: vi.fn(async () => undefined),
-}));
+// Flowko U29e: E7 — `mailModule.loadFails` makes every read of the mocked module's notice export throw, as a module
+// that fails to load would inside sendMailAfterCommit (the senders map reads every export).
+const mailModule = vi.hoisted(() => ({ loadFails: false }));
+vi.mock("./bookingMail", () => {
+  const notice = vi.fn(async () => undefined);
+  return {
+    sendBusinessBookingCreated: vi.fn(async () => undefined),
+    sendBusinessBookingMoved: vi.fn(async () => undefined),
+    sendBusinessBookingCancelled: vi.fn(async () => undefined),
+    get sendBusinessCancelNotice() {
+      if (mailModule.loadFails) throw new Error("Flowko test: the mail module did not load");
+      return notice;
+    },
+  };
+});
 
 const db = prismock as unknown as FlowkoDb;
 const TZ = "Europe/Ljubljana";
@@ -207,6 +217,7 @@ const mail = {
   created: vi.mocked(bookingMail.sendBusinessBookingCreated),
   moved: vi.mocked(bookingMail.sendBusinessBookingMoved),
   cancelled: vi.mocked(bookingMail.sendBusinessBookingCancelled),
+  notice: vi.mocked(bookingMail.sendBusinessCancelNotice), // Flowko U29e: E7
 };
 /** Every sub-logger is a tslog Logger: the prototype's error catches the writer's log line. */
 let logError: MockInstance<(...args: unknown[]) => unknown>;
@@ -224,6 +235,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  mailModule.loadFails = false; // Flowko U29e: E7
   vi.restoreAllMocks();
 });
 
@@ -362,6 +374,112 @@ describe("cancelBusinessBooking (W7, staff)", () => {
   });
 });
 
+// Flowko U29e: E6, R10 — the hand-over marker. „Prestavi k drugemu delavcu“ cancels the old booking with
+// `handoverToMemberId`; the server accepts it only from an OWNER or STAFF session (the mayReenter rule) for an ACTIVE
+// OWNER/WORKER member of the booking's business other than the booking's own worker, and stores it in the CANCELLED
+// action's details; anything else is forbidden with nothing written.
+describe("cancelBusinessBooking with a hand-over marker (Flowko U29e, R10)", () => {
+  const handover = (
+    actorUserId: number,
+    bookingId: number,
+    handoverToMemberId: number,
+    actorMemberId?: number
+  ) =>
+    cancelBusinessBooking(
+      db,
+      actorUserId,
+      { bookingId, reason: "Prestavljeno k: X", handoverToMemberId, actorMemberId },
+      NOW
+    );
+  const untouched = async (bookingId: number) => {
+    expect((await bookingOf(bookingId))?.status).toBe(BookingStatus.ACCEPTED);
+    expect((await actionsOf(bookingId)).map((a) => a.action)).toEqual(["CREATED"]);
+    expect(mail.cancelled).not.toHaveBeenCalled();
+  };
+
+  it("the owner names an ACTIVE worker: cancelled, the marker in details, the reason kept, the mail sent", async () => {
+    expect(await handover(f.users.olga, f.ana.bookingId, f.members.bor)).toEqual({ status: "cancelled" });
+    const after = await bookingOf(f.ana.bookingId);
+    expect(after).toMatchObject({ status: BookingStatus.CANCELLED, cancellationReason: "Prestavljeno k: X" });
+    const actions = await actionsOf(f.ana.bookingId);
+    expect(actions[1]).toMatchObject({
+      action: "CANCELLED",
+      actorMemberId: f.members.olga,
+      actorName: "Olga",
+      userId: f.users.olga,
+      details: { handoverToMemberId: f.members.bor },
+    });
+    expect(mail.cancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it("the owner may name a desk-only worker; staff Rok may name a worker and the owner", async () => {
+    await handover(f.users.olga, f.ana.bookingId, f.members.cene);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ handoverToMemberId: f.members.cene });
+    await handover(f.users.rok, f.bor.bookingId, f.members.olga);
+    expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
+      actorMemberId: f.members.rok,
+      details: { handoverToMemberId: f.members.olga },
+    });
+  });
+
+  it("a WORKER session (Ana, her own booking) with the marker → forbidden, nothing written", async () => {
+    await expectCode(handover(f.users.ana, f.ana.bookingId, f.members.bor), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("the booking's own worker as the target → forbidden", async () => {
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.ana), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a STAFF target (Rok, Recepcija) → forbidden", async () => {
+    const recepcija = await prismock.flowkoBusinessMember.findFirst({ where: { displayName: "Recepcija" } });
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.rok), "forbidden");
+    await expectCode(handover(f.users.olga, f.ana.bookingId, recepcija?.id ?? 0), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a LOCKED, a foreign and a missing member → forbidden", async () => {
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.dan), "forbidden");
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.zala), "forbidden");
+    await expectCode(handover(f.users.olga, f.ana.bookingId, 999_999), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a non-integer or non-positive target → forbidden", async () => {
+    for (const bad of [1.5, 0, -3, Number.NaN, 2_147_483_648]) {
+      await expectCode(handover(f.users.olga, f.ana.bookingId, bad), "forbidden");
+    }
+    await untouched(f.ana.bookingId);
+  });
+
+  it("a target that was ACTIVE is LOCKED before the cancel → forbidden", async () => {
+    await prismock.flowkoBusinessMember.update({
+      where: { id: f.members.bor },
+      data: { status: FlowkoMemberStatus.LOCKED },
+    });
+    await expectCode(handover(f.users.olga, f.ana.bookingId, f.members.bor), "forbidden");
+    await untouched(f.ana.bookingId);
+  });
+
+  it("without the marker (undefined or null): no details, as before", async () => {
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.ana.bookingId, handoverToMemberId: undefined },
+      NOW
+    );
+    expect((await actionsOf(f.ana.bookingId))[1].details).toBeNull();
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.bor.bookingId, handoverToMemberId: null },
+      NOW
+    );
+    expect((await actionsOf(f.bor.bookingId))[1].details).toBeNull();
+  });
+});
+
 describe("cancelBusinessBookingAsCustomer (W8, the mail's link)", () => {
   it("no session: CANCELLED, actor = the customer (no member, the form's name, no user)", async () => {
     expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
@@ -376,6 +494,22 @@ describe("cancelBusinessBookingAsCustomer (W8, the mail's link)", () => {
       userId: null,
     });
     expect(mail.cancelled).toHaveBeenCalledWith(f.ana.bookingId);
+  });
+
+  // Flowko U29e: E6, R9 — the customer's cancel is marked in the action's details (survives a member SetNull).
+  it("the customer branch stores details { by: customer }; the staff path through the link stores none", async () => {
+    await cancelByUid(f.ana.uid, null);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
+    await cancelByUid(f.bor.uid, f.users.olga);
+    expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
+      actorMemberId: f.members.olga,
+      details: null,
+    });
+  });
+
+  it("another business's owner signed in is a customer: details { by: customer }", async () => {
+    await cancelByUid(f.ana.uid, f.users.zala);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
   });
 
   it("Ana's session on her own booking: the staff path, action by Ana's member", async () => {
@@ -678,6 +812,96 @@ describe("mails after commit never undo the write (the writer's one helper)", ()
     await move(f.users.olga, f.ana.bookingId, at("09:15"), {}, { sendMails: false });
     expect(mail.cancelled).not.toHaveBeenCalled();
     expect(mail.moved).not.toHaveBeenCalled();
+    expect(mail.notice).not.toHaveBeenCalled(); // Flowko U29e: E7
+  });
+});
+
+// Flowko U29e: E7, R13 — one business notice per customer cancel, after Cal's cancelled mails, only through
+// sendMailAfterCommit("cancel_notice") (its dynamic import and try/catch): never on the staff path, the desk
+// cancel, a hand-over cancel or with mails off, and never a failed customer cancel.
+describe("the business notice on a customer cancel (Flowko U29e, E7)", () => {
+  const noticeLogLines = () =>
+    logError.mock.calls.filter(
+      (call) =>
+        call[0] === "business booking mail not sent" &&
+        (call[1] as { kind?: string } | undefined)?.kind === "cancel_notice"
+    );
+
+  it("no session: the notice once, after Cal's cancelled mails; the action carries details.by customer", async () => {
+    expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
+    expect(mail.cancelled).toHaveBeenCalledTimes(1);
+    expect(mail.notice).toHaveBeenCalledTimes(1);
+    expect(mail.notice).toHaveBeenCalledWith(f.ana.bookingId);
+    expect(mail.cancelled.mock.invocationCallOrder[0]).toBeLessThan(mail.notice.mock.invocationCallOrder[0]);
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
+  });
+
+  it("another business's owner signed in is a customer: the notice once", async () => {
+    await cancelByUid(f.ana.uid, f.users.zala);
+    expect(mail.notice).toHaveBeenCalledTimes(1);
+    expect(mail.notice).toHaveBeenCalledWith(f.ana.bookingId);
+  });
+
+  it("the staff path through the link (Ana's own booking, the owner on Bor's): Cal's mails, no notice", async () => {
+    await cancelByUid(f.ana.uid, f.users.ana);
+    await cancelByUid(f.bor.uid, f.users.olga);
+    expect(mail.cancelled).toHaveBeenCalledTimes(2);
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("a desk cancel and a hand-over cancel send no notice", async () => {
+    await cancel(f.users.olga, f.bor.bookingId);
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.ana.bookingId, handoverToMemberId: f.members.bor },
+      NOW
+    );
+    expect(mail.cancelled).toHaveBeenCalledTimes(2);
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("sendMails false: no notice and no Cal mail on the customer path", async () => {
+    await cancelBusinessBookingAsCustomer(db, { uid: f.ana.uid, sessionUserId: null }, NOW, {
+      sendMails: false,
+    });
+    expect(mail.cancelled).not.toHaveBeenCalled();
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("a refused customer cancel (started booking) sends no notice", async () => {
+    await expectCode(cancelByUid(f.ana.uid, null, at("09:00")), "booking_not_active");
+    expect(mail.notice).not.toHaveBeenCalled();
+  });
+
+  it("a throwing notice: the cancel still answers cancelled, Cal's mail went out, one log line without data", async () => {
+    mail.notice.mockRejectedValueOnce(new TypeError("boom for ana@example.com"));
+    expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+    expect(mail.cancelled).toHaveBeenCalledTimes(1);
+    expect(noticeLogLines()).toEqual([
+      [
+        "business booking mail not sent",
+        { kind: "cancel_notice", bookingId: f.ana.bookingId, errorClass: "TypeError" },
+      ],
+    ]);
+  });
+
+  it("the mail module fails to load: the cancel still answers cancelled; each send logged once", async () => {
+    mailModule.loadFails = true;
+    expect(await cancelByUid(f.ana.uid, null)).toEqual({ status: "cancelled" });
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+    const lines = logError.mock.calls.filter((call) => call[0] === "business booking mail not sent");
+    expect(lines).toEqual([
+      [
+        "business booking mail not sent",
+        { kind: "cancelled", bookingId: f.ana.bookingId, errorClass: "Error" },
+      ],
+      [
+        "business booking mail not sent",
+        { kind: "cancel_notice", bookingId: f.ana.bookingId, errorClass: "Error" },
+      ],
+    ]);
   });
 });
 

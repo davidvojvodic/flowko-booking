@@ -7,6 +7,7 @@
 // link (invite, resendInvite with either sendMail value) also pass the flowkoInvite:<id> bucket (core, 20 per hour,
 // caps the Postmark use); revokeInvite does not. The service gets `deps` = the global client, WEBAPP_URL and the
 // invite mail sender; it already turns every send failure into mail: "not_sent".
+// Flowko U29e (E9, R8): rename takes the U29c shape (flowkoSettings:<id> only; it mints nothing and sends no mail).
 import { sendFlowkoInviteEmail } from "@calcom/emails/email-manager";
 import { disconnectGoogleOfUser } from "@calcom/features/flowkoBusiness/disconnectGoogle";
 import {
@@ -16,7 +17,12 @@ import {
   type InviteDeps,
 } from "@calcom/features/flowkoBusiness/invites";
 import { lockMember, unlockMember } from "@calcom/features/flowkoBusiness/lock";
-import { addDeskWorker, listWorkers, reorderWorkers } from "@calcom/features/flowkoBusiness/workers";
+import {
+  addDeskWorker,
+  listWorkers,
+  renameMember,
+  reorderWorkers,
+} from "@calcom/features/flowkoBusiness/workers";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import { WEBAPP_URL } from "@calcom/lib/constants";
 import { prisma } from "@calcom/prisma";
@@ -27,6 +33,7 @@ import type {
   TAddDeskOnlyInput,
   TInviteInput,
   TLockMemberInput,
+  TRenameMemberInput,
   TReorderWorkersInput,
   TResendInviteInput,
   TRevokeInviteInput,
@@ -70,6 +77,7 @@ export async function unlockHandler({ ctx, input }: Opts<TUnlockMemberInput>) {
   return guarded(() => unlockMember(prisma, ctx.user.id, input.memberId, new Date()));
 }
 
+// Flowko U29e (E5, R3): the answer {status, memberId, usualWeek: "copied" | "none"} goes to the client unchanged.
 export async function addDeskOnlyHandler({ ctx, input }: Opts<TAddDeskOnlyInput>) {
   await limited(ctx);
   return guarded(() => addDeskWorker(prisma, ctx.user.id, { displayName: input.displayName }));
@@ -78,6 +86,14 @@ export async function addDeskOnlyHandler({ ctx, input }: Opts<TAddDeskOnlyInput>
 export async function reorderHandler({ ctx, input }: Opts<TReorderWorkersInput>) {
   await limited(ctx);
   return guarded(() => reorderWorkers(prisma, ctx.user.id, { memberIds: input.memberIds }));
+}
+
+// Flowko U29e (E9, R8): owner only (the service), the fields passed one by one.
+export async function renameHandler({ ctx, input }: Opts<TRenameMemberInput>) {
+  await limited(ctx);
+  return guarded(() =>
+    renameMember(prisma, ctx.user.id, { memberId: input.memberId, displayName: input.displayName })
+  );
 }
 
 // Flowko U29d (I8): the second bucket of the procedures that mint a token, after flowkoSettings:<id>.

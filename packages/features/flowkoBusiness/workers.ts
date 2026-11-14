@@ -10,14 +10,26 @@
 // business-local expiry only, never the invitee's e-mail) and the pending brand-new invites in `invites`, which
 // are the only place the answer carries an e-mail (the address the owner typed). Never a token, its hash or the
 // creator. The business row lock and the name key are exported for the invite service (invites.ts).
+// Flowko U29e (E9): renameMember. The owner renames any member (displayName; User.name too for a desk-only worker),
+// under the business row lock and the member row lock.
+// Flowko U29e (E5): addDeskWorker gives the new worker the owner's usual week (read after the business row lock) and
+// answers whether it did; listWorkers answers `ownerUsualWeek` (a boolean) for the Delavci hints.
 import { formatHm } from "@calcom/lib/flowkoBusiness/desk";
+// Flowko U29e (E9): the rename writes User.name only for a desk placeholder address.
+import { isFlowkoDeskEmail } from "@calcom/lib/flowkoBusiness/deskEmail";
 // Flowko U29d: invite list types and the business-local expiry.
 import { inviteExpiry, type MemberInvite, type PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
-import { todayIn } from "@calcom/lib/flowkoBusiness/roster";
+// Flowko U29e (RIGHTS-1): the name key lives in the shared member-name rule (default-ignorables folded).
+import { nameKey } from "@calcom/lib/flowkoBusiness/memberName";
+// Flowko U29e (E5): usualWeekForCopy is the accept's copy predicate, shared by the add and the list flag.
+import { todayIn, usualWeekForCopy } from "@calcom/lib/flowkoBusiness/roster";
 import {
+  // Flowko U29e (E5): the list and add answer types.
+  type AddDeskOnlyAnswer,
   WORKER_BOOKINGS_SHOWN,
   type WorkerListBooking,
   type WorkerListRow,
+  type WorkersList,
 } from "@calcom/lib/flowkoBusiness/workers";
 import type { Prisma } from "@calcom/prisma/client";
 import { FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
@@ -38,12 +50,11 @@ function futureWhere(eventTypeIds: number[], now: Date) {
  * bookings (0 for STAFF and for a member without a mirror yet); `futureBookings` lists them (at most
  * WORKER_BOOKINGS_SHOWN, earliest first) for a LOCKED column member only, `moreBookings` the rest. Owner only;
  * anyone else is `forbidden`.
+ * Flowko U29e (E5, R3): `ownerUsualWeek` = the business owner has a usual week a new worker would get (the copy's
+ * predicate, usualWeekForCopy); the week itself is never answered. Read with its own query (listMembers is shared
+ * by the desk, Storitve and Urnik and is not widened).
  */
-export async function listWorkers(
-  db: FlowkoDb,
-  actorUserId: number,
-  now: Date
-): Promise<{ members: WorkerListRow[]; invites: PendingInvite[] }> {
+export async function listWorkers(db: FlowkoDb, actorUserId: number, now: Date): Promise<WorkersList> {
   const access = await requireBusinessAccess(db, actorUserId);
   if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
 
@@ -55,6 +66,13 @@ export async function listWorkers(
   const timeZone = business.timeZone;
 
   const members = await listMembers(db, access.businessId);
+
+  // Flowko U29e (E5, R3): one OWNER per business (partial unique index); only its usual week, as a boolean.
+  const owner = await db.flowkoBusinessMember.findFirst({
+    where: { businessId: access.businessId, role: FlowkoBusinessRole.OWNER },
+    select: { usualWeek: true },
+  });
+  const ownerUsualWeek = usualWeekForCopy(owner?.usualWeek) !== null;
 
   // Flowko U29d: the open invites (neither used nor revoked; expired ones stay listed, flagged), creation order.
   const openInvites = await db.flowkoBusinessInvite.findMany({
@@ -149,7 +167,7 @@ export async function listWorkers(
       invite: memberInvites.get(member.memberId) ?? null,
     });
   }
-  return { members: rows, invites };
+  return { members: rows, invites, ownerUsualWeek };
 }
 
 /**
@@ -165,36 +183,106 @@ export async function lockBusinessRow(tx: Prisma.TransactionClient, businessId: 
 /**
  * Flowko U29c: one comparison key per name: trimmed, Unicode-composed (NFC), lower-cased by Slovene rules.
  * Flowko U29d: exported for the invite create (a brand-new invitee's name against every member).
+ * Flowko U29e (RIGHTS-1): moved to @calcom/lib/flowkoBusiness/memberName (it also strips the default-ignorables
+ * before NFC); re-exported here so invites.ts and inviteAccept.ts keep their import.
  */
-export const nameKey = (name: string): string => name.trim().normalize("NFC").toLocaleLowerCase("sl");
+export { nameKey };
 
 /**
- * W4: adds a desk-only worker (ACTIVE WORKER with a desk column at once, no usual week, no services) as the last
- * member. Owner only (otherwise forbidden); the name is trimmed, 1..80 characters (bad_member) and unique in the
- * business without regard to case, over every member of any status or kind (member_name_taken). Under the business
- * row lock, so two adds never get the same position or the same name. A lost lock race is member_conflict.
+ * W4: adds a desk-only worker (ACTIVE WORKER with a desk column at once, no services) as the last member. Owner only
+ * (otherwise forbidden); the name is trimmed, 1..80 characters with no control, bidi, separator or invisible
+ * character (bad_member, Flowko U29e) and unique in the business without regard to case or invisible characters
+ * (nameKey), over every member of any status or kind (member_name_taken). Under the business row lock, so two adds
+ * never get the same position or the same name. A lost lock race is member_conflict.
+ * Flowko U29e (E5, R1): the new worker starts with the owner's usual week as stored (usualWeekForCopy, the brand-new
+ * accept's predicate; none = SQL NULL), read after the business row lock. The batch save (saveUsualWeeks) takes the
+ * business row FOR UPDATE; the single-week save (setUsualWeek) is one atomic column write; either way the copy is one
+ * committed week. Services stay unassigned (C10). The answer says whether a week was copied, so the success text is
+ * true for this add.
  */
 export async function addDeskWorker(
   db: FlowkoDb,
   actorUserId: number,
   input: { displayName: string }
-): Promise<{ memberId: number }> {
+): Promise<AddDeskOnlyAnswer> {
   return memberTx(db, async (tx) => {
     const access = await requireBusinessAccess(tx, actorUserId);
     if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
     const name = displayNameOrThrow(input.displayName);
 
     await lockBusinessRow(tx, access.businessId);
+    // Flowko U29e (E5): role and usual week too, read after the lock (the owner's week as committed now).
     const members = await tx.flowkoBusinessMember.findMany({
       where: { businessId: access.businessId },
-      select: { displayName: true },
+      select: { displayName: true, role: true, usualWeek: true },
     });
     const key = nameKey(name);
     if (members.some((m) => nameKey(m.displayName) === key))
       throw new FlowkoBusinessError("member_name_taken");
 
-    const { memberId } = await createDeskOnlyWorker(tx, access.businessId, name);
-    return { memberId };
+    const owner = members.find((m) => m.role === FlowkoBusinessRole.OWNER);
+    const usualWeek = usualWeekForCopy(owner?.usualWeek);
+    const { memberId } = await createDeskOnlyWorker(tx, access.businessId, name, { usualWeek });
+    return { status: "added", memberId, usualWeek: usualWeek ? "copied" : "none" };
+  });
+}
+
+/**
+ * Flowko U29e (E9, R6-R8): the owner renames any member of the business (own row, LOCKED and desk-only included).
+ * One memberTx: access + owner right (forbidden) -> the name rule (displayNameOrThrow, bad_member) -> the target by
+ * id without a lock (missing or another business's = forbidden, before any lock) -> business row FOR NO KEY UPDATE ->
+ * member row FOR NO KEY UPDATE -> re-read (a desk-only conversion may have committed meanwhile) -> an unchanged
+ * trimmed name answers saved with no write -> the name key against every OTHER member (member_name_taken; a
+ * case-only change of one's own name passes) -> displayName. User.name is written too only when the re-read user
+ * e-mail is a desk placeholder (desk-only: nobody owns that User.name; new titles and organizer names follow);
+ * a login member's User.name is their own account name and stays. The e-mail is read through the member relation
+ * (Cal's excludeLockedUsers does not apply) and the user write carries no e-mail key (inviteAccept.guard.test.ts).
+ * Open member invites keep their name copy (R6). A lost lock race is member_conflict.
+ */
+export async function renameMember(
+  db: FlowkoDb,
+  actorUserId: number,
+  input: { memberId: number; displayName: string }
+): Promise<{ status: "saved" }> {
+  return memberTx(db, async (tx) => {
+    const access = await requireBusinessAccess(tx, actorUserId);
+    if (!mayManageBusiness(access)) throw new FlowkoBusinessError("forbidden");
+    const name = displayNameOrThrow(input.displayName);
+
+    const target = await tx.flowkoBusinessMember.findUnique({
+      where: { id: input.memberId },
+      select: { businessId: true },
+    });
+    if (!target || target.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
+
+    await lockBusinessRow(tx, access.businessId);
+    await tx.$executeRaw`SELECT 1 FROM "FlowkoBusinessMember" WHERE "id" = ${input.memberId} FOR NO KEY UPDATE`;
+    const member = await tx.flowkoBusinessMember.findUnique({
+      where: { id: input.memberId },
+      select: {
+        id: true,
+        businessId: true,
+        userId: true,
+        displayName: true,
+        user: { select: { email: true } },
+      },
+    });
+    if (!member || member.businessId !== access.businessId) throw new FlowkoBusinessError("forbidden");
+    if (member.displayName === name) return { status: "saved" as const };
+
+    const others = await tx.flowkoBusinessMember.findMany({
+      where: { businessId: access.businessId, id: { not: member.id } },
+      select: { displayName: true },
+    });
+    const key = nameKey(name);
+    if (others.some((m) => nameKey(m.displayName) === key))
+      throw new FlowkoBusinessError("member_name_taken");
+
+    await tx.flowkoBusinessMember.update({ where: { id: member.id }, data: { displayName: name } });
+    if (member.userId !== null && member.user !== null && isFlowkoDeskEmail(member.user.email)) {
+      await tx.user.update({ where: { id: member.userId }, data: { name } });
+    }
+    return { status: "saved" as const };
   });
 }
 

@@ -157,11 +157,13 @@ describe("WeekGrid (U28)", () => {
     expect(column(DATE)).not.toHaveAttribute("data-dimmed");
   });
 
+  // Flowko U29e (E10.3, R19): the server's running-text name starts the label with a capital.
   it("labels a holiday under its day", () => {
     const view = weekViewOf(ANA);
-    view.days[2].holiday = { name: "Praznik", open: false };
+    view.days[2].holiday = { name: "dan reformacije", open: false };
     renderWeek(view);
-    expect(screen.getByTestId("desk-week-header-2026-11-18").textContent).toContain("Praznik");
+    expect(screen.getByTestId("desk-week-header-2026-11-18").textContent).toContain("Dan reformacije");
+    expect(screen.getByTestId("desk-week-header-2026-11-18").textContent).not.toContain("dan reformacije");
   });
 
   it("a booking tap opens its details", () => {

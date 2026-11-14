@@ -1,7 +1,8 @@
 // Flowko U29a: viewer.flowko.services.* API handlers + strict input shapes (S14). The services are mocked (services.ts
 // has its own unit and Postgres tests); this file pins what the API layer adds: the actor is always ctx.user.id, the
 // flowkoSettings:<id> bucket runs before the service, the error mapping (forbidden → FORBIDDEN; bad_service,
-// bad_member, service_name_taken → BAD_REQUEST with the code) and the exact input shapes.
+// bad_member, service_name_taken → BAD_REQUEST with the code) and the exact input shapes. Flowko U29e: E8 — the
+// price (priceCents, a required key, number or null) is passed through; its rules (integer 0..max) are the service's.
 import { TRPCError } from "@trpc/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,6 +41,7 @@ const barvanje = {
     { kind: "busy" as const, minutes: 30 },
   ],
   workerMemberIds: [3, 4],
+  priceCents: null as number | null, // Flowko U29e: E8 — a required key
 };
 
 type Case = {
@@ -158,12 +160,22 @@ describe("viewer.flowko.services handlers (Flowko U29a)", () => {
     expect(removed.code).toBe("FORBIDDEN");
   });
 
-  it("save passes only the editor's fields (no position, price or online flag reach the service)", async () => {
+  it("save passes only the editor's fields (no position or online flag reach the service)", async () => {
     m.saveService.mockResolvedValue({ serviceId: 12 });
     await expect(handlers.saveHandler({ ctx, input: { ...barvanje, id: 12 } })).resolves.toEqual({ serviceId: 12 });
     expect(Object.keys(m.saveService.mock.calls[0][2]).sort()).toEqual(
-      ["category", "id", "name", "steps", "workerMemberIds"].sort()
+      ["category", "id", "name", "priceCents", "steps", "workerMemberIds"].sort() // Flowko U29e: E8
     );
+  });
+
+  // Flowko U29e: E8.
+  it("save passes the price as sent: a number, 0 and null", async () => {
+    m.saveService.mockResolvedValue({ serviceId: 12 });
+    for (const priceCents of [2500, 0, null]) {
+      m.saveService.mockClear();
+      await handlers.saveHandler({ ctx, input: { ...barvanje, id: 12, priceCents } });
+      expect(m.saveService.mock.calls[0][2]).toEqual({ ...barvanje, id: 12, priceCents });
+    }
   });
 });
 
@@ -178,8 +190,13 @@ describe("viewer.flowko.services input schemas (Flowko U29a, strict)", () => {
     expect(schemas.ZReorderServicesInput.safeParse({ serviceIds: [3, 1, 2] }).success).toBe(true);
   });
 
-  it("refuse unknown keys at every level (no price, online flag, grid or position)", () => {
-    for (const extra of [{ priceCents: 2000 }, { onlineBookable: true }, { slotGridMinutes: 15 }, { position: 0 }]) {
+  it("refuse unknown keys at every level (no online flag, grid or position)", () => {
+    for (const extra of [
+      { onlineBookable: true },
+      { slotGridMinutes: 15 },
+      { position: 0 },
+      { showPrices: true },
+    ]) {
       expect(schemas.ZSaveServiceInput.safeParse({ ...barvanje, ...extra }).success).toBe(false);
     }
     expect(
@@ -199,13 +216,37 @@ describe("viewer.flowko.services input schemas (Flowko U29a, strict)", () => {
     }
   });
 
-  it("a missing field is refused (category must be sent, null when empty)", () => {
-    for (const key of ["name", "category", "steps", "workerMemberIds"]) {
+  it("a missing field is refused (category and priceCents must be sent, null when empty)", () => {
+    for (const key of ["name", "category", "steps", "workerMemberIds", "priceCents"]) {
       const { [key]: _gone, ...rest } = barvanje as Record<string, unknown>;
       expect(schemas.ZSaveServiceInput.safeParse(rest).success, key).toBe(false);
     }
     expect(schemas.ZRemoveServiceInput.safeParse({}).success).toBe(false);
     expect(schemas.ZReorderServicesInput.safeParse({}).success).toBe(false);
+  });
+
+  // Flowko U29e: E8 — shapes only here; -1, 1.5 and max + 1 reach the service, which answers bad_service.
+  it("priceCents is a finite number or null: a text, Infinity and NaN are refused", () => {
+    const withPrice = (priceCents: unknown) =>
+      schemas.ZSaveServiceInput.safeParse({ ...barvanje, priceCents }).success;
+    expect(withPrice(null)).toBe(true);
+    expect(withPrice(0)).toBe(true);
+    expect(withPrice(2500)).toBe(true);
+    expect(withPrice(999_999)).toBe(true);
+    for (const bad of [
+      "25,00",
+      "2500",
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NaN,
+      {},
+      [],
+    ]) {
+      expect(withPrice(bad), String(bad)).toBe(false);
+    }
+    expect(withPrice(-1)).toBe(true);
+    expect(withPrice(1.5)).toBe(true);
+    expect(withPrice(1_000_000)).toBe(true);
   });
 
   it("step kinds are busy/processing; minutes a finite number", () => {
