@@ -186,6 +186,23 @@ export function deskLaneLayout(
   return out;
 }
 
+/** Flowko U29f: F2, R8. Tone of one live booking block on the desk: "a" = brand purple, "b" = pale lilac. */
+export type BookingTone = "a" | "b";
+
+/**
+ * Flowko U29f: F2, R8. Live bookings of one column alternate tones in the column's order (start, then id): even
+ * index "a", odd "b". Pass only the bookings the column draws live; cancelled ones neither take nor shift a tone.
+ * Lanes do not matter. Known limits: a booking can still land flush under a same-tone later step of a stepped
+ * service or under a same-tone block in another lane, and adding, moving or cancelling an earlier booking flips
+ * every later one.
+ */
+export function bookingTones(live: Array<{ id: number; start: Ms }>): Map<number, BookingTone> {
+  const ordered = [...live].sort((a, b) => a.start - b.start || a.id - b.id);
+  const out = new Map<number, BookingTone>();
+  ordered.forEach((b, i) => out.set(b.id, i % 2 === 0 ? "a" : "b"));
+  return out;
+}
+
 function covers(list: Interval[], at: Ms): boolean {
   return list.some((i) => i.start <= at && at < i.end);
 }

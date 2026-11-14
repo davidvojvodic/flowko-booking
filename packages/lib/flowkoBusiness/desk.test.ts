@@ -5,6 +5,7 @@ import { dayBounds, localInterval, wallClockToMs } from "@calcom/lib/flowkoSalon
 import type { FitProblem, Interval } from "@calcom/lib/flowkoSalon";
 
 import {
+  bookingTones,
   columnBands,
   deskLaneLayout,
   escapeLikeValue,
@@ -281,6 +282,78 @@ describe("deskLaneLayout", () => {
       { id: 4, busy: [iv(D, "14:00", "15:00")] },
     ];
     expect(deskLaneLayout(live, [])).toEqual(laneLayout(live));
+  });
+});
+
+// Flowko U29f: F2, R8 — live bookings in one column alternate tone a / b by (start, id); lanes do not matter.
+describe("bookingTones", () => {
+  const D = "2026-12-01";
+  const tones = (m: Map<number, string>, ids: number[]) => ids.map((id) => m.get(id));
+  it("an empty column gives an empty map", () => {
+    expect(bookingTones([]).size).toBe(0);
+  });
+  it("one booking is a", () => {
+    const m = bookingTones([{ id: 5, start: at(D, "09:00") }]);
+    expect(m.size).toBe(1);
+    expect(m.get(5)).toBe("a");
+  });
+  it("three sequential bookings alternate a, b, a", () => {
+    const m = bookingTones([
+      { id: 1, start: at(D, "09:00") },
+      { id: 2, start: at(D, "11:00") },
+      { id: 3, start: at(D, "14:00") },
+    ]);
+    expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "a"]);
+  });
+  it("three touching bookings (09:00-09:30, 09:30-10:00, 10:00-10:30) alternate a, b, a", () => {
+    const m = bookingTones([
+      { id: 1, start: at(D, "09:00") },
+      { id: 2, start: at(D, "09:30") },
+      { id: 3, start: at(D, "10:00") },
+    ]);
+    expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "a"]);
+  });
+  it("input order does not matter: a shuffled column gives the same map", () => {
+    const sorted = [
+      { id: 1, start: at(D, "09:00") },
+      { id: 2, start: at(D, "09:30") },
+      { id: 3, start: at(D, "10:00") },
+      { id: 4, start: at(D, "12:00") },
+    ];
+    const shuffled = [sorted[2], sorted[0], sorted[3], sorted[1]];
+    expect(bookingTones(shuffled)).toEqual(bookingTones(sorted));
+    expect(tones(bookingTones(shuffled), [1, 2, 3, 4])).toEqual(["a", "b", "a", "b"]);
+  });
+  it("equal starts are ordered by id: the lower id is a", () => {
+    const m = bookingTones([
+      { id: 9, start: at(D, "10:00") },
+      { id: 4, start: at(D, "10:00") },
+    ]);
+    expect(m.get(4)).toBe("a");
+    expect(m.get(9)).toBe("b");
+  });
+  it("two overlapping bookings (side-by-side lanes) are a, b", () => {
+    const m = bookingTones([
+      { id: 1, start: at(D, "09:00") }, // 09:00-10:00
+      { id: 2, start: at(D, "09:30") }, // 09:30-10:30, lane 1
+    ]);
+    expect(tones(m, [1, 2])).toEqual(["a", "b"]);
+  });
+  it("Tue 1 Dec Mojca (Maja 09:00 stepped, Ana 09:30 in the gap, Eva 14:00) reads a, b, a", () => {
+    const m = bookingTones([
+      { id: 101, start: at(D, "09:00") }, // Maja: busy 09:00-09:30, 10:10-10:40
+      { id: 102, start: at(D, "09:30") }, // Ana: in Maja's waiting gap
+      { id: 104, start: at(D, "14:00") }, // Eva (Nina's cancelled booking is not passed in)
+    ]);
+    expect(tones(m, [101, 102, 104])).toEqual(["a", "b", "a"]);
+  });
+  it("known limit (R8, stepped service): a third booking at 10:40 is a, flush under Maja's second a step", () => {
+    const m = bookingTones([
+      { id: 101, start: at(D, "09:00") }, // Maja: busy 09:00-09:30, 10:10-10:40
+      { id: 102, start: at(D, "09:30") }, // Ana
+      { id: 103, start: at(D, "10:40") },
+    ]);
+    expect(tones(m, [101, 102, 103])).toEqual(["a", "b", "a"]);
   });
 });
 
