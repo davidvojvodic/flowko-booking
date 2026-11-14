@@ -6,6 +6,9 @@
 // worker: everything stays; STAFF: none) and „Zapri“. The link lives only in the caller's state: closing the panel
 // or leaving the page drops it, it is never logged and never auto-copied. The title takes the focus on open and is
 // described by the lines, so a screen reader hears „not sent, copy the link“ too (U29d UI-5).
+// Flowko U29e (E5, R4): a brand-new WORKER's hint names the owner's usual week only when the list said the owner has
+// one ("new_worker"); otherwise "new_worker_no_week" says the shifts are set in Urnik. The shared RAW replaces the
+// inline opt-out (E10.1).
 "use client";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -13,6 +16,7 @@ import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { Input, Label } from "@calcom/ui/components/form";
 import { showToast } from "@calcom/ui/components/toast";
+import { RAW } from "@calcom/web/lib/flowko/i18nRaw";
 import { useEffect, useId, useRef } from "react";
 import { copyText } from "./copyText";
 
@@ -24,7 +28,16 @@ export type InvitePanelData = {
   name: string;
   link: string;
   lines: InvitePanelLine[];
-  hint: "new_worker" | "desk_worker" | null;
+  hint: InviteHint | null;
+};
+
+/** Flowko U29e (E5): "new_worker_no_week" = a brand-new WORKER while the owner has no usual week to copy. */
+export type InviteHint = "new_worker" | "new_worker_no_week" | "desk_worker";
+
+const HINT_KEYS: Record<InviteHint, string> = {
+  new_worker: "flowko_invite_hint_new_worker",
+  new_worker_no_week: "flowko_invite_hint_new_worker_no_week",
+  desk_worker: "flowko_invite_hint_desk_worker",
 };
 
 export function InviteLinkPanel(props: { panel: InvitePanelData; onClose: () => void }) {
@@ -62,7 +75,7 @@ export function InviteLinkPanel(props: { panel: InvitePanelData; onClose: () => 
         // UI-5: the title takes the focus, so it carries the lines (mail sent / not sent) as its description.
         aria-describedby={linesId}
         className="text-emphasis break-words text-base font-semibold focus:outline-none">
-        {t("flowko_invite_panel_title", { name: panel.name, interpolation: { escapeValue: false } })}
+        {t("flowko_invite_panel_title", { name: panel.name, ...RAW })}
       </h2>
       <div id={linesId} className="mt-3 flex flex-col gap-2">
         {panel.lines.map((line) =>
@@ -94,13 +107,7 @@ export function InviteLinkPanel(props: { panel: InvitePanelData; onClose: () => 
         </div>
       </div>
       <p className="text-subtle mt-3 text-sm">{t("flowko_invite_link_once")}</p>
-      {panel.hint && (
-        <p className="text-subtle mt-2 text-sm">
-          {t(
-            panel.hint === "new_worker" ? "flowko_invite_hint_new_worker" : "flowko_invite_hint_desk_worker"
-          )}
-        </p>
-      )}
+      {panel.hint && <p className="text-subtle mt-2 text-sm">{t(HINT_KEYS[panel.hint])}</p>}
       <div className="mt-4">
         <Button type="button" color="secondary" onClick={props.onClose}>
           {t("close")}

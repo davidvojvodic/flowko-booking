@@ -2,6 +2,8 @@
 // viewer.flowko.business.settings returns them, its service catalogue as viewer.flowko.services.list returns it
 // (Task 8), and a `t` backed by the real locale files that resolves i18next plurals (sl _one/_two/_few/_other,
 // en _one/_other) the way i18next does when `count` is given.
+// Flowko U29e (E10.1): that `t` escapes interpolated strings like production's i18next (escapeValue true by
+// default) unless the call opts out (RAW), so a test sees a name printed as „Ana &amp; Maja“.
 
 import type {
   OwnerService,
@@ -11,9 +13,8 @@ import type {
 import type { BusinessSettingsView } from "@calcom/features/flowkoBusiness/settings";
 import en from "@calcom/i18n/locales/en/common.json";
 import sl from "@calcom/i18n/locales/sl/common.json";
-import type { PendingInvite } from "@calcom/lib/flowkoBusiness/invites";
 import type { OpeningHours } from "@calcom/lib/flowkoBusiness/schemas";
-import type { WorkerListBooking, WorkerListRow } from "@calcom/lib/flowkoBusiness/workers";
+import type { WorkerListBooking, WorkerListRow, WorkersList } from "@calcom/lib/flowkoBusiness/workers";
 
 export const OPENING: OpeningHours = {
   mon: [{ from: "08:00", to: "20:00" }],
@@ -48,16 +49,34 @@ export const localeStrings = {
   en: en as unknown as Record<string, string>,
 };
 
-/** A `t` over the real locale files: {{placeholder}} interpolation, and `count` picks the plural form first. */
+// Flowko U29e (E10.1): i18next's default escape (its _entityMap): & < > " ' and /.
+export const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\//g, "&#x2F;");
+
+/**
+ * A `t` over the real locale files: {{placeholder}} interpolation, and `count` picks the plural form first.
+ * Flowko U29e (E10.1): interpolated strings are HTML-escaped as i18next does by default, unless the call passes
+ * `interpolation: { escapeValue: false }` (RAW); numbers are never escaped.
+ */
 export function localeT(lang: "sl" | "en" = "sl") {
   const strings = localeStrings[lang];
   const rules = new Intl.PluralRules(lang);
   return (key: string, opts?: Record<string, unknown>) => {
     const count = opts?.count;
     const plural = typeof count === "number" ? strings[`${key}_${rules.select(count)}`] : undefined;
-    return (plural ?? strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) =>
-      String(opts?.[k] ?? "")
-    );
+    const interpolation = opts?.interpolation as { escapeValue?: boolean } | undefined;
+    const raw = interpolation?.escapeValue === false;
+    return (plural ?? strings[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, k: string) => {
+      const value = opts?.[k];
+      if (typeof value === "string") return raw ? value : escapeHtml(value);
+      return String(value ?? "");
+    });
   };
 }
 
@@ -184,7 +203,12 @@ const worker = (
 });
 
 // Flowko U29d: workers.list answers { members, invites } (I9); `invites` = open invites of brand-new people.
-export type WorkersViewData = { members: WorkerListRow[]; invites: PendingInvite[] };
+// Flowko U29e (E5, R3): the answer type itself (WorkersList), with `ownerUsualWeek`: the owner has a usual week a new
+// worker gets (true in both fixtures; the hint cases set false).
+export type WorkersViewData = WorkersList;
+
+// Flowko U29e (E10.1): a name with characters i18next would escape (the rows and dialogs must print it once).
+export const AMP_NAME = "Ana & Maja";
 
 export const WORKERS_VIEW: WorkersViewData = {
   members: [
@@ -202,6 +226,7 @@ export const WORKERS_VIEW: WorkersViewData = {
     worker({ memberId: FRAN, displayName: "Fran", role: "STAFF" }),
   ],
   invites: [],
+  ownerUsualWeek: true, // Flowko U29e: E5
 };
 
 // Flowko U29d (Task 7): the same list with open invites (U1). Bor (desk-only) has an open invite valid until Mon
@@ -250,4 +275,5 @@ export const WORKERS_VIEW_INVITES: WorkersViewData = {
       expired: true,
     },
   ],
+  ownerUsualWeek: true, // Flowko U29e: E5
 };

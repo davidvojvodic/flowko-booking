@@ -2,8 +2,9 @@
 // count of the rest): one link per booking to that day on the desk (same tab) with the local date, time, service
 // names and the customer's name. Nothing else about the booking or the customer is shown (no e-mail, no phone).
 // The date is the business-local date string treated as UTC midnight for the weekday (as Urnik's headers do); the
-// year is added when it differs from the current one. A booking is moved by cancelling it and entering it for
-// another worker (the hint under the list).
+// year is added when it differs from the current one. A booking is moved to another worker with the desk's
+// „Prestavi k drugemu delavcu“ (Flowko U29e E10.2: the hint under the list names it; it works for a locked worker's
+// booking).
 "use client";
 
 import type { WorkerListBooking } from "@calcom/lib/flowkoBusiness/workers";

@@ -3,6 +3,9 @@
 // „Povabi“), the „Povabljeni“ section for brand-new people, the „Povabi s prijavo“ form, the „Povabi“ dialog on a
 // desk-only WORKER row and the one-time link panel. The link-minting calls go through the vanilla client
 // (utils.client…mutate), never useMutation, so no answer with a link stays in the MutationCache.
+// Flowko U29e (Task 8): the escaping `t` is the shared fixture's localeT (E10.1); the trpc mock gains `rename` and
+// the views a rename refreshes; the list literals carry `ownerUsualWeek` and the brand-new WORKER hint follows it
+// (E5, R4); a name with an invisible character is refused before the call (RIGHTS-1).
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkersView from "./workers-view";
@@ -26,8 +29,6 @@ import {
 
 const mocks = vi.hoisted(() => ({
   lang: "sl" as "sl" | "en",
-  /** true = `t` escapes interpolated values like i18next's default (escapeValue true) unless the call opts out. */
-  escape: true,
   query: vi.fn(),
   refetch: vi.fn(),
   invalidateList: vi.fn(),
@@ -43,32 +44,18 @@ const mocks = vi.hoisted(() => ({
   inviteUseMutation: vi.fn(),
   resendUseMutation: vi.fn(),
   toast: vi.fn(),
+  // Flowko U29e (E9): the rename write and the views a rename refreshes besides the probe.
+  rename: vi.fn(),
+  invalidateDay: vi.fn(),
+  invalidateWeek: vi.fn(),
+  invalidateRoster: vi.fn(),
+  invalidateServicesList: vi.fn(),
 }));
 
-// i18next's default escape (its _entityMap): & < > " ' and /.
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/\//g, "&#x2F;");
-
-/** i18next's default: interpolated strings are HTML-escaped unless `interpolation.escapeValue` is false. */
-function testT(lang: "sl" | "en") {
-  const base = localeT(lang);
-  return (key: string, opts?: Record<string, unknown>) => {
-    const interpolation = opts?.interpolation as { escapeValue?: boolean } | undefined;
-    if (!mocks.escape || !opts || interpolation?.escapeValue === false) return base(key, opts);
-    const escaped: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(opts)) escaped[k] = typeof v === "string" ? escapeHtml(v) : v;
-    return base(key, escaped);
-  };
-}
-
+// Flowko U29e (E10.1): the fixture's localeT escapes interpolated values like production's i18next (escapeValue true)
+// unless the call opts out, so every invite string with a name, an address or a date must pass RAW.
 vi.mock("@calcom/lib/hooks/useLocale", () => ({
-  useLocale: () => ({ t: testT(mocks.lang), i18n: { language: mocks.lang } }),
+  useLocale: () => ({ t: localeT(mocks.lang), i18n: { language: mocks.lang } }),
 }));
 vi.mock("@calcom/ui/components/toast", () => ({ showToast: (...args: unknown[]) => mocks.toast(...args) }));
 vi.mock("@calcom/trpc/react", () => ({
@@ -91,6 +78,13 @@ vi.mock("@calcom/trpc/react", () => ({
             members: { invalidate: mocks.invalidateMembers },
             services: { invalidate: mocks.invalidateDeskServices },
           },
+          // Flowko U29e (E9).
+          bookings: {
+            day: { invalidate: mocks.invalidateDay },
+            week: { invalidate: mocks.invalidateWeek },
+          },
+          roster: { week: { invalidate: mocks.invalidateRoster } },
+          services: { list: { invalidate: mocks.invalidateServicesList } },
         },
       },
     }),
@@ -109,6 +103,8 @@ vi.mock("@calcom/trpc/react", () => ({
           revokeInvite: {
             useMutation: () => ({ mutateAsync: (i: unknown) => mocks.revoke(i), isPending: false }),
           },
+          // Flowko U29e (E9).
+          rename: { useMutation: () => ({ mutateAsync: (i: unknown) => mocks.rename(i), isPending: false }) },
           // Never used by the view (U3): a call here would keep the link in the MutationCache.
           invite: { useMutation: (...args: unknown[]) => mocks.inviteUseMutation(...args) },
           resendInvite: { useMutation: (...args: unknown[]) => mocks.resendUseMutation(...args) },
@@ -163,15 +159,21 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-11-16T07:07:00Z"));
   for (const fn of Object.values(mocks)) if (typeof fn === "function") fn.mockReset();
   mocks.lang = "sl";
-  // Production's useLocale escapes interpolations (i18next default): every invite string with a name, an address
-  // or a date must opt out (React escapes once).
-  mocks.escape = true;
   data = WORKERS_VIEW_INVITES;
   mocks.query.mockImplementation(() => queryResult());
   mocks.refetch.mockResolvedValue(undefined);
-  for (const fn of [mocks.invalidateList, mocks.invalidateMembers, mocks.invalidateDeskServices]) {
+  for (const fn of [
+    mocks.invalidateList,
+    mocks.invalidateMembers,
+    mocks.invalidateDeskServices,
+    mocks.invalidateDay,
+    mocks.invalidateWeek,
+    mocks.invalidateRoster,
+    mocks.invalidateServicesList,
+  ]) {
     fn.mockResolvedValue(undefined);
   }
+  mocks.rename.mockResolvedValue({ status: "saved" });
   mocks.invite.mockResolvedValue(answer());
   mocks.resend.mockResolvedValue(answer());
   mocks.revoke.mockResolvedValue({ status: "revoked" });
@@ -204,6 +206,7 @@ const linkField = () => within(panel()).getByLabelText("Povezava za povabilo") a
 const withMember = (memberId: number, patch: Record<string, unknown>): WorkersViewData => ({
   members: WORKERS_VIEW_INVITES.members.map((m) => (m.memberId === memberId ? { ...m, ...patch } : m)),
   invites: WORKERS_VIEW_INVITES.invites,
+  ownerUsualWeek: WORKERS_VIEW_INVITES.ownerUsualWeek,
 });
 
 describe("Invites: the member list (U1, D1)", () => {
@@ -930,6 +933,7 @@ describe("Invites: names are not escaped twice", () => {
         expired: false,
       },
     ],
+    ownerUsualWeek: true,
   };
 
   beforeEach(() => {
@@ -964,6 +968,7 @@ describe("Invites: names are not escaped twice", () => {
     data = {
       members: WORKERS_VIEW.members.map((m) => (m.memberId === BOR ? { ...m, displayName: "Bor & Co" } : m)),
       invites: [],
+      ownerUsualWeek: true,
     };
     render(<WorkersView />);
     await click(inRow(BOR).getByRole("button", { name: "Povabi" }));
@@ -984,5 +989,102 @@ describe("Invites: English", () => {
     expect(
       within(screen.getByTestId("flowko-invite-form")).getByText("Invite with a login")
     ).toBeInTheDocument();
+  });
+});
+
+// Flowko U29e (Task 8): E5 (R4) — the brand-new WORKER hint says the owner's usual week only when the list says the
+// owner has one (a list-time snapshot); RIGHTS-1 — the invite form refuses invisible characters before the call.
+describe("Invites: the owner's usual week in the panel hint (E5, R4)", () => {
+  const WEEK_HINT =
+    "Ko oseba sprejme povabilo, dobi enak običajni teden, kot ga imate vi. Storitve ji dodelite v Storitvah, ko se pridruži.";
+  const NO_WEEK_HINT = "Ko se oseba pridruži, ji izmene nastavite v Urniku, storitve pa v Storitvah.";
+  const form = () => within(screen.getByTestId("flowko-invite-form"));
+  const create = async (name: string, email: string) => {
+    fireEvent.change(form().getByLabelText("Ime"), { target: { value: name } });
+    fireEvent.change(form().getByLabelText("E-pošta"), { target: { value: email } });
+    await click(form().getByRole("button", { name: "Pošlji povabilo" }));
+    await screen.findByTestId("flowko-invite-panel");
+  };
+
+  it("a new WORKER with the owner's week: the week hint", async () => {
+    render(<WorkersView />);
+    await create("Hana", "hana@example.si");
+    expect(within(panel()).getByText(WEEK_HINT)).toBeInTheDocument();
+    expect(within(panel()).queryByText(NO_WEEK_HINT)).toBeNull();
+  });
+
+  it("a new WORKER without the owner's week: the no-week hint, never „običajni teden“", async () => {
+    data = { ...WORKERS_VIEW_INVITES, ownerUsualWeek: false };
+    render(<WorkersView />);
+    await create("Hana", "hana@example.si");
+    expect(within(panel()).getByText(NO_WEEK_HINT)).toBeInTheDocument();
+    expect(within(panel()).queryByText(/običajni teden/)).toBeNull();
+  });
+
+  it("„Pošlji znova“ on a pending WORKER invite without the owner's week: the no-week hint", async () => {
+    data = { ...WORKERS_VIEW_INVITES, ownerUsualWeek: false };
+    mocks.resend.mockResolvedValue(answer({ inviteId: HANA_INVITE }));
+    render(<WorkersView />);
+    await click(inInviteRow(HANA_INVITE).getByRole("button", { name: "Pošlji znova" }));
+    await screen.findByTestId("flowko-invite-panel");
+    expect(within(panel()).getByText(NO_WEEK_HINT)).toBeInTheDocument();
+    expect(within(panel()).queryByText(/običajni teden/)).toBeNull();
+  });
+
+  it.each([
+    ["a STAFF invite", "staff"],
+    ["a desk-only member's invite", "desk"],
+  ])("without the owner's week, %s is unchanged", async (_label, kind) => {
+    data = { ...WORKERS_VIEW_INVITES, ownerUsualWeek: false };
+    render(<WorkersView />);
+    if (kind === "staff") {
+      mocks.resend.mockResolvedValue(answer({ inviteId: IVA_INVITE, mail: "skipped" }));
+      await click(inInviteRow(IVA_INVITE).getByRole("button", { name: "Nova povezava" }));
+      await screen.findByTestId("flowko-invite-panel");
+      expect(within(panel()).queryByText(NO_WEEK_HINT)).toBeNull();
+      expect(within(panel()).queryByText(/ostanejo, kot so/)).toBeNull();
+    } else {
+      mocks.resend.mockResolvedValue(answer({ inviteId: BOR_INVITE }));
+      await click(inRow(BOR).getByRole("button", { name: "Pošlji znova" }));
+      await screen.findByTestId("flowko-invite-panel");
+      expect(
+        within(panel()).getByText("Stolpec, urnik, termini in storitve ostanejo, kot so.")
+      ).toBeInTheDocument();
+      expect(within(panel()).queryByText(NO_WEEK_HINT)).toBeNull();
+    }
+  });
+
+  it("English no-week hint", async () => {
+    mocks.lang = "en";
+    data = { ...WORKERS_VIEW_INVITES, ownerUsualWeek: false };
+    render(<WorkersView />);
+    const enForm = within(screen.getByTestId("flowko-invite-form"));
+    fireEvent.change(enForm.getByLabelText("Name"), { target: { value: "Hana" } });
+    fireEvent.change(enForm.getByLabelText("Email"), { target: { value: "hana@example.si" } });
+    await click(enForm.getByRole("button", { name: "Send invite" }));
+    await screen.findByTestId("flowko-invite-panel");
+    expect(
+      within(panel()).getByText(
+        "Once the person joins, set their shifts in Roster and their services in Services."
+      )
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Invites: the name rule before the call (RIGHTS-1)", () => {
+  it("a zero-width space in the name: the characters text on the name field, no call", async () => {
+    render(<WorkersView />);
+    const form = within(screen.getByTestId("flowko-invite-form"));
+    const nameField = form.getByLabelText("Ime") as HTMLInputElement;
+    const value = `Hana${String.fromCharCode(0x200b)}`;
+    fireEvent.change(nameField, { target: { value } });
+    fireEvent.change(form.getByLabelText("E-pošta"), { target: { value: "hana@example.si" } });
+    await click(form.getByRole("button", { name: "Pošlji povabilo" }));
+    const text = "Ime vsebuje nedovoljene nevidne znake. Vnesite ga znova.";
+    expect(form.getByText(text)).toBeInTheDocument();
+    expect(nameField).toHaveAttribute("aria-invalid", "true");
+    expect(nameField).toHaveAccessibleDescription(text);
+    expect(nameField.value).toBe(value);
+    expect(mocks.invite).not.toHaveBeenCalled();
   });
 });

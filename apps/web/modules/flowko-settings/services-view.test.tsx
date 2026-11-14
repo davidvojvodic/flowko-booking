@@ -291,7 +291,8 @@ describe("ServicesView: the sheet", () => {
 // as the new order); saves carry no version. A reorder that went through says „Shranjeno“.
 describe("ServicesView: the refresh after a write (P1, P8)", () => {
   const notice = () => screen.queryByTestId("flowko-settings-refresh-failed");
-  const NOTICE_TEXT = "Shranjeno, prikaza pa ni bilo mogoče osvežiti. Kliknite „Osveži“.";
+  // Flowko U29e (E10.7, R23): the notice is neutral; the saved paths keep their own success toast.
+  const NOTICE_TEXT = "Prikaza ni bilo mogoče osvežiti. Kliknite „Osveži“.";
 
   async function reorderWithFailingRefresh() {
     mocks.invalidateList.mockRejectedValue(new Error("offline"));
