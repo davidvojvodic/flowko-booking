@@ -7,11 +7,22 @@
 // Flowko U29e (E6, R11): cancelled bookings (the day read sends them) are drawn over their whole [start, end] beside
 // the live ones (deskLaneLayout: never in lane 0, so the left part of a cancelled-only slot stays tappable and books)
 // at z-index 6–9 (above the Google overlay, below live blocks); free edges come from live bookings only.
+// Flowko U29f (F2, R8 as amended, Q1 touch rule): per column (each week-view day restarts at "a"), the live bookings
+// are 2-coloured over their touch-components (busy steps touch or overlap; BFS in (start, id) order, a later
+// component opposes the latest booking of the earlier ones), so touching bookings share a tone only in an odd
+// ring; cancelled ones take no tone and shift none.
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 
 import type { DeskBooking, DeskColumn } from "@calcom/features/flowkoBusiness/desk";
-import { columnBands, deskLaneLayout, freeEdgesFor, tapToStart, toPx } from "@calcom/lib/flowkoBusiness/desk";
+import {
+  bookingTones,
+  columnBands,
+  deskLaneLayout,
+  freeEdgesFor,
+  tapToStart,
+  toPx,
+} from "@calcom/lib/flowkoBusiness/desk";
 import type { Interval, Ms } from "@calcom/lib/flowkoSalon";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
@@ -93,6 +104,14 @@ export function WorkerColumn(props: {
         ])
       ),
     [live]
+  );
+  // Flowko U29f (R8, Q1 touch rule): tones over the live bookings this column draws, from their busy steps.
+  const tones = useMemo(
+    () =>
+      bookingTones(
+        live.map((b) => ({ id: b.bookingId, start: ms(b.start), busy: busyOf.get(b.bookingId) ?? [] }))
+      ),
+    [live, busyOf]
   );
   const lanes = useMemo(
     () =>
@@ -202,6 +221,7 @@ export function WorkerColumn(props: {
             zIndex={10 + index}
             onOpenDetails={props.onOpenDetails}
             passThrough={props.passThrough}
+            tone={tones.get(b.bookingId)}
           />
         );
       })}

@@ -233,3 +233,98 @@ describe("WorkerColumn cancelled bookings (U29e E6)", () => {
     expect(screen.getByRole("button", { name: /^Odpovedala stranka/ }).style.pointerEvents).toBe("none");
   });
 });
+
+// Flowko U29f: F2, R8-R11 (Q1 touch rule, R8 as amended) — live bookings of one column take tones a/b by a
+// two-colouring of their touch-components (busy steps only, BFS in (start, id) order); cancelled ones neither take
+// nor shift a tone; lanes, z-index and the cancelled half stay as they were.
+describe("WorkerColumn tones (U29f F2)", () => {
+  const live = (id: number, from: string, to: string) =>
+    booking({ bookingId: id, memberId: ANA, start: iso(from), end: iso(to) });
+  const cancelledAt = (id: number, from: string, to: string) =>
+    booking({
+      bookingId: id,
+      memberId: ANA,
+      start: iso(from),
+      end: iso(to),
+      status: "CANCELLED",
+      mayCancel: false,
+      mayMove: false,
+      mayReenter: false,
+      cancelled: { by: "customer", at: "2026-11-15T18:00:00.000Z" },
+    });
+  const block = (id: number) => screen.getByTestId(`desk-booking-${id}`);
+  const toneOf = (id: number) => block(id).dataset.tone;
+  const laneOf = (id: number) => [block(id).style.left, block(id).style.width];
+
+  it("two touching live bookings share lane 0 at full width and take a, then b", () => {
+    renderColumn(ANA, [live(150, "11:00", "11:30"), live(151, "11:30", "12:00")]);
+    expect(laneOf(150)).toEqual(["0%", "100%"]);
+    expect(laneOf(151)).toEqual(["0%", "100%"]);
+    expect([toneOf(150), toneOf(151)]).toEqual(["a", "b"]);
+  });
+
+  it("a colouring at 09:00 and a booking at 09:30 in its waiting gap: a, then b", () => {
+    renderColumn(ANA, [live(106, "09:30", "10:00"), barvanje]);
+    expect([toneOf(101), toneOf(106)]).toEqual(["a", "b"]);
+  });
+
+  it("the Tue 1 Dec shape: Maja a, Ana b, Nina cancelled (no tone, right half), Eva a (left half)", () => {
+    renderColumn(ANA, [
+      barvanje, // Maja 09:00
+      live(106, "09:30", "10:00"), // Ana in the waiting gap
+      cancelledAt(160, "14:00", "14:30"), // Nina
+      live(161, "14:00", "14:30"), // Eva
+    ]);
+    expect([toneOf(101), toneOf(106), toneOf(160), toneOf(161)]).toEqual(["a", "b", undefined, "a"]);
+    expect(laneOf(160)).toEqual(["50%", "50%"]);
+    expect(laneOf(161)).toEqual(["0%", "50%"]);
+  });
+
+  // Flowko U29f: final-review TEST-1 — the column passes busy steps, not spans (whole spans would give a, b, b).
+  it("waiting gaps never count: a booking in the gap that touches nothing is not tied to the colouring (a, b, a)", () => {
+    renderColumn(ANA, [barvanje, live(108, "09:30", "09:40"), live(109, "09:50", "10:00")]);
+    expect([toneOf(101), toneOf(108), toneOf(109)]).toEqual(["a", "b", "a"]);
+  });
+
+  it("touch rule: a booking at 10:40 under the colouring's second step is b, not a (Ana's gap booking is b too)", () => {
+    renderColumn(ANA, [barvanje, live(106, "09:30", "10:00"), live(107, "10:40", "11:10")]);
+    expect([toneOf(101), toneOf(106), toneOf(107)]).toEqual(["a", "b", "b"]);
+    expect(laneOf(107)).toEqual(["0%", "100%"]);
+  });
+
+  it("touch rule, lane case: A 11:00-12:00, B 11:30-12:30 (lane 1), C 12:00-13:00 under A reads a, b, b", () => {
+    renderColumn(ANA, [
+      live(190, "11:00", "12:00"),
+      live(191, "11:30", "12:30"),
+      live(192, "12:00", "13:00"),
+    ]);
+    expect([toneOf(190), toneOf(191), toneOf(192)]).toEqual(["a", "b", "b"]);
+    expect(laneOf(192)).toEqual(["0%", "50%"]);
+  });
+
+  it("a cancelled booking between two live ones is not counted: a, (none), b", () => {
+    renderColumn(ANA, [
+      live(170, "09:00", "09:30"),
+      cancelledAt(171, "12:00", "12:30"),
+      live(172, "14:00", "14:30"),
+    ]);
+    expect([toneOf(170), toneOf(171), toneOf(172)]).toEqual(["a", undefined, "b"]);
+  });
+
+  it("two overlapping bookings keep their lanes side by side and take a, then b", () => {
+    renderColumn(ANA, [live(105, "11:30", "12:30"), live(104, "11:00", "12:00")]);
+    expect([toneOf(104), toneOf(105)]).toEqual(["a", "b"]);
+    expect(laneOf(104)).toEqual(["0%", "50%"]);
+    expect(laneOf(105)).toEqual(["50%", "50%"]);
+  });
+
+  it("z-index order is unchanged: live by (start, id) from 10, cancelled 6-9", () => {
+    renderColumn(ANA, [
+      live(181, "11:00", "11:30"),
+      cancelledAt(180, "11:00", "11:30"),
+      live(182, "11:30", "12:00"),
+    ]);
+    const z = (id: number) => block(id).style.zIndex;
+    expect([z(181), z(182), z(180)]).toEqual(["10", "11", "6"]);
+  });
+});

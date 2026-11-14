@@ -5,6 +5,12 @@
 // Flowko U29b (S1): a third view „Urnik“ (?view=roster) on every size, and ?rosterMode=week|usual. In Urnik the
 // arrows step a week with the week label from md up and a day with the day label on a phone; in the usual week
 // (no dates) the arrows, the date picker and „Danes“ are hidden and only the view toggle stays.
+// Flowko U29f (F1, R2–R7): the date picker's popover speaks the desk's language (date-fns sl / en-US), starts
+// weeks on Monday, marks the business today, hides outside days and labels its arrows; the selected day's
+// brand colour is the Calendar default since U29f Task 1.
+import type { Locale } from "date-fns";
+import { enUS } from "date-fns/locale/en-US";
+import { sl } from "date-fns/locale/sl";
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 
 import { addDays, localDateSchema } from "@calcom/lib/flowkoBusiness/roster";
@@ -50,6 +56,11 @@ const toPickerDate = (date: string) => {
 };
 const fromPickerDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+/** Flowko U29f (R2): the picker's date-fns locale, from the same language (and fallback) as the button label. */
+export function deskPickerLocale(language: string | undefined): Locale {
+  return (language ?? "sl").startsWith("sl") ? sl : enUS;
+}
+
 function formatDateLabel(date: string, language: string): string {
   return new Intl.DateTimeFormat(language, {
     weekday: "long",
@@ -93,6 +104,26 @@ export function DateBar(props: {
   const week = props.view === "week" || (roster && weekAvailable);
   const step = week ? 7 : 1;
   const dated = !(roster && props.rosterMode === "usual");
+  // Flowko U29f (R2–R7): one set of picker props for the day, week and Urnik views (phone included).
+  const calendarProps = {
+    locale: deskPickerLocale(i18n?.language),
+    // Desk weeks are Monday-based in every language (R2).
+    weekStartsOn: 1 as const,
+    // The business today, not the browser clock (R5).
+    today: toPickerDate(today),
+    // Outside days would look like month days; hidden instead of dimmed (R6).
+    showOutsideDays: false,
+    classNames: {
+      // R6: the four-character Slovene weekday abbreviations fit a 32 px phone cell.
+      head_cell: "w-8 md:w-11 h-8 text-xs md:text-sm font-medium text-default text-center",
+      // R5: a brand edge and bold number; no text colour, so today + selected never fight over `color`.
+      day_today: "font-semibold! border-brand-default!",
+    },
+    labels: {
+      labelPrevious: () => t("view_previous_month"),
+      labelNext: () => t("view_next_month"),
+    },
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -119,6 +150,7 @@ export function DateBar(props: {
             date={toPickerDate(date)}
             minDate={null}
             onDatesChange={(d) => go(fromPickerDate(d))}
+            calendarProps={calendarProps}
             label={
               week
                 ? formatWeekLabel(date, i18n?.language ?? "sl")

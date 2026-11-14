@@ -1,6 +1,8 @@
 // Flowko U28: one booking block. A colouring is drawn from its steps; the processing gap is see-through to taps.
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+
+import type { BookingTone } from "@calcom/lib/flowkoBusiness/desk";
 
 import { BookingBlock } from "./BookingBlock";
 import { TZ, at, barvanje, booking, localeT } from "./desk.fixture";
@@ -12,7 +14,7 @@ const range = { from: at("08:00"), to: at("19:00") };
 function renderBlock(
   b = barvanje,
   onOpenDetails = vi.fn(),
-  opts: { passThrough?: boolean; onParent?: () => void } = {}
+  opts: { passThrough?: boolean; onParent?: () => void; tone?: BookingTone } = {}
 ) {
   render(
     <div style={{ position: "relative" }} onClick={opts.onParent}>
@@ -26,6 +28,7 @@ function renderBlock(
         zIndex={10}
         onOpenDetails={onOpenDetails}
         passThrough={opts.passThrough}
+        tone={opts.tone}
       />
     </div>
   );
@@ -199,5 +202,122 @@ describe("BookingBlock cancelled (U29e E6)", () => {
   it("names a customer „O'Brien & Co“ once", () => {
     renderBlock({ ...byDesk, customer: { name: "O'Brien & Co", phone: null, email: null } });
     expect(screen.getByRole("button", { name: /O'Brien & Co/ })).toBeInTheDocument();
+  });
+});
+
+// Flowko U29f: F2, R9-R11 — two tones of Flowko purple; every busy step of one booking takes its tone.
+// Class checks work on whole tokens, so `border` is told apart from `border-2`.
+describe("BookingBlock tones (U29f F2)", () => {
+  const tokens = (el: Element | null) => (el?.className ?? "").split(/\s+/).filter(Boolean);
+  const busyOf = (id: number) =>
+    Array.from(screen.getByTestId(`desk-booking-${id}`).querySelectorAll<HTMLElement>('[data-kind="busy"]'));
+
+  it("tone a: today's purple with white text and a brand edge, on the wrapper data-tone a", () => {
+    renderBlock(booking({ bookingId: 7, memberId: 2 }), vi.fn(), { tone: "a" });
+    expect(screen.getByTestId("desk-booking-7").dataset.tone).toBe("a");
+    const t = tokens(busyOf(7)[0]);
+    expect(t).toEqual(
+      expect.arrayContaining(["bg-brand-default", "text-brand", "border", "border-brand-default"])
+    );
+    expect(t).not.toContain("bg-brand-subtle");
+    expect(t).not.toContain("text-emphasis");
+    expect(t).not.toContain("border-2");
+  });
+
+  it("no tone given on a live booking: tone a", () => {
+    renderBlock(booking({ bookingId: 7, memberId: 2 }));
+    expect(screen.getByTestId("desk-booking-7").dataset.tone).toBe("a");
+    expect(tokens(busyOf(7)[0])).toEqual(
+      expect.arrayContaining(["bg-brand-default", "text-brand", "border"])
+    );
+  });
+
+  it("tone b: pale lilac, dark text, thin brand edge, never the brand fill", () => {
+    renderBlock(booking({ bookingId: 7, memberId: 2 }), vi.fn(), { tone: "b" });
+    expect(screen.getByTestId("desk-booking-7").dataset.tone).toBe("b");
+    const t = tokens(busyOf(7)[0]);
+    expect(t).toEqual(
+      expect.arrayContaining(["bg-brand-subtle", "text-emphasis", "border", "border-brand-default"])
+    );
+    expect(t).not.toContain("bg-brand-default");
+    expect(t).not.toContain("text-brand");
+    expect(t).not.toContain("opacity-80");
+  });
+
+  it("a stepped booking: both busy steps take the tone; the processing step stays hatched, dashed", () => {
+    renderBlock(barvanje, vi.fn(), { tone: "b" });
+    const busy = busyOf(101);
+    expect(busy).toHaveLength(2);
+    for (const step of busy) {
+      expect(tokens(step)).toEqual(
+        expect.arrayContaining(["bg-brand-subtle", "text-emphasis", "border", "border-brand-default"])
+      );
+      expect(tokens(step)).not.toContain("bg-brand-default");
+    }
+    const processing = screen.getByTestId("desk-booking-101").querySelector('[data-kind="processing"]');
+    expect(tokens(processing)).toEqual([
+      "border-brand-default",
+      "absolute",
+      "inset-x-0",
+      "border-x-2",
+      "border-dashed",
+    ]);
+    expect((processing as HTMLElement).dataset.pattern).toBe("hatched");
+    // the later step stays without text (R12)
+    expect(busy[1].textContent).toBe("");
+  });
+
+  it("a tentative tone-b booking: the dashed 2 px edge replaces the thin one", () => {
+    renderBlock(booking({ bookingId: 131, memberId: 2, status: "PENDING" }), vi.fn(), { tone: "b" });
+    const t = tokens(busyOf(131)[0]);
+    expect(t).toEqual(
+      expect.arrayContaining([
+        "bg-brand-subtle",
+        "text-emphasis",
+        "border-2",
+        "border-dashed",
+        "border-brand-default",
+      ])
+    );
+    expect(t).not.toContain("border");
+    expect(t).toContain("opacity-80");
+  });
+
+  it("the services line is at 90 % on both tones", () => {
+    for (const tone of ["a", "b"] as const) {
+      renderBlock(barvanje, vi.fn(), { tone });
+      const services = Array.from(busyOf(101)[0].querySelectorAll("span")).find(
+        (s) => s.textContent === "Barvanje"
+      );
+      expect(tokens(services as Element)).toContain("opacity-90");
+      expect(tokens(services as Element)).not.toContain("opacity-80");
+      cleanup();
+    }
+  });
+
+  it("a cancelled booking has no tone: no data-tone, no brand classes, its U29e look unchanged", () => {
+    renderBlock(
+      booking({
+        ...barvanje,
+        status: "CANCELLED",
+        cancelled: { by: "customer", at: "2026-11-15T18:00:00.000Z" },
+      })
+    );
+    const block = screen.getByTestId("desk-booking-101");
+    expect(block.dataset.tone).toBeUndefined();
+    const button = block.querySelector('[data-kind="cancelled"]');
+    const t = tokens(button);
+    expect(t).toEqual(
+      expect.arrayContaining(["bg-muted", "text-default", "border-subtle", "border", "opacity-60"])
+    );
+    for (const brand of [
+      "bg-brand-default",
+      "bg-brand-subtle",
+      "text-brand",
+      "text-emphasis",
+      "border-brand-default",
+    ]) {
+      expect(t).not.toContain(brand);
+    }
   });
 });

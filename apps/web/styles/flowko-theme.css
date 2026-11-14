@@ -26,6 +26,8 @@
   /* Pages outside the Shell (sign-in, 404, errors) get no useAppTheme; inside it, its inline values win over these. */
   --cal-brand: #7a3fd1;
   --cal-brand-emphasis: #6a31bf;
+  /* Flowko U29f: R10, the desk's second booking tone (pale lilac); useCalcomTheme's inline value wins. */
+  --cal-brand-subtle: #decff4;
   --cal-brand-text: #ffffff;
   /* The coss Button's default variant reads these. */
   --primary: var(--cal-brand);
@@ -42,6 +44,8 @@
 .dark {
   --cal-brand: #ac6aff;
   --cal-brand-emphasis: #9b5fe6;
+  /* Flowko U29f: R10, the dark second booking tone, the same value useCalcomTheme sets inline. */
+  --cal-brand-subtle: #674099;
   --cal-brand-text: #000000;
 }
 

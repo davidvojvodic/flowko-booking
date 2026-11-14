@@ -186,6 +186,52 @@ export function deskLaneLayout(
   return out;
 }
 
+/** Flowko U29f: F2, R8. Tone of one live booking block on the desk: "a" = brand purple, "b" = pale lilac. */
+export type BookingTone = "a" | "b";
+
+/** Flowko U29f: F2, R8. Busy steps touch (one ends where the other starts) or overlap. */
+function touchesOrOverlaps(a: Interval[], b: Interval[]): boolean {
+  return a.some((x) => b.some((y) => x.start <= y.end && y.start <= x.end));
+}
+
+/**
+ * Flowko U29f: F2, R8 as amended (David's Q1 touch rule as a two-colouring). Tones of the live bookings of one
+ * column. Two bookings touch when a busy step of one touches or overlaps a busy step of the other; processing
+ * (waiting) gaps never count. The touching bookings form touch-components, ordered by their earliest (start, id).
+ * Each component is 2-coloured by BFS from its earliest booking, visiting neighbours in (start, id) order, each
+ * taking the opposite tone of the booking it was reached from. The first component starts at "a"; each later
+ * one starts at the opposite of the latest (start, id) booking of all earlier components (equal starts: the
+ * higher id is later). So touching bookings share a tone only inside an odd ring. Pass only the bookings the
+ * column draws live; cancelled ones neither take nor shift a tone. Known limits: (1) adding, moving or
+ * cancelling a booking can flip other bookings' tones that day in that column; (2) an odd ring of touches
+ * leaves one same-tone touching pair.
+ */
+export function bookingTones(
+  live: Array<{ id: number; start: Ms; busy: Interval[] }>
+): Map<number, BookingTone> {
+  const ordered = [...live].sort((a, b) => a.start - b.start || a.id - b.id);
+  const flip = (t: BookingTone): BookingTone => (t === "a" ? "b" : "a");
+  const out = new Map<number, BookingTone>();
+  // Index in `ordered` of the latest (start, id) booking of all components coloured so far.
+  let latest = -1;
+  ordered.forEach((root, rootIndex) => {
+    if (out.has(root.id)) return;
+    out.set(root.id, latest < 0 ? "a" : flip(out.get(ordered[latest].id) as BookingTone));
+    latest = Math.max(latest, rootIndex);
+    const queue = [rootIndex];
+    for (let head = 0; head < queue.length; head++) {
+      const from = ordered[queue[head]];
+      ordered.forEach((next, nextIndex) => {
+        if (out.has(next.id) || !touchesOrOverlaps(from.busy, next.busy)) return;
+        out.set(next.id, flip(out.get(from.id) as BookingTone));
+        latest = Math.max(latest, nextIndex);
+        queue.push(nextIndex);
+      });
+    }
+  });
+  return out;
+}
+
 function covers(list: Interval[], at: Ms): boolean {
   return list.some((i) => i.start <= at && at < i.end);
 }
