@@ -5,6 +5,7 @@ import classNames from "@calcom/ui/classNames";
 
 import { Button } from "../../button/Button";
 import { Calendar } from "../date-range-picker/Calendar";
+// Flowko U29f: the Calendar's prop type for calendarProps.
 import type { CalendarProps } from "../date-range-picker/Calendar";
 
 type Props = {
@@ -22,6 +23,7 @@ type Props = {
   >;
 };
 
+// Flowko U29f: calendarProps destructured (spread into <Calendar> below).
 const DatePicker = ({ minDate, disabled, date, onDatesChange, className, label, calendarProps }: Props) => {
   const { t, i18n } = useLocale();
   function handleDayClick(newDate: Date) {

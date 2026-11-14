@@ -234,9 +234,9 @@ describe("WorkerColumn cancelled bookings (U29e E6)", () => {
   });
 });
 
-// Flowko U29f: F2, R8-R11 (Q1 touch rule) — live bookings of one column take tones a/b by (start, id), each the
-// opposite of the earliest earlier booking its busy steps touch or overlap, else of the previous one; cancelled
-// ones neither take nor shift a tone; lanes, z-index and the cancelled half stay as they were.
+// Flowko U29f: F2, R8-R11 (Q1 touch rule, R8 as amended) — live bookings of one column take tones a/b by a
+// two-colouring of their touch-components (busy steps only, BFS in (start, id) order); cancelled ones neither take
+// nor shift a tone; lanes, z-index and the cancelled half stay as they were.
 describe("WorkerColumn tones (U29f F2)", () => {
   const live = (id: number, from: string, to: string) =>
     booking({ bookingId: id, memberId: ANA, start: iso(from), end: iso(to) });
@@ -278,6 +278,12 @@ describe("WorkerColumn tones (U29f F2)", () => {
     expect([toneOf(101), toneOf(106), toneOf(160), toneOf(161)]).toEqual(["a", "b", undefined, "a"]);
     expect(laneOf(160)).toEqual(["50%", "50%"]);
     expect(laneOf(161)).toEqual(["0%", "50%"]);
+  });
+
+  // Flowko U29f: final-review TEST-1 — the column passes busy steps, not spans (whole spans would give a, b, b).
+  it("waiting gaps never count: a booking in the gap that touches nothing is not tied to the colouring (a, b, a)", () => {
+    renderColumn(ANA, [barvanje, live(108, "09:30", "09:40"), live(109, "09:50", "10:00")]);
+    expect([toneOf(101), toneOf(108), toneOf(109)]).toEqual(["a", "b", "a"]);
   });
 
   it("touch rule: a booking at 10:40 under the colouring's second step is b, not a (Ana's gap booking is b too)", () => {

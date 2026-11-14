@@ -7,9 +7,10 @@
 // Flowko U29e (E6, R11): cancelled bookings (the day read sends them) are drawn over their whole [start, end] beside
 // the live ones (deskLaneLayout: never in lane 0, so the left part of a cancelled-only slot stays tappable and books)
 // at z-index 6–9 (above the Google overlay, below live blocks); free edges come from live bookings only.
-// Flowko U29f (F2, R8, Q1 touch rule): walking the live bookings by (start, id) per column (each week-view day
-// restarts at "a"), each takes the opposite tone of the earliest earlier booking whose busy steps touch or
-// overlap its own, else of the previous one; cancelled ones take no tone and shift none.
+// Flowko U29f (F2, R8 as amended, Q1 touch rule): per column (each week-view day restarts at "a"), the live bookings
+// are 2-coloured over their touch-components (busy steps touch or overlap; BFS in (start, id) order, a later
+// component opposes the latest booking of the earlier ones), so touching bookings share a tone only in an odd
+// ring; cancelled ones take no tone and shift none.
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 

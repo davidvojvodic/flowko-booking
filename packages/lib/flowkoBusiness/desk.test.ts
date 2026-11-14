@@ -285,9 +285,10 @@ describe("deskLaneLayout", () => {
   });
 });
 
-// Flowko U29f: F2, R8 (Q1 touch rule) — walking a column's live bookings by (start, id), each takes the opposite
-// tone of the earliest-starting earlier booking whose busy steps touch or overlap its own (ties: lower id), else
-// the opposite of the latest-starting earlier booking; the first is a.
+// Flowko U29f: F2, R8 as amended (Q1 touch rule as a two-colouring) — a column's live bookings form touch-components
+// (busy steps touch or overlap), ordered by earliest (start, id); each is 2-coloured by BFS from its earliest booking,
+// neighbours in (start, id) order; the first component starts at a, each later one at the opposite of the latest
+// (start, id) booking of all earlier components.
 describe("bookingTones", () => {
   const D = "2026-12-01";
   const tones = (m: Map<number, string>, ids: number[]) => ids.map((id) => m.get(id));
@@ -348,17 +349,96 @@ describe("bookingTones", () => {
     ]);
     expect(tones(m, [101, 102, 103])).toEqual(["a", "b", "b"]);
   });
-  it("lane case: A 09:00-10:00, B 09:30-10:30 (lane 1), C 10:00-11:00 reads a, b, b (C opposes A, the earliest it touches)", () => {
+  it("lane case: A 09:00-10:00, B 09:30-10:30 (lane 1), C 10:00-11:00 reads a, b, b (an odd ring: BFS reaches B and C from A)", () => {
     const m = bookingTones([b(1, ["09:00", "10:00"]), b(2, ["09:30", "10:30"]), b(3, ["10:00", "11:00"])]);
     expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "b"]);
   });
-  it("two touched bookings with equal starts: the later one opposes the lower id", () => {
+  it("two touched bookings with equal starts: BFS starts at the lower id, so both others oppose it", () => {
     const m = bookingTones([b(2, ["09:00", "10:00"]), b(1, ["09:00", "10:00"]), b(3, ["10:00", "10:30"])]);
     expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "b"]);
   });
-  it("a booking without busy steps touches nothing and opposes the latest-starting earlier booking", () => {
+  it("a booking without busy steps touches nothing: its own component, opposite of the latest earlier booking", () => {
     const m = bookingTones([b(1, ["09:00", "09:30"]), { id: 2, start: at(D, "09:30"), busy: [] }]);
     expect(tones(m, [1, 2])).toEqual(["a", "b"]);
+  });
+
+  // Flowko U29f: final-review fix wave (SPEC-1, UI-4, TEST-1..3) — R8 as amended, the component two-colouring.
+  const touchingSameTone = (live: Array<ReturnType<typeof b>>, m: Map<number, string>) =>
+    live.flatMap((x, i) =>
+      live
+        .slice(i + 1)
+        .filter(
+          (y) =>
+            m.get(x.id) === m.get(y.id) &&
+            x.busy.some((s) => y.busy.some((t) => s.start <= t.end && t.start <= s.end))
+        )
+        .map((y) => [x.id, y.id])
+    );
+  it("gap fillers under a colouring (E, M stepped, Q, X: a tree of touches) read a, b, b, a: no flush same-tone pair", () => {
+    const live = [
+      b(1, ["08:30", "09:00"]), // E, touches M's first step
+      b(2, ["09:00", "09:30"], ["10:10", "10:40"]), // M, Barvanje
+      b(3, ["09:35", "09:50"]), // Q, touches only X
+      b(4, ["09:50", "10:10"]), // X, touches Q and M's second step
+    ];
+    const m = bookingTones(live);
+    expect(tones(m, [1, 2, 3, 4])).toEqual(["a", "b", "b", "a"]);
+    expect(touchingSameTone(live, m)).toEqual([]);
+  });
+  it("the same gap fillers without E (M, Q, X) read a, a, b: Q is reached from X, not M", () => {
+    const live = [
+      b(2, ["09:00", "09:30"], ["10:10", "10:40"]),
+      b(3, ["09:35", "09:50"]),
+      b(4, ["09:50", "10:10"]),
+    ];
+    const m = bookingTones(live);
+    expect(tones(m, [2, 3, 4])).toEqual(["a", "a", "b"]);
+    expect(touchingSameTone(live, m)).toEqual([]);
+  });
+  it("bridge tree (M stepped, W, V in the gap, T2, B under M's second step) reads a, b, a, a, b with no same-tone touch", () => {
+    const live = [
+      b(1, ["09:00", "09:30"], ["10:10", "10:40"]), // M
+      b(2, ["09:30", "09:40"]), // W, touches M
+      b(3, ["09:40", "09:50"]), // V, touches W
+      b(4, ["09:55", "10:05"]), // T2, touches B only
+      b(5, ["10:05", "10:35"]), // B, touches T2 and overlaps M's second step
+    ];
+    const m = bookingTones(live);
+    expect(tones(m, [1, 2, 3, 4, 5])).toEqual(["a", "b", "a", "a", "b"]);
+    expect(touchingSameTone(live, m)).toEqual([]);
+  });
+  it("known limit 2, odd ring: E, M stepped, G, C (M-G-C a triangle) read a, b, a, a: exactly one same-tone touching pair", () => {
+    const live = [
+      b(1, ["08:30", "09:00"]), // E
+      b(2, ["09:00", "09:30"], ["10:10", "10:40"]), // M
+      b(3, ["09:30", "09:50"]), // G, touches M's first step
+      b(4, ["09:50", "10:10"]), // C, touches G and M's second step
+    ];
+    const m = bookingTones(live);
+    expect(tones(m, [1, 2, 3, 4])).toEqual(["a", "b", "a", "a"]);
+    expect(touchingSameTone(live, m)).toEqual([[3, 4]]);
+  });
+  it("known limit 2, odd ring without E: M, G, C read a, b, b (BFS gives both of M's neighbours the opposite tone)", () => {
+    const live = [
+      b(2, ["09:00", "09:30"], ["10:10", "10:40"]),
+      b(3, ["09:30", "09:50"]),
+      b(4, ["09:50", "10:10"]),
+    ];
+    const m = bookingTones(live);
+    expect(tones(m, [2, 3, 4])).toEqual(["a", "b", "b"]);
+    expect(touchingSameTone(live, m)).toEqual([[3, 4]]);
+  });
+  it("waiting gaps never count: busy steps give a, b, a (the colouring's whole span would tie 09:50 to it: a, b, b)", () => {
+    const m = bookingTones([
+      b(101, ["09:00", "09:30"], ["10:10", "10:40"]), // Barvanje
+      b(108, ["09:30", "09:40"]), // touches the first step
+      b(109, ["09:50", "10:00"]), // inside the waiting gap, touches nothing
+    ]);
+    expect(tones(m, [101, 108, 109])).toEqual(["a", "b", "a"]);
+  });
+  it("a later component opposes the latest (start, id) booking of the earlier ones (equal starts: the higher id)", () => {
+    const m = bookingTones([b(1, ["09:00", "09:30"]), b(2, ["09:00", "10:00"]), b(3, ["11:00", "11:30"])]);
+    expect(tones(m, [1, 2, 3])).toEqual(["a", "b", "a"]);
   });
 });
 

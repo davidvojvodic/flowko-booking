@@ -50,6 +50,7 @@ function Calendar({
         // button's text-subtle, hover and focus-visible colours; the ring keeps keyboard focus visible.
         // Range ends take the same pair; the days between keep their own pair (`!` + aria-selected
         // outranks the selected pair): #1A1A2E on #E8E0F5 13.33:1, dark #FAFAFA on #404040 9.93:1.
+        // Hover keeps upstream's bg-subtle (important, 0,3,0, beats both pairs): #1A1A2E on #F5F0FF 15.26:1.
         day_range_end: "bg-brand-default! text-brand!",
         day_range_start: "bg-brand-default! text-brand!",
         day_selected:
@@ -57,7 +58,7 @@ function Calendar({
         day_today: "",
         day_outside: "",
         day_disabled: "text-muted opacity-50",
-        day_range_middle: "aria-selected:bg-emphasis! aria-selected:text-emphasis!",
+        day_range_middle: "aria-selected:bg-emphasis! aria-selected:text-emphasis! not-disabled:hover:bg-subtle!",
         day_hidden: "invisible",
         ...classNames,
       }}

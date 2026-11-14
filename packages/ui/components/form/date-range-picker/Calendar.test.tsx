@@ -50,6 +50,8 @@ describe("Flowko U29f: range picker selected days", () => {
       const tokens = classTokens(dayButton(day));
       expect(tokens).toContain("aria-selected:bg-emphasis!");
       expect(tokens).toContain("aria-selected:text-emphasis!");
+      // Flowko U29f: final-review SCOPE-1 — hover still lightens a middle day (important 0,3,0 beats the pair).
+      expect(tokens).toContain("not-disabled:hover:bg-subtle!");
       expect(tokens).not.toContain("bg-inverted");
     }
   });
