@@ -26,7 +26,9 @@ export function WorkerPicker(props: {
             className={classNames(
               "h-9 rounded-md border px-3 text-sm font-medium",
               selected
-                ? "bg-inverted text-inverted border-inverted"
+                ? // Flowko U29g: the chosen worker in Flowko purple with white text (6.07:1), as the U29f date
+                  // picker's selected day; Cal's black „inverted“ style is off-brand (David, 14 Nov).
+                  "bg-brand-default text-brand border-brand-default"
                 : "bg-default text-default border-default hover:bg-subtle"
             )}>
             {w.displayName}
