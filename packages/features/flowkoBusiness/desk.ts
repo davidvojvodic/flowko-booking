@@ -266,6 +266,18 @@ function isHandoverCancel(booking: BookingRow): boolean {
   return marker !== undefined && marker !== null;
 }
 
+/**
+ * Flowko U29i: P2 — the reason shown on a cancelled row: the latest CANCELLED action's `details.reason` (a desk
+ * cancel) when it is a non-empty string, else the booking's own `cancellationReason` (a customer's text, or a row
+ * written before U29i).
+ */
+function deskCancelReason(booking: BookingRow): string | null {
+  if (booking.status !== BookingStatus.CANCELLED) return null;
+  const typed = detailsRecord(latestCancel(booking)?.details)?.reason;
+  if (typeof typed === "string" && typed !== "") return typed;
+  return booking.cancellationReason;
+}
+
 /** Flowko U29e: E6, R9 — who cancelled and when; null for a booking that is not cancelled. */
 function cancelledOf(booking: BookingRow): DeskCancelled | null {
   if (booking.status !== BookingStatus.CANCELLED) return null;
@@ -366,7 +378,7 @@ function toDeskBooking(
     })),
     // Flowko U29e: E6, R9/R12
     cancelled: cancelledOf(booking),
-    cancelReason: booking.status === BookingStatus.CANCELLED ? booking.cancellationReason : null,
+    cancelReason: deskCancelReason(booking), // Flowko U29i: P2
   };
 }
 

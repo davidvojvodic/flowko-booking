@@ -1,6 +1,7 @@
 // Flowko U28: the desk day view grid (R4, R14, R15): an hour axis and one column per worker in roster order (a
-// locked worker's read-only column last), drawn in the business time zone over the union of opening, shifts, time
-// off and the day's bookings (fallback 08-18; DST days 23/25 h from `dayBounds`). CSS grid + absolutely placed
+// locked worker's read-only column last), drawn in the business time zone over the union of opening, shifts
+// and the day's bookings (fallback 08-18; DST days 23/25 h from `dayBounds`). Flowko U29i: an absence (time off)
+// never widens the axis. CSS grid + absolutely placed
 // blocks; header row and hour axis stay in view while the grid scrolls. `onlyMemberId` shows a single column
 // (phone). The now-line and the past shading follow the server's clock (R18).
 // Flowko U29e: the holiday banner starts with a capital (holidayLabel, E10.3); names pass RAW (E10.1); the day's

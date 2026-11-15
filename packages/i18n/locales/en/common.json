@@ -5034,6 +5034,7 @@
   "flowko_desk_problem_too_soon": "Less notice than the booking rules allow.",
   "flowko_desk_problem_outside_shift": "{{service}}: outside the worker's shift.",
   "flowko_desk_problem_time_off": "{{service}}: the worker is away {{from}}–{{to}}.",
+  "flowko_desk_problem_time_off_all_day": "{{service}}: the worker is away all day.",
   "flowko_desk_problem_overlaps_booking": "{{service}}: overlaps the booking {{from}}–{{to}}.",
   "flowko_desk_problem_overlaps_external": "{{service}}: overlaps busy time in the calendar {{from}}–{{to}}.",
   "flowko_desk_problem_google_unavailable": "Google Calendar cannot be reached right now.",

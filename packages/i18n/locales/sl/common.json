@@ -5096,6 +5096,7 @@
   "flowko_desk_problem_too_soon": "Rezervirano manj vnaprej, kot dovoljujejo pravila rezervacij.",
   "flowko_desk_problem_outside_shift": "{{service}}: zunaj izmene.",
   "flowko_desk_problem_time_off": "{{service}}: odsotnost {{from}}–{{to}}.",
+  "flowko_desk_problem_time_off_all_day": "{{service}}: odsotnost (ves dan).",
   "flowko_desk_problem_overlaps_booking": "{{service}}: prekriva se s terminom {{from}}–{{to}}.",
   "flowko_desk_problem_overlaps_external": "{{service}}: v koledarju je zasedeno {{from}}–{{to}}.",
   "flowko_desk_problem_google_unavailable": "Google koledar trenutno ni dosegljiv.",

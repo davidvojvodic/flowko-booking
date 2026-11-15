@@ -3,6 +3,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { dayBounds } from "@calcom/lib/flowkoSalon";
+
 import { DayGrid } from "./DayGrid";
 import { ANA, BOR, CENE, DAN, DATE, NOW, OLGA, at, booking, deskView, iso, localeT } from "./desk.fixture";
 
@@ -51,6 +53,34 @@ describe("DayGrid (U28)", () => {
     expect(labels[0]).toBe("08:00");
     expect(labels[labels.length - 1]).toBe("19:00");
     expect(labels).toHaveLength(12);
+  });
+
+  // Flowko U29i (b): an absence is whole-day time off; it must not stretch the hour axis to 00:00-24:00.
+  function absentAnaView() {
+    const view = deskView();
+    view.days[0].columns = view.days[0].columns.map((c) =>
+      c.memberId === ANA ? { ...c, timeOff: [dayBounds(DATE, "Europe/Ljubljana")] } : c
+    );
+    return view;
+  }
+
+  it("U29i (b): an all-day absence keeps the axis at 08:00-19:00 and hatches „Odsotnost“ from the top", () => {
+    renderGrid(absentAnaView());
+    const labels = screen.getAllByTestId("desk-hour").map((h) => h.textContent);
+    expect(labels).toHaveLength(12);
+    expect(labels[0]).toBe("08:00");
+    expect(labels[labels.length - 1]).toBe("19:00");
+    const band = screen.getByTestId(`desk-column-${ANA}`).querySelector('[data-band="time_off"]') as HTMLElement;
+    expect(band.style.top).toBe("0px");
+    expect(band.textContent).toBe("Odsotnost");
+  });
+
+  it("U29i (b): on the phone another worker's absence does not stretch the shown column", () => {
+    renderGrid(absentAnaView(), DATE, OLGA);
+    const labels = screen.getAllByTestId("desk-hour").map((h) => h.textContent);
+    expect(labels).toHaveLength(12);
+    expect(labels[0]).toBe("08:00");
+    expect(labels[labels.length - 1]).toBe("19:00");
   });
 
   it("a tap in a column books that worker at that time", () => {

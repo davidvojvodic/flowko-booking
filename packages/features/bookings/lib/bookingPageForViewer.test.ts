@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getHostEmails,
+  isFlowkoMirrorMetadata,
   isOrganizerEmailHidden,
   normaliseEmail,
   toBookingInfoForViewer,
@@ -57,6 +58,9 @@ const bookingInfo = {
   smsReminderNumber: "+38640111222",
   cancelledBy: null,
   rescheduledBy: "maja.private@gmail.com",
+  // Flowko U29i: both reason fields are part of the page props
+  cancellationReason: null as string | null,
+  rejectionReason: null as string | null,
   responses: { name: "Ana Novak", email: "ana@example.com" },
   user: {
     id: 7,
@@ -87,20 +91,28 @@ function getPropsForViewer({
   hideOrganizerEmail = true,
   viewerEmails = new Set<string>(),
   viewerSeatReferenceUid,
+  isBusinessBooking,
+  bookingInfoOverrides = {},
 }: {
   canViewHostDetails: boolean;
   hideOrganizerEmail?: boolean;
   viewerEmails?: Set<string>;
   viewerSeatReferenceUid?: string;
+  isBusinessBooking?: boolean;
+  bookingInfoOverrides?: Partial<typeof bookingInfo>;
 }) {
   return {
-    bookingInfo: toBookingInfoForViewer(bookingInfo, {
-      canViewHostDetails,
-      hideOrganizerEmail,
-      hostEmails,
-      viewerEmails,
-      viewerSeatReferenceUid,
-    }),
+    bookingInfo: toBookingInfoForViewer(
+      { ...bookingInfo, ...bookingInfoOverrides },
+      {
+        canViewHostDetails,
+        hideOrganizerEmail,
+        hostEmails,
+        viewerEmails,
+        viewerSeatReferenceUid,
+        isBusinessBooking,
+      }
+    ),
     eventType: toEventTypeForViewer({ ...eventType, hideOrganizerEmail }, canViewHostDetails),
   };
 }
@@ -295,5 +307,55 @@ describe("isOrganizerEmailHidden", () => {
   it("hides the e-mail of a booking whose event type is gone", () => {
     expect(isOrganizerEmailHidden(null)).toBe(true);
     expect(isOrganizerEmailHidden(undefined)).toBe(true);
+  });
+});
+
+// Flowko U29i: a salon booking's stored reason (typed at the desk, or the hand-over marker) stays off the
+// booking page for anyone who isn't a host.
+describe("booking page props: the reason of a business booking (U29i)", () => {
+  const cancelled = {
+    cancellationReason: "Prestavljeno k: Bor",
+    rejectionReason: "Zasebni razlog",
+  };
+
+  it("are null for a viewer who isn't a host", () => {
+    const props = getPropsForViewer({
+      canViewHostDetails: false,
+      isBusinessBooking: true,
+      bookingInfoOverrides: cancelled,
+    });
+
+    expect(props.bookingInfo.cancellationReason).toBeNull();
+    expect(props.bookingInfo.rejectionReason).toBeNull();
+    expect(JSON.stringify(props)).not.toContain("Prestavljeno k");
+    expect(JSON.stringify(props)).not.toContain("Zasebni razlog");
+  });
+
+  it("stay for a host", () => {
+    const props = getPropsForViewer({
+      canViewHostDetails: true,
+      isBusinessBooking: true,
+      bookingInfoOverrides: cancelled,
+    });
+
+    expect(props.bookingInfo.cancellationReason).toBe("Prestavljeno k: Bor");
+    expect(props.bookingInfo.rejectionReason).toBe("Zasebni razlog");
+  });
+
+  it("stay for a booking that isn't a business booking", () => {
+    const props = getPropsForViewer({ canViewHostDetails: false, bookingInfoOverrides: cancelled });
+
+    expect(props.bookingInfo.cancellationReason).toBe("Prestavljeno k: Bor");
+    expect(props.bookingInfo.rejectionReason).toBe("Zasebni razlog");
+  });
+});
+
+describe("isFlowkoMirrorMetadata", () => {
+  it("is true only for metadata with flowkoMirror set to true", () => {
+    expect(isFlowkoMirrorMetadata({ flowkoMirror: true })).toBe(true);
+    expect(isFlowkoMirrorMetadata({ flowkoMirror: "true" })).toBe(false);
+    expect(isFlowkoMirrorMetadata({})).toBe(false);
+    expect(isFlowkoMirrorMetadata(null)).toBe(false);
+    expect(isFlowkoMirrorMetadata("x")).toBe(false);
   });
 });

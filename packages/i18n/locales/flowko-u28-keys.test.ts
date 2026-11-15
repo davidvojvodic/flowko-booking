@@ -127,6 +127,8 @@ const U28_KEYS = [
   "flowko_desk_cancel_reason_line",
   "flowko_desk_price_total",
   "flowko_desk_price_partial",
+  // Flowko U29i: C1 (an absence that covers the whole day is worded without clock times).
+  "flowko_desk_problem_time_off_all_day",
 ];
 
 const placeholders = (text: string): string[] =>

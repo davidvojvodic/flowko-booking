@@ -263,8 +263,9 @@ const stepTimes = async (bookingId: number) =>
 
 const cancel = (actorUserId: number, bookingId: number, now = NOW, extra: { reason?: string | null } = {}) =>
   cancelBusinessBooking(db, actorUserId, { bookingId, ...extra }, now);
-const cancelByUid = (uid: string, sessionUserId: number | null, now = NOW) =>
-  cancelBusinessBookingAsCustomer(db, { uid, sessionUserId }, now);
+// Flowko U29i: optional `reason` for the customer link.
+const cancelByUid = (uid: string, sessionUserId: number | null, now = NOW, reason?: string | null) =>
+  cancelBusinessBookingAsCustomer(db, { uid, sessionUserId, ...(reason !== undefined && { reason }) }, now);
 const move = (
   actorUserId: number,
   bookingId: number,
@@ -294,7 +295,7 @@ describe("cancelBusinessBooking (W7, staff)", () => {
     expect(after).toMatchObject({
       status: BookingStatus.CANCELLED,
       cancelledBy: null,
-      cancellationReason: "Stranka je zbolela",
+      cancellationReason: null, // Flowko U29i: P1 — a desk reason is stored on the action, not on the booking
       iCalSequence: (before?.iCalSequence ?? 0) + 1,
       uid: f.ana.uid,
       startTime: at("09:00"),
@@ -308,7 +309,7 @@ describe("cancelBusinessBooking (W7, staff)", () => {
       actorMemberId: f.members.olga,
       actorName: "Olga",
       userId: f.users.olga,
-      details: null,
+      details: { reason: "Stranka je zbolela" }, // Flowko U29i: P1
     });
     expect(mail.cancelled).toHaveBeenCalledTimes(1);
     expect(mail.cancelled).toHaveBeenCalledWith(f.ana.bookingId);
@@ -370,7 +371,10 @@ describe("cancelBusinessBooking (W7, staff)", () => {
     await expectCode(cancel(f.users.olga, f.ana.bookingId, NOW, { reason: "x".repeat(501) }), "bad_booking");
     expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.ACCEPTED);
     await cancel(f.users.olga, f.ana.bookingId, NOW, { reason: "x".repeat(500) });
-    expect((await bookingOf(f.ana.bookingId))?.cancellationReason).toHaveLength(500);
+    // Flowko U29i: P1 — the desk text lives in the action's details.
+    expect((await bookingOf(f.ana.bookingId))?.cancellationReason).toBeNull();
+    const stored = (await actionsOf(f.ana.bookingId))[1].details as { reason: string };
+    expect(stored.reason).toHaveLength(500);
   });
 });
 
@@ -400,25 +404,33 @@ describe("cancelBusinessBooking with a hand-over marker (Flowko U29e, R10)", () 
   it("the owner names an ACTIVE worker: cancelled, the marker in details, the reason kept, the mail sent", async () => {
     expect(await handover(f.users.olga, f.ana.bookingId, f.members.bor)).toEqual({ status: "cancelled" });
     const after = await bookingOf(f.ana.bookingId);
-    expect(after).toMatchObject({ status: BookingStatus.CANCELLED, cancellationReason: "Prestavljeno k: X" });
+    // Flowko U29i: P1 — the hand-over text goes to the action's details, never to the booking.
+    expect(after).toMatchObject({ status: BookingStatus.CANCELLED, cancellationReason: null });
     const actions = await actionsOf(f.ana.bookingId);
     expect(actions[1]).toMatchObject({
       action: "CANCELLED",
       actorMemberId: f.members.olga,
       actorName: "Olga",
       userId: f.users.olga,
-      details: { handoverToMemberId: f.members.bor },
+      details: { handoverToMemberId: f.members.bor, reason: "Prestavljeno k: X" },
+    });
+    expect((actions[1].details as Record<string, unknown>)).toEqual({
+      handoverToMemberId: f.members.bor,
+      reason: "Prestavljeno k: X",
     });
     expect(mail.cancelled).toHaveBeenCalledTimes(1);
   });
 
   it("the owner may name a desk-only worker; staff Rok may name a worker and the owner", async () => {
     await handover(f.users.olga, f.ana.bookingId, f.members.cene);
-    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ handoverToMemberId: f.members.cene });
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({
+      handoverToMemberId: f.members.cene,
+      reason: "Prestavljeno k: X",
+    });
     await handover(f.users.rok, f.bor.bookingId, f.members.olga);
     expect((await actionsOf(f.bor.bookingId))[1]).toMatchObject({
       actorMemberId: f.members.rok,
-      details: { handoverToMemberId: f.members.olga },
+      details: { handoverToMemberId: f.members.olga, reason: "Prestavljeno k: X" },
     });
   });
 
@@ -505,6 +517,20 @@ describe("cancelBusinessBookingAsCustomer (W8, the mail's link)", () => {
       actorMemberId: f.members.olga,
       details: null,
     });
+  });
+
+  // Flowko U29i: P1 — the customer's own text stays on the booking (the salon notice reads it); details unchanged.
+  it("a customer cancel with a reason: the text stays in cancellationReason, details exactly { by: customer }", async () => {
+    await cancelByUid(f.ana.uid, null, NOW, "Zbolela sem");
+    expect((await bookingOf(f.ana.bookingId))?.cancellationReason).toBe("Zbolela sem");
+    expect((await actionsOf(f.ana.bookingId))[1].details).toEqual({ by: "customer" });
+  });
+
+  // Flowko U29i: P1 — a signed-in member through the link takes the staff path: the text goes to details.
+  it("a signed-in member through the link with a reason: cancellationReason null, details { reason }", async () => {
+    await cancelByUid(f.bor.uid, f.users.olga, NOW, "Delavka je odsotna");
+    expect((await bookingOf(f.bor.bookingId))?.cancellationReason).toBeNull();
+    expect((await actionsOf(f.bor.bookingId))[1].details).toEqual({ reason: "Delavka je odsotna" });
   });
 
   it("another business's owner signed in is a customer: details { by: customer }", async () => {

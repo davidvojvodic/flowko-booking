@@ -138,9 +138,13 @@ function withProps(patch: {
   user?: { name: string; email: string };
   userPrimaryEmail?: string | null;
   mirror?: boolean;
+  status?: string;
+  cancellationReason?: string | null;
+  isLoggedInUserHost?: boolean;
 }): PageProps {
   return {
     ...baseProps,
+    ...(patch.isLoggedInUserHost !== undefined ? { isLoggedInUserHost: patch.isLoggedInUserHost } : {}),
     eventType: {
       ...baseProps.eventType,
       metadata: patch.mirror ? { flowkoMirror: true } : {},
@@ -149,6 +153,8 @@ function withProps(patch: {
       ...baseProps.bookingInfo,
       ...(patch.user ? { user: patch.user } : {}),
       ...(patch.userPrimaryEmail !== undefined ? { userPrimaryEmail: patch.userPrimaryEmail } : {}),
+      ...(patch.status !== undefined ? { status: patch.status } : {}),
+      ...(patch.cancellationReason !== undefined ? { cancellationReason: patch.cancellationReason } : {}),
     },
   } as unknown as PageProps;
 }
@@ -212,5 +218,37 @@ describe("booking page: salon title (U27)", () => {
     await renderPage(withProps({}));
     expect(screen.getByTestId("booking-title")).toHaveTextContent(BUSINESS_NAME);
     expect(screen.getByTestId("booking-title")).not.toHaveTextContent(STORED_TITLE);
+  });
+});
+
+// Flowko U29i: a salon booking's stored reason is shown to a host only.
+describe("booking page: the reason of a business booking (U29i)", () => {
+  beforeEach(() => {
+    mocks.query = {
+      uid: "booking-uid",
+      isSuccessBookingPage: "true",
+      email: BOOKER_EMAIL,
+      eventTypeSlug: "x",
+    };
+  });
+
+  it("is not shown to a viewer who isn't a host", async () => {
+    await renderPage(withProps({ mirror: true, status: "CANCELLED", cancellationReason: "Zasebno" }));
+    expect(screen.queryByText("Zasebno")).toBeNull();
+    expect(screen.queryByText("reason")).toBeNull();
+  });
+
+  it("is shown to a host", async () => {
+    await renderPage(
+      withProps({ mirror: true, status: "CANCELLED", cancellationReason: "Zasebno", isLoggedInUserHost: true })
+    );
+    expect(screen.getByText("Zasebno")).toBeInTheDocument();
+    expect(screen.getByText("reason")).toBeInTheDocument();
+  });
+
+  it("is still shown for a booking that isn't a business booking", async () => {
+    await renderPage(withProps({ status: "CANCELLED", cancellationReason: "Zasebno" }));
+    expect(screen.getByText("Zasebno")).toBeInTheDocument();
+    expect(screen.getByText("reason")).toBeInTheDocument();
   });
 });

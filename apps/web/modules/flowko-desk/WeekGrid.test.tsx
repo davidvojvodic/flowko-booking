@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeskView } from "@calcom/features/flowkoBusiness/desk";
 
+import { dayBounds } from "@calcom/lib/flowkoSalon";
+
 import { WeekGrid, mondayOf, weekRanges } from "./WeekGrid";
 import { ANA, DATE, NOW, at, deskView, iso, localeT, weekViewOf, wednesdayCut } from "./desk.fixture";
 
@@ -191,6 +193,27 @@ describe("weekRanges (U28 R14)", () => {
     expect(ranges).toHaveLength(7);
     // opening 08-19, shifts to 20:00: 08:00-20:00 every day, DST Sunday included (12 hours)
     expect(ranges.map((r) => r.range.hours.length)).toEqual([12, 12, 12, 12, 12, 12, 12]);
+    expect(ranges.map((r) => r.range.hours[0].label)).toEqual(Array(7).fill("08:00"));
+  });
+
+  // Flowko U29i (b): an absence is whole-day time off; one absent day must not stretch the week's axis.
+  it("U29i (b): one absent day leaves every day at 08:00-20:00 (12 hours)", () => {
+    const base = deskView();
+    const days = [
+      "2026-11-16",
+      "2026-11-17",
+      "2026-11-18",
+      "2026-11-19",
+      "2026-11-20",
+      "2026-11-21",
+      "2026-11-22",
+    ].map((date, i) => {
+      const d = { ...deskView({}, date).days[0], bookings: [] };
+      if (i !== 2) return d;
+      return { ...d, columns: d.columns.map((c) => ({ ...c, timeOff: [dayBounds(date, "Europe/Ljubljana")] })) };
+    });
+    const ranges = weekRanges({ ...base, days });
+    expect(ranges.map((r) => r.range.hours.length)).toEqual(Array(7).fill(12));
     expect(ranges.map((r) => r.range.hours[0].label)).toEqual(Array(7).fill("08:00"));
   });
 

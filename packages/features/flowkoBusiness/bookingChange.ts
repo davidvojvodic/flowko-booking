@@ -79,7 +79,8 @@ async function requireBusinessBooking(db: FlowkoDb, bookingId: number): Promise<
 
 type CancelActor = { actorMemberId: number | null; actorName: string; userId: number | null };
 /** Flowko U29e: E6 — what the CANCELLED action's details record (none for an ordinary staff cancel). */
-type CancelDetails = { by: "customer" } | { handoverToMemberId: number };
+// Flowko U29i: P1 — a staff cancel's typed text rides in `details.reason` (never on the booking).
+type CancelDetails = { by: "customer" } | { handoverToMemberId?: number; reason?: string };
 
 /**
  * Flowko U29e: R10 — the hand-over marker is accepted only from an OWNER or STAFF session (the desk's mayReenter
@@ -91,7 +92,7 @@ async function handoverDetails(
   access: BusinessAccess,
   ref: BusinessBookingRef,
   handoverToMemberId: number | null | undefined
-): Promise<CancelDetails | null> {
+): Promise<{ handoverToMemberId: number } | null> {
   if (handoverToMemberId === undefined || handoverToMemberId === null) return null;
   if (access.role !== FlowkoBusinessRole.OWNER && access.role !== FlowkoBusinessRole.STAFF) {
     throw new FlowkoBusinessError("forbidden");
@@ -123,7 +124,7 @@ async function cancelInTx(
   tx: Tx,
   ref: BusinessBookingRef,
   timeGuard: Prisma.BookingWhereInput,
-  reason: string | null,
+  storedReason: string | null, // Flowko U29i: P1 — only the customer branch passes text here; staff pass null
   actor: CancelActor,
   details: CancelDetails | null = null // Flowko U29e: E6
 ): Promise<void> {
@@ -132,7 +133,7 @@ async function cancelInTx(
     // The idempotency extension sets idempotencyKey null for a CANCELLED write.
     data: {
       status: BookingStatus.CANCELLED,
-      cancellationReason: reason,
+      cancellationReason: storedReason,
       cancelledBy: null,
       iCalSequence: { increment: 1 },
     },
@@ -172,15 +173,19 @@ export async function cancelBusinessBooking(
   const actor = await resolveActor(db, access, input.actorMemberId);
   const handover = await handoverDetails(db, access, ref, input.handoverToMemberId); // Flowko U29e: R10
   const reason = cancellationReason(input.reason);
+  // Flowko U29i: P1 — the desk's text stays on the desk record (merged with a hand-over marker); an ordinary staff
+  // cancel without a reason still writes no details key.
+  const staffDetails: CancelDetails | null =
+    reason === null && handover === null ? null : { ...(handover ?? {}), ...(reason !== null && { reason }) };
 
   await withFlowkoTx(db, (tx) =>
     cancelInTx(
       tx,
       ref,
       { endTime: { gt: now } },
-      reason,
+      null,
       { actorMemberId: actor.memberId, actorName: actor.name, userId: actorUserId },
-      handover
+      staffDetails
     )
   );
   if (deps.sendMails !== false) await sendMailAfterCommit("cancelled", ref.bookingId);

@@ -1,5 +1,6 @@
 import dayjs from "@calcom/dayjs";
 import {
+  isFlowkoMirrorMetadata,
   isOrganizerEmailHidden,
   normaliseEmail,
   toOrganizerForViewer,
@@ -825,6 +826,11 @@ export async function getBookings({
       userPrimaryEmail: hideOrganizerEmail ? null : booking.userPrimaryEmail,
       cancelledBy: toActorForBooker(booking, booking.cancelledBy),
       rescheduledBy: toActorForBooker(booking, booking.rescheduledBy),
+      // Flowko U29i: a salon booking's stored reason stays with the salon
+      ...(isFlowkoMirrorMetadata(booking.eventType?.metadata) && {
+        cancellationReason: null,
+        rejectionReason: null,
+      }),
       references: booking.references
         .filter((reference) => !reference.deleted)
         .map(({ type, meetingUrl, meetingPassword }) => ({

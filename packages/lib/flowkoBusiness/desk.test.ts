@@ -86,7 +86,7 @@ describe("hourRange", () => {
 
 describe("rangeSpans", () => {
   const D = "2026-11-16";
-  it("collects opening, shifts, time off and bookings, never other busy", () => {
+  it("collects opening, shifts and bookings, never time off or other busy", () => {
     const view = {
       opening: [iv(D, "07:00", "20:00")],
       columns: [
@@ -99,10 +99,49 @@ describe("rangeSpans", () => {
       bookings: [iv(D, "09:00", "10:00")],
     };
     const spans = rangeSpans(view);
-    expect(spans).toHaveLength(4);
+    expect(spans).toHaveLength(3); // Flowko U29i: time off no longer counts
     const r = hourRange(dayBounds(D, TZ), TZ, spans);
     expect(r.from).toBe(at(D, "07:00"));
     expect(r.to).toBe(at(D, "20:00"));
+  });
+
+  // Flowko U29i (b): a whole-day absence is time off for the whole local day and must not stretch the axis.
+  it("U29i (b): a whole-day absence never widens the axis (07:00-20:00 stays)", () => {
+    const AD = "2026-12-08";
+    const day = dayBounds(AD, TZ);
+    const spans = rangeSpans({
+      opening: [iv(AD, "07:00", "20:00")],
+      columns: [{ shifts: [iv(AD, "08:00", "16:00")], timeOff: [day] }],
+      bookings: [],
+    });
+    const r = hourRange(day, TZ, spans);
+    expect(r.from).toBe(at(AD, "07:00"));
+    expect(r.to).toBe(at(AD, "20:00"));
+    expect(r.hours).toHaveLength(13);
+  });
+
+  it("U29i (b): the same on the 25 h autumn day (13 hours, no 02:00)", () => {
+    const AD = "2026-10-25";
+    const day = dayBounds(AD, TZ);
+    expect(day.end - day.start).toBe(25 * HOUR);
+    const spans = rangeSpans({
+      opening: [iv(AD, "07:00", "20:00")],
+      columns: [{ shifts: [iv(AD, "08:00", "16:00")], timeOff: [day] }],
+      bookings: [],
+    });
+    const r = hourRange(day, TZ, spans);
+    expect(r.hours).toHaveLength(13);
+    expect(r.hours.map((h) => h.label)).not.toContain("02:00");
+  });
+
+  it("U29i (b): a closed day with an absence falls back to 08-18", () => {
+    const AD = "2026-12-08";
+    const day = dayBounds(AD, TZ);
+    const spans = rangeSpans({ opening: [], columns: [{ shifts: [], timeOff: [day] }], bookings: [] });
+    expect(spans).toEqual([]);
+    const r = hourRange(day, TZ, spans);
+    expect(r.from).toBe(at(AD, "08:00"));
+    expect(r.to).toBe(at(AD, "18:00"));
   });
 });
 

@@ -263,7 +263,8 @@ export function BookingSheet(props: { target: BookingSheetTarget; onClose: () =>
     if (reenter) {
       // R12: the new booking exists; only now the old one goes.
       const name = workerName(payload.workerMemberId);
-      // Flowko U29e (E6, R10): the marker hides this cancel on the desk; the reason stays (the customer's mail).
+      // Flowko U29e (E6, R10): the marker hides this cancel on the desk. Flowko U29i: the reason stays on the desk record
+      // (the cancelled action's details); Cal's cancelled mail never carried it.
       const cancelled = await writes.cancel(
         {
           bookingId: reenter.bookingId,

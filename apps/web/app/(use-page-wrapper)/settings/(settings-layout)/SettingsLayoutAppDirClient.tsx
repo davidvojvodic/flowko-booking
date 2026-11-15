@@ -558,7 +558,7 @@ type SettingsLayoutProps = {
 } & ComponentProps<typeof Shell>;
 
 function SettingsLayoutAppDirClient({ children, teamFeatures, permissions, ...rest }: SettingsLayoutProps) {
-  const _pathname = usePathname();
+  const pathname = usePathname(); // Flowko U29i: was `_pathname`, read but unused
   const state = useState(false);
   const [sideContainerOpen, setSideContainerOpen] = state;
 
@@ -575,9 +575,11 @@ function SettingsLayoutAppDirClient({ children, teamFeatures, permissions, ...re
     };
   }, [setSideContainerOpen]);
 
+  // Flowko U29i: close the phone settings menu after every navigation. The effect had no pathname dependency, so it
+  // ran once on mount and the menu stayed open over the page that opened.
   useEffect(() => {
     setSideContainerOpen((prev) => (prev ? false : prev));
-  }, [setSideContainerOpen]);
+  }, [pathname, setSideContainerOpen]);
 
   return (
     <Shell

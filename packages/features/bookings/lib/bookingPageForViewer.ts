@@ -41,6 +41,9 @@ type BookingInfoWithPeople = {
   assignmentReason: unknown[];
   seatsReferences: { referenceUid: string }[];
   recurringEventId: string | null;
+  // Flowko U29i: both reason fields travel with the page props
+  cancellationReason: string | null;
+  rejectionReason: string | null;
 };
 
 export type BookingInfoForViewer<T extends BookingInfoWithPeople> = Omit<T, "user" | "attendees"> & {
@@ -50,6 +53,11 @@ export type BookingInfoForViewer<T extends BookingInfoWithPeople> = Omit<T, "use
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Flowko U29i: whether an event type's metadata marks a salon (business) booking mirror.
+export function isFlowkoMirrorMetadata(metadata: unknown): boolean {
+  return isRecord(metadata) && metadata.flowkoMirror === true;
 }
 
 export function normaliseEmail(email: string) {
@@ -147,6 +155,7 @@ export function toBookingInfoForViewer<T extends BookingInfoWithPeople>(
     hostEmails,
     viewerEmails,
     viewerSeatReferenceUid,
+    isBusinessBooking = false,
   }: {
     canViewHostDetails: boolean;
     hideOrganizerEmail: boolean;
@@ -155,6 +164,8 @@ export function toBookingInfoForViewer<T extends BookingInfoWithPeople>(
     viewerEmails: Set<string>;
     /** The seat reference the page was opened with: `?seatReferenceUid=` or /booking/[seatReferenceUid] */
     viewerSeatReferenceUid?: string;
+    /** Flowko U29i: a salon booking; a viewer who isn't a host gets no stored reason for it */
+    isBusinessBooking?: boolean;
   }
 ): BookingInfoForViewer<T> {
   // A seat's referenceUid cancels or reschedules that seat without a login (handleCancelBooking,
@@ -196,6 +207,8 @@ export function toBookingInfoForViewer<T extends BookingInfoWithPeople>(
     recurringEventId: null,
     // Shown to hosts only; the reason text can name team members
     assignmentReason: [],
+    // Flowko U29i: a reason stored on a salon booking stays with the salon
+    ...(isBusinessBooking && { cancellationReason: null, rejectionReason: null }),
     attendees,
     seatsReferences,
   } as unknown as BookingInfoForViewer<T>;
