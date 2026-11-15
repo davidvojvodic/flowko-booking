@@ -3,6 +3,7 @@ import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-util
 import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
 import {
   getHostEmails,
+  isFlowkoMirrorMetadata,
   isOrganizerEmailHidden,
   normaliseEmail,
   toBookingInfoForViewer,
@@ -295,6 +296,8 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
         hostEmails,
         viewerEmails,
         viewerSeatReferenceUid: seatReferenceUid,
+        // Flowko U29i: a salon booking's stored reason is not part of a non-host viewer's props
+        isBusinessBooking: isFlowkoMirrorMetadata(eventType.metadata),
       }),
       previousBooking: sanitizedPreviousBooking,
       paymentStatus: payment,

@@ -885,4 +885,42 @@ describe("getBookings - booker view of rows the caller only attends", () => {
     expect(booking.eventType.metadata?.apps).toEqual(row.eventType.metadata.apps);
     expect(booking.attendees.map(({ phoneNumber }) => phoneNumber)).toEqual(["+38640111111", "+38640222222"]);
   });
+
+  // Flowko U29i: a salon booking's stored reason stays with the salon; a caller who only attends the row
+  // never gets it, whatever text it holds
+  describe("the reason of a business booking (U29i)", () => {
+    const withReason = (row: ReturnType<typeof bookingRow>, mirror: boolean) => ({
+      ...row,
+      cancellationReason: "Prestavljeno k: Bor",
+      rejectionReason: "Zasebni razlog",
+      eventType: {
+        ...row.eventType,
+        metadata: { ...row.eventType.metadata, ...(mirror ? { flowkoMirror: true } : {}) },
+      },
+    });
+
+    it("is null on a mirror row the caller only attends", async () => {
+      const booking = await listFor(withReason(bookingRow({ organizerId: 2, hideOrganizerEmail: true }), true));
+
+      expect(booking.cancellationReason).toBeNull();
+      expect(booking.rejectionReason).toBeNull();
+      expect(JSON.stringify(booking)).not.toContain("Prestavljeno k");
+    });
+
+    it("is kept on a row that isn't a business booking", async () => {
+      const booking = await listFor(withReason(bookingRow({ organizerId: 2, hideOrganizerEmail: true }), false));
+
+      expect(booking.cancellationReason).toBe("Prestavljeno k: Bor");
+      expect(booking.rejectionReason).toBe("Zasebni razlog");
+    });
+
+    it("is kept on a row the caller organizes", async () => {
+      const booking = await listFor(
+        withReason(bookingRow({ organizerId: caller.id, hideOrganizerEmail: true }), true)
+      );
+
+      expect(booking.cancellationReason).toBe("Prestavljeno k: Bor");
+      expect(booking.rejectionReason).toBe("Zasebni razlog");
+    });
+  });
 });

@@ -23,6 +23,7 @@ import {
 } from "@calcom/embed-core/embed-iframe";
 import { useBookerBrandTheme } from "@calcom/features/bookings/Booker/utils/use-brand-colors";
 import { Price } from "@calcom/features/bookings/components/event-meta/Price";
+import { isFlowkoMirrorMetadata } from "@calcom/features/bookings/lib/bookingPageForViewer";
 import { getCalendarLinks, CalendarLinkType } from "@calcom/features/bookings/lib/getCalendarLinks";
 import { RATING_OPTIONS, validateRating } from "@calcom/features/bookings/lib/rating";
 import { isWithinMinimumRescheduleNotice as isWithinMinimumRescheduleNoticeUtil } from "@calcom/features/bookings/lib/reschedule/isWithinMinimumRescheduleNotice";
@@ -618,16 +619,19 @@ export default function Success(props: PageProps & { isEmbed?: boolean }) {
                           bookingInfo.status === BookingStatus.REJECTED) && <h4>{paymentStatusMessage}</h4>}
 
                       <div className="border-subtle text-default mt-8 grid grid-cols-3 gap-x-4 border-t pt-8 text-left rtl:text-right sm:gap-x-0">
-                        {(isCancelled || reschedule) && cancellationReason && (
-                          <>
-                            <div className="font-medium">
-                              {isCancelled ? t("reason") : t("reschedule_reason")}
-                            </div>
-                            <div className="col-span-2 mb-6 last:mb-0">
-                              <p className="wrap-break-word">{cancellationReason}</p>
-                            </div>
-                          </>
-                        )}
+                        {/* Flowko U29i: a salon booking's reason is shown to a host only */}
+                        {(isCancelled || reschedule) &&
+                          cancellationReason &&
+                          !(isFlowkoMirrorMetadata(eventType.metadata) && !isHost) && (
+                            <>
+                              <div className="font-medium">
+                                {isCancelled ? t("reason") : t("reschedule_reason")}
+                              </div>
+                              <div className="col-span-2 mb-6 last:mb-0">
+                                <p className="wrap-break-word">{cancellationReason}</p>
+                              </div>
+                            </>
+                          )}
                         {isCancelled &&
                           bookingInfo?.cancelledBy &&
                           !(bookingInfo.eventType?.hideOrganizerEmail && !isHost) && (
