@@ -30,6 +30,12 @@ export function problemLines(
     const service = "step" in p ? (stepNames[p.step] ?? fallbackName) : "";
     const time =
       "with" in p ? { from: formatHm(p.with.start, timeZone), to: formatHm(p.with.end, timeZone) } : {};
+    // Flowko U29i: C1 — an absence is the whole local day, so both ends print „00:00“: worded as all day.
+    // Any other time off keeps the from–to line.
+    if (p.kind === "time_off" && time.from === "00:00" && time.to === "00:00") {
+      lines.push(t("flowko_desk_problem_time_off_all_day", { service, ...RAW }));
+      continue;
+    }
     // Flowko U29e: E10.1 (final review SPEC-1) — the service name is shown once, React escapes it.
     lines.push(t(problemKey(p), { service, ...time, ...RAW }));
   }

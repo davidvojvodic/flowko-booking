@@ -44,6 +44,26 @@ describe("ConfirmProblemsDialog (U28 R8)", () => {
     ]);
   });
 
+  // Flowko U29i: C1 — an absence is always the whole local day, so both ends print „00:00“; that reads as
+  // „odsotnost (ves dan)“, while a partial time off keeps its from–to form.
+  it("words a midnight-to-midnight absence as all day", () => {
+    const allDay = (date: string, next: string) => ({
+      kind: "time_off" as const,
+      step: 1,
+      with: { start: at("00:00", date), end: at("00:00", next) },
+    });
+    expect(problemLines([allDay("2026-11-16", "2026-11-17")], false, names, TZ, t)).toEqual([
+      "Barvanje: odsotnost (ves dan).",
+    ]);
+    // 25 h day in Europe/Ljubljana (clocks go back on 25 Oct 2026).
+    expect(problemLines([allDay("2026-10-25", "2026-10-26")], false, names, TZ, t)).toEqual([
+      "Barvanje: odsotnost (ves dan).",
+    ]);
+    expect(problemLines([allDay("2026-11-16", "2026-11-17")], false, names, TZ, localeT("en"))).toEqual([
+      "Barvanje: the worker is away all day.",
+    ]);
+  });
+
   it("shows the Google line once instead of calendar overlaps when Google is unavailable", () => {
     const lines = problemLines(
       [
