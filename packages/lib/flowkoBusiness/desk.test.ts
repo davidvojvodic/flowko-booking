@@ -133,6 +133,16 @@ describe("rangeSpans", () => {
     expect(r.hours).toHaveLength(13);
     expect(r.hours.map((h) => h.label)).not.toContain("02:00");
   });
+
+  it("U29i (b): a closed day with an absence falls back to 08-18", () => {
+    const AD = "2026-12-08";
+    const day = dayBounds(AD, TZ);
+    const spans = rangeSpans({ opening: [], columns: [{ shifts: [], timeOff: [day] }], bookings: [] });
+    expect(spans).toEqual([]);
+    const r = hourRange(day, TZ, spans);
+    expect(r.from).toBe(at(AD, "08:00"));
+    expect(r.to).toBe(at(AD, "18:00"));
+  });
 });
 
 describe("toPx", () => {
