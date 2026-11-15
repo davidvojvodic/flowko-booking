@@ -388,6 +388,8 @@ describe("cancelled bookings on the day (Flowko U29e, E6)", () => {
     const byDesk = await make("10:00", { name: "Urban Les", phone: "070 300 400" });
     const handedOver = await make("11:00", { name: "Vida Hrib", phone: "070 300 401" });
     const live = await make("12:00", { name: "Zoja Breg", phone: "070 300 402" });
+    // Flowko U29i: P1 — a desk cancel with a typed reason (phone-only customer, no mail).
+    const withReason = await make("13:00", { name: "Maja Gozd", phone: "070 300 403" });
 
     await cancelBusinessBookingAsCustomer(
       prisma,
@@ -398,6 +400,13 @@ describe("cancelled bookings on the day (Flowko U29e, E6)", () => {
     await cancelBusinessBooking(prisma, fx.users.olga, { bookingId: byDesk.bookingId, reason: null }, NOW, {
       sendMails: false,
     });
+    await cancelBusinessBooking(
+      prisma,
+      fx.users.olga,
+      { bookingId: withReason.bookingId, reason: "Zasebni razlog" },
+      NOW,
+      { sendMails: false }
+    );
     await cancelBusinessBooking(
       prisma,
       fx.users.olga,
@@ -418,17 +427,24 @@ describe("cancelled bookings on the day (Flowko U29e, E6)", () => {
 
     const stored = await prisma.flowkoBookingAction.findMany({
       where: {
-        bookingId: { in: [byCustomer.bookingId, byDesk.bookingId, handedOver.bookingId] },
+        bookingId: { in: [byCustomer.bookingId, byDesk.bookingId, handedOver.bookingId, withReason.bookingId] },
         action: "CANCELLED",
       },
       select: { bookingId: true, actorMemberId: true, details: true, createdAt: true },
       orderBy: { bookingId: "asc" },
     });
+    // Flowko U29i: P1 — the desk's text is on the action (merged with the hand-over marker), not on the booking.
     expect(stored.map((s) => [s.bookingId, s.actorMemberId, s.details])).toEqual([
       [byCustomer.bookingId, null, { by: "customer" }],
       [byDesk.bookingId, fx.members.olga, null],
-      [handedOver.bookingId, fx.members.olga, { handoverToMemberId: fx.members.bor }],
+      [handedOver.bookingId, fx.members.olga, { handoverToMemberId: fx.members.bor, reason: "Prestavljeno k: Bor" }],
+      [withReason.bookingId, fx.members.olga, { reason: "Zasebni razlog" }],
     ]);
+    const bookingRows = await prisma.booking.findMany({
+      where: { id: { in: [handedOver.bookingId, withReason.bookingId] } },
+      select: { cancellationReason: true },
+    });
+    expect(bookingRows.map((b) => b.cancellationReason)).toEqual([null, null]);
 
     const view = await getDeskDay(prisma, fx.users.olga, { date: WED }, NOW, deps);
     const rows = view.days[0].bookings;
@@ -436,6 +452,7 @@ describe("cancelled bookings on the day (Flowko U29e, E6)", () => {
       [byCustomer.bookingId, BookingStatus.CANCELLED],
       [byDesk.bookingId, BookingStatus.CANCELLED],
       [live.bookingId, BookingStatus.ACCEPTED],
+      [withReason.bookingId, BookingStatus.CANCELLED],
     ]);
     expect(rows[0].cancelled).toEqual({ by: "customer", at: stored[0].createdAt.toISOString() });
     expect(rows[0].cancelReason).toBe("Zbolela & doma");
@@ -446,7 +463,9 @@ describe("cancelled bookings on the day (Flowko U29e, E6)", () => {
     expect(rows[1].cancelled).toEqual({ by: "desk", at: stored[1].createdAt.toISOString() });
     expect(rows[1].cancelReason).toBeNull();
     expect(rows[2]).toMatchObject({ cancelled: null, cancelReason: null, mayCancel: true });
-    for (const r of rows.slice(0, 2)) {
+    expect(rows[3].cancelled).toMatchObject({ by: "desk" });
+    expect(rows[3].cancelReason).toBe("Zasebni razlog");
+    for (const r of [rows[0], rows[1], rows[3]]) {
       expect([r.mayCancel, r.mayMove, r.mayNoShow, r.mayReenter]).toEqual([false, false, false, false]);
     }
     expect(JSON.stringify(view)).not.toMatch(/handoverToMemberId|actorMemberId|Vida Hrib/);

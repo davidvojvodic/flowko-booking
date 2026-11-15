@@ -721,6 +721,76 @@ describe("getDeskDay: cancelled bookings (Flowko U29e, E6)", () => {
     expect(flags(row)).toEqual({ mayCancel: false, mayMove: false, mayNoShow: false, mayReenter: false });
   });
 
+  // Flowko U29i: P1/P2 — a desk reason is stored in the CANCELLED action's details.reason (Booking.cancellationReason
+  // stays null) and read back from there as cancelReason.
+  it("a desk cancel with a reason: cancelReason from the action's details.reason; the booking keeps none", async () => {
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: f.bookings.bor, reason: "  Zasebni razlog  " },
+      NOW,
+      { sendMails: false }
+    );
+    const stored = await prismock.booking.findUnique({
+      where: { id: f.bookings.bor },
+      select: { cancellationReason: true },
+    });
+    expect(stored?.cancellationReason).toBeNull();
+    const row = rowOf(await day(f.users.olga), f.bookings.bor);
+    expect(row.cancelled?.by).toBe("desk");
+    expect(row.cancelReason).toBe("Zasebni razlog");
+    expect(row.actions[1].details).toBeNull(); // the whitelist keeps the text out of actions[].details
+  });
+
+  it("a pre-U29i desk row (reason still on the booking, action without details.reason) → the stored reason", async () => {
+    await prismock.booking.update({
+      where: { id: f.bookings.cancelled },
+      data: { cancellationReason: "Staro namizno" },
+    });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+      },
+    });
+    const row = rowOf(await day(f.users.olga), f.bookings.cancelled);
+    expect(row.cancelled?.by).toBe("desk");
+    expect(row.cancelReason).toBe("Staro namizno");
+  });
+
+  it("a details.reason that is not a non-empty string falls back to the stored reason", async () => {
+    await prismock.booking.update({
+      where: { id: f.bookings.cancelled },
+      data: { cancellationReason: "Nadomestno" },
+    });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+        details: { reason: 42 },
+      },
+    });
+    expect(rowOf(await day(f.users.olga), f.bookings.cancelled).cancelReason).toBe("Nadomestno");
+    await prismock.flowkoBookingAction.deleteMany({ where: { bookingId: f.bookings.cancelled } });
+    await prismock.flowkoBookingAction.create({
+      data: {
+        bookingId: f.bookings.cancelled,
+        businessId: f.a,
+        action: "CANCELLED",
+        actorName: "Olga",
+        actorMemberId: f.members.olga,
+        details: { reason: "" },
+      },
+    });
+    expect(rowOf(await day(f.users.olga), f.bookings.cancelled).cancelReason).toBe("Nadomestno");
+  });
+
   it("the legacy row (CANCELLED, no CANCELLED action): by desk, at null; its stored reason shows", async () => {
     await prismock.booking.update({
       where: { id: f.bookings.cancelled },
@@ -889,7 +959,23 @@ describe("getDeskDay: cancelled bookings (Flowko U29e, E6)", () => {
 
   it("deep scan: no actorMemberId, handoverToMemberId, `by` or details beyond the whitelist in the answer", async () => {
     await customerCancelled("13:00", "Ne morem");
-    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bookings.bor }, NOW, { sendMails: false });
+    // Flowko U29i: the desk cancel carries a reason, so the `reason` key check below is not vacuous.
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bookings.bor, reason: "Zasebni razlog" }, NOW, {
+      sendMails: false,
+    });
+    const handedOver = await book(f.users.olga, {
+      workerMemberId: f.members.ana,
+      serviceIds: [f.services.mens],
+      start: at("14:00"),
+      customer: PETRA,
+    });
+    await cancelBusinessBooking(
+      db,
+      f.users.olga,
+      { bookingId: handedOver, reason: "Prestavljeno k: Bor", handoverToMemberId: f.members.bor },
+      NOW,
+      { sendMails: false }
+    );
     await prismock.flowkoBookingAction.create({
       data: {
         bookingId: f.bookings.cancelled,
@@ -913,7 +999,7 @@ describe("getDeskDay: cancelled bookings (Flowko U29e, E6)", () => {
         }
       };
       walk(view);
-      for (const banned of ["actorMemberId", "handoverToMemberId", "secret", "cancellationReason"]) {
+      for (const banned of ["actorMemberId", "handoverToMemberId", "secret", "cancellationReason", "reason"]) {
         expect(keys).not.toContain(banned);
       }
       for (const b of view.days.flatMap((d) => d.bookings)) {
@@ -927,6 +1013,7 @@ describe("getDeskDay: cancelled bookings (Flowko U29e, E6)", () => {
         }
         if (b.cancelled) expect(Object.keys(b.cancelled).sort()).toEqual(["at", "by"]);
       }
+      expect(JSON.stringify(view)).not.toContain("Prestavljeno");
       await expectNoPrivateData(view);
     }
   });
