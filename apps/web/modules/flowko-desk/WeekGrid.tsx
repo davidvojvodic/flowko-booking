@@ -36,9 +36,9 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const hourOf = (at: number, timeZone: string) => Number(formatHm(at, timeZone).slice(0, 2));
 
 /**
- * One hour range per day of the week (R14): each day's own range (opening, shifts, time off, bookings; fallback
+ * One hour range per day of the week (R14): each day's own range (opening, shifts, bookings; fallback
  * 08-18) widened to the earliest start and the latest end of the seven, in whole local hours, so the columns line
- * up with one axis. Other busy time never widens it.
+ * up with one axis. Other busy time never widens it. Flowko U29i: neither does time off (an absence).
  */
 export function weekRanges(
   view: DeskView

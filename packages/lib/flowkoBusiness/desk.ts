@@ -47,13 +47,18 @@ export function hourRange(
   return { from, to, hours };
 }
 
-/** Intervals that may widen the hour axis (R14): opening, shifts, time off, business bookings. Never other busy. */
+/**
+ * Intervals that may widen the hour axis (R14): opening, shifts, business bookings. Never other busy and never
+ * time off. Flowko U29i: an absence is time off for the whole local day, so it adds nothing to the range and
+ * would only stretch the grid to 00:00-24:00. `timeOff` stays in the column type so callers can pass columns as is.
+ */
 export function rangeSpans(view: {
   opening: Interval[];
   columns: Array<{ shifts: Interval[]; timeOff: Interval[] }>;
   bookings: Interval[];
 }): Interval[] {
-  return [...view.opening, ...view.columns.flatMap((c) => [...c.shifts, ...c.timeOff]), ...view.bookings];
+  // Flowko U29i: time off is left out on purpose.
+  return [...view.opening, ...view.columns.flatMap((c) => c.shifts), ...view.bookings];
 }
 
 /** Vertical pixel offset of `ms` from the start of the visible range. */
