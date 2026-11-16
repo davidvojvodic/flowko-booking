@@ -210,7 +210,8 @@ vi.mock("../signup/utils/getOrgUsernameFromEmail", () => ({
 
 vi.mock("next-auth/providers/azure-ad", () => ({ default: vi.fn() }));
 vi.mock("next-auth/providers/credentials", () => ({ default: vi.fn(() => ({ id: "credentials" })) }));
-vi.mock("next-auth/providers/email", () => ({ default: vi.fn() }));
+// Flowko U29j: the factory returns a provider object, so the password-only test sees an e-mail provider if one is registered again
+vi.mock("next-auth/providers/email", () => ({ default: vi.fn(() => ({ id: "email", type: "email" })) }));
 vi.mock("next-auth/providers/google", () => ({ default: vi.fn() }));
 
 describe("CredentialsProvider authorize", () => {
@@ -2169,5 +2170,22 @@ describe("Azure AD JWT callback", () => {
 
       expect(result.locale).toBe("en");
     });
+  });
+});
+
+describe("Flowko U29j: password-only sign-in", () => {
+  it("registers no e-mail sign-in provider", async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    // Import the mocked provider factory after the reset, so it is the instance the options module uses
+    const emailProviderModule = await import("next-auth/providers/email");
+    const authModule = await import("./next-auth-options");
+
+    const options = authModule.getOptions({ getDubId: () => undefined, getTrackingData: () => ({}) as any });
+    const providers = (options.providers ?? []) as unknown as Array<{ id?: string; type?: string } | undefined>;
+
+    expect(providers.length).toBeGreaterThan(0);
+    expect(providers.some((provider) => provider?.id === "email" || provider?.type === "email")).toBe(false);
+    expect(emailProviderModule.default).not.toHaveBeenCalled();
   });
 });

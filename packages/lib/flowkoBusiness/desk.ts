@@ -290,14 +290,17 @@ export function problemKey(p: FitProblem): string {
 
 /**
  * Digits for a phone search (R11): "041 123" -> "41123" (one leading 0 dropped, so it finds +38641123...),
- * "+386 41 123" -> "38641123". Null when the text has letters or other characters (a name search) or fewer than
- * 3 digits remain.
+ * "+386 41 123" -> "38641123". Flowko U29j: a leading "00" (international prefix) is dropped entirely, so
+ * "00386 41 123" -> "38641123" and finds +38641123... too. Null when the text has letters or other characters
+ * (a name search) or fewer than 3 digits remain.
  */
 export function phoneDigitsForSearch(q: string): string | null {
   const text = q.trim();
   if (!/^[\d\s+\-./()]+$/.test(text)) return null;
   let digits = text.replace(/\D/g, "");
-  if (digits.startsWith("0")) digits = digits.slice(1);
+  // Flowko U29j: "00" is the international prefix, not a national trunk 0
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  else if (digits.startsWith("0")) digits = digits.slice(1);
   return digits.length >= 3 ? digits : null;
 }
 

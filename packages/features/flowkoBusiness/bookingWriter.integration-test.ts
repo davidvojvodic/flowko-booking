@@ -47,6 +47,22 @@ vi.mock("nodemailer", () => ({
     },
   }),
 }));
+// Flowko U29j: every sender of the booking mail module is wrapped (it still runs for real), so a test can tell
+// "the mail code was reached and found nothing to send" from "the mail code was never reached".
+const mailSpy = vi.hoisted(() => ({ calls: [] as string[] }));
+vi.mock("./bookingMail", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./bookingMail")>();
+  const wrapped: Record<string, unknown> = { ...original };
+  for (const [name, value] of Object.entries(original)) {
+    if (name.startsWith("send") && typeof value === "function") {
+      wrapped[name] = (...args: unknown[]) => {
+        mailSpy.calls.push(name);
+        return (value as (...a: unknown[]) => unknown)(...args);
+      };
+    }
+  }
+  return wrapped;
+});
 // The U22 sweep route, called directly: its Next wrappers are cut away, as in its own route test.
 vi.mock("app/api/defaultResponderForAppDir", () => ({
   defaultResponderForAppDir: (handler: (req: NextRequest) => Promise<unknown>) => (req: NextRequest) =>
@@ -774,5 +790,180 @@ describe("U28: the no-show and its action are one transaction", () => {
     ).toEqual({ status: "updated", noShow: true });
     expect(await flags()).toEqual([true]);
     expect(await noShowActions()).toBe(1);
+  });
+});
+
+// Flowko U29j: a desk-only worker has a placeholder address nobody can read and a phone-only customer has none, so
+// moving, handing over and marking a no-show must send no mail at all, and the mail code must not fail while
+// finding that out. Every zero has a positive control: the same action for a customer with an e-mail address
+// does reach the transport (and never a placeholder address), or, for the no-show (which mails nobody by design),
+// the wrapped mail senders prove the mail code was not reached while the same spy sees a cancel reach it.
+describe("U29j: no mail for a desk-only worker and a phone-only customer", () => {
+  const mails: WriterDeps = { googleBusy: noGoogle }; // no `sendMails: false`: the mail code really runs
+  let nena: number;
+  let logError: { mockRestore: () => void; mock: { calls: unknown[][] } };
+
+  beforeAll(async () => {
+    // A second desk-only worker for the hand-over (never a login worker).
+    const worker = await createDeskOnlyWorker(prisma, fx.businessId, "Nena");
+    nena = worker.memberId;
+    await prisma.flowkoServiceWorker.create({ data: { serviceId: fx.services.mens, memberId: nena } });
+    await setUsualWeek(prisma, fx.olga, {
+      memberId: nena,
+      usualWeek: week([{ from: "07:00", to: "15:00" }]),
+      confirmOutsideOpening: false,
+    });
+  });
+
+  beforeEach(() => {
+    mailSpy.calls.length = 0;
+    vi.stubEnv("INTEGRATION_TEST_MODE", "false");
+    // The same spy as Review Focus 4: it catches the writer's catch and the mail module's own catch alike.
+    logError = vi
+      .spyOn(Object.getPrototypeOf(logger) as { error: (...args: unknown[]) => unknown }, "error")
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logError.mockRestore();
+  });
+
+  const mailNotSent = () =>
+    logError.mock.calls.filter((call) => call[0] === "business booking mail not sent");
+  const phoneOnly = (name: string) => ({ name, phone: "041 234 567" });
+  const withEmail = (name: string) => ({
+    name,
+    email: `${name.toLowerCase().replace(/\s/g, "-")}-${RUN}@example.com`,
+  });
+  const recipients = () =>
+    transport.sent.flatMap((m) => (m.to as Array<{ address: string }>).map((t) => t.address));
+  /** Positive control: the transport got mail, only for the customer, and nothing carries a placeholder address. */
+  const expectMailToCustomerOnly = (address: string | undefined) => {
+    expect(transport.sent.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(recipients())).toEqual(new Set([address]));
+    expect(JSON.stringify(transport.sent)).not.toContain("flowko.invalid");
+    expect(mailNotSent()).toEqual([]);
+  };
+
+  it("move: a phone-only booking of Mojca sends nothing; an e-mail customer's move reaches the transport", async () => {
+    const phone = await created(
+      create({
+        workerMemberId: fx.members.mojca,
+        start: at(WED, "09:00"),
+        customer: phoneOnly("Tina Horvat"),
+      })
+    );
+    expect(transport.sent).toHaveLength(0); // the create above ran without mails
+
+    const moved = await moveBusinessBooking(
+      prisma,
+      fx.olga,
+      { bookingId: phone.bookingId, start: at(WED, "10:00"), confirmOverride: false },
+      NOW,
+      mails
+    );
+    expect(moved.status).toBe("moved");
+    expect(mailSpy.calls).toEqual(["sendBusinessBookingMoved"]); // the mail code ran ...
+    expect(transport.sent).toHaveLength(0); // ... and found nobody to mail
+    expect(mailNotSent()).toEqual([]);
+
+    // Positive control: the same move for a customer with an e-mail address.
+    const customer = withEmail("Zala Kranjc");
+    const control = await created(
+      create({ workerMemberId: fx.members.mojca, start: at(WED, "12:00"), customer })
+    );
+    mailSpy.calls.length = 0;
+    const movedControl = await moveBusinessBooking(
+      prisma,
+      fx.olga,
+      { bookingId: control.bookingId, start: at(WED, "13:00"), confirmOverride: false },
+      NOW,
+      mails
+    );
+    expect(movedControl.status).toBe("moved");
+    expect(mailSpy.calls).toEqual(["sendBusinessBookingMoved"]);
+    expectMailToCustomerOnly(customer.email);
+  });
+
+  it("hand-over (create at Nena, then the marked cancel at Mojca): a phone-only customer gets nothing; an e-mail customer's does", async () => {
+    // Exactly the server calls of the desk's „Prestavi k drugemu delavcu“ (BookingSheet.save): the create through
+    // bookings.create (default deps), then bookings.cancel with `handoverToMemberId` (default deps).
+    const handOver = async (
+      from: number,
+      to: number,
+      start: Date,
+      customer: CreateBookingInput["customer"]
+    ) => {
+      const old = await created(create({ workerMemberId: from, start, customer }));
+      transport.sent.length = 0;
+      mailSpy.calls.length = 0;
+      const next = await created(create({ workerMemberId: to, start, customer }, mails));
+      const cancelled = await cancelBusinessBooking(
+        prisma,
+        fx.olga,
+        { bookingId: old.bookingId, reason: "Prestavljeno k delavcu Nena", handoverToMemberId: to },
+        NOW
+      );
+      expect(cancelled).toEqual({ status: "cancelled" });
+      expect((await prisma.booking.findUniqueOrThrow({ where: { id: old.bookingId } })).status).toBe(
+        BookingStatus.CANCELLED
+      );
+      expect((await prisma.booking.findUniqueOrThrow({ where: { id: next.bookingId } })).status).toBe(
+        BookingStatus.ACCEPTED
+      );
+      const action = await prisma.flowkoBookingAction.findFirstOrThrow({
+        where: { bookingId: old.bookingId, action: "CANCELLED" },
+        select: { details: true },
+      });
+      expect(action.details).toMatchObject({ handoverToMemberId: to });
+    };
+
+    await handOver(fx.members.mojca, nena, at(WED, "11:00"), phoneOnly("Maja Kovač"));
+    expect(mailSpy.calls).toEqual(["sendBusinessBookingCreated", "sendBusinessBookingCancelled"]);
+    expect(transport.sent).toHaveLength(0);
+    expect(mailNotSent()).toEqual([]);
+
+    // Positive control: the same hand-over for a customer with an e-mail address.
+    const customer = withEmail("Ula Breznik");
+    await handOver(fx.members.mojca, nena, at(WED, "14:00"), customer);
+    expect(mailSpy.calls).toEqual(["sendBusinessBookingCreated", "sendBusinessBookingCancelled"]);
+    expectMailToCustomerOnly(customer.email);
+  });
+
+  it("no-show: marking a phone-only booking of Mojca sends nothing and never reaches the mail code", async () => {
+    const phone = await created(
+      create({ workerMemberId: fx.members.mojca, start: at(WED, "08:00"), customer: phoneOnly("Eva Zupan") })
+    );
+    const customer = withEmail("Nik Rozman");
+    const control = await created(
+      create({ workerMemberId: fx.members.mojca, start: at(WED, "08:30"), customer })
+    );
+    transport.sent.length = 0;
+    mailSpy.calls.length = 0;
+
+    for (const { bookingId, start } of [
+      { bookingId: phone.bookingId, start: at(WED, "08:00") },
+      { bookingId: control.bookingId, start: at(WED, "08:30") },
+    ]) {
+      const result = await setBusinessNoShow(
+        prisma,
+        fx.olga,
+        { bookingId, noShow: true },
+        new Date(start.getTime() + 10 * 60_000)
+      );
+      expect(result).toEqual({ status: "updated", noShow: true });
+      const flags = await prisma.attendee.findMany({ where: { bookingId }, select: { noShow: true } });
+      expect(flags.map((a) => a.noShow)).toEqual([true]);
+    }
+    // The no-show mails nobody by design, so a transport count of 0 alone proves little, even for the e-mail
+    // customer: the wrapped senders show that the mail module is not reached at all.
+    expect(mailSpy.calls).toEqual([]);
+    expect(transport.sent).toHaveLength(0);
+    expect(mailNotSent()).toEqual([]);
+
+    // The spy is live: a cancel of the e-mail customer's booking reaches the mail module and the transport.
+    await cancelBusinessBooking(prisma, fx.olga, { bookingId: control.bookingId }, NOW);
+    expect(mailSpy.calls).toEqual(["sendBusinessBookingCancelled"]);
+    expectMailToCustomerOnly(customer.email);
   });
 });

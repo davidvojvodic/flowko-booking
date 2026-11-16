@@ -5352,7 +5352,7 @@
   "flowko_invite_error_member_not_desk_only": "This person can no longer be invited. The list is refreshed.",
   "flowko_invite_accept_meta_title": "Invitation",
   "flowko_invite_accept_title": "Join {{name}}",
-  "flowko_invite_accept_privacy": "{{name}} is the controller of your data; Flowko is its processor.",
+  "flowko_invite_accept_privacy": "{{name}} is the controller of the data you enter at work, and Flowko is its processor. Flowko is the controller of your login data.",
   "flowko_invite_accept_privacy_link": "Privacy notice",
   "flowko_invite_accept_submit": "Join",
   "flowko_invite_accept_invalid_title": "This link does not work",

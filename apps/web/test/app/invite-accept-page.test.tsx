@@ -134,7 +134,7 @@ describe("/auth/pridruzi/<token> (Flowko U29d A1, A6, A7)", () => {
     expect((screen.getByLabelText("E-pošta") as HTMLInputElement).readOnly).toBe(true);
     expect((screen.getByLabelText("Ime") as HTMLInputElement).value).toBe("Hana");
     expect(screen.getByTestId("flowko-invite-privacy").textContent).toBe(
-      "Upravljavec vaših podatkov je salon Flowko Test, Flowko pa je njegov obdelovalec. Obvestilo o zasebnosti"
+      "Podatke, ki jih vnašate pri delu, obdeluje salon Flowko Test kot upravljavec, Flowko pa kot njegov obdelovalec. Za podatke za prijavo je upravljavec Flowko. Obvestilo o zasebnosti"
     );
     const link = screen.getByRole("link", { name: "Obvestilo o zasebnosti" });
     expect(link.getAttribute("href")).toBe(WEBSITE_PRIVACY_POLICY_URL);
@@ -166,7 +166,7 @@ describe("/auth/pridruzi/<token> (Flowko U29d A1, A6, A7)", () => {
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
       "Pridružite se salonu Frizerstvo Ana & Co"
     );
-    expect(screen.getByTestId("flowko-invite-privacy").textContent).toContain("salon Frizerstvo Ana & Co,");
+    expect(screen.getByTestId("flowko-invite-privacy").textContent).toContain("salon Frizerstvo Ana & Co kot upravljavec");
     expect(container.innerHTML).not.toContain("&amp;amp;");
     expect(container.textContent).not.toContain("&amp;");
   });
@@ -181,7 +181,7 @@ describe("/auth/pridruzi/<token> (Flowko U29d A1, A6, A7)", () => {
       "Pridružite se salonu Salon <1>x</1> <b>B</b>"
     );
     expect(screen.getByTestId("flowko-invite-privacy").textContent).toContain(
-      "salon Salon <1>x</1> <b>B</b>,"
+      "salon Salon <1>x</1> <b>B</b> kot upravljavec"
     );
     expect(container.querySelector("b")).toBeNull();
     expect(screen.getByTestId("flowko-invite-privacy").querySelectorAll("a")).toHaveLength(1);
