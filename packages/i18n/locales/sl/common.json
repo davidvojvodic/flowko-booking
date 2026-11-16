@@ -5432,7 +5432,7 @@
   "flowko_invite_error_member_not_desk_only": "Te osebe ni več mogoče povabiti. Seznam je osvežen.",
   "flowko_invite_accept_meta_title": "Povabilo",
   "flowko_invite_accept_title": "Pridružite se salonu {{name}}",
-  "flowko_invite_accept_privacy": "Upravljavec vaših podatkov je salon {{name}}, Flowko pa je njegov obdelovalec.",
+  "flowko_invite_accept_privacy": "Podatke, ki jih vnašate pri delu, obdeluje salon {{name}} kot upravljavec, Flowko pa kot njegov obdelovalec. Za podatke za prijavo je upravljavec Flowko.",
   "flowko_invite_accept_privacy_link": "Obvestilo o zasebnosti",
   "flowko_invite_accept_submit": "Pridruži se",
   "flowko_invite_accept_invalid_title": "Povezava ne deluje",

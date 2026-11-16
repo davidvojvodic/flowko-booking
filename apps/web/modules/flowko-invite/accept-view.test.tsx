@@ -68,7 +68,7 @@ function view() {
         email={EMAIL}
         name="Hana"
         title="Pridružite se salonu Flowko Test"
-        privacy="Upravljavec vaših podatkov je salon Flowko Test, Flowko pa je njegov obdelovalec."
+        privacy="Podatke, ki jih vnašate pri delu, obdeluje salon Flowko Test kot upravljavec, Flowko pa kot njegov obdelovalec. Za podatke za prijavo je upravljavec Flowko."
       />
     </TooltipProvider>
   );
@@ -130,7 +130,7 @@ describe("AcceptView (Flowko U29d A5, A7)", () => {
     expect(nameInput().value).toBe("Hana");
     expect(nameInput().maxLength).toBe(80);
     expect(screen.getByTestId("flowko-invite-privacy").textContent).toBe(
-      "Upravljavec vaših podatkov je salon Flowko Test, Flowko pa je njegov obdelovalec. Obvestilo o zasebnosti"
+      "Podatke, ki jih vnašate pri delu, obdeluje salon Flowko Test kot upravljavec, Flowko pa kot njegov obdelovalec. Za podatke za prijavo je upravljavec Flowko. Obvestilo o zasebnosti"
     );
     const link = screen.getByRole("link", { name: "Obvestilo o zasebnosti" });
     expect(link.getAttribute("href")).toBe(WEBSITE_PRIVACY_POLICY_URL);
