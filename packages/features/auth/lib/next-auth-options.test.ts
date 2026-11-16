@@ -210,6 +210,7 @@ vi.mock("../signup/utils/getOrgUsernameFromEmail", () => ({
 
 vi.mock("next-auth/providers/azure-ad", () => ({ default: vi.fn() }));
 vi.mock("next-auth/providers/credentials", () => ({ default: vi.fn(() => ({ id: "credentials" })) }));
+// Flowko U29j: the factory returns a provider object, so the password-only test sees an e-mail provider if one is registered again
 vi.mock("next-auth/providers/email", () => ({ default: vi.fn(() => ({ id: "email", type: "email" })) }));
 vi.mock("next-auth/providers/google", () => ({ default: vi.fn() }));
 
