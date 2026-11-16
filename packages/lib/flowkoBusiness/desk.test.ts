@@ -578,6 +578,12 @@ describe("phoneDigitsForSearch", () => {
     ["Ana", null],
     ["Ana 041 123", null],
     ["", null],
+    // Flowko U29j: the 00 international prefix is dropped entirely, so it finds +386...
+    ["00386 41 123", "38641123"],
+    ["0038641123456", "38641123456"],
+    ["00 386 41", "38641"],
+    ["000", null],
+    ["0041 44", "4144"],
   ])("%s -> %s", (q, expected) => {
     expect(phoneDigitsForSearch(q)).toBe(expected);
   });
