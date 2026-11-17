@@ -1159,3 +1159,170 @@ describe("sharedDevice off (U29a S7)", () => {
     expect(sharedDeviceReads(findUnique) + sharedDeviceReads(findFirst)).toBe(1);
   });
 });
+
+// Flowko U30: cancel, customer cancel and move bring the worker's Google calendar in line after the commit and the
+// mails; a move's fit does not count the booking's own step events as external busy time (R6).
+describe("Google step events after commit (U30)", () => {
+  const stateOf = async (bookingId: number) => {
+    const booking = await bookingOf(bookingId);
+    return { status: booking?.status, startTime: booking?.startTime };
+  };
+
+  it("staff cancel: syncGoogle once with the id, after the commit and the mail", async () => {
+    mail.cancelled.mockResolvedValue(undefined);
+    const seen: unknown[] = [];
+    const syncGoogle = vi.fn(async (id: number) => void seen.push(await stateOf(id)));
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.ana.bookingId }, NOW, { syncGoogle });
+    expect(syncGoogle).toHaveBeenCalledTimes(1);
+    expect(syncGoogle).toHaveBeenCalledWith(f.ana.bookingId);
+    expect(seen).toEqual([{ status: BookingStatus.CANCELLED, startTime: at("09:00") }]);
+    expect(mail.cancelled.mock.invocationCallOrder[0]).toBeLessThan(syncGoogle.mock.invocationCallOrder[0]);
+  });
+
+  it("customer cancel: syncGoogle once, after Cal's mails and the notice; sendMails false still syncs", async () => {
+    mail.cancelled.mockResolvedValue(undefined);
+    mail.notice.mockResolvedValue(undefined);
+    const syncGoogle = vi.fn(async () => undefined);
+    await cancelBusinessBookingAsCustomer(db, { uid: f.ana.uid, sessionUserId: null }, NOW, { syncGoogle });
+    expect(syncGoogle).toHaveBeenCalledTimes(1);
+    expect(syncGoogle).toHaveBeenCalledWith(f.ana.bookingId);
+    const after = syncGoogle.mock.invocationCallOrder[0];
+    expect(mail.cancelled.mock.invocationCallOrder[0]).toBeLessThan(after);
+    expect(mail.notice.mock.invocationCallOrder[0]).toBeLessThan(after);
+
+    const quiet = vi.fn(async () => undefined);
+    await cancelBusinessBookingAsCustomer(db, { uid: f.bor.uid, sessionUserId: null }, NOW, {
+      sendMails: false,
+      syncGoogle: quiet,
+    });
+    expect(quiet).toHaveBeenCalledTimes(1);
+    expect(quiet).toHaveBeenCalledWith(f.bor.bookingId);
+  });
+
+  it("a signed-in staff member on the customer link syncs once (the staff path)", async () => {
+    const syncGoogle = vi.fn(async () => undefined);
+    await cancelBusinessBookingAsCustomer(db, { uid: f.ana.uid, sessionUserId: f.users.olga }, NOW, {
+      sendMails: false,
+      syncGoogle,
+    });
+    expect(syncGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("move: syncGoogle once with the id, after the commit and the mail; sendMails false still syncs", async () => {
+    mail.moved.mockResolvedValue(undefined);
+    const seen: unknown[] = [];
+    const syncGoogle = vi.fn(async (id: number) => void seen.push(await stateOf(id)));
+    expect((await move(f.users.olga, f.ana.bookingId, at("09:15"), {}, { syncGoogle })).status).toBe("moved");
+    expect(syncGoogle).toHaveBeenCalledTimes(1);
+    expect(syncGoogle).toHaveBeenCalledWith(f.ana.bookingId);
+    expect(seen).toEqual([{ status: BookingStatus.ACCEPTED, startTime: at("09:15") }]);
+    expect(mail.moved.mock.invocationCallOrder[0]).toBeLessThan(syncGoogle.mock.invocationCallOrder[0]);
+
+    const quiet = vi.fn(async () => undefined);
+    await move(f.users.olga, f.ana.bookingId, at("09:30"), {}, { sendMails: false, syncGoogle: quiet });
+    expect(quiet).toHaveBeenCalledTimes(1);
+  });
+
+  it("not called on needs_confirm, on a thrown error or when nothing could be cancelled", async () => {
+    const syncGoogle = vi.fn(async () => undefined);
+    // 14:30: the last busy step runs past Ana's shift.
+    expect((await move(f.users.olga, f.ana.bookingId, at("14:30"), {}, { syncGoogle })).status).toBe(
+      "needs_confirm"
+    );
+    await expectCode(
+      move(f.users.rok, f.ana.bookingId, at("07:45"), { now: DESK_NOW }, { syncGoogle }),
+      "in_past"
+    );
+    await expectCode(move(f.users.zala, f.ana.bookingId, at("09:15"), {}, { syncGoogle }), "forbidden");
+    await expectCode(
+      cancelBusinessBooking(db, f.users.zala, { bookingId: f.ana.bookingId }, NOW, { syncGoogle }),
+      "forbidden"
+    );
+    await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bor.bookingId }, NOW, {
+      sendMails: false,
+      syncGoogle: vi.fn(async () => undefined),
+    });
+    await expectCode(
+      cancelBusinessBooking(db, f.users.olga, { bookingId: f.bor.bookingId }, NOW, { syncGoogle }),
+      "booking_not_active"
+    );
+    await expectCode(
+      cancelBusinessBookingAsCustomer(db, { uid: f.bor.uid, sessionUserId: null }, NOW, { syncGoogle }),
+      "booking_not_active"
+    );
+    expect(syncGoogle).not.toHaveBeenCalled();
+  });
+
+  it("a rejecting syncGoogle never undoes a cancel, a customer cancel or a move; logged by class only", async () => {
+    const failing = vi.fn(async () => {
+      throw new TypeError("marija@example.com is not allowed");
+    });
+    expect((await move(f.users.olga, f.ana.bookingId, at("09:15"), {}, { syncGoogle: failing })).status).toBe(
+      "moved"
+    );
+    expect(
+      await cancelBusinessBooking(db, f.users.olga, { bookingId: f.bor.bookingId }, NOW, {
+        syncGoogle: failing,
+      })
+    ).toEqual({ status: "cancelled" });
+    expect(
+      await cancelBusinessBookingAsCustomer(db, { uid: f.ana.uid, sessionUserId: null }, NOW, {
+        syncGoogle: failing,
+      })
+    ).toEqual({ status: "cancelled" });
+    expect(failing).toHaveBeenCalledTimes(3);
+    expect((await bookingOf(f.ana.bookingId))?.status).toBe(BookingStatus.CANCELLED);
+    const lines = logError.mock.calls.filter((call) => call[0] === "google step events not synced");
+    expect(lines).toEqual([
+      ["google step events not synced", { bookingId: f.ana.bookingId, errorClass: "TypeError" }],
+      ["google step events not synced", { bookingId: f.bor.bookingId, errorClass: "TypeError" }],
+      ["google step events not synced", { bookingId: f.ana.bookingId, errorClass: "TypeError" }],
+    ]);
+  });
+});
+
+describe("moveBusinessBooking: the booking's own step events are not external busy time (R6, U30)", () => {
+  // Ana's Barvanje 09:00–10:40 has busy steps 09:00–09:30 and 10:10–10:40.
+  const own = [
+    { start: at("09:00").getTime(), end: at("09:30").getTime() },
+    { start: at("10:10").getTime(), end: at("10:40").getTime() },
+  ];
+
+  it("Google busy that is exactly the booking's own busy steps → moved to 09:15 without a warning", async () => {
+    googleBusy.mockImplementation(async () => ({ busy: own, unavailable: false }));
+    expect(await move(f.users.olga, f.ana.bookingId, at("09:15"))).toEqual({
+      status: "moved",
+      bookingId: f.ana.bookingId,
+      uid: f.ana.uid,
+    });
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:15"));
+  });
+
+  it("control: Google busy that is not the booking's own still warns", async () => {
+    googleBusy.mockImplementation(async () => ({
+      busy: [{ start: at("13:00").getTime(), end: at("13:30").getTime() }],
+      unavailable: false,
+    }));
+    const refused = await move(f.users.olga, f.ana.bookingId, at("13:00"));
+    expect(refused.status).toBe("needs_confirm");
+    if (refused.status !== "needs_confirm") return;
+    expect(refused.problems.map((p) => p.kind)).toContain("overlaps_external");
+    expect((await bookingOf(f.ana.bookingId))?.startTime).toEqual(at("09:00"));
+  });
+
+  it("a private event next to the own step (merged by Google into one block) still warns for its own part", async () => {
+    // 09:00–09:45 = the own step 09:00–09:30 plus a private event 09:30–09:45.
+    googleBusy.mockImplementation(async () => ({
+      busy: [{ start: at("09:00").getTime(), end: at("09:45").getTime() }],
+      unavailable: false,
+    }));
+    const refused = await move(f.users.olga, f.ana.bookingId, at("09:15"));
+    expect(refused.status).toBe("needs_confirm");
+  });
+
+  it("a failed Google read keeps its whole-day block: the move still needs the override", async () => {
+    googleBusy.mockImplementation(async (_userId, day) => ({ busy: [day], unavailable: true }));
+    const refused = await move(f.users.olga, f.ana.bookingId, at("09:15"));
+    expect(refused).toMatchObject({ status: "needs_confirm", googleUnavailable: true });
+  });
+});

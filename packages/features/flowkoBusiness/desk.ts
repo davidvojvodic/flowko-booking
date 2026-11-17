@@ -22,6 +22,7 @@ import {
   normalize,
   roundDownToGrid,
   type ServiceStep,
+  subtract, // Flowko U30: R7
   totalMinutes,
   trustedSteps,
 } from "@calcom/lib/flowkoSalon";
@@ -493,6 +494,22 @@ async function buildView(
   const rowIds = new Set(rows.map((r) => r.booking.id));
   // Flowko U29e: E6, R9 — only live rows give a column-less (LOCKED) member a column.
   const isLive = (r: { booking: BookingRow }) => r.booking.status !== BookingStatus.CANCELLED;
+  // Flowko U30: R7 — a worker's holding salon bookings in view have their busy steps in her Google calendar as step
+  // events; those are not external busy time (a cancelled row's events are gone, so it contributes nothing).
+  const ownStepBusyByUser = new Map<number, Interval[]>();
+  for (const r of rows) {
+    if (!isLive(r) || r.booking.userId === null) continue;
+    const placed = r.booking.flowkoBookingSteps.map((s) => ({
+      index: s.index,
+      kind: s.kind,
+      start: s.startTime.getTime(),
+      end: s.endTime.getTime(),
+    }));
+    ownStepBusyByUser.set(r.booking.userId, [
+      ...(ownStepBusyByUser.get(r.booking.userId) ?? []),
+      ...busyIntervals(placed),
+    ]);
+  }
 
   // Columns: the active ones of each date, then LOCKED (or otherwise column-less) members with rows that date.
   const activeIds = new Set(loaded.flatMap((d) => d.workers.map((w) => w.memberId)));
@@ -564,7 +581,10 @@ async function buildView(
   ): DeskColumn => {
     const member = byMember.get(memberId);
     const g = userId === null ? undefined : google.get(userId);
-    const busy = userId === null ? [] : [...(otherBusyByUser.get(userId) ?? []), ...(g?.busy ?? [])];
+    // Flowko U30: R7 — the salon bookings' own step events are not external busy time.
+    const googleBusyOfColumn =
+      userId === null ? [] : subtract(g?.busy ?? [], ownStepBusyByUser.get(userId) ?? []);
+    const busy = userId === null ? [] : [...(otherBusyByUser.get(userId) ?? []), ...googleBusyOfColumn];
     return {
       memberId,
       displayName: member?.displayName ?? "",

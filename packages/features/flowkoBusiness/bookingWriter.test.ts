@@ -11,10 +11,12 @@ import { getBookerEventTitle } from "@calcom/emails/lib/getBookerEventTitle";
 import getICalUID from "@calcom/emails/lib/getICalUID";
 import type { ShiftEntry, WeekHours } from "@calcom/lib/flowkoBusiness/roster";
 import { wallClockToMs } from "@calcom/lib/flowkoSalon";
+import logger from "@calcom/lib/logger"; // Flowko U30
 import { Prisma } from "@calcom/prisma/client";
 import { BookingStatus, FlowkoBusinessRole, FlowkoMemberStatus } from "@calcom/prisma/enums";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bookingMail from "./bookingMail";
+import * as googleStepSync from "./googleStepSync"; // Flowko U30
 import {
   type CreateBookingInput,
   createBusinessBooking,
@@ -39,6 +41,12 @@ vi.mock("./bookingMail", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bookingMail")>()),
   sendBusinessBookingCreated: vi.fn(async () => undefined),
 }));
+// Flowko U30: the real sync stays in place (no Google credential, so it answers "none"); wrapped so a test can make it
+// throw or look at its arguments.
+vi.mock("./googleStepSync", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./googleStepSync")>();
+  return { ...real, syncBookingStepEvents: vi.fn(real.syncBookingStepEvents) };
+});
 // CalendarEventBuilder.fromBooking asks the feature flags (as the Task 4 mail test does).
 vi.mock("@calcom/features/flags/features.repository", () => ({
   FeaturesRepository: class {
@@ -177,6 +185,7 @@ let f: Fixture;
 let lockWorker: ReturnType<typeof vi.fn<NonNullable<WriterDeps["lockWorker"]>>>;
 let googleBusy: ReturnType<typeof vi.fn<NonNullable<WriterDeps["googleBusy"]>>>;
 const mailMock = vi.mocked(bookingMail.sendBusinessBookingCreated);
+const syncMock = vi.mocked(googleStepSync.syncBookingStepEvents); // Flowko U30
 /** The unmocked sender (its own imports, email-manager included, stay mocked as above). */
 const realCreatedSender = async () =>
   (await vi.importActual<typeof import("./bookingMail")>("./bookingMail")).sendBusinessBookingCreated;
@@ -186,6 +195,7 @@ beforeEach(async () => {
   lockWorker = vi.fn(async () => undefined);
   googleBusy = vi.fn(async () => ({ busy: [], unavailable: false }));
   mailMock.mockClear();
+  syncMock.mockClear(); // Flowko U30
   vi.mocked(emailManager.sendScheduledEmailsAndSMS).mockClear();
   globalThis.testEmails = [];
 });
@@ -855,6 +865,116 @@ describe("sharedDevice off (U29a S7)", () => {
     expect((await actionsOf(bookingId))[0]).toMatchObject({
       actorMemberId: f.members.cene,
       actorName: "Cene",
+    });
+  });
+});
+
+// Flowko U30: after the commit and the mails the writer brings the worker's Google calendar in line.
+describe("createBusinessBooking: Google step events after commit (U30)", () => {
+  const p2002 = () =>
+    new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002",
+      clientVersion: "test",
+      meta: { target: ["idempotencyKey"] },
+    });
+  /** A db whose transaction pushes "commit" to `events` once it has finished. */
+  const loggingDbOf = (events: string[]) =>
+    new Proxy(prismock, {
+      get(target, prop, receiver) {
+        if (prop === "$transaction") {
+          return async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) => {
+            const result = await prismock.$transaction(fn);
+            events.push("commit");
+            return result;
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as unknown as FlowkoDb;
+
+  it("syncGoogle runs once with the booking id, after the transaction and after the mail", async () => {
+    const events: string[] = [];
+    mailMock.mockImplementation(async () => {
+      events.push("mail");
+    });
+    const syncGoogle = vi.fn(async () => {
+      events.push("sync");
+    });
+
+    const result = await createBusinessBooking(loggingDbOf(events), f.users.olga, input(), NOW, {
+      lockWorker,
+      googleBusy,
+      syncGoogle,
+    });
+    if (result.status !== "created") throw new Error("expected created");
+    expect(syncGoogle).toHaveBeenCalledTimes(1);
+    expect(syncGoogle).toHaveBeenCalledWith(result.bookingId);
+    expect(events).toEqual(["commit", "mail", "sync"]);
+  });
+
+  it("sendMails false does not suppress the sync (it is not mail)", async () => {
+    const syncGoogle = vi.fn(async () => undefined);
+    await created(create(f.users.olga, {}, { sendMails: false, syncGoogle }));
+    expect(mailMock).not.toHaveBeenCalled();
+    expect(syncGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("not called on needs_confirm, on a thrown error or on duplicate_time", async () => {
+    const syncGoogle = vi.fn(async () => undefined);
+    // 16:00 is outside Ana's shift: nothing written.
+    const refused = await create(f.users.olga, { start: at("16:00") }, { syncGoogle });
+    expect(refused.status).toBe("needs_confirm");
+    await expectCode(create(f.users.ana, { workerMemberId: f.members.bor }, { syncGoogle }), "forbidden");
+    vi.spyOn(prismock.booking, "create").mockRejectedValueOnce(p2002());
+    await expectCode(create(f.users.olga, {}, { syncGoogle }), "duplicate_time");
+    expect(syncGoogle).not.toHaveBeenCalled();
+  });
+
+  it("a rejecting syncGoogle still answers created; logged by class only", async () => {
+    const logError = vi
+      .spyOn(Object.getPrototypeOf(logger) as { error: (...args: unknown[]) => unknown }, "error")
+      .mockImplementation(() => undefined);
+    const syncGoogle = vi.fn(async () => {
+      throw new TypeError("marija@example.com is not allowed");
+    });
+    const { bookingId } = await created(create(f.users.olga, {}, { syncGoogle }));
+    expect(await prismock.booking.findUnique({ where: { id: bookingId } })).not.toBeNull();
+    expect(logError).toHaveBeenCalledWith("google step events not synced", {
+      bookingId,
+      errorClass: "TypeError",
+    });
+  });
+
+  it("the default sync gets the writer's own db and the new id; its failure never undoes the booking", async () => {
+    const events: string[] = [];
+    const ownDb = loggingDbOf(events);
+    const logError = vi
+      .spyOn(Object.getPrototypeOf(logger) as { error: (...args: unknown[]) => unknown }, "error")
+      .mockImplementation(() => undefined);
+
+    const first = await createBusinessBooking(ownDb, f.users.olga, input(), NOW, {
+      lockWorker,
+      googleBusy,
+      sendMails: false,
+    });
+    if (first.status !== "created") throw new Error("expected created");
+    expect(syncMock).toHaveBeenCalledTimes(1);
+    expect(syncMock.mock.calls[0][0]).toBe(ownDb);
+    expect(syncMock.mock.calls[0][1]).toBe(first.bookingId);
+    expect(syncMock.mock.calls[0][2]).toBeInstanceOf(Date);
+
+    syncMock.mockRejectedValueOnce(new RangeError("boom for marija@example.com"));
+    const second = await createBusinessBooking(ownDb, f.users.olga, input({ start: at("11:00") }), NOW, {
+      lockWorker,
+      googleBusy,
+      sendMails: false,
+    });
+    expect(second.status).toBe("created");
+    if (second.status !== "created") return;
+    expect(await prismock.booking.findUnique({ where: { id: second.bookingId } })).not.toBeNull();
+    expect(logError).toHaveBeenCalledWith("google step events not synced", {
+      bookingId: second.bookingId,
+      errorClass: "RangeError",
     });
   });
 });
