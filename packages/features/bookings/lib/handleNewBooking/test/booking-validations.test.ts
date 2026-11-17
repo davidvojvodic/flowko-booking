@@ -275,7 +275,7 @@ describe("Booking Validation Specifications", () => {
         handleNewBooking({
           bookingData: mockBookingData,
         })
-      ).rejects.toThrow("Cannot use this email to create the booking.");
+      ).rejects.toThrow("booker_email_blocked"); // Flowko: the fork throws a translatable key
     });
   });
 
