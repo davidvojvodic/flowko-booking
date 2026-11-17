@@ -4,7 +4,7 @@ This repository is Flowko's fork of [Cal.diy](https://github.com/calcom/cal.diy)
 
 ## Upstream
 
-Synced to `calcom/cal.diy` commit `e8afecd163` (2026-11-03, "fix(bookings): send notification emails when calendar integrations fail (#30434)") by a merge commit (U16, 2026-11-03); first pinned to `54343aa685ae8f33159d2f485ec4a57bad5c574a` (2026-09-20). The `flowko` branch is upstream plus the changes below.
+Synced to `calcom/cal.diy` commit `ae027bb70e` (2026-11-14, "chore: remove unused support chat env vars from .env.example (#30478)") by a merge commit (2026-11-17; before that `e8afecd163` by U16, 2026-11-03); first pinned to `54343aa685ae8f33159d2f485ec4a57bad5c574a` (2026-09-20). The `flowko` branch is upstream plus the changes below.
 
 **How to sync upstream again:** merge, never rebase or cherry-pick. `flowko` is public and live, image tags are fork commit SHAs and this file cites fork commits. Work on a branch `sync/upstream-<sha>` in its own worktree with its own `yarn install` (never in the main checkout first: other worktrees symlink its node_modules). `git merge --no-ff upstream/main`, resolve keeping every change listed below, put Flowko's refusals of new upstream behaviour in separate commits with tests, run the gate, then merge into `flowko` with `--no-ff`. Watch for upstream code that reaches event contents, tokens, the booker's data or new sign-in paths without a textual conflict (U16 found one). Undo on `flowko` with `git revert -m 1 <merge>`, never a reset; the next sync then needs that revert reverted first.
 
@@ -822,6 +822,13 @@ Lines marked *planned* are not on `flowko` yet; each is updated when its change 
   - *Not covered (R9):* no backfill: appointments made before a worker connects Google get their events only when next moved. A worker who disconnects Google herself keeps the events already written. A worker who changes her destination calendar keeps older events in the old one. An event a worker deletes or edits in Google is not read back: nothing changes in Flowko (as before U30), and the next move or cancel writes or removes it again.
   - *Tests:* `packages/features/flowkoBusiness/` (`googleStepEvents`, `googleStepSync`, and the U30 cases in `bookingWriter`, `bookingChange`, `desk`, `disconnectGoogle`; one create, move, cancel case in `bookingWriter.integration-test.ts` with a fake Google calendar against a real Postgres, `VITEST_MODE=integration`).
   - *Rollback to U29j:* `railway service source connect --image ghcr.io/davidvojvodic/flowko-booking:92392eccc7a706408488d6349304045ffc272c02 --service web` (the U29j image). Nothing to undo in the database. Step events already written stay in the workers' Google calendars; after a rollback they are not moved or removed by the app (a worker can delete them by hand).
+
+- **Upstream sync to `ae027bb70e`** (David, 2026-11-17): 5 upstream commits merged (merge `d39fab6205`). Taken: the Twilio page, the SMS sender id and the unused Twilio, `NEXT_PUBLIC_SENDER_ID` and `DUB_SMS_*` environment variables removed (no Flowko code read any of them); `@calcom/atoms` no longer published; `BLACKLISTED_GUEST_EMAILS` parsed once in `packages/lib/getBlacklistedGuestEmails.ts` (whitespace trimmed, lower case); names, titles and booking answers inserted literally into custom event names (`literal()` in `eventNaming.ts`, `{Location}` replaced everywhere); unused support-chat variables dropped from `.env.example`. **No migration** (602 stays), no new environment variable, no new dependency. Resolutions:
+  - `turbo.json`: the Twilio and sender-id keys go, `TRUST_CLOUDFLARE_IP_HEADERS` stays in `globalEnv`.
+  - `checkIfUserEmailVerificationRequired.handler.ts`: upstream's lower-case comparison taken; the warning still names no address.
+  - `eventNaming.ts`: U14's translated `{Event duration}` kept and, like the other values, inserted through `literal()` (upstream inserts a plain English `n mins`).
+  - `.github/actions/yarn-playwright-install/action.yml`: upstream's change not taken, the fork has no `.github/actions` (U2).
+  - `booking-validations.test.ts`: upstream's new whitespace test expects the fork's `booker_email_blocked` key (`cbbff48c18`).
 
 ## API v2 must not be deployed
 

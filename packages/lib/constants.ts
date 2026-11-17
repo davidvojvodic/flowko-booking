@@ -39,7 +39,6 @@ export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Cal.diy";
 // Flowko: without the build arg this fell back to help@cal.com (U11)
 export const SUPPORT_MAIL_ADDRESS = process.env.NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS || "info@flowko.io";
 export const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || "Cal.com, Inc.";
-export const SENDER_ID = process.env.NEXT_PUBLIC_SENDER_ID || "Cal";
 export const SENDER_NAME = process.env.NEXT_PUBLIC_SENDGRID_SENDER_NAME || "Cal.diy";
 export const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || APP_NAME;
 
@@ -241,9 +240,6 @@ export const URL_SCANNING_ENABLED =
 
 export const IS_DUB_REFERRALS_ENABLED =
   !!process.env.NEXT_PUBLIC_DUB_PROGRAM_ID && process.env.NEXT_PUBLIC_DUB_PROGRAM_ID !== "";
-
-export const DUB_SMS_DOMAIN = process.env.DUB_SMS_DOMAIN;
-export const DUB_SMS_FOLDER_ID = process.env.DUB_SMS_FOLDER_ID;
 
 export const CAL_VIDEO_MEETING_LINK_FOR_TESTING = process.env.CAL_VIDEO_MEETING_LINK_FOR_TESTING;
 
