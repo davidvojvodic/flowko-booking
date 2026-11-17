@@ -1,6 +1,7 @@
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import { extractBaseEmail } from "@calcom/lib/extract-base-email";
+import { getBlacklistedGuestEmails } from "@calcom/lib/getBlacklistedGuestEmails";
 import getIP from "@calcom/lib/getIP";
 import logger from "@calcom/lib/logger";
 import { piiHasher } from "@calcom/lib/server/PiiHasher";
@@ -41,15 +42,11 @@ export const checkEmailVerificationRequired = async ({
 }) => {
   const baseEmail = extractBaseEmail(email);
 
-  const blacklistedGuestEmails = process.env.BLACKLISTED_GUEST_EMAILS
-    ? process.env.BLACKLISTED_GUEST_EMAILS.split(",")
-    : [];
-
-  const blacklistedEmail = blacklistedGuestEmails.find(
-    (guestEmail: string) => guestEmail.toLowerCase() === baseEmail.toLowerCase()
+  const blacklistedEmail = getBlacklistedGuestEmails().find(
+    (guestEmail) => guestEmail === baseEmail.toLowerCase()
   );
 
-  if (!!blacklistedEmail && blacklistedEmail !== userSessionEmail) {
+  if (!!blacklistedEmail && blacklistedEmail !== userSessionEmail?.toLowerCase()) {
     // Flowko: never log the address the booker typed
     log.warn("Booker email is blacklisted");
     return true;
