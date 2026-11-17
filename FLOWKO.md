@@ -4,7 +4,7 @@ This repository is Flowko's fork of [Cal.diy](https://github.com/calcom/cal.diy)
 
 ## Upstream
 
-Synced to `calcom/cal.diy` commit `e8afecd163` (2026-11-03, "fix(bookings): send notification emails when calendar integrations fail (#30434)") by a merge commit (U16, 2026-11-03); first pinned to `54343aa685ae8f33159d2f485ec4a57bad5c574a` (2026-09-20). The `flowko` branch is upstream plus the changes below.
+Synced to `calcom/cal.diy` commit `ae027bb70e` (2026-11-14, "chore: remove unused support chat env vars from .env.example (#30478)") by a merge commit (2026-11-17; before that `e8afecd163` by U16, 2026-11-03); first pinned to `54343aa685ae8f33159d2f485ec4a57bad5c574a` (2026-09-20). The `flowko` branch is upstream plus the changes below.
 
 **How to sync upstream again:** merge, never rebase or cherry-pick. `flowko` is public and live, image tags are fork commit SHAs and this file cites fork commits. Work on a branch `sync/upstream-<sha>` in its own worktree with its own `yarn install` (never in the main checkout first: other worktrees symlink its node_modules). `git merge --no-ff upstream/main`, resolve keeping every change listed below, put Flowko's refusals of new upstream behaviour in separate commits with tests, run the gate, then merge into `flowko` with `--no-ff`. Watch for upstream code that reaches event contents, tokens, the booker's data or new sign-in paths without a textual conflict (U16 found one). Undo on `flowko` with `git revert -m 1 <merge>`, never a reset; the next sync then needs that revert reverted first.
 
