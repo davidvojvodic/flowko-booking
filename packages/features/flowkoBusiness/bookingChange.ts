@@ -13,7 +13,16 @@
 // the business other than the booking's worker), stored as `details: { handoverToMemberId }`, so the desk day hides it.
 // Flowko U29e: E7 — after the customer's cancel, the business notice follows Cal's cancelled mails, only through
 // sendMailAfterCommit("cancel_notice") (its dynamic import and try/catch: nothing reaches /api/cancel's answer).
-import { type Interval, placeSteps, type ServiceStep, totalMinutes } from "@calcom/lib/flowkoSalon";
+// Flowko U30: create, cancel, customer cancel and move end with runGoogleSync (the worker's Google step events);
+// a move's fit leaves the booking's own busy steps out of Google busy (they are its own events).
+import {
+  busyIntervals, // Flowko U30: R6
+  type Interval,
+  placeSteps,
+  type ServiceStep,
+  subtract, // Flowko U30: R6
+  totalMinutes,
+} from "@calcom/lib/flowkoSalon";
 import { IdempotencyKeyService } from "@calcom/lib/idempotencyKey/idempotencyKeyService";
 import type { Prisma } from "@calcom/prisma/client";
 import {
@@ -35,6 +44,7 @@ import {
   placeVisitDay,
   problemKinds,
   resolveActor,
+  runGoogleSync, // Flowko U30
   sendMailAfterCommit,
   type WriteResult,
   type WriterDeps,
@@ -164,7 +174,7 @@ export async function cancelBusinessBooking(
   actorUserId: number,
   input: CancelBookingInput,
   now: Date,
-  deps: { sendMails?: boolean } = {}
+  deps: Pick<WriterDeps, "sendMails" | "syncGoogle"> = {} // Flowko U30: syncGoogle
 ): Promise<{ status: "cancelled" }> {
   if (!Number.isInteger(input.bookingId)) throw new FlowkoBusinessError("forbidden");
   const { access } = await requireBookingAccess(db, actorUserId, input.bookingId, "act");
@@ -189,6 +199,7 @@ export async function cancelBusinessBooking(
     )
   );
   if (deps.sendMails !== false) await sendMailAfterCommit("cancelled", ref.bookingId);
+  await runGoogleSync(db, deps, ref.bookingId); // Flowko U30
   return { status: "cancelled" };
 }
 
@@ -218,7 +229,7 @@ export async function cancelBusinessBookingAsCustomer(
   db: FlowkoDb,
   input: CustomerCancelInput,
   now: Date,
-  deps: { sendMails?: boolean } = {}
+  deps: Pick<WriterDeps, "sendMails" | "syncGoogle"> = {} // Flowko U30: syncGoogle
 ): Promise<{ status: "cancelled" }> {
   const ref = typeof input.uid === "string" ? await businessBookingByUid(db, input.uid) : null;
   if (!ref) throw new FlowkoBusinessError("not_business_booking");
@@ -254,6 +265,7 @@ export async function cancelBusinessBookingAsCustomer(
     await sendMailAfterCommit("cancelled", ref.bookingId);
     await sendMailAfterCommit("cancel_notice", ref.bookingId); // Flowko U29e: E7, R13 (after Cal's mails)
   }
+  await runGoogleSync(db, deps, ref.bookingId); // Flowko U30
   return { status: "cancelled" };
 }
 
@@ -335,6 +347,17 @@ async function moveInTx(
   const { fromStart, rows } = await readMovable(tx, ref.bookingId, now);
   const steps = stepsFromCopy(rows);
   const end = target.start + totalMinutes(steps) * MINUTE_MS;
+  // Flowko U30: R6 — the booking's own busy steps are in Google as its own events; they are not external busy time
+  // (unless Google could not be read: then the whole day stands in for the failure and stays as it is).
+  const ownBusy = busyIntervals(
+    rows.map((row) => ({
+      index: row.index,
+      kind: row.kind,
+      start: row.startTime.getTime(),
+      end: row.endTime.getTime(),
+    }))
+  );
+  const googleBusy = target.googleUnavailable ? target.googleBusy : subtract(target.googleBusy, ownBusy);
   if (end > target.dayEnd) throw new FlowkoBusinessError("bad_booking");
 
   // W3 under the lock, the booking itself left out.
@@ -345,7 +368,7 @@ async function moveInTx(
     userId: workerUserId,
     steps,
     start: target.start,
-    googleBusy: target.googleBusy,
+    googleBusy, // Flowko U30: R6
     googleUnavailable: target.googleUnavailable,
     now,
     exceptBookingId: ref.bookingId,
@@ -469,5 +492,6 @@ export async function moveBusinessBooking(
   }
 
   if (deps.sendMails !== false) await sendMailAfterCommit("moved", ref.bookingId);
+  await runGoogleSync(db, deps, ref.bookingId); // Flowko U30
   return { status: "moved", bookingId: ref.bookingId, uid: ref.uid };
 }

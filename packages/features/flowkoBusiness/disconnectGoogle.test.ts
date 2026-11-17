@@ -9,6 +9,10 @@ vi.mock("@calcom/features/credentials/handleDeleteCredential", () => {
   return { default: google.deleteCredential };
 });
 
+// Flowko U30: R8 — the step events are removed through googleStepSync.ts (it calls Google): mocked.
+const steps = vi.hoisted(() => ({ remove: vi.fn() }));
+vi.mock("./googleStepSync", () => ({ removeStepEventsOfUser: steps.remove }));
+
 import { disconnectGoogleOfUser } from "./disconnectGoogle";
 
 const METADATA = { defaultConferencingApp: { appSlug: "google-meet", appLink: "" } };
@@ -17,6 +21,8 @@ describe("disconnectGoogleOfUser", () => {
   beforeEach(() => {
     google.deleteCredential.mockReset();
     google.deleteCredential.mockResolvedValue(undefined);
+    steps.remove.mockReset();
+    steps.remove.mockResolvedValue("none");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
@@ -68,5 +74,81 @@ describe("disconnectGoogleOfUser", () => {
 
     await expect(disconnectGoogleOfUser(7)).resolves.toBe("failed");
     expect(google.deleteCredential).not.toHaveBeenCalled();
+  });
+
+  // Flowko U30: R8
+  describe("step events first", () => {
+    const CREDENTIALS = [{ id: 11 }, { id: 12 }];
+
+    beforeEach(() => {
+      prismaMock.credential.findMany.mockResolvedValue(CREDENTIALS as never);
+      prismaMock.user.findFirst.mockResolvedValue({ metadata: METADATA } as never);
+    });
+
+    it("removed → the credentials are deleted afterwards and the answer is disconnected", async () => {
+      const removeStepEvents = vi.fn(async () => "removed" as const);
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("disconnected");
+      expect(removeStepEvents).toHaveBeenCalledWith(7);
+      expect(google.deleteCredential).toHaveBeenCalledTimes(2);
+      expect(removeStepEvents.mock.invocationCallOrder[0]).toBeLessThan(
+        google.deleteCredential.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("unreachable (Google refuses the connection for good) → the credentials are deleted anyway", async () => {
+      const removeStepEvents = vi.fn(async () => "unreachable" as const);
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("disconnected");
+      expect(google.deleteCredential).toHaveBeenCalledTimes(2);
+    });
+
+    it("none (nothing to remove, or no Google target) → the credentials are deleted", async () => {
+      const removeStepEvents = vi.fn(async () => "none" as const);
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("disconnected");
+      expect(google.deleteCredential).toHaveBeenCalledTimes(2);
+    });
+
+    it("failed → no credential is deleted and the answer is failed; a later retry removes them", async () => {
+      const removeStepEvents = vi
+        .fn<(userId: number) => Promise<"none" | "removed" | "failed">>()
+        .mockResolvedValueOnce("failed")
+        .mockResolvedValueOnce("removed");
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("failed");
+      expect(google.deleteCredential).not.toHaveBeenCalled();
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("disconnected");
+      expect(google.deleteCredential).toHaveBeenCalledTimes(2);
+    });
+
+    it("a throwing removal answers failed without deleting anything, logged by class only", async () => {
+      const removeStepEvents = vi.fn(async () => {
+        throw new TypeError("token for marija@example.com");
+      });
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("failed");
+      expect(google.deleteCredential).not.toHaveBeenCalled();
+    });
+
+    it("no credential: the removal is not asked", async () => {
+      prismaMock.credential.findMany.mockResolvedValue([] as never);
+      const removeStepEvents = vi.fn(async () => "removed" as const);
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("none");
+      expect(removeStepEvents).not.toHaveBeenCalled();
+    });
+
+    it("the default removal is removeStepEventsOfUser on the global client for this user, with the current time", async () => {
+      steps.remove.mockResolvedValue("removed");
+      const before = Date.now();
+      await expect(disconnectGoogleOfUser(7)).resolves.toBe("disconnected");
+      expect(steps.remove).toHaveBeenCalledTimes(1);
+      const [client, userId, now] = steps.remove.mock.calls[0] as [unknown, number, Date];
+      expect(client).toBe(prismaMock);
+      expect(userId).toBe(7);
+      expect(now).toBeInstanceOf(Date);
+      expect(now.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it("the default removal answering failed keeps the credentials", async () => {
+      steps.remove.mockResolvedValue("failed");
+      await expect(disconnectGoogleOfUser(7)).resolves.toBe("failed");
+      expect(google.deleteCredential).not.toHaveBeenCalled();
+    });
   });
 });

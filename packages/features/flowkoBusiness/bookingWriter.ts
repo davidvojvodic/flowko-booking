@@ -8,6 +8,8 @@
 // writers (bookingChange.ts) reuse the worker rule, the sentinel and the mail helper. Server only.
 // Flowko U28: no start before `now` on the business grid (R6, in_past, never overridable), needs_confirm tells
 // whether Google could not be read (R7), and a WORKER may not name another member as the actor (R9).
+// Flowko U30: after the commit (and the mails) the writers bring the worker's Google calendar in line with the
+// booking (googleStepSync.ts, through syncGoogleAfterCommit, which never throws).
 import getICalUID from "@calcom/emails/lib/getICalUID";
 import { getEventName } from "@calcom/features/eventtypes/lib/eventNaming";
 import { getTranslation } from "@calcom/i18n/server";
@@ -91,6 +93,8 @@ export type WriterDeps = {
   lockWorker?: (tx: Prisma.TransactionClient, userId: number) => Promise<void>;
   googleBusy?: typeof googleBusyFor;
   sendMails?: boolean;
+  /** Flowko U30: runs after the commit and the mails; default syncGoogleAfterCommit with the writer's own db. */
+  syncGoogle?: (bookingId: number) => Promise<unknown>;
 };
 
 /** D1: true for a unique violation of Booking.idempotencyKey, in the classic and in the driver-adapter form. */
@@ -144,6 +148,62 @@ export async function sendMailAfterCommit(kind: BusinessMailKind, bookingId: num
       bookingId,
       errorClass: error instanceof Error ? error.name : typeof error,
     });
+  }
+}
+
+/**
+ * Flowko U30: brings the worker's Google calendar in line with a committed business booking (googleStepSync.ts).
+ * Uses the writer's own `db`, never the global client. Loading the module and syncing sit inside one try/catch: a
+ * failure is logged (booking id, error class) and never rejects the writer's call, whose booking is committed.
+ */
+export async function syncGoogleAfterCommit(db: FlowkoDb, bookingId: number): Promise<void> {
+  try {
+    const sync = await import("./googleStepSync");
+    await sync.syncBookingStepEvents(db, bookingId, new Date());
+  } catch (error) {
+    log.error("google step events not synced", {
+      bookingId,
+      errorClass: error instanceof Error ? error.name : typeof error,
+    });
+  }
+}
+
+// Flowko U30: how long a writer waits for the Google sync (the sync itself carries on after this).
+const GOOGLE_SYNC_WAIT_MS = 10_000;
+
+/**
+ * Flowko U30: the writers' one call after the mails: the injected `syncGoogle`, else the default; never rejects.
+ * The writer waits at most 10 s for it: when it is slower the writer answers and logs "google step events sync
+ * slow" (booking id only); the sync is not cancelled and finishes on its own.
+ */
+export async function runGoogleSync(
+  db: FlowkoDb,
+  deps: Pick<WriterDeps, "syncGoogle">,
+  bookingId: number
+): Promise<void> {
+  const sync =
+    deps.syncGoogle === undefined
+      ? syncGoogleAfterCommit(db, bookingId)
+      : (async () => {
+          try {
+            await deps.syncGoogle?.(bookingId);
+          } catch (error) {
+            log.error("google step events not synced", {
+              bookingId,
+              errorClass: error instanceof Error ? error.name : typeof error,
+            });
+          }
+        })();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const slow = new Promise<"slow">((resolve) => {
+    timer = setTimeout(() => resolve("slow"), GOOGLE_SYNC_WAIT_MS);
+  });
+  try {
+    if ((await Promise.race([sync.then(() => "done" as const), slow])) === "slow") {
+      log.error("google step events sync slow", { bookingId });
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -534,5 +594,6 @@ export async function createBusinessBooking(
   }
 
   if (deps.sendMails !== false) await sendMailAfterCommit("created", written.bookingId);
+  await runGoogleSync(db, deps, written.bookingId); // Flowko U30
   return { status: "created", ...written };
 }

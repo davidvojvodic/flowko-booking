@@ -35,6 +35,8 @@ import {
 import { addLoginMember, createBusiness, createDeskOnlyWorker } from "./business";
 import type { FlowkoDb } from "./db";
 import type { FlowkoBusinessError } from "./errors";
+import { stepEventId } from "./googleStepEvents"; // Flowko U30
+import { type StepCalendar, syncBookingStepEvents } from "./googleStepSync"; // Flowko U30
 import { setMemberLock } from "./lock";
 import { setUsualWeek } from "./roster";
 
@@ -663,6 +665,18 @@ describe("U22: a business booking's reminder, before and after a move", () => {
     // Made 25 h ahead, then set back 2 h (the 60-minute gap of U22): the database stamped real time.
     const madeAt = new Date(s1.getTime() - 27 * HOUR_MS);
     await prisma.$executeRaw`UPDATE "Booking" SET "createdAt" = ${madeAt}, "updatedAt" = ${madeAt} WHERE id = ${booking.bookingId}`;
+    // Flowko U30: date-independent (join time before the backdated booking): a booking made before its organizer
+    // joined stays private (access.ts mayOnBooking), so the worker's join time goes back before madeAt too.
+    const joinedAt = (
+      await prisma.flowkoBusinessMember.findUniqueOrThrow({
+        where: { id: fx.members.ana },
+        select: { createdAt: true },
+      })
+    ).createdAt;
+    await prisma.flowkoBusinessMember.update({
+      where: { id: fx.members.ana },
+      data: { createdAt: new Date(Math.min(joinedAt.getTime(), madeAt.getTime() - HOUR_MS)) },
+    });
 
     const dueAt = (start: Date) => new Date(start.getTime() - 24 * HOUR_MS + 60_000);
     const selected = (now: Date) =>
@@ -965,5 +979,87 @@ describe("U29j: no mail for a desk-only worker and a phone-only customer", () =>
     await cancelBusinessBooking(prisma, fx.olga, { bookingId: control.bookingId }, NOW);
     expect(mailSpy.calls).toEqual(["sendBusinessBookingCancelled"]);
     expectMailToCustomerOnly(customer.email);
+  });
+});
+
+// Flowko U30: create, move and cancel through the real writers on Postgres, with Google replaced by a fake calendar
+// that behaves like Google (update 404 for an unknown id, insert 409 for a known one, delete 404 for an unknown one).
+describe("U30: Google step events through create, move and cancel", () => {
+  it("one id set across the three syncs, the last one deletes every step id; the booking rows are as before U30", async () => {
+    const known = new Map<string, Record<string, unknown>>();
+    const deleted: string[] = [];
+    // Flowko U30: the shape of a real gaxios 6 HTTP error (numeric status and response.status, no code).
+    const gone = (status: number) =>
+      Object.assign(new Error(`Request failed with status code ${status}`), { status, response: { status } });
+    const calendar: StepCalendar = {
+      calendarId: "primary",
+      events: {
+        update: async (args: { eventId: string; requestBody: Record<string, unknown> }) => {
+          if (!known.has(args.eventId)) throw gone(404);
+          known.set(args.eventId, args.requestBody);
+        },
+        insert: async (args: { requestBody: Record<string, unknown> }) => {
+          const id = String(args.requestBody.id);
+          if (known.has(id)) throw gone(409);
+          known.set(id, args.requestBody);
+        },
+        delete: async (args: { eventId: string }) => {
+          deleted.push(args.eventId);
+          if (!known.delete(args.eventId)) throw gone(410);
+        },
+      } as unknown as StepCalendar["events"],
+    };
+    const syncGoogle = (bookingId: number) =>
+      syncBookingStepEvents(prisma, bookingId, NOW, { target: async () => calendar });
+    const deps: WriterDeps = { ...quiet, syncGoogle };
+
+    const { bookingId, uid } = await created(
+      create({ serviceIds: [fx.services.colouring], start: at(THU, "08:00") }, deps)
+    );
+    const busyIds = [0, 2].map((index) => stepEventId(uid, index));
+    expect(Array.from(known.keys()).sort()).toEqual([...busyIds].sort());
+    const startOf = (id: string) => (known.get(id)?.start as { dateTime: string }).dateTime;
+    expect(busyIds.map(startOf)).toEqual([at(THU, "08:00").toISOString(), at(THU, "09:10").toISOString()]);
+    for (const body of Array.from(known.values())) {
+      expect(body).not.toHaveProperty("attendees");
+      expect(JSON.stringify(body)).not.toContain(uid);
+    }
+
+    const moved = await moveBusinessBooking(
+      prisma,
+      fx.olga,
+      { bookingId, start: at(THU, "08:15"), confirmOverride: false },
+      NOW,
+      deps
+    );
+    expect(moved.status).toBe("moved");
+    expect(Array.from(known.keys()).sort()).toEqual([...busyIds].sort());
+    expect(busyIds.map(startOf)).toEqual([at(THU, "08:15").toISOString(), at(THU, "09:25").toISOString()]);
+
+    await cancelBusinessBooking(prisma, fx.olga, { bookingId }, NOW, deps);
+    expect(known.size).toBe(0);
+    expect(deleted.sort()).toEqual([0, 1, 2].map((index) => stepEventId(uid, index)).sort());
+
+    // The booking rows: what U27 wrote, and nothing of Google's.
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        status: true,
+        flowkoBookingSteps: { select: { index: true, kind: true }, orderBy: { index: "asc" } },
+        flowkoBookingActions: { select: { action: true }, orderBy: { id: "asc" } },
+      },
+    });
+    expect(booking?.status).toBe(BookingStatus.CANCELLED);
+    expect(booking?.flowkoBookingSteps.map((step) => [step.index, step.kind])).toEqual([
+      [0, "busy"],
+      [1, "processing"],
+      [2, "busy"],
+    ]);
+    expect(booking?.flowkoBookingActions.map((row) => row.action)).toEqual([
+      "CREATED",
+      "RESCHEDULED",
+      "CANCELLED",
+    ]);
+    expect(await prisma.bookingReference.count({ where: { bookingId } })).toBe(0);
   });
 });

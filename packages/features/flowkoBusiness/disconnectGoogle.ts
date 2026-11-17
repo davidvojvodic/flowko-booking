@@ -5,6 +5,11 @@
 // after the lock has committed, and a failure leaves the lock in effect (answer "failed"; locking again re-runs
 // only this). Uses the global client (P1 exception). The delete path is imported lazily, only when there is
 // something to delete (it loads the app store). Server only.
+// Flowko U30: before any credential is removed, the step events of the user's salon appointments that are not over
+// (googleStepSync.ts) are deleted from her Google calendar; if that fails, nothing is removed and the answer is
+// "failed" (the lock stays; locking again retries both). Past appointments' events stay, as on a disconnect.
+// When Google refuses the connection for good (grant revoked or expired, no access to the calendar) the events
+// cannot be deleted: the sync answers "unreachable" and the credentials are removed anyway.
 import logger from "@calcom/lib/logger";
 import { prisma } from "@calcom/prisma";
 import type { Prisma } from "@calcom/prisma/client";
@@ -30,7 +35,13 @@ function loggable(error: unknown): { errorClass: string; code?: string } {
  * "none" when the user has no Google credential, "disconnected" when every one was removed, "failed" when any
  * removal (or the lookup) threw; the other credentials are still tried. Never rejects.
  */
-export async function disconnectGoogleOfUser(userId: number): Promise<GoogleDisconnect> {
+export async function disconnectGoogleOfUser(
+  userId: number,
+  // Flowko U30: R8
+  deps: {
+    removeStepEvents?: (userId: number) => Promise<"none" | "removed" | "unreachable" | "failed">;
+  } = {}
+): Promise<GoogleDisconnect> {
   let credentials: { id: number }[];
   let userMetadata: Prisma.JsonValue;
   try {
@@ -48,6 +59,19 @@ export async function disconnectGoogleOfUser(userId: number): Promise<GoogleDisc
     userMetadata = user?.metadata ?? null;
   } catch (error) {
     log.error("Google credential lookup failed", loggable(error));
+    return "failed";
+  }
+
+  // Flowko U30: R8 — the step events first; a failure keeps every credential ("unreachable": Google refuses the
+  // connection for good, so the events cannot be deleted and the removal goes on).
+  try {
+    const removeStepEvents =
+      deps.removeStepEvents ??
+      (async (id: number) =>
+        (await import("./googleStepSync")).removeStepEventsOfUser(prisma, id, new Date()));
+    if ((await removeStepEvents(userId)) === "failed") return "failed";
+  } catch (error) {
+    log.error("Google step events not removed", loggable(error));
     return "failed";
   }
 

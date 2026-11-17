@@ -1053,6 +1053,39 @@ describe("getDeskDay: Google (R3)", () => {
     });
   });
 
+  // Flowko U30: R7 — Ana's Barvanje 09:00 has busy steps 09:00–09:30 and 10:10–10:40 (its Google step events); her
+  // cancelled men's cut 12:00–12:30 has no events any more.
+  it("the busy steps of a holding salon booking are no grey block; other Google events and a cancelled row's time are", async () => {
+    googleBusy.mockImplementation(async (userId) =>
+      userId === f.users.ana
+        ? {
+            busy: [
+              { start: ms("09:00"), end: ms("09:30") },
+              { start: ms("10:10"), end: ms("10:40") },
+              { start: ms("12:00"), end: ms("12:30") },
+              { start: ms("15:00"), end: ms("16:00") },
+            ],
+            unavailable: false,
+          }
+        : { busy: [], unavailable: false }
+    );
+    const view = await day(f.users.olga);
+    expect(columnOf(view, f.members.ana).otherBusy).toEqual([
+      { start: ms("12:00"), end: ms("12:30") },
+      { start: ms("15:00"), end: ms("16:00") },
+    ]);
+  });
+
+  it("a private Google event touching a step event keeps only its own part as a grey block", async () => {
+    googleBusy.mockImplementation(async (userId) =>
+      userId === f.users.ana
+        ? { busy: [{ start: ms("09:00"), end: ms("09:45") }], unavailable: false }
+        : { busy: [], unavailable: false }
+    );
+    const view = await day(f.users.olga);
+    expect(columnOf(view, f.members.ana).otherBusy).toEqual([{ start: ms("09:30"), end: ms("09:45") }]);
+  });
+
   it("a failing Google (the whole-day failure shape) → googleUnavailable, only booking-derived busy", async () => {
     googleBusy.mockImplementation(async (userId, range) =>
       userId === f.users.olga ? { busy: [range], unavailable: true } : { busy: [], unavailable: false }
