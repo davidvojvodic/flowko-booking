@@ -31,7 +31,10 @@ export function stepEventId(bookingUid: string, stepIndex: number): string {
 
 /** R10: one word as is; several: the first word, then the upper-cased first character of the last word and a dot. */
 export function shortCustomerName(name: string): string {
-  const words = name.trim().split(/\s+/).filter((word) => word !== "");
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word !== "");
   if (words.length === 0) return "Stranka";
   if (words.length === 1) return words[0];
   const [initial] = Array.from(words[words.length - 1]);
