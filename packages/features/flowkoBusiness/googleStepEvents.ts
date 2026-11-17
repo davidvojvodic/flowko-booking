@@ -55,7 +55,8 @@ export function stepEventsFor(input: {
   const services = Array.from(new Set(ordered.map((step) => step.serviceName))).join(" + ");
   const who = shortCustomerName(input.customerName);
   return busy.map((step, position) => {
-    const part = busy.length > 1 ? ` — ${position + 1}. del od ${busy.length}` : "";
+    // Flowko U30: no dash in the visit line, the counter in brackets
+    const part = busy.length > 1 ? ` (${position + 1}. del od ${busy.length})` : "";
     return {
       id: stepEventId(input.uid, step.index),
       summary: `${step.serviceName} – ${who}`,

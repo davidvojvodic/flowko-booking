@@ -58,9 +58,9 @@ describe("stepEventsFor", () => {
     expect(events[0].summary).toBe("Barvanje – Ana K.");
     expect(events[2].summary).toBe("Striženje – Ana K.");
     expect(events[0].description).toBe(
-      "Salon Demo\nObisk: Barvanje + Striženje — 1. del od 3\nTermin uredite v Flowku: https://x.test/koledar"
+      "Salon Demo\nObisk: Barvanje + Striženje (1. del od 3)\nTermin uredite v Flowku: https://x.test/koledar"
     );
-    expect(events[1].description).toContain("2. del od 3");
+    expect(events[1].description).toContain("(2. del od 3)");
     expect(events[0].start).toEqual({ dateTime: d("10:00").toISOString(), timeZone: TZ });
     expect(events[0].end).toEqual({ dateTime: d("10:30").toISOString(), timeZone: TZ });
     for (const e of events) {
@@ -76,7 +76,7 @@ describe("stepEventsFor", () => {
     const [event] = stepEventsFor({ ...input, steps: [steps[0], steps[1]] });
     expect(event.description.split("\n")[1]).toBe("Obisk: Barvanje");
     const dup = stepEventsFor({ ...input, steps });
-    expect(dup[0].description.split("\n")[1]).toBe("Obisk: Barvanje + Striženje — 1. del od 3");
+    expect(dup[0].description.split("\n")[1]).toBe("Obisk: Barvanje + Striženje (1. del od 3)");
   });
 
   it("orders by index even when the input is shuffled", () => {

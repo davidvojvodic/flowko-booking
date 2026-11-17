@@ -945,6 +945,44 @@ describe("createBusinessBooking: Google step events after commit (U30)", () => {
     });
   });
 
+  // Flowko U30: the awaited sync is limited to 10 s; it carries on afterwards.
+  describe("a sync that does not finish in time", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("an injected sync that never settles: the writer answers created after 10 s, logged by booking id only", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const logError = vi
+        .spyOn(Object.getPrototypeOf(logger) as { error: (...args: unknown[]) => unknown }, "error")
+        .mockImplementation(() => undefined);
+      const syncGoogle = vi.fn(() => new Promise<void>(() => undefined));
+      const pending = create(f.users.olga, {}, { syncGoogle });
+      await vi.waitFor(() => expect(syncGoogle).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(10_000);
+      const { bookingId } = await created(pending);
+      expect(await prismock.booking.findUnique({ where: { id: bookingId } })).not.toBeNull();
+      expect(logError).toHaveBeenCalledWith("google step events sync slow", { bookingId });
+    });
+
+    it("the default sync that never settles: the same", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      syncMock.mockImplementationOnce(() => new Promise(() => undefined));
+      const pending = create(f.users.olga, {}, {});
+      await vi.waitFor(() => expect(syncMock).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(10_000);
+      const { bookingId } = await created(pending);
+      expect(await prismock.booking.findUnique({ where: { id: bookingId } })).not.toBeNull();
+    });
+
+    it("a sync that finishes in time leaves no timer behind", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const syncGoogle = vi.fn(async () => undefined);
+      await created(create(f.users.olga, {}, { syncGoogle }));
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
   it("the default sync gets the writer's own db and the new id; its failure never undoes the booking", async () => {
     const events: string[] = [];
     const ownDb = loggingDbOf(events);

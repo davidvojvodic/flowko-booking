@@ -95,6 +95,12 @@ describe("disconnectGoogleOfUser", () => {
       );
     });
 
+    it("unreachable (Google refuses the connection for good) → the credentials are deleted anyway", async () => {
+      const removeStepEvents = vi.fn(async () => "unreachable" as const);
+      await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("disconnected");
+      expect(google.deleteCredential).toHaveBeenCalledTimes(2);
+    });
+
     it("none (nothing to remove, or no Google target) → the credentials are deleted", async () => {
       const removeStepEvents = vi.fn(async () => "none" as const);
       await expect(disconnectGoogleOfUser(7, { removeStepEvents })).resolves.toBe("disconnected");

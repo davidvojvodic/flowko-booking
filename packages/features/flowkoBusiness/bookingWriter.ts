@@ -168,20 +168,42 @@ export async function syncGoogleAfterCommit(db: FlowkoDb, bookingId: number): Pr
   }
 }
 
-/** Flowko U30: the writers' one call after the mails: the injected `syncGoogle`, else the default; never rejects. */
+// Flowko U30: how long a writer waits for the Google sync (the sync itself carries on after this).
+const GOOGLE_SYNC_WAIT_MS = 10_000;
+
+/**
+ * Flowko U30: the writers' one call after the mails: the injected `syncGoogle`, else the default; never rejects.
+ * The writer waits at most 10 s for it: when it is slower the writer answers and logs "google step events sync
+ * slow" (booking id only); the sync is not cancelled and finishes on its own.
+ */
 export async function runGoogleSync(
   db: FlowkoDb,
   deps: Pick<WriterDeps, "syncGoogle">,
   bookingId: number
 ): Promise<void> {
-  if (deps.syncGoogle === undefined) return syncGoogleAfterCommit(db, bookingId);
+  const sync =
+    deps.syncGoogle === undefined
+      ? syncGoogleAfterCommit(db, bookingId)
+      : (async () => {
+          try {
+            await deps.syncGoogle?.(bookingId);
+          } catch (error) {
+            log.error("google step events not synced", {
+              bookingId,
+              errorClass: error instanceof Error ? error.name : typeof error,
+            });
+          }
+        })();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const slow = new Promise<"slow">((resolve) => {
+    timer = setTimeout(() => resolve("slow"), GOOGLE_SYNC_WAIT_MS);
+  });
   try {
-    await deps.syncGoogle(bookingId);
-  } catch (error) {
-    log.error("google step events not synced", {
-      bookingId,
-      errorClass: error instanceof Error ? error.name : typeof error,
-    });
+    if ((await Promise.race([sync.then(() => "done" as const), slow])) === "slow") {
+      log.error("google step events sync slow", { bookingId });
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 

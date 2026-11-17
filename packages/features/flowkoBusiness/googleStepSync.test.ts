@@ -119,6 +119,9 @@ async function insertBooking(over: {
   return booking;
 }
 
+// Flowko U30: the shape of a real gaxios 6 HTTP error: numeric `status` and `response.status`, no `code`.
+const gx = (s: number) =>
+  Object.assign(new Error(`Request failed with status code ${s}`), { status: s, response: { status: s } });
 const ids = (uid: string, indexes: number[]) => indexes.map((i) => stepEventId(uid, i));
 const withTarget = (value: StepCalendar | null = target) => ({ target: async () => value });
 
@@ -175,7 +178,7 @@ describe("syncBookingStepEvents", () => {
 
   it("update 404 -> insert with the step id; insert 409 -> one more update", async () => {
     const booking = await insertBooking({ steps: [THREE[0]] });
-    events.update.mockRejectedValueOnce({ code: 404 });
+    events.update.mockRejectedValueOnce(gx(404));
     await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
     expect(calls.map((c) => c.op)).toEqual(["insert"]);
     expect((calls[0].args.requestBody as { id: string }).id).toBe(stepEventId(booking.uid, 0));
@@ -184,8 +187,8 @@ describe("syncBookingStepEvents", () => {
     calls.length = 0;
     events.update.mockClear();
     events.insert.mockClear();
-    events.update.mockRejectedValueOnce({ code: 404 });
-    events.insert.mockRejectedValueOnce({ code: 409 });
+    events.update.mockRejectedValueOnce(gx(404));
+    events.insert.mockRejectedValueOnce(gx(409));
     await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
     expect(events.update).toHaveBeenCalledTimes(2); // the 404, then the update after the insert's 409
     expect(events.insert).toHaveBeenCalledTimes(1);
@@ -193,9 +196,16 @@ describe("syncBookingStepEvents", () => {
     expect((calls[0].args.requestBody as { status: string }).status).toBe("confirmed");
   });
 
+  it("a string status code (some client versions) is read as well", async () => {
+    const booking = await insertBooking({ steps: [THREE[0]] });
+    events.update.mockRejectedValueOnce({ code: "404" });
+    await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
+    expect(calls.map((c) => c.op)).toEqual(["insert"]);
+  });
+
   it("a CANCELLED booking deletes every step id; 404 and 410 count as done", async () => {
     const booking = await insertBooking({ status: BookingStatus.CANCELLED });
-    events.delete.mockRejectedValueOnce({ code: 410 }).mockRejectedValueOnce({ code: 404 });
+    events.delete.mockRejectedValueOnce(gx(410)).mockRejectedValueOnce(gx(404));
     await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
     expect(events.delete).toHaveBeenCalledTimes(3);
     expect(events.delete.mock.calls.map((c) => (c[0] as { eventId: string }).eventId)).toEqual(
@@ -226,7 +236,7 @@ describe("syncBookingStepEvents", () => {
   it("a failing step does not stop the next one; failed, logged once without customer data", async () => {
     const booking = await insertBooking({});
     events.update.mockRejectedValueOnce(
-      Object.assign(new Error("Marija Novak calendar-secret@example.com is not allowed"), { code: 500 })
+      Object.assign(gx(500), { message: "Marija Novak calendar-secret@example.com is not allowed" })
     );
     await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("failed");
     expect(events.update).toHaveBeenCalledTimes(2);
@@ -247,6 +257,66 @@ describe("syncBookingStepEvents", () => {
     };
     await expect(syncBookingStepEvents(db, booking.id, NOW, throwing)).resolves.toBe("failed");
     expect(JSON.stringify(logError.mock.calls)).not.toContain("marija@example.com");
+  });
+
+  // Flowko U30: two changes to one booking racing: the pass that finishes last re-reads the booking once.
+  describe("a change that lands while the sync runs", () => {
+    it("the booking is cancelled meanwhile: the second pass deletes every step id", async () => {
+      const booking = await insertBooking({});
+      events.update.mockImplementationOnce(async (args: Record<string, unknown>) => {
+        calls.push({ op: "update", args });
+        await prismock.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CANCELLED },
+        });
+      });
+      await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
+      expect(calls.map((c) => c.op)).toEqual(["update", "update", "delete", "delete", "delete"]);
+      expect(calls.slice(2).map((c) => c.args.eventId)).toEqual(ids(booking.uid, [0, 1, 2]));
+    });
+
+    it("the booking is moved meanwhile: the second pass puts the new times", async () => {
+      const booking = await insertBooking({ steps: [THREE[0]] });
+      const moved = { start: d("14:00"), end: d("14:30") };
+      events.update.mockImplementationOnce(async (args: Record<string, unknown>) => {
+        calls.push({ op: "update", args });
+        await prismock.booking.update({
+          where: { id: booking.id },
+          data: { startTime: moved.start, endTime: moved.end },
+        });
+        await prismock.flowkoBookingStep.updateMany({
+          where: { bookingId: booking.id },
+          data: { startTime: moved.start, endTime: moved.end },
+        });
+      });
+      await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
+      expect(calls.map((c) => c.op)).toEqual(["update", "update"]);
+      expect((calls[0].args.requestBody as { start: { dateTime: string } }).start.dateTime).toBe(
+        d("09:00").toISOString()
+      );
+      expect((calls[1].args.requestBody as { start: { dateTime: string } }).start.dateTime).toBe(
+        moved.start.toISOString()
+      );
+    });
+
+    it("an unchanged booking is synced once; a booking that keeps changing is re-run at most once", async () => {
+      const booking = await insertBooking({ steps: [THREE[0]] });
+      await syncBookingStepEvents(db, booking.id, NOW, withTarget());
+      expect(calls).toHaveLength(1);
+
+      calls.length = 0;
+      let minutes = 0;
+      events.update.mockImplementation(async (args: Record<string, unknown>) => {
+        calls.push({ op: "update", args });
+        minutes += 5;
+        await prismock.booking.update({
+          where: { id: booking.id },
+          data: { startTime: new Date(d("09:00").getTime() + minutes * 60_000) },
+        });
+      });
+      await expect(syncBookingStepEvents(db, booking.id, NOW, withTarget())).resolves.toBe("synced");
+      expect(calls).toHaveLength(2);
+    });
   });
 });
 
@@ -270,7 +340,7 @@ describe("removeStepEventsOfUser", () => {
 
   it("a failing delete answers failed; no target and nothing to delete answer none", async () => {
     await insertBooking({});
-    events.delete.mockRejectedValueOnce({ code: 500 });
+    events.delete.mockRejectedValueOnce(gx(500));
     await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget())).resolves.toBe("failed");
     expect(events.delete).toHaveBeenCalledTimes(3);
     await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget(null))).resolves.toBe("none");
@@ -279,14 +349,77 @@ describe("removeStepEventsOfUser", () => {
     await expect(removeStepEventsOfUser(db, stranger, NOW, withTarget())).resolves.toBe("none");
   });
 
-  it("a throwing target answers failed", async () => {
+  // Flowko U30: R8 — Google refusing the connection for good must not keep the lock "failed" for ever.
+  const storeGoogleCredential = async (invalid: boolean) => {
+    seq += 1;
+    await prismock.credential.create({
+      data: {
+        id: 9000 + seq,
+        type: "google_calendar",
+        key: {},
+        userId: f.ana,
+        appId: "google-calendar",
+        invalid,
+      },
+    });
+  };
+  const gx403 = (reason: string) =>
+    Object.assign(gx(403), { response: { status: 403, data: { error: { errors: [{ reason }] } } } });
+
+  it("every delete refused with 401: unreachable (the grant is gone); logged by class and code only", async () => {
     await insertBooking({});
+    events.delete.mockRejectedValue(gx(401));
+    await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget())).resolves.toBe("unreachable");
+    expect(events.delete).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(logError.mock.calls)).not.toContain("Request failed");
+  });
+
+  it("invalid_grant (400) counts as refused for good", async () => {
+    await insertBooking({});
+    events.delete.mockRejectedValue(
+      Object.assign(gx(400), { response: { status: 400, data: { error: "invalid_grant" } } })
+    );
+    await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget())).resolves.toBe("unreachable");
+  });
+
+  it("403 for a rate limit: failed (retry later)", async () => {
+    await insertBooking({});
+    events.delete.mockRejectedValue(gx403("rateLimitExceeded"));
+    await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget())).resolves.toBe("failed");
+  });
+
+  it("403 for another reason (no access to the calendar): unreachable", async () => {
+    await insertBooking({});
+    events.delete.mockRejectedValue(gx403("forbidden"));
+    await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget())).resolves.toBe("unreachable");
+  });
+
+  it("one refused delete among other failures: failed", async () => {
+    await insertBooking({});
+    events.delete.mockRejectedValueOnce(gx(401)).mockRejectedValueOnce(gx(500));
+    await expect(removeStepEventsOfUser(db, f.ana, NOW, withTarget())).resolves.toBe("failed");
+  });
+
+  it("a throwing target: failed while her stored credential is still valid", async () => {
+    await insertBooking({});
+    await storeGoogleCredential(false);
     const throwing = {
       target: async () => {
         throw new Error("no token");
       },
     };
     await expect(removeStepEventsOfUser(db, f.ana, NOW, throwing)).resolves.toBe("failed");
+  });
+
+  it("a throwing target: unreachable once her stored credential is invalid (or gone)", async () => {
+    await insertBooking({});
+    const throwing = {
+      target: async () => {
+        throw new Error("no token");
+      },
+    };
+    await storeGoogleCredential(true);
+    await expect(removeStepEventsOfUser(db, f.ana, NOW, throwing)).resolves.toBe("unreachable");
   });
 });
 

@@ -8,6 +8,8 @@
 // Flowko U30: before any credential is removed, the step events of the user's salon appointments that are not over
 // (googleStepSync.ts) are deleted from her Google calendar; if that fails, nothing is removed and the answer is
 // "failed" (the lock stays; locking again retries both). Past appointments' events stay, as on a disconnect.
+// When Google refuses the connection for good (grant revoked or expired, no access to the calendar) the events
+// cannot be deleted: the sync answers "unreachable" and the credentials are removed anyway.
 import logger from "@calcom/lib/logger";
 import { prisma } from "@calcom/prisma";
 import type { Prisma } from "@calcom/prisma/client";
@@ -36,7 +38,9 @@ function loggable(error: unknown): { errorClass: string; code?: string } {
 export async function disconnectGoogleOfUser(
   userId: number,
   // Flowko U30: R8
-  deps: { removeStepEvents?: (userId: number) => Promise<"none" | "removed" | "failed"> } = {}
+  deps: {
+    removeStepEvents?: (userId: number) => Promise<"none" | "removed" | "unreachable" | "failed">;
+  } = {}
 ): Promise<GoogleDisconnect> {
   let credentials: { id: number }[];
   let userMetadata: Prisma.JsonValue;
@@ -58,7 +62,8 @@ export async function disconnectGoogleOfUser(
     return "failed";
   }
 
-  // Flowko U30: R8 — the step events first; a failure keeps every credential.
+  // Flowko U30: R8 — the step events first; a failure keeps every credential ("unreachable": Google refuses the
+  // connection for good, so the events cannot be deleted and the removal goes on).
   try {
     const removeStepEvents =
       deps.removeStepEvents ??
